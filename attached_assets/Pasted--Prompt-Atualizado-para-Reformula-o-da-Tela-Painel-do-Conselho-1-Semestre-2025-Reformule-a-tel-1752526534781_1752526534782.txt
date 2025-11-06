@@ -1,0 +1,152 @@
+ Prompt Atualizado para Reformulação da Tela “Painel do Conselho – 1º Semestre 2025”
+Reformule a tela “Painel do Conselho” do aplicativo, com base nos dados atualizados do 1º semestre de 2025. A tela deve ser visual, interativa, fluida e organizada por eixos de atuação, cada um com um card clicável que revela dados completos com gráficos e indicadores.
+Cada eixo deve ter uma cor distinta, com o Favela 3D obrigatoriamente na cor roxa.
+
+📊 Parte 1 — RESUMO GERAL (no topo da tela)
+Cards com dados macro:
+
+👥 Pessoas atendidas: 2.921
+
+📌 Atendimentos realizados: 26.372
+
+⏱️ Horas/aula: 63.773
+
+🌍 Pessoas impactadas direta/indiretamente: 12.476
+
+📚 Parte 2 — EIXOS DE ATUAÇÃO (cards clicáveis por cor)
+Cada eixo aparece como um card de cor única. Ao clicar, abrir um painel/modal com os dados abaixo (exibir com gráficos de pizza, barras e texto-resumo).
+
+🟡 Casa Sonhar (Amarelo)
+👧 164 crianças atendidas
+
+⏱️ 16.487 horas/aula
+
+📌 5.670 atendimentos
+
+📊 Frequência: 81%
+
+🧒 Faixa etária: 6 a 14 anos
+
+👤 Gênero: 57% feminino / 43% masculino
+
+🎨 Cor/raça: 52% pardo, 19% preto, 17% branco
+
+🟢 Polo Esportivo Cultural (Verde)
+👧 120 crianças atendidas
+
+⏱️ 7.409 horas/aula
+
+📌 1.892 atendimentos
+
+📊 Frequência: 82,2%
+
+🧒 Faixa etária: 6 a 14 anos
+
+👤 Gênero: 57% feminino / 43% masculino
+
+🎨 Cor/raça: 63% pardo, 13% preto, 16% branco
+
+🟠 Sala Serenata (Laranja)
+👥 45 pessoas atendidas
+
+⏱️ 4.459 horas/aula
+
+📌 637 atendimentos
+
+📊 Frequência: 78%
+
+👤 Gênero: 57% feminino / 43% masculino
+
+🎨 Cor/raça: 43% pardo, 26% preto, 24% branco, 2% indígena
+
+🧒 Faixa etária: a partir de 13 anos
+
+🔵 Psicossocial (Azul Claro)
+👥 1.342 pessoas atendidas
+
+👤 Gênero: 53% feminino / 47% masculino
+
+🎨 Cor/raça: 52% pardo, 19% preto, 18% branco, 0,75% indígena
+
+🧒 Faixa etária: de 6 a 70+ anos
+
+🔴 Inclusão Produtiva (Vermelho)
+👩‍🏫 359 pessoas formadas
+
+💼 35 empregados/empreendedores
+
+📌 2.475 atendimentos
+
+⏱️ 4.738 horas/aula
+
+📊 Frequência: 95%
+
+🧒 Faixa etária: 14 a +70 anos
+
+👤 Gênero: 81% feminino / 19% masculino
+
+🎨 Cor/raça: 24% pardo, 8% preto, 6% branco, 62% S/I
+
+⚫ Negócios Sociais (Cinza)
+🛍️ 3.556 itens vendidos
+
+🎁 5.548 itens doados
+
+👥 1.456 pessoas atendidas (vendas)
+
+👫 1.198 pessoas em atividades coletivas
+
+✂️ 1.091 peças realizadas
+
+👀 1.921 visitas
+
+🚛 37 caçambas recolhidas
+
+🟣 Favela 3D (ROXO – obrigatório)
+Card visualmente destacado na cor roxa vibrante.
+
+👥 1.517 pessoas atendidas
+
+📌 351 atendimentos
+
+👨‍👩‍👧‍👦 215 famílias acompanhadas
+
+💼 265 moradores empregados
+
+🎓 27 moradores qualificados
+
+🏚️ 50% dos espaços revitalizados
+
+👀 1.921 visitas
+
+👫 1.198 participantes em atividades coletivas
+
+🛠️ Investimento semestral: R$ 832.551,12 ou R$ 849.577,62 (ajustar conforme versão final)
+
+💰 Parte 3 — INVESTIMENTOS (gráfico interativo)
+Exibir gráfico de pizza ou barras com filtros por eixo e por tipo de gasto (estrutura, pessoal, alimentação, eventos etc.)
+
+Total investido no semestre: R$ 2.438.120,83
+
+PEC/Qualificação/Psicossocial: R$ 949.167,98
+
+Favela 3D: R$ 832.551,12
+
+Griffte/Outlet: R$ 117.152,80
+
+Outros (adm, serenata, casa sonhar): valores complementares
+
+✉️ Parte 4 — MENSAGEM FINAL (rodapé da tela)
+“O Clube do Grito segue sendo um espaço de conexão entre quem se importa de verdade, quem age, quem transforma. É uma alegria ter você com a gente nessa jornada!”
+— Léo Martins, Fundador e CEO
+
+🎨 ORIENTAÇÕES DE DESIGN
+Cada eixo com uma cor distinta e bem definida
+
+Favela 3D com roxo obrigatório
+
+Cards com ícones temáticos, texto breve e botão “Ver Detalhes”
+
+Gráficos simples e elegantes
+
+Interface leve, acessível e responsiva (mobile/web)

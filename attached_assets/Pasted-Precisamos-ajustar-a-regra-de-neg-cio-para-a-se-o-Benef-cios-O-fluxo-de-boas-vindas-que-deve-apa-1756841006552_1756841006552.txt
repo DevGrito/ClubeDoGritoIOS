@@ -1,0 +1,51 @@
+Precisamos ajustar a regra de negócio para a seção "Benefícios". O fluxo de boas-vindas que deve aparecer apenas no primeiro acesso do usuário é composto por uma sequência de quatro telas, e não apenas uma como especificado anteriormente.
+
+Fluxo do Usuário Detalhado:
+Primeiro Acesso:
+
+O usuário clica em "Benefícios" pela primeira vez.
+
+O aplicativo deve iniciar um fluxo de onboarding com as seguintes telas, em sequência:
+
+Tela 1:
+
+Conteúdo: "Você acaba de entrar no Clube do Grito."
+
+Ação: O usuário clica no botão "Estamos Juntos" para avançar.
+
+Tela 2:
+
+Conteúdo: "Aqui você ganha Gritos (pontos) com suas ações e pode trocar."
+
+Ação: O usuário clica no botão amarelo "Continuar" para avançar.
+
+Tela 3:
+
+Conteúdo: "Parabéns, você ganhou 50 Gritos..."
+
+Ação: O usuário clica no botão "Continuar" para avançar.
+
+Tela 4:
+
+Conteúdo: "Cada vez que você doa, indica ou compartilha, mais vidas são impactadas."
+
+Ação: O usuário clica no botão "O importante é continuar" (ou similar) para finalizar.
+
+Após clicar no botão da última tela, o usuário é finalmente direcionado para a página principal de benefícios.
+
+Acessos Subsequentes (Segunda vez em diante):
+
+O usuário clica em "Benefícios" novamente.
+
+Ele deve ser levado diretamente para a página principal de benefícios, pulando todo o fluxo de onboarding.
+
+Lógica de Implementação Atualizada:
+A lógica de usar um "flag" (indicador) permanece a mesma, mas o momento de atualizá-lo muda.
+
+Verificar o "Flag": Ao clicar em "Benefícios", o sistema verifica o "flag" viuBoasVindasBeneficios.
+
+SE for false (ou nulo), o aplicativo inicia a sequência de 4 telas de onboarding.
+
+SE for true, o aplicativo vai direto para a home de benefícios.
+
+Atualizar o "Flag": O "flag" viuBoasVindasBeneficios deve ser alterado para true e salvo somente após o usuário clicar no botão da QUARTA e última tela do fluxo. Isso garante que, se o usuário fechar o app no meio do onboarding, ele recomeçará do início na próxima vez, completando todo o fluxo antes de parar de vê-lo.

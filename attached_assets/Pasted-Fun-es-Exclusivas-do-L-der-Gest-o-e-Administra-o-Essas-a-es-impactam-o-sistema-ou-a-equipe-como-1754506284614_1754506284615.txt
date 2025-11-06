@@ -1,0 +1,86 @@
+Funções Exclusivas do Líder (Gestão e Administração)
+Essas ações impactam o sistema ou a equipe como um todo, e por isso devem ser restritas a quem tem papel de liderança.
+
+Alunos
+Editar dados dos alunos
+
+Excluir alunos
+
+(Registrar e buscar pode ser liberado para todos, mas editar/excluir é uma ação mais sensível.)
+
+Chamada
+Acessar histórico completo de chamadas de todas as turmas
+
+O professor só deve acessar a chamada da sua turma.
+
+Registrar Aula
+Ver e editar aulas de qualquer turma
+
+Professores só podem registrar/ver suas aulas.
+
+Plano de Aula
+Criar, editar e excluir planos de aula
+
+Ver planos de todas as turmas
+
+O professor pode apenas visualizar os planos feitos pelo líder.
+
+Acompanhamento
+Editar e excluir acompanhamentos registrados por professores
+
+Professores podem registrar, mas não alterar acompanhamentos dos colegas.
+
+Calendário de Eventos
+Cadastrar eventos e lembretes institucionais para todas as turmas
+
+Eventos gerais, como reuniões e formações, são papel do líder.
+
+Configurações
+Igual para os dois 
+
+Professores só podem alterar o próprio nome e e-mail.
+
+✅ Funções Liberadas para Todos os Professores 
+Essas ações fazem parte da rotina pedagógica e devem ser acessíveis a todos:
+
+Alunos
+Registrar novo aluno
+
+Buscar aluno
+
+Visualizar dados dos alunos da própria turma
+
+Chamada
+Registrar chamada
+
+Ver histórico de chamadas da própria turma
+
+Registrar Aula
+Registrar aula
+
+Visualizar histórico das próprias aulas
+
+Calendário de Evento
+Visualizar eventos e lembretes do calendário
+
+Ver o que foi cadastrado pelo líder e o que ele mesmo registrar.
+
+Plano de Aula
+Visualizar plano de aula criado pelo líder
+
+Acompanhamento
+Adicionar acompanhamento para um aluno
+
+Visualizar acompanhamentos registrados
+
+Configurações
+Alterar nome e e-mail próprio
+
+🧩 Observações técnicas:
+A tela continua única, mas as permissões mudam conforme o tipo de usuário.
+
+O tipo de usuário (líder ou professor) pode ser identificado por uma flag no banco de dados.
+
+O login é feito com telefone + código SMS, como já funciona.
+
+Nada mais no sistema deve ser alterado, além da lógica de permissão.

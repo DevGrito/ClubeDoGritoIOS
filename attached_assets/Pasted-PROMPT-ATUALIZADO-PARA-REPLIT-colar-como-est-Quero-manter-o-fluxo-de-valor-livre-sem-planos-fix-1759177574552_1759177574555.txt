@@ -1,0 +1,95 @@
+PROMPT ATUALIZADO PARA REPLIT (colar como está)
+
+Quero manter o fluxo de valor livre (sem planos fixos) e atualizar validações:
+
+Regras de valor
+
+Mínimo: R$ 35,00
+
+Máximo: R$ 50.000,00
+
+Normalizar vírgula/ponto antes de enviar ao backend.
+
+Cálculos (inalterados)
+const BASE_AMOUNT = 29.90; // R$ (base para pontos)
+const BASE_POINTS = 150;
+const calcGritos = (valor: number) => Math.round((valor / BASE_AMOUNT) * BASE_POINTS);
+
+// Tier atual:
+const isPlatinum = (valor: number) => valor > 29.90; // Com mínimo 35, todos serão Platinum
+
+FRONT (React/TS)
+
+Remover cards fixos; manter input BRL + resumo dinâmico + botões:
+
+Placeholder: “Digite o valor (R$)”
+
+Validação ao digitar e ao enviar:
+
+se < 35,00 → erro: “O valor mínimo é R$ 35,00.”
+
+se > 50.000,00 → erro: “O valor máximo é R$ 50.000,00.”
+
+Exibir abaixo do input:
+
+Tier: Platinum (com regra atual)
+
+Gritos estimados: calcGritos(valor)
+
+Botões:
+
+Pagar com Pix
+
+Pagar com Cartão
+
+Ambos usam o valor digitado (obrigatório e válido).
+
+BACK (Node/Express)
+
+Endpoint /api/payments/create-for-new-user:
+
+Se amount (centavos) for enviado, priorizar amount.
+
+Validar:
+
+if (amount < 3500) return 400;       // mínimo R$ 35,00
+if (amount > 5_000_000) return 400;  // máximo R$ 50.000,00
+
+
+Tier & Gritos (server-side, para evitar fraude):
+
+const BASE_AMOUNT = 2990;  // em centavos
+const BASE_POINTS = 150;
+const gritos = Math.round((amount / BASE_AMOUNT) * BASE_POINTS);
+const tier = amount > 2990 ? "platinum" : "apoio_mensal";
+
+
+Persistir donation_amount, tier, gritos_awarded.
+
+Colocar tier e gritos_awarded em metadata do Customer/PaymentIntent (Stripe).
+
+Responder com payload do checkout + { tier, gritos_awarded }.
+
+Acessibilidade/UX
+
+aria-live="polite" para feedback de tier/gritos.
+
+Mensagens de erro claras (min/máx).
+
+Estados de loading nos botões.
+
+QA (aceite)
+
+< 35,00 bloqueia com mensagem de erro.
+
+35,00 a 50.000,00 seguem ao checkout normalmente.
+
+Com regra atual (>29,90), qualquer valor válido retorna tier = Platinum.
+
+Gritos proporcionais:
+
+35,00 ⇒ round((35/29,90)*150) ≈ 176
+
+50,00 ⇒ ~252
+
+100,00 ⇒ ~502

@@ -1,0 +1,106 @@
+PROMPT PARA REPLIT (colar como está)
+⚠️ Importante (NÃO DESFAZER)
+
+NÃO remover, renomear ou refatorar componentes existentes.
+
+NÃO alterar estilos globais, layout, rotas, ids, nem a lógica dos planos que permanecem.
+
+NÃO mexer nos cards/fluxos já prontos (exceto nos dois planos citados abaixo).
+
+Se já removeu algo, reverta e aplique apenas as mudanças abaixo.
+
+Objetivo
+
+Remover apenas os cards (ou opções) dos planos de R$ 50 e R$ 100.
+
+Adicionar um novo card (mesmo padrão visual dos demais) com o texto “Digite um valor de doação”.
+
+Ao clicar nesse novo card, abrir um modal no mesmo padrão da página que já existe, com:
+
+Input para digitar o valor (BRL, máscara).
+
+Botões “Pagar com Pix” e “Pagar com Cartão” que usam o valor digitado.
+
+Não alterar os demais planos já existentes (Eco, Voz, Grito, Platinum, Diamante etc.) — continuam funcionando exatamente como estão.
+
+Regras do valor livre (apenas para o novo card)
+
+Mínimo: R$ 35,00
+
+Máximo: R$ 50.000,00
+
+Mensagens de erro:
+
+“O valor mínimo é R$ 35,00.”
+
+“O valor máximo é R$ 50.000,00.”
+
+Normalizar vírgula/ponto antes de enviar ao backend.
+
+Backend continua determinando tier e gritos (não mudar regra já implementada).
+
+Observação: se o backend ainda não faz isso, apenas enviar amount em centavos. Não mexer em plano quando for valor livre; o servidor decide.
+
+UI/UX (seguir o mesmo padrão dos cards existentes)
+
+Criar um novo card visualmente idêntico (mesmas classes Tailwind/estilo) com:
+
+Título do card: “Digite um valor de doação”
+
+Subtexto curto: “Escolha outro valor e finalize por Pix ou Cartão”
+
+Modal:
+
+Título: “Digite o valor da sua doação”
+
+Input BRL (placeholder “R$ 0,00”)
+
+Feedback discreto em tempo real (opcional): “Valor válido” / mensagem de erro
+
+Botões:
+
+Pagar com Pix
+
+Pagar com Cartão
+
+Ambos disparam o fluxo já existente, enviando amount (centavos) e os dados do usuário.
+
+Responsivo e acessível, reutilizando os componentes e tokens do projeto.
+
+Integração (sem quebrar nada)
+
+Front: quando for o card “Digite um valor de doação”, enviar amount no body do POST do checkout (mesmas rotas já usadas hoje).
+
+Não enviar plan quando for valor livre (o servidor define).
+
+Demais cards de planos continuam enviando como já fazem hoje — não mudar.
+
+Conteúdos (textos exatos)
+
+Card novo (grid): “Digite um valor de doação”
+
+Subtexto do card: “Escolha outro valor e finalize por Pix ou Cartão”
+
+Modal título: “Digite o valor da sua doação”
+
+Placeholder do input: “R$ 0,00”
+
+Botões do modal: “Pagar com Pix” e “Pagar com Cartão”
+
+Erros:
+
+“O valor mínimo é R$ 35,00.”
+
+“O valor máximo é R$ 50.000,00.”
+
+Critérios de aceite
+
+Todos os planos existentes permanecem intocados (mesmo visual, mesma ordem, mesma lógica).
+
+Somente os cards de R$ 50 e R$ 100 deixam de aparecer.
+
+Surge 1 novo card “Digite um valor de doação”, com modal e pagamento funcionando.
+
+Valor livre respeita min/máx; bloqueia envio inválido; segue o checkout padrão.
+
+Nenhuma regressão de estilo ou layout nos outros cards/fluxos.

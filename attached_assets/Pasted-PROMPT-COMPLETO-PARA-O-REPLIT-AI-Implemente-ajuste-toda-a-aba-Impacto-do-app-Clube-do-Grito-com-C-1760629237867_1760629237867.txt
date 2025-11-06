@@ -1,0 +1,251 @@
+PROMPT COMPLETO PARA O REPLIT AI
+
+Implemente/ajuste toda a aba Impacto do app Clube do Grito com:
+
+Card Gestão à Vista (indicadores com barras coloridas e lógica de metas),
+
+Gráficos de Pizza (Pessoas Ativas e Raça/Cor),
+
+Média de Idade,
+
+Cards numéricos animados (Hora-aula, Atendimentos, Pessoas Impactadas),
+
+Tipografia 100% com família Inter.
+
+Não mude o layout global nem a navbar; apenas componha a página de Impacto.
+
+1) Gestão à Vista (cards de indicadores)
+
+Reutilize o layout do print com barras horizontais coloridas animadas.
+
+Indicadores (nessa ordem):
+
+Frequência (%)
+
+Evasão (%)
+
+Critério de Sucesso (%)
+
+NPS (%)
+
+Alunos Formados (qtde)
+
+Alunos em Formação (qtde)
+
+Crianças Atendidas (qtde)
+
+Empreendedores (qtde)
+
+Pessoas Empregadas (qtde)
+
+Famílias Ativas (qtde)
+
+Visitas (qtde)
+
+Atendimentos (qtde)
+
+Regras de cor:
+
+Frequência:
+
+Verde ≥ meta
+
+Amarelo 80–meta
+
+Vermelho < 70
+
+Evasão (menor é melhor):
+
+Verde ≤ meta
+
+Amarelo meta–meta×1.15
+
+Vermelho > meta×1.15
+
+Critério de Sucesso:
+
+Verde ≥ meta
+
+Amarelo 70–meta
+
+Vermelho < 50% da meta
+
+NPS: converter (-100..+100) → (nps+100)/2 e aplicar regra percentual padrão.
+
+Outros (%):
+
+Verde ≥ meta
+
+Amarelo 70–meta
+
+Vermelho < 70% da meta
+
+Counts (qtde):
+
+Verde ≥ meta
+
+Amarelo 70–meta
+
+Vermelho < 70% da meta
+
+Mapeamentos de origem:
+
+Frequência / Evasão / Critério / NPS:
+
+PEC → Casa Sonhar, Glória Marques, Sala Serenata
+
+Inclusão Produtiva → Lab. Vozes do Futuro, Cursos 30h, Cursos EAD
+
+Alunos Formados: Inclusão Produtiva (Lab. Vozes do Futuro, Cursos 30h, Cursos EAD)
+
+Alunos em Formação: Inclusão Produtiva (Lab. Vozes do Futuro, Cursos 30h, Cursos EAD)
+
+Crianças Atendidas: PEC (Casa Sonhar, Glória Marques, Sala Serenata)
+
+Empreendedores: Inclusão Produtiva (pasta Empreendedorismo) + Favela 3D (Emprego e Renda, tipo “empreendedorismo”)
+
+Pessoas Empregadas: Favela 3D (Emprego e Renda) + Empregadas (empregabilidade)
+
+Famílias Ativas: Favela 3D
+
+Visitas / Atendimentos: Psicossocial (abas correspondentes)
+
+Todos anualizados (jan–dez).
+
+2) Pizza 1 — “Distribuição de Pessoas Ativas”
+
+Componente: PieAtivosPorPrograma.
+
+Fatias:
+
+Inclusão Produtiva: soma de alunos formados + alunos em formação
+
+PEC: soma de crianças atendidas
+
+Mostrar apenas percentual nas fatias.
+
+Abaixo da pizza:
+
+Número grande = total absoluto (Inclusão + PEC)
+
+Texto pequeno: “Pessoas atendidas ativas”
+
+Responsivo mobile-first, cores contrastantes e animadas.
+
+Dados:
+
+"pessoasAtivas": {
+  "inclusaoProdutiva": { "formados": 0, "emFormacao": 0 },
+  "pec": { "criancasAtendidas": 0 },
+  "totais": { "inclusao": 0, "pec": 0, "geral": 0 }
+}
+
+3) Pizza 2 — “Raça/Cor (PEC + Inclusão Produtiva)”
+
+Componente: PieRacaCor.
+
+Fatias: Negras, Pardas, Brancas, Indígenas
+
+Base: beneficiários ativos PEC + Inclusão Produtiva (deduplicar CPF)
+
+Mostrar percentuais e legenda abaixo
+
+Excluir “Não declaradas” e normalizar para 100%
+
+"racaCor": { "negras": 0, "pardas": 0, "brancas": 0, "indigenas": 0, "total": 0 }
+
+4) Média de Idade
+
+Componente: KpiMediaIdade.
+
+Mostrar número grande (ex: “23,8 anos”)
+
+Legenda pequena: “Média de idade (PEC + Inclusão Produtiva)”
+
+Fonte: beneficiários ativos deduplicados.
+
+"idade": { "media": 0, "amostra": 0 }
+
+5) Cards de contadores animados
+
+Componente: ImpactCounters.
+
+Três cards lado a lado (empilha no mobile):
+
+Hora-aula → número grande, label “Hora-aula”
+
+Atendimentos → número grande, label “Atendimentos”
+
+Pessoas Impactadas → número grande, label “Pessoas impactadas”
+
+Use o dado total já existente (ex: 30.000+)
+
+Animação: número cresce de 0 → valor (1s)
+
+Estrutura:
+
+"counters": {
+  "horaAula": 0,
+  "atendimentos": 0,
+  "pessoasImpactadas": { "diretas": 0, "indiretas": 0, "total": 30000 }
+}
+
+6) API e integração
+
+Usar endpoint /api/gestao-vista com TanStack Query v5 (queryKey: ['gestao-vista', { ano }]).
+
+Incluir novos blocos: pessoasAtivas, racaCor, idade, counters.
+
+Skeleton loaders, toast de erro padrão, formatação pt-BR.
+
+7) UI / Responsividade / Acessibilidade
+
+Layout mobile-first, grid fluido.
+
+Cores contrastantes (seguindo tema).
+
+Títulos centralizados, valores grandes, textos explicativos pequenos.
+
+Aria-labels nos gráficos e contadores.
+
+Animações suaves, respeitando prefers-reduced-motion.
+
+8) Tipografia — Inter
+
+Toda a aba Impacto deve usar Inter como família principal (já é a fonte global do app).
+
+Confirme no Tailwind config:
+
+theme: {
+  extend: {
+    fontFamily: {
+      sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol']
+    }
+  }
+}
+
+
+CSS global:
+
+@import '@fontsource/inter/variable.css';
+/* ou */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+body { @apply font-sans; }
+
+
+Títulos → font-semibold ou font-bold;
+Números grandes → font-extrabold;
+Labels → font-medium;
+Tudo herdando Inter.
+
+9) Testes de Aceitação
+
+✅ Pizza PEC×Inclusão soma 100%
+✅ Pizza Raça/Cor soma 100% (negras+pardas+brancas+indígenas)
+✅ Média de idade exibe decimal (ex: 23,8 anos)
+✅ Contadores animam corretamente
+✅ Gestão à Vista respeita as regras de cor e metas
+✅ Tudo renderiza fluido em mobile
+
+Objetivo final:
+Transformar a aba Impacto em um painel completo de gestão à vista, com indicadores, gráficos de diversidade e alcance, e números animados, mantendo a identidade visual do app (Inter, cores vibrantes e layout leve).

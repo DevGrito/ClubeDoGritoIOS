@@ -1,0 +1,129 @@
+PROMPT ATUALIZADO PARA REPLIT
+Quero que atualize a parte da imagem 1 na tela de financeiro, conforme o que está escrito nesse Prompt, e fique parecido com o design do Figma, que é a imagem 2.
+
+
+
+Tecnologias
+Expo + React Native + TypeScript
+
+
+@stripe/stripe-react-native para cartões
+
+
+Backend em Node + Express + Prisma (ou Sequelize) conectado a um banco (Postgres ou MySQL) para registrar doações
+
+
+API REST para retornar impacto real do doador
+
+
+
+Backend – Rotas necessárias
+GET /donations/impact?donor_id=:id
+
+
+Soma todas as doações do doador.
+
+
+Retorna objeto no formato:
+
+ {
+  "total": 299,
+  "buckets": [
+    { "label": "CULTURA", "value": 100 },
+    { "label": "ESPORTE", "value": 199 }
+  ]
+}
+
+
+O cálculo deve vir da tabela donations, exemplo:
+
+ donations (
+  id INT,
+  donor_id INT,
+  amount DECIMAL,
+  category ENUM('CULTURA', 'ESPORTE', 'OUTROS'),
+  created_at TIMESTAMP
+)
+
+
+total = soma(amount)
+
+
+buckets = soma(amount) agrupado por category
+
+
+GET /payment-methods?customer_id=:id
+ (igual antes, busca cartões do Stripe)
+
+
+POST /set-default-payment-method
+ (igual antes)
+
+
+
+Front – Fluxo
+Ao montar a tela:
+
+
+Busca cartões (carrossel)
+
+
+Busca impacto (/donations/impact?donor_id=XYZ)
+
+
+Renderiza:
+
+
+Valor total grande (R$ {total})
+
+
+Buckets em donuts com o valor de cada categoria
+
+
+
+Contratos de dados
+type Impact = {
+  total: number;
+  buckets: { label: string; value: number }[];
+};
+
+
+Exemplo de retorno real:
+{
+  "total": 450,
+  "buckets": [
+    { "label": "CULTURA", "value": 200 },
+    { "label": "ESPORTE", "value": 150 },
+    { "label": "OUTROS", "value": 100 }
+  ]
+}
+
+
+
+Front – ImpactBlock.tsx (ajuste)
+Receber impact: Impact via props ou Context.
+
+
+Mostrar impact.total em destaque.
+
+
+Mapear impact.buckets para renderizar donuts.
+
+
+Se não houver dados, mostrar “Você ainda não possui impacto. Doe agora para começar”.
+
+
+
+Estilo
+Mantém o mesmo layout da captura:
+Total anual em destaque.
+
+
+Buckets em donuts verdes.
+
+
+Periodicidade “ANUAL” no canto direito.
+
+
+
+👉 Assim, cada vez que o doador abre a tela, o app puxa do banco de dados real o total já doado e a distribuição (cultura, esporte, etc).

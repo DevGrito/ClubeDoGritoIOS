@@ -1,0 +1,132 @@
+Cálculos padrão que alimentam o relatório
+
+Carga horária do mês = SUM(sessions.hours) dentro do mês escolhido.
+
+Atendidos (do mês) = COUNT(DISTINCT attendance.enrollment_id) onde present=true dentro do mês.
+
+Participantes do dia = COUNT(present=true) daquela sessão.
+
+Frequência do dia (%) = participantes_dia / total_inscritos_ativos_no_dia * 100 (ajuste se quiser considerar “inscritos ativos no mês”).
+
+Idade na lista de inscritos = diferença de hoje (ou do mês) para birthdate.
+
+2) Estrutura de páginas (rotas) — o que o Replit deve gerar
+
+/pec – Coordenador do PEC (Home)
+
+Filtros por ano, projeto, atividade, status.
+
+Cards: Projetos → #Atividades → #Turmas ativas → Relatórios pendentes.
+
+/pec/projetos/:projectId – Detalhe do Projeto
+
+Abas: Detalhes, Atividades, Relatórios.
+
+Botões: “Nova Atividade”, “Exportar CSV”, “Criar Relatório”.
+
+/pec/atividades/:activityId – Atividade (macro)
+
+Lista de Turmas (instances) com status/situação/periodicidade.
+
+Botão: “Criar Turma”.
+
+/pec/turmas/:instanceId – Turma (atividade detalhada)
+
+Header com Status: Ativa e Situação: Execução, Imprimir.
+
+Abas:
+
+Detalhes (campos do PDF, ex.: período, categoria SCFV, control. presença, “Quem pode participar”, descrição).
+
+Inscritos (donut de vagas x ocupadas, lista com nome/gênero/idade/data de inscrição; importar CSV).
+
+Sessões & Diário (calendário, criar sessão, lançar presença, observações, local, carga horária, educadores do dia; tabela igual ao PDF).
+
+Galeria (upload de fotos por data/sessão).
+
+Relatório Mensal (picker de mês → gera preview e exporta PDF idêntico ao modelo).
+
+3) Formulários (perguntas) que coletam tudo o que o relatório pede
+Projeto
+
+Nome do projeto
+
+Período de execução (data início / fim)
+
+Categoria (ex.: SCFV)
+
+Quem pode participar
+
+Descrição
+
+Atividade (macro)
+
+Nome (Contraturno, Dança, Circo…)
+
+Período do dia (matutino/vespertino/noturno)
+
+Controle de presença (sim/não)
+
+Descrição
+
+Turma (atividade detalhada)
+
+Título da turma (ex.: Contraturno Manhã M1 2025 | 6–8 anos)
+
+Código (M1, T2… opcional)
+
+Faixa etária mínima/máxima
+
+Período de ocorrência (início/fim)
+
+Local
+
+Situação (execução/planejamento/encerrada)
+
+Período do dia
+
+Gestores e educadores (multi-select de pessoas → papéis)
+
+Carga horária total prevista (opcional)
+
+Observações
+
+Inscrições
+
+Nome completo
+
+Gênero
+
+Data de nascimento (idade calculada)
+
+Data de inscrição
+
+Ativo? (sim/não)
+
+Sessão (diário)
+
+Data
+
+Carga horária (ex.: 3h)
+
+Conteúdo do dia / atividade (texto livre)
+
+Observações e impressões percebidas
+
+Status (realizado/cancelado/reagendado)
+
+Educador(es) que conduziram
+
+Local
+
+Presenças (lista de inscritos da turma com checkbox)
+
+Galeria
+
+Data da foto
+
+Upload (1..n)
+
+Vínculo com sessão (opcional)
+
+Legenda

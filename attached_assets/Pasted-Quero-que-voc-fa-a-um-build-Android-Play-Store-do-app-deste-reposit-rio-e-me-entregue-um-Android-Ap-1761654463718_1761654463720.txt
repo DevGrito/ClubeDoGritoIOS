@@ -1,0 +1,160 @@
+Quero que você faça um build Android Play Store do app deste repositório e me entregue um Android App Bundle (.aab) assinado e pronto para upload no Google Play Console. Siga exatamente:
+
+Variáveis (preencher):
+
+PACKAGE_NAME = <com.seuprojeto.app>
+
+VERSION_CODE = <ex: 42> (inteiro, maior que o atual na Play)
+
+VERSION_NAME = <ex: 1.5.0>
+
+MIN_SDK = <ex: 24>
+
+TARGET_SDK = <ex: 34 ou 35>
+
+KEYSTORE_BASE64 = <cole aqui o keystore .jks/.keystore/.p12 em base64>
+
+KEYSTORE_FILENAME = <ex: upload-keystore.jks>
+
+KEY_ALIAS = <ex: upload>
+
+KEYSTORE_PASSWORD = <sua_senha>
+
+KEY_PASSWORD = <mesma_senha_ou_outra>
+
+Se já existir key.properties (Flutter) ou signingConfigs (RN), respeite-os, mas sobreponha com as variáveis acima.
+
+Passos gerais:
+
+Detectar stack do projeto:
+
+Se pasta android/gradlew existir ⇒ tratar como React Native (bare)/Gradle.
+
+Se pubspec.yaml e android/ (Flutter) ⇒ Flutter.
+
+Se capacitor.config.* ou android/ + capacitor ⇒ Capacitor.
+
+Caso Expo managed: executar npx expo prebuild -p android para gerar android/ e seguir via Gradle.
+
+Preparar ambiente:
+
+Instalar JDK 17+, Android SDK/Build-Tools, Gradle (ou usar wrapper).
+
+Criar keystore a partir do base64:
+
+echo "$KEYSTORE_BASE64" | base64 -d > $KEYSTORE_FILENAME
+
+
+Exportar variáveis de ambiente com os valores informados.
+
+Configuração de versão e SDK:
+
+React Native/Gradle
+
+Em android/app/build.gradle:
+
+defaultConfig { applicationId PACKAGE_NAME; versionCode VERSION_CODE; versionName VERSION_NAME; minSdkVersion MIN_SDK; targetSdkVersion TARGET_SDK }
+
+compileSdkVersion = pelo menos TARGET_SDK.
+
+Adicionar bloco signingConfigs e buildTypes.release.signingConfig = signingConfigs.release usando KEYSTORE_FILENAME, KEY_ALIAS, KEYSTORE_PASSWORD, KEY_PASSWORD.
+
+Flutter
+
+Em android/app/build.gradle: ajustar defaultConfig (applicationId = PACKAGE_NAME via applicationId, versionCode/Name).
+
+Em android/gradle.properties ou key.properties criar/atualizar:
+
+storeFile=../$KEYSTORE_FILENAME
+storePassword=$KEYSTORE_PASSWORD
+keyAlias=$KEY_ALIAS
+keyPassword=$KEY_PASSWORD
+
+
+Garantir minSdkVersion e targetSdkVersion em android/app/build.gradle.
+
+Capacitor
+
+Ajustar applicationId, versionCode, versionName no android/app/build.gradle.
+
+Configurar signingConfigs release igual ao RN.
+
+Permissões e compliance:
+
+Não adicionar permissões desnecessárias.
+
+Se o app usa câmera, localização, BT, etc., confirmar que estão declaradas no AndroidManifest.xml.
+
+Habilitar ABI 64-bit (padrão do AAB) e android:exported em activities com intent-filters (Android 12+).
+
+Build AAB (release, minify on, shrinkResources on):
+
+Gradle/RN/Capacitor:
+
+cd android
+./gradlew clean
+./gradlew bundleRelease -x lint
+
+
+Saída esperada: android/app/build/outputs/bundle/release/app-release.aab
+
+Flutter:
+
+flutter clean
+flutter pub get
+flutter build appbundle --release
+
+
+Saída esperada: build/app/outputs/bundle/release/app-release.aab
+
+Verificações:
+
+Validar assinatura e integridade:
+
+jarsigner -verify -verbose -certs app-release.aab || true
+sha256sum app-release.aab > app-release.aab.sha256.txt
+
+
+Imprimir versionCode, versionName, package detectados do manifest.
+
+Entrega:
+
+Fornecer caminho exato do .aab, o conteúdo do sha256 e um zip com:
+
+.aab
+
+app-release.aab.sha256.txt
+
+(Opcional) mapping.txt se houver ProGuard/R8: android/app/build/outputs/mapping/release/mapping.txt
+
+Confirmar no log:
+
+Stack detectada (RN/Flutter/Capacitor/Expo prebuild)
+
+applicationId, versionCode, versionName, minSdk, targetSdk
+
+Keystore usada (apenas nome do arquivo e alias; nunca vazar senhas)
+
+Se der erro, imprimir o trecho de log do Gradle/Flutter que causou a falha e aplicar correção automática quando possível (ex.: atualizar compileSdkVersion, instalar Build-Tools compatíveis, ajustar android:exported).
+
+Critérios de aceite:
+
+Gerei um .aab único, assinado com o KEY_ALIAS fornecido.
+
+applicationId = PACKAGE_NAME.
+
+versionCode e versionName iguais às variáveis.
+
+targetSdkVersion = TARGET_SDK (ou superior compatível).
+
+Entreguei SHA256 e, se existir, mapping.txt.
+
+Se quiser, me manda já:
+
+PACKAGE_NAME, VERSION_CODE, VERSION_NAME;
+
+KEYSTORE_BASE64, KEYSTORE_FILENAME, KEY_ALIAS, KEYSTORE_PASSWORD, KEY_PASSWORD;
+
+TARGET_SDK (posso sugerir o atual recomendado).
+
+Eu já te devolvo o prompt acima preenchido bonitinho.

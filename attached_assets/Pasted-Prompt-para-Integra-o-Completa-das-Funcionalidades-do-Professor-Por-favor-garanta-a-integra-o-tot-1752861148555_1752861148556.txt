@@ -1,0 +1,39 @@
+Prompt para Integração Completa das Funcionalidades do Professor
+Por favor, garanta a integração total e o funcionamento de todas as funcionalidades da área do professor, conforme descrito abaixo. É crucial que todas as ações sejam salvas corretamente e que o sistema inicie completamente zerado (sem dados fictícios).
+
+Objetivos da Integração:
+
+Registro e Criação de Turmas Interligados:
+
+Quando um novo aluno for registrado (utilizando o formulário completo que definimos), ele deverá estar disponível para ser associado a uma turma existente ou a uma nova turma que o professor possa criar.
+
+A funcionalidade "Criar Nova Turma" (anteriormente "Ver Alunos") deve permitir ao professor adicionar alunos já registrados a essa nova turma.
+
+Chamada de Alunos Relacionada às Turmas:
+
+Ao acessar a funcionalidade de "Fazer Chamada" (ou similar), o professor deve ter acesso a todas as turmas que ele criou ou às quais está associado.
+
+A chamada deve ser realizada com base nos alunos pertencentes à turma selecionada.
+
+Registro de Aulas e Turmas:
+
+Ao registrar uma aula, o professor deve ser capaz de selecionar a(s) turma(s) para a qual essa aula está sendo registrada.
+
+O sistema deve exibir apenas as turmas que o professor tem cadastradas ou acesso.
+
+Funcionamento Completo de Todos os Botões e Ações:
+
+Qualquer botão ou ação disponível na interface (como adicionar, registrar, editar, salvar, excluir, etc.) deve estar funcional e persistir as alterações no sistema. Nada deve estar apenas visualmente presente sem ter uma funcionalidade por trás.
+
+Calendário e Eventos Unificados e Funcionais:
+
+O módulo "Calendário e Eventos" deve permitir a visualização de datas, a adição de eventos (como aulas, reuniões) e lembretes, conforme já solicitado, e estes devem ser salvos e exibidos corretamente.
+
+Telas Preenchidas e Funcionais:
+
+As telas atualmente vazias mencionadas ("Plano de Aulas", "Acompanhamento", "Gerar Relatórios", "Editar Perfil") devem ser implementadas e preenchidas com suas respectivas funcionalidades, mesmo que no início seja uma estrutura básica funcional, sem a necessidade de grande volume de dados inicialmente (já que o sistema deve iniciar zerado).
+
+Estado Inicial do Sistema:
+
+O sistema deve iniciar sem nenhum dado pré-cadastrado (alunos, turmas, aulas, etc.). O professor deverá ser capaz de começar do zero, criando suas turmas e registrando seus alunos e atividades.
+

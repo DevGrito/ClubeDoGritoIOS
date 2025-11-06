@@ -1,0 +1,137 @@
+⚠️ Regras importantes de segurança
+
+Nunca trafegue número do cartão (PAN), validade ou CVV pelo seu backend.
+
+Use o SDK ou Hosted Fields da Cielo no front-end para gerar um CardToken (um código substituto do cartão).
+
+O backend só deve receber o token, o valor e as informações do pedido.
+
+Toda comunicação com a Cielo deve usar MerchantId e MerchantKey com HTTPS.
+
+Ative o 3DS 2.x, que é a autenticação de segurança obrigatória em compras online.
+
+Armazene apenas informações seguras: ID da transação, status, valor, parcelas, bandeira e hora — nunca dados de cartão.
+
+Configure um webhook (notificação automática) para receber atualizações da Cielo quando o pagamento for aprovado, recusado ou cancelado.
+
+Separe bem o ambiente de testes (sandbox) e o de produção.
+
+🧭 Passo a passo de implementação
+1. No front-end (aplicativo)
+
+Integre o SDK/Hosted Fields da Cielo.
+É uma biblioteca que cria campos de cartão seguros no app, onde o usuário insere o número, validade e CVV.
+Esses campos são hospedados pela própria Cielo, então os dados nunca passam pelo seu servidor.
+
+Quando o usuário preencher o cartão, o SDK retorna um CardToken, que é um código seguro (por exemplo, f5c1d21b-...).
+
+Você envia para o seu backend apenas:
+
+o CardToken
+
+o valor (amount)
+
+a bandeira (Visa, Master, etc.)
+
+e o identificador do cliente ou do pedido (merchantOrderId).
+
+2. No backend
+
+Configure as credenciais da Cielo (MerchantId e MerchantKey) e o endpoint da Sales API.
+No modo de teste, use:
+
+https://apisandbox.cieloecommerce.cielo.com.br
+
+
+Quando o app enviar o CardToken, seu backend cria a transação chamando:
+
+POST /1/sales/
+
+
+O corpo da requisição deve ter apenas o token, não o número do cartão. Exemplo:
+
+{
+  "MerchantOrderId": "123",
+  "Payment": {
+    "Type": "CreditCard",
+    "Amount": 5000,
+    "Installments": 1,
+    "Capture": true,
+    "CreditCard": {
+      "CardToken": "f5c1d21b-...",
+      "Brand": "Visa"
+    }
+  }
+}
+
+
+A Cielo responderá com um PaymentId e um Status (1 para autorizado, 2 para pago, 3 para recusado, etc.).
+
+Salve apenas o PaymentId, Status, Valor e Cliente no banco de dados.
+
+3. Configure o webhook (notificação)
+
+A Cielo pode enviar automaticamente uma notificação para o seu servidor quando o status do pagamento mudar.
+
+Configure isso no painel da Cielo (campo “Notification URL”).
+
+Exemplo de endpoint:
+
+POST /api/webhooks/cielo
+
+
+O corpo do postback contém o PaymentId e o novo Status.
+Assim, você atualiza o status da compra no seu sistema.
+
+4. Ative o 3DS 2.x
+
+Essa é a autenticação do dono do cartão (ex: confirmação via app do banco).
+
+Ela evita fraude e é exigida pelas bandeiras.
+
+No payload de criação do pagamento, adicione:
+
+"Authenticate": true,
+"ReturnUrl": "https://clubedogrito.institutoogrito.com.br/pagamento/retorno"
+
+
+Quando o banco exigir autenticação, o usuário faz o desafio (challenge) e, se aprovado, o pagamento é completado.
+
+5. Garanta idempotência e segurança
+
+Gere uma chave única para cada tentativa de pagamento (merchantOrderId + amount).
+
+Se o usuário clicar duas vezes, a Cielo entenderá que é a mesma transação.
+
+Use HTTPS, sanitize logs e nunca mostre tokens de pagamento em mensagens de erro.
+
+6. Teste em sandbox
+
+Use cartões de teste da Cielo para simular aprovação, recusa e 3DS.
+
+Confirme se:
+
+Nenhum dado sensível aparece nos logs.
+
+O webhook atualiza corretamente o status.
+
+Os status “autorizado”, “pago” e “recusado” aparecem corretamente no app.
+
+🧾 Em resumo
+Etapa	O que fazer	O que não fazer
+Front-end	Usar SDK da Cielo e gerar CardToken	Enviar número do cartão pro backend
+Backend	Criar venda com CardToken	Armazenar PAN, CVV, validade
+Banco	Guardar apenas ID, valor, status e bandeira	Guardar dados sensíveis
+Segurança	Ativar 3DS, HTTPS, idempotência, webhook	Logar dados confidenciais
+Testes	Usar sandbox e simular todas respostas	Testar direto em produção
+✅ Resultado final
+
+Pagamento acontece dentro do app, sem redirecionar.
+
+Nenhum dado de cartão cru passa pelo backend.
+
+O sistema cumpre LGPD e PCI DSS.
+
+3DS garante segurança antifraude.
+
+Você controla o fluxo inteiro via API da Cielo.

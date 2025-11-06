@@ -1,0 +1,158 @@
+Foram adicionadas essas telas na lista das telas do desenvolvedor, só que elas não são telas que não existem e estão presentes na lista. Tanto que quando você clica nela, dá erro 404 porque não existe a tela. Então, remova, por favor, do painel do desenvolvedor Dashboard Admin 
+dashboard
+/dashboard-admin • admin
+
+Painel administrativo
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Leo
+dashboard
+/dashboard-leo • admin
+
+Painel exclusivo do Leo Martins
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Gestão à Vista
+relatorio
+/gestao-vista • admin
+
+Tela de métricas e indicadores
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Relatórios
+relatorio
+/relatorios • admin
+
+Geração de relatórios
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Cadastro
+pagina
+/cadastro • auth
+
+Formulário de registro de novos usuários
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Login
+pagina
+/login • auth
+
+Tela de autenticação de usuários
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Conselho
+dashboard
+/dashboard-conselho • conselho
+
+Painel para membros do conselho
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Doador
+dashboard
+/dashboard-doador • doador
+
+Painel principal para doadores
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Cadastro Aluno
+formulario
+/cadastro-aluno • educacao
+
+Formulário de cadastro de alunos
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Chamada
+funcionalidade
+/chamada • educacao
+
+Sistema de chamada de alunos
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Aluno
+dashboard
+/dashboard-aluno • educacao
+
+Painel para alunos
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Professor
+dashboard
+/dashboard-professor • educacao
+
+Painel para professores
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Calendário
+funcionalidade
+/calendario • geral
+
+Agenda e eventos
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Blog/Notícias
+conteudo
+/blog • publico
+
+Seção de notícias e artigos
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Página Inicial
+pagina
+/ • publico
+
+Tela principal de boas-vindas
+
+Dev Access
+ativo
+Atualizada em 11/08/2025
+
+Dashboard Developer
+dashboard
+/dashboard-dev • sistema
+
+Painel de desenvolvimento
+
+Dev Access
+ativo

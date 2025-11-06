@@ -1,0 +1,90 @@
+inalização da Tela do Professor – Funcionalidades completas, integradas e diferenciadas
+A tela do professor já está estruturada no desktop e no mobile. Agora, preciso que todas as ações estejam funcionais de verdade e interligadas no sistema.
+
+Além disso, é importante diferenciar claramente "Registrar Aula" de "Plano de Aula", pois são recursos distintos.
+
+📌 Funcionalidades que devem funcionar na prática:
+Registrar Aluno
+
+Formulário com todos os campos obrigatórios validados
+
+CPF como chave primária
+
+Salvamento real no banco de dados
+
+Confirmação visual de sucesso
+
+Fazer Chamada (Presença)
+
+Marcação de presença deve ser salva por data, aluno e turma
+
+Botão de salvar com confirmação visual
+
+Histórico deve ser consultável no futuro
+
+Registrar Aula (Diário)
+
+Registro do que foi efetivamente dado em aula no dia
+
+Campos: data, turma, conteúdo aplicado, metodologia utilizada, competências desenvolvidas
+
+Permitir visualizar, editar ou excluir aulas já registradas
+
+Plano de Aula
+
+Cadastro de planejamentos futuros (semanais, quinzenais, mensais)
+
+Campos: objetivo da aula, conteúdos planejados, metodologia, recursos, avaliação prevista
+
+Deve permitir agendar planos por datas e turmas
+
+Deve ser possível vincular o plano com o calendário do sistema
+
+Acompanhamento Pedagógico
+
+Registrar observações por aluno, com data e classificação (ex: "em desenvolvimento", "evoluiu", etc.)
+
+Associar observação ao professor que registrou
+
+Possibilidade de sinalizar para psicossocial
+
+Gerar Relatórios
+
+Relatórios com filtros por período
+
+Devem incluir frequência, plano x aula realizada, observações, etc.
+
+Simular exportação em PDF ou print
+
+Criar Nova Turma
+
+Cadastro real de turma
+
+Associação automática ao professor
+
+Após salvar, atualiza funcionalidades dependentes (chamada, alunos, relatórios etc.)
+
+Agenda e Lembretes / Calendário
+
+Adição real de eventos e lembretes pedagógicos
+
+Campos: título, data, hora, descrição
+
+Integração com o plano de aula e eventos escolares
+
+Editar Perfil (dentro de “Configurações”)
+
+Alterar nome, e-mail, avatar
+
+Botão de salvar que atualiza as informações
+
+Sair
+
+Logout completo, com redirecionamento para tela de login
+
+🔗 Integração geral:
+Todos os dados precisam estar relacionados: aluno, turma, chamada, plano, aula, acompanhamento, calendário e relatórios.
+
+O sistema deve manter comportamento SPA (Single Page Application).
+
+Tudo deve funcionar tanto no desktop quanto no mobile, com os mesmos dados, apenas adaptado ao layout.

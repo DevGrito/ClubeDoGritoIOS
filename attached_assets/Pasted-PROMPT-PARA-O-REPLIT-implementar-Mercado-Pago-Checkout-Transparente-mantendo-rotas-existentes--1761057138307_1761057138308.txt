@@ -1,0 +1,105 @@
+PROMPT PARA O REPLIT (implementar Mercado Pago – Checkout Transparente, mantendo rotas existentes)
+
+Contexto e objetivo
+
+Substituir o fluxo atual de pagamento de Patrocinadores: remover o pagamento via link da Cielo e passar a usar Mercado Pago com checkout transparente.
+
+Não criar novas rotas. Reutilize as rotas já existentes no backend e o mesmo fluxo de front. Ajuste apenas a implementação interna (services, adapters, handlers) para chamar a API do Mercado Pago.
+
+Somente liberar a navegação para a página de resgatar/emitir ingresso quando o pagamento vier aprovado pelo provedor.
+
+Se precisar alterar o schema, use o banco existente (mesmo provedor e ORM/migrations do projeto) e mantenha compatibilidade com dados legados (Stripe/Cielo).
+
+Requisitos técnicos (sem mudar assinaturas de rotas):
+
+Backend
+
+Implementar um provider MercadoPago plugável no nosso “payment service” atual, preservando as mesmas chamadas feitas pelo controller/rotas (não mude os contratos HTTP).
+
+Usar Checkout Transparente (Payments API) do Mercado Pago:
+
+Tokenização de cartão no front (public key) → envio de card token ao backend.
+
+No backend, criar o pagamento com o Access Token (server-side), incluindo transaction_amount, description, payer (e-mail/identificação) e metadata/external_reference para conciliação (ex.: sponsorId, eventId).
+
+Implementar webhook do Mercado Pago reutilizando o endpoint já existente para webhooks (não criar nova rota). Ajustar o handler interno para:
+
+Validar a origem/assinatura, consultar o payment_id na API do MP quando necessário e atualizar o status no banco.
+
+Fazer o mapeamento de status MP → status interno:
+
+approved → PAID
+
+authorized/in_process/pending_review → IN_ANALYSIS
+
+rejected/cancelled/refunded/charged_back → DECLINED (ou equivalente interno)
+
+Idempotência: usar um idempotency-key por tentativa (ex.: sponsor-<sponsorId>-<timestamp>), evitando pagamentos duplicados.
+
+Somente considerar “pago” quando status = approved. Qualquer outro status não deve liberar o ingresso.
+
+Remover/encapsular o fluxo Cielo por link: manter compatibilidade (feature flag useMercadoPago=true) e desligar o ramo da Cielo no codepath de patrocinadores.
+
+Frontend
+
+Não mudar rotas nem a UX macro. Apenas:
+
+Trocar o antigo botão/fluxo Cielo para acionar o provedor Mercado Pago (mesma chamada às rotas existentes).
+
+Realizar a tokenização do cartão com a Public Key do MP no front (sem enviar PAN/CVV crus ao backend).
+
+Exibir mensagens de “processando” / “falhou, tentar novamente”.
+
+Redirecionar para a página de resgatar ingresso somente após confirmação de aprovado (status vindo do backend / webhook + eventual polling curto). Se não aprovado, mostrar tela “Ops! Vamos tentar novamente” (já existente).
+
+Banco de dados (usar o banco existente)
+
+Se precisar criar/ajustar colunas (ex.: provider, provider_payment_id, external_reference, raw_payload, status), faça via migration do nosso ORM já em uso no projeto — sem trocar de banco.
+
+Não salve dados sensíveis (PAN/CVV). Armazene apenas o mínimo necessário para conciliação/auditoria.
+
+Variáveis de ambiente
+
+MP_PUBLIC_KEY= (front)
+
+MP_ACCESS_TOKEN= (backend)
+
+MP_WEBHOOK_SECRET= ou mecanismo equivalente (se aplicável)
+
+Mantenha flags já existentes (ex.: USE_MERCADO_PAGO=true) para desligar Cielo.
+
+Segurança e conformidade
+
+Tokenização no front (SDK oficial MP).
+
+Backend usa somente card_token + access_token do MP.
+
+Validar webhook e evitar race conditions: webhook é a fonte da verdade; se o retorno síncrono não vier approved, manter estado como IN_ANALYSIS até o webhook confirmar.
+
+Testes e critérios de aceite
+
+Fluxo aprovado (cartão de teste do MP): status interno = PAID ⇒ redireciona para resgatar ingresso.
+
+Fluxo rejeitado: exibir Ops! e não liberar ingresso.
+
+Fluxo pendente/in_process: não liberar; aguardar webhook; quando virar approved, liberar.
+
+Idempotência: duas submissões em sequência não criam duas cobranças válidas.
+
+Backward-compatibility: Stripe continua funcionando; Cielo por link desativado no fluxo de patrocinadores.
+
+Logs sem dados sensíveis; masking de e-mail/CPF conforme política atual.
+
+Entregáveis
+
+Provider Mercado Pago integrado no service de pagamentos existente (sem mudar as rotas públicas).
+
+Handler de webhook adaptado para MP.
+
+Ajuste do front para tokenização + uso do novo provider, sem mudar a navegação global.
+
+Migrations (se necessárias) no mesmo banco e ORM do projeto.
+
+Documentar em README-payments.md (ou doc do projeto) como configurar as ENV, fluxo de teste com cartões de sandbox e o mapeamento de status.
+
+Importante: não criar novas rotas. Reaproveitar as atuais e apenas trocar a implementação interna para Mercado Pago (checkout transparente). Somente “APROVADO” libera ingresso.

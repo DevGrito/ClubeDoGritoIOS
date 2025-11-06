@@ -1,0 +1,48 @@
+# Multi-stage build for React frontend
+# Stage 1: Build the React application (glibc)
+FROM node:20-bullseye AS builder
+WORKDIR /app
+
+# Copie apenas os manifests para aproveitar cache de dependências
+COPY package*.json ./
+
+# Se você precisa de devDeps para o Vite/rollup, use --include=dev
+RUN npm ci --include=dev
+
+# Variáveis Vite (compile-time)
+ARG VITE_STRIPE_PUBLIC_KEY
+ENV VITE_STRIPE_PUBLIC_KEY=${VITE_STRIPE_PUBLIC_KEY}
+
+# Copie o restante do código
+COPY . .
+
+# Build (respeita seu vite.config com root=client e outDir=dist/public)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+# Build (respeita seu vite.config com root=client e outDir=dist/public)
+RUN npm run build
+
+# Stage 2: Serve with Nginx (pode ser Alpine mesmo)
+FROM nginx:alpine
+
+# Curl para healthcheck
+RUN apk add --no-cache curl
+
+# Limpa conf padrão e aplica a sua
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx-frontend.conf /etc/nginx/conf.d/default.conf
+
+# Copia o build estático
+COPY --from=builder /app/dist/public /usr/share/nginx/html
+
+# Usuário e permissões
+RUN addgroup -g 101 -S nginx || true \
+  && adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx || true \
+  && chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD curl -sf http://localhost:80/ || exit 1
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

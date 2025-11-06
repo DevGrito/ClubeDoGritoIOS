@@ -1,0 +1,190 @@
+Tarefa: Rotas de retorno de pagamento (aprovado/reprovado) + redirecionamento ao Ingresso
+Objetivo
+
+Criar rotas de status de pagamento separadas da página de checkout.
+
+Aprovação: mostrar “Pagamento aprovado” rapidamente e redirecionar para a página /ingresso (pós-compra).
+
+Falha: mostrar “Ops, não conseguimos concluir seu pagamento” com botão de tentar novamente que leva ao checkout.
+
+Segurança: a decisão de “aprovado”/“reprovado” deve vir do backend (webhook/consulta), nunca só do front.
+
+Rotas de Frontend
+
+/pagamento/aprovado
+
+Texto curto “Pagamento aprovado 🎉”
+
+Subtexto: “Seu ingresso foi liberado.”
+
+Spinner por 1–2s ou botão “Ver meu ingresso agora”
+
+Ação: redirect 1–2s → /ingresso
+
+Também chama POST /api/pagamentos/confirmar (idempotente) para garantir criação/liberação do ingresso antes do redirect.
+
+/pagamento/reprovado
+
+Título: “Ops! Pagamento não concluído”
+
+Subtexto: “Não conseguimos aprovar seu pagamento.”
+
+Botões:
+
+Tentar novamente → /ingressos/checkout
+
+(Opcional) “Trocar forma de pagamento” → /ingressos/checkout?method=…
+
+(Opcional) /pagamento/pendente
+
+Para PIX/boletos: “Pagamento em análise/pendente. Vamos te avisar assim que for aprovado.”
+
+Poll a cada 5–10s em /api/pagamentos/:pedidoId/status.
+
+Quando virar “approved”, redirect → /pagamento/aprovado (e daí para /ingresso).
+
+Observação: não reaproveitar a rota de checkout. Manter rotas dedicadas de status, como acima.
+
+Contratos de Backend (sugeridos)
+
+Webhook do provedor (Stripe/Pagar.me/MercadoPago/etc.):
+POST /api/webhooks/pagamentos
+
+Atualiza o pedido no banco: status ∈ {approved, rejected, pending}
+
+Se approved e ainda não existir ingresso, cria/autoriza o ingresso do usuário.
+
+Consultar status (para o front conferir):
+GET /api/pagamentos/:pedidoId/status → { status: "approved" | "rejected" | "pending" }
+
+Confirmar/garantir ingresso (idempotente):
+POST /api/pagamentos/confirmar body: { pedidoId }
+
+Valida no banco se o pedido está approved; se sim, assegura a criação do ingresso.
+
+Responde { ok: true }.
+
+Exemplo (React Router DOM + TS)
+
+Rotas
+
+// src/router.tsx
+{ path: "/pagamento/aprovado", element: <PagamentoAprovadoPage /> },
+{ path: "/pagamento/reprovado", element: <PagamentoReprovadoPage /> },
+{ path: "/pagamento/pendente", element: <PagamentoPendentePage /> }, // opcional
+
+
+Aprovado → redirecionar ao /ingresso
+
+// src/pages/PagamentoAprovadoPage.tsx
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+export default function PagamentoAprovadoPage() {
+  const nav = useNavigate();
+  const [sp] = useSearchParams();
+  const pedidoId = sp.get("pedidoId") ?? "";
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (pedidoId) {
+          await fetch("/api/pagamentos/confirmar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ pedidoId })
+          });
+        }
+      } finally {
+        setTimeout(() => nav("/ingresso", { replace: true }), 1500);
+      }
+    })();
+  }, [pedidoId, nav]);
+
+  return (
+    <main className="p-6 text-center">
+      <h1 className="text-2xl font-extrabold">Pagamento aprovado 🎉</h1>
+      <p className="mt-2">Seu ingresso foi liberado. Redirecionando…</p>
+      <button className="mt-4" onClick={() => nav("/ingresso", { replace: true })}>
+        Ver meu ingresso agora
+      </button>
+    </main>
+  );
+}
+
+
+Reprovado → tentar novamente
+
+// src/pages/PagamentoReprovadoPage.tsx
+import { useNavigate } from "react-router-dom";
+
+export default function PagamentoReprovadoPage() {
+  const nav = useNavigate();
+  return (
+    <main className="p-6 text-center">
+      <h1 className="text-2xl font-extrabold">Ops! Pagamento não concluído</h1>
+      <p className="mt-2">Não conseguimos aprovar seu pagamento.</p>
+      <div className="mt-4 flex justify-center gap-3">
+        <button onClick={() => nav("/ingressos/checkout")}>Tentar novamente</button>
+      </div>
+    </main>
+  );
+}
+
+
+(Opcional) Pendente com polling
+
+// src/pages/PagamentoPendentePage.tsx
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+export default function PagamentoPendentePage() {
+  const nav = useNavigate();
+  const [sp] = useSearchParams();
+  const pedidoId = sp.get("pedidoId") ?? "";
+
+  useEffect(() => {
+    let t: any;
+    const tick = async () => {
+      const r = await fetch(`/api/pagamentos/${pedidoId}/status`, { credentials: "include" });
+      const { status } = await r.json();
+      if (status === "approved") nav(`/pagamento/aprovado?pedidoId=${pedidoId}`, { replace: true });
+      else if (status === "rejected") nav(`/pagamento/reprovado?pedidoId=${pedidoId}`, { replace: true });
+      else t = setTimeout(tick, 7000);
+    };
+    if (pedidoId) tick();
+    return () => clearTimeout(t);
+  }, [pedidoId, nav]);
+
+  return (
+    <main className="p-6 text-center">
+      <h1 className="text-xl font-bold">Pagamento em análise…</h1>
+      <p className="mt-2">Assim que for aprovado, te levamos para o seu ingresso.</p>
+    </main>
+  );
+}
+
+Integração com o Checkout
+
+Configure o provedor de pagamento para retornar o usuário para:
+
+success_url → https://seuapp.com/pagamento/aprovado?pedidoId={ID}
+
+cancel/failure_url → https://seuapp.com/pagamento/reprovado?pedidoId={ID}
+
+(PIX/boletos) pending_url → https://seuapp.com/pagamento/pendente?pedidoId={ID}
+
+Mesmo com success_url, não confiar no client: o webhook já terá marcado o pedido como approved. A rota /pagamento/aprovado apenas chama POST /api/pagamentos/confirmar por idempotência e redireciona ao /ingresso.
+
+Critérios de Aceite
+
+ Rotas criadas: /pagamento/aprovado, /pagamento/reprovado (e /pagamento/pendente, se aplicável).
+
+ success_url/failure_url/pending_url configuradas no provedor para essas rotas.
+
+ Ao entrar em /pagamento/aprovado, o sistema garante a criação/liberação do ingresso e redireciona para /ingresso.
+
+ Em /pagamento/reprovado, há botão que leva ao /ingressos/checkout.
+
+ Toda decisão de status vem do backend (webhook/consulta) — front não confia apenas na querystring.

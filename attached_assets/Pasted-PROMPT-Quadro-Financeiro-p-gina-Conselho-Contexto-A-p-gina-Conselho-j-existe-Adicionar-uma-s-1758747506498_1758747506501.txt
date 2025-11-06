@@ -1,0 +1,151 @@
+PROMPT – Quadro Financeiro (página Conselho)
+
+Contexto: A página Conselho já existe. Adicionar uma seção “Quadro Financeiro” logo após os KPIs.
+Mobile-first. No mobile, os números devem aparecer em boxes que arrastam em carrossel; os gráficos devem seguir o layout da Imagem 1.
+
+O que construir
+
+Seção ConselhoFinanceiroSection com:
+
+Filtro próprio (pode reaproveitar o componente de filtros já criado para os KPIs):
+
+Período: Mensal (default), Trimestral, Semestral, Anual, Custom (date range).
+
+Escopo: Geral (default) + (opcional) Programa/Projeto/Unidade quando disponível.
+
+Botões: Aplicar e Limpar (refetch só ao aplicar).
+
+Carrossel de métricas (scroll horizontal com snapping) contendo 3 cards:
+
+Previsto (Meta)
+
+Realizado
+
+Saldo (= Realizado − Previsto; exibir em verde se ≥0 e vermelho se <0)
+
+Cada card: título pequeno, valor grande (BRL), badge opcional (“Mês”, “Acum.”).
+
+Estética coerente com os cards verdes do Conselho (pode manter verde; tipografia branca).
+
+Área de gráficos copiando o layout da Imagem 1:
+
+À esquerda (gráfico principal): Linha de “Meta/Previsto” vs Linha de “Realização”, X = meses do período; header com “Total revenue” (renomear para “Total – Previsto x Realizado”).
+
+À direita (cartão escuro):
+
+Resumo numérico grande “Total Realizado” (BRL).
+
+Gráfico de barras comparando Previsto x Realizado por Programa (ex.: PEC, PSI, IC, PD, F3D) – exatamente como na imagem 1 (barrinhas verticais).
+
+Mini-linha com um indicador específico (ex.: “Total de alimentação” ou outra rubrica-chave). Pode começar com mock da rubrica “Alimentação”.
+
+Loading: skeletons nos cards e nos gráficos.
+
+Erro: toast e botão “Tentar novamente”.
+
+Comportamento no mobile
+
+Carrossel dos 3 cards:
+
+overflow-x-auto, snap-x snap-mandatory, scroll-smooth, gap-3, px-4.
+
+Cada card com snap-start, largura ~85% da viewport (ex.: min-w-[85%]), para dar sensação de “páginas” arrastáveis.
+
+Gráfico principal abaixo do carrossel (respeitando padding e raio grande).
+
+Cartão lateral (com barras e mini-linha) vem logo abaixo do gráfico principal no mobile (stack vertical).
+
+Desktop (≥ md)
+
+Grid 12 col:
+
+Gráfico principal ocupa col-span-8 (esquerda).
+
+Cartão lateral ocupa col-span-4 (direita).
+
+Os 3 cards do carrossel podem virar 3 cards lado a lado (sem carrossel) em md:grid-cols-3.
+
+Dados / Contratos (faça adaptadores se a API real diferir)
+
+Criar src/services/financeiroService.ts com funções tipadas. Se endpoints reais não existirem, criar mocks em src/mocks/ mantendo as mesmas assinaturas.
+
+Resumo consolidado (para os 3 cards):
+GET /api/financeiro/resumo?start=YYYY-MM-DD&end=YYYY-MM-DD&escopo=geral|programa|projeto&id?=
+Resposta:
+
+{ "previsto": number, "realizado": number, "saldo": number }
+
+
+Série temporal (gráfico de linhas – Meta x Realização):
+GET /api/financeiro/serie?start=YYYY-MM-DD&end=YYYY-MM-DD&granularidade=mes&escopo=geral|programa|projeto&id?=
+Resposta:
+
+{ "points": [ { "mes": "2025-01", "previsto": number, "realizado": number }, ... ] }
+
+
+Comparativo por programa (barras no cartão lateral):
+GET /api/financeiro/por-programa?start=YYYY-MM-DD&end=YYYY-MM-DD
+Resposta:
+
+{ "items": [ { "programa": "PEC", "previsto": number, "realizado": number }, ... ] }
+
+
+Rubrica específica (mini-linha):
+GET /api/financeiro/rubrica?start=YYYY-MM-DD&end=YYYY-MM-DD&nome=Alimentacao
+Resposta:
+
+{ "points": [ { "mes": "2025-01", "valor": number }, ... ], "total": number }
+
+Formatação e regras
+
+Moeda: BRL (ex.: Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })).
+
+Saldo calculado se não vier da API (Realizado − Previsto).
+
+Cores:
+
+Manter verde do design system (#16A34A) no gráfico principal (área/gradiente) como na Imagem 1.
+
+Realizado e Previsto com linhas distintas (não fixar cores se o nosso design system já define; senão usar duas cores contrastantes).
+
+Saldo: texto verde quando ≥ 0; vermelho quando < 0.
+
+Acessibilidade: labels nos eixos, tooltips com valores em BRL, aria-busy durante loading.
+
+Stack e componentes
+
+UI: Tailwind + shadcn/ui (Cards, Skeleton, Select/Popover para filtros, Badge, Button).
+
+Framer Motion: fade/slide-in suave nos cards e nos gráficos.
+
+Recharts para os gráficos (LineChart, BarChart, ResponsiveContainer).
+
+Componentes:
+
+ConselhoFinanceiroSection.tsx (orquestra tudo)
+
+FinanceiroCarousel.tsx (3 cards)
+
+FinanceiroChartMain.tsx (linha Previsto x Realizado – layout da Imagem 1)
+
+FinanceiroSideCard.tsx (barras por programa + mini-linha + total)
+
+financeiroService.ts (fetchers + tipos)
+
+Tipos sugeridos
+type ResumoFinanceiro = { previsto: number; realizado: number; saldo: number };
+type SerieMensal = { points: { mes: string; previsto: number; realizado: number }[] };
+type PorPrograma = { items: { programa: string; previsto: number; realizado: number }[] };
+type SerieRubrica = { points: { mes: string; valor: number }[]; total: number };
+
+Critérios de aceite
+
+Mobile: aparece um carrossel com 3 cards (Previsto, Realizado, Saldo) arrastável com snap; abaixo, gráfico principal idêntico ao layout da Imagem 1; depois, cartão lateral (barras + mini-linha) empilhado.
+
+Desktop: gráfico principal à esquerda (8 col), cartão lateral à direita (4 col); cards do carrossel viram 3 cards lado a lado.
+
+Filtros alteram todos os blocos (cards + gráficos) somente ao clicar Aplicar.
+
+Loading/Erro tratados; moeda BRL; saldo com sinal e cor corretos.
+
+Estilo geral fiel à Imagem 1.

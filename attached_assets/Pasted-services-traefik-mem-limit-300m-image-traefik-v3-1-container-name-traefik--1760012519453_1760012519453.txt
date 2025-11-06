@@ -1,0 +1,244 @@
+services:
+  traefik:
+    mem_limit: 300m
+    image: traefik:v3.1
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=institutoogrito@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "letsencrypt:/letsencrypt"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  frontend:
+    mem_limit: 200m
+    image: clubedogrito-frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_STRIPE_PUBLIC_KEY=${VITE_STRIPE_PUBLIC_KEY}
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+
+      # FRONTEND - HTTPS (catch-all do domínio, prioridade baixa)
+      - "traefik.http.routers.frontend.rule=Host(`clubedogrito.institutoogrito.com.br`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+
+      # FRONTEND - HTTP (precisamos também para requests sem TLS / http-challenge)
+      - "traefik.http.routers.frontend-web.rule=Host(`clubedogrito.institutoogrito.com.br`)"
+      - "traefik.http.routers.frontend-web.entrypoints=web"
+      - "traefik.http.routers.frontend-web.priority=1"
+      - "traefik.http.routers.frontend-web.service=frontend"
+
+  backend:
+    mem_limit: 700m
+    image: clubedogrito-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    entrypoint: ["/app/backend-entrypoint.sh"]
+    env_file:
+      - ./.env
+    environment:
+      DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD_ENC}@db:5432/${POSTGRES_DB}?sslmode=disable"
+      PGHOST: "db"
+      PGPORT: "5432"
+      PGUSER: "postgres"
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATABASE: "${POSTGRES_DB}"
+      NODE_ENV: "production"
+
+      OTP_SERVICE_URL: "http://otp:3000"
+
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL}
+      STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL}
+
+      DEV_MODE: "false"
+
+      # ---- IMAGENS / GCS ----
+      IMAGE_PROXY_MODE: "redirect"
+      IMAGE_SIDECAR_URL: ""
+      GOOGLE_APPLICATION_CREDENTIALS: "/app/keys/sa.json"
+      GCS_BUCKET: "clubedogrito"
+
+      # ---- PROXY / NO_PROXY ----
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      NO_PROXY: "localhost,127.0.0.1,.local,db,otp,traefik,backend,frontend"
+
+      # ---- FLAGS (mantidas como estavam) ----
+      STREAMING_ENABLED: "false"
+      KAFKA_ENABLED: "false"
+      WS_EVENTS_ENABLED: "false"
+      REALTIME_ENABLED: "false"
+      EVENTS_DRIVER: "none"
+      VECTORIZE_ENABLED: "false"
+      UPSTASH_KAFKA_URL: ""
+      UPSTASH_KAFKA_USERNAME: ""
+      UPSTASH_KAFKA_PASSWORD: ""
+      SUPABASE_URL: ""
+      SUPABASE_ANON_KEY: ""
+    depends_on:
+      - db
+      - otp
+    volumes:
+      - uploads_data:/app/uploads
+      - ./attached_assets:/app/attached_assets:ro
+      - ./gcs-service-account.json:/app/keys/sa.json:ro
+      # Chave adicional (se necessário no código)
+      - ./infra-optics-454414-g5-e04114249d44.json:/app/keys/gcs-service-account.json:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.backend.loadbalancer.server.port=3000"
+
+      # ============================
+      # BACKEND - HTTPS (websecure)
+      # ============================
+      # API
+      - "traefik.http.routers.backend-api.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend-api.entrypoints=websecure"
+      - "traefik.http.routers.backend-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend-api.priority=110"
+      - "traefik.http.routers.backend-api.service=backend"
+
+      # uploads
+      - "traefik.http.routers.backend-uploads.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.backend-uploads.entrypoints=websecure"
+      - "traefik.http.routers.backend-uploads.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend-uploads.priority=100"
+      - "traefik.http.routers.backend-uploads.service=backend"
+
+      # attached_assets
+      - "traefik.http.routers.backend-assets.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/attached_assets`)"
+      - "traefik.http.routers.backend-assets.entrypoints=websecure"
+      - "traefik.http.routers.backend-assets.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend-assets.priority=100"
+      - "traefik.http.routers.backend-assets.service=backend"
+
+      # manifest.json (fallback no backend, se preciso)
+      - "traefik.http.routers.backend-manifest.rule=Host(`clubedogrito.institutoogrito.com.br`) && Path(`/manifest.json`)"
+      - "traefik.http.routers.backend-manifest.entrypoints=websecure"
+      - "traefik.http.routers.backend-manifest.tls.certresolver=myresolver"
+      - "traefik.http.routers.backend-manifest.priority=90"
+      - "traefik.http.routers.backend-manifest.service=backend"
+
+      # ============================
+      # BACKEND - HTTP (web)
+      # ============================
+      # API
+      - "traefik.http.routers.backend-api-web.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend-api-web.entrypoints=web"
+      - "traefik.http.routers.backend-api-web.priority=110"
+      - "traefik.http.routers.backend-api-web.service=backend"
+
+      # uploads
+      - "traefik.http.routers.backend-uploads-web.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.backend-uploads-web.entrypoints=web"
+      - "traefik.http.routers.backend-uploads-web.priority=100"
+      - "traefik.http.routers.backend-uploads-web.service=backend"
+
+      # attached_assets
+      - "traefik.http.routers.backend-assets-web.rule=Host(`clubedogrito.institutoogrito.com.br`) && PathPrefix(`/attached_assets`)"
+      - "traefik.http.routers.backend-assets-web.entrypoints=web"
+      - "traefik.http.routers.backend-assets-web.priority=100"
+      - "traefik.http.routers.backend-assets-web.service=backend"
+
+      # manifest.json
+      - "traefik.http.routers.backend-manifest-web.rule=Host(`clubedogrito.institutoogrito.com.br`) && Path(`/manifest.json`)"
+      - "traefik.http.routers.backend-manifest-web.entrypoints=web"
+      - "traefik.http.routers.backend-manifest-web.priority=90"
+      - "traefik.http.routers.backend-manifest-web.service=backend"
+
+  otp:
+    mem_limit: 300m
+    image: clubedogrito-otp:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.otp
+    env_file:
+      - ./.env
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:16.10
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $$POSTGRES_DB -h 127.0.0.1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  uploads_data:
+  letsencrypt:
+
+networks:
+  app-network:
+    driver: bridge

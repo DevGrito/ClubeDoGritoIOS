@@ -1,0 +1,104 @@
+Integrações feitas (Google Slides → Bússola → PDF)
+
+Template no Google Apresentações
+
+Criamos/definimos um modelo padrão no Google Slides (com {{PLACEHOLDERS}} tipo {{MES}}, {{ANO}}, etc.).
+
+Projeto no Google Cloud + APIs
+
+Ativadas: Google Slides API e Google Drive API.
+
+Service Account (conta de serviço)
+
+Criada no Google Cloud; gerada a chave JSON.
+
+Compartilhamos o template do Slides com o e-mail da service account (Leitor/Editor).
+
+Credenciais no backend (Replit)
+
+Convertido o JSON para BASE64 e salvo em Secrets:
+
+GOOGLE_CREDENTIALS_B64 = (base64 do JSON)
+
+SLIDES_TEMPLATE_ID = ID do template (entre /d/ e /edit)
+
+Backend (Node/Express)
+
+Autenticação via googleapis usando a env GOOGLE_CREDENTIALS_B64.
+
+Criado endpoint que:
+
+copia o template (Drive API),
+
+substitui os {{PLACEHOLDERS}} (Slides API batchUpdate),
+
+exporta a apresentação em PDF (Drive API) e retorna pro browser.
+
+Bloco mínimo usado no backend
+import { google } from "googleapis";
+
+const SLIDES_TEMPLATE_ID = process.env.SLIDES_TEMPLATE_ID!;
+const raw   = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64!, "base64").toString("utf8");
+const CREDS = JSON.parse(raw);
+
+const auth   = new google.auth.GoogleAuth({ credentials: CREDS, scopes: [
+  "https://www.googleapis.com/auth/presentations",
+  "https://www.googleapis.com/auth/drive",
+]});
+const slides = google.slides({ version: "v1", auth });
+const drive  = google.drive({  version: "v3", auth });
+
+// /export/google-slides: copia → replace → exporta PDF
+
+
+Botão “Exportar” no app
+
+Front chama a rota: window.location.href = "/export/google-slides?mes=YYYY-MM".
+
+Testes e saúde
+
+Health check (opcional):
+
+app.get("/gs/health", async (req, res) => {
+  try {
+    const pres = await slides.presentations.get({ presentationId: SLIDES_TEMPLATE_ID });
+    res.json({ ok: true, title: pres.data.title });
+  } catch (e:any) {
+    res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+
+Se o health falhar com insufficientPermissions/notFound, conferir:
+
+Template compartilhado com a Service Account,
+
+IDs corretos,
+
+APIs ativas.
+
+Placeholders combinados
+
+Texto: {{MES}}, {{ANO}}, {{PROJETO}}, {{ATIVIDADE}}, {{CARGA_TOTAL}}, {{PARTICIPANTES}}, {{FREQUENCIA}}.
+
+Repetições indexadas (exemplos):
+
+Aulas: {{AULA1_DATA}} … {{AULA1_RESUMO}}, {{AULA2_*}}…
+
+Inscritos: {{INS1_NOME}} … {{INS1_INSCRICAO}}, {{INS2_*}}…
+
+Imagens: {{IMG1}}, {{IMG2}}… (trocadas com replaceAllShapesWithImage).
+
+Segurança
+
+Credenciais fora do código (apenas em Secrets/env).
+
+Service Account com acesso só ao template necessário.
+
+Próximos passos
+
+Mapear todos os {{PLACEHOLDERS}} reais do template.
+
+Puxar dados do mês do banco e preencher no batchUpdate.
+
+(Opcional) Salvar a cópia final em uma pasta do Drive definida.

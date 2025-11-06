@@ -1,0 +1,116 @@
+Atualize a funcionalidade “Registrar Aluno” já existente no menu lateral da tela do professor do sistema Clube do Grito.
+
+O layout da tela não deve ser recriado — apenas **substitua o formulário atual** pelo novo conteúdo abaixo, mantendo o estilo e padrão visual já existente no sistema (cards brancos, ícones simples, estrutura clara e responsiva). 📌 Prioridade:
+
+- O campo **CPF** deve aparecer no topo do formulário, junto com o **Nome completo**
+- O CPF é obrigatório e será usado como **chave primária** no sistema
+- Validação para formato do CPF (###.###.###-##) e para evitar duplicidade
+
+📋 Organize o restante dos campos em blocos/seções visuais, com títulos e espaçamento adequado: 
+📌 Estrutura do formulário:
+
+1. 📇 Identificação
+- Nome completo (obrigatório)
+- Data de nascimento (obrigatório)
+- Gênero (Feminino, Masculino, Não binário, Não informado)
+- Foto do perfil (upload: .jpg, .jpeg, .png | máx. 20 MB)
+- Número de matrícula (gerado automaticamente)
+- Família do atendido (campo aberto ou seleção)
+- Situação do atendimento (dropdown)
+- Estado civil
+- Religião
+- Naturalidade
+- Nacionalidade
+- Pode sair sozinho da instituição? (Sim / Não)
+
+2. 📏 Dados complementares
+- Tamanho: Calça / Camiseta / Calçado
+- Cor/raça: Branca, Preta, Parda, Amarela, Indígena, Não sabe informar
+- Frequenta algum projeto social? (Sim/Não)
+  - Se sim, qual?
+- Possui acesso à internet? (Sim/Não)
+  - Se sim, qual?
+
+3. 📑 Documentos
+- CPF
+- RG + órgão emissor
+- Carteira de Trabalho + série
+- Título de eleitor
+- NIS/PIS/PASEP
+- Documentos que possui (checkbox):
+  - Certidão de nascimento
+  - Certidão de casamento
+  - Certificado de reservista
+  - Carteira de trabalho
+- Upload de documentos:
+  - Foto do RG (imagem)
+  - Foto de laudo médico (imagem ou PDF)
+
+4. 📞 Contato
+- E-mail
+- Telefone
+- WhatsApp
+- Pessoa para contato (nome, telefone, WhatsApp)
+
+5. 🎯 Benefícios Sociais
+- Família está no CadÚnico? (Sim/Não)
+- Família recebe:
+  - Bolsa Família (Sim/Não)
+  - BPC (Sim/Não)
+  - Cartão Alimentação (Sim/Não)
+  - Outros (Sim/Não)
+
+6. 🏠 Endereço
+- CEP
+- Estado
+- Município
+- Bairro
+- Logradouro (Rua/Avenida)
+- Número
+- Complemento
+- Ponto de referência
+- Mora desde qual ano
+
+7. 🧱 Informações do domicílio
+- Reside em área de risco? (Sim/Não)
+- Número de cômodos
+- Tipo de moradia
+- Material das paredes externas
+- Material do piso
+- Material do telhado
+- Abastecimento de água
+- Forma de iluminação
+- Destino do esgoto
+- Destino do lixo
+- Informações adicionais sobre despesas (campo aberto)
+
+8. 📆 Dados institucionais
+- Data de entrada (obrigatório)
+- Forma de acesso (dropdown)
+- Demandas atendidas (múltipla escolha):
+  - Acesso a benefícios eventuais
+  - Acolhimento institucional
+  - Atendimento médico
+  - Atendimento odontológico
+  - Atividades de contraturno
+  - Capacitação profissional
+  - Grupos de convivência
+  - Serviços socioassistenciais
+
+9. 🗒️ Observações finais
+- Campo de texto livre para anotações do professor ou coordenação
+
+📱 Mobile:
+- Divida as seções com títulos visuais
+- Campos com bom espaçamento e responsividade
+- Botões de navegação claros ("Salvar", "Cancelar", etc.)
+
+🖥️ Desktop:
+- Use colunas se possível para distribuir os campos maiores
+- Seções separadas com espaçamento fluido
+
+🔐 Ao final, botão “Registrar aluno” com confirmação.
+
+Todos os campos obrigatórios devem ter validação visual.
+
+Dados podem ser simulados.

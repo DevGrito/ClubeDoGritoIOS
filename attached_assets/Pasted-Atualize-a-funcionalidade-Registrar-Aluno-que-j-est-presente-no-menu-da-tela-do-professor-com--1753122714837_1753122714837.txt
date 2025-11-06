@@ -1,0 +1,151 @@
+Atualize a funcionalidade "Registrar Aluno", que já está presente no menu da tela do professor, com os seguintes requisitos:
+
+📌 Estrutura geral:
+- O formulário de cadastro de aluno deve ser completo, com seções bem organizadas, divididas em cards ou abas:
+  - Identificação
+  - Dados complementares
+  - Documentos
+  - Contato
+  - Benefícios sociais
+  - Endereço
+  - Informações do domicílio
+  - Despesas
+  - Informações adicionais
+  - Demandas
+  - Responsáveis (incluindo Pai, Mãe e Outro Responsável Legal)
+
+---
+
+### 🔐 Importante:
+- O **CPF** do aluno é **obrigatório** e deve ser o **primeiro campo visível** no formulário junto com o Nome completo
+- O CPF será usado como **chave primária (primary key)** e precisa ser **validado**
+- Nenhum cadastro deve ser possível sem CPF válido e não duplicado
+
+---
+
+### 🧾 Campos obrigatórios a serem incluídos no formulário:
+
+#### 1. Identificação
+- CPF (obrigatório, chave primária)
+- Nome completo
+- Data de nascimento
+- Gênero (Feminino, Masculino, Não binário, Não informado)
+- Foto do perfil (upload .jpg, .jpeg, .png – máx 20MB)
+- Número de matrícula (gerado automaticamente)
+- Família do atendido
+- Situação do atendimento
+- Estado civil
+- Religião
+- Naturalidade
+- Nacionalidade
+- Pode sair sozinho da instituição? (Sim / Não)
+
+#### 2. Dados complementares
+- Tamanho de calça / camiseta / calçado
+- Cor/Raça: Branca, Preta, Parda, Amarela, Indígena, Não sabe informar
+- Frequenta projeto social? (Sim/Não) – Se sim, qual?
+- Possui acesso à internet? (Sim/Não) – Se sim, qual?
+
+#### 3. Documentos
+- CPF (já preenchido no topo)
+- RG + órgão emissor
+- Carteira de Trabalho + série
+- Título de Eleitor
+- NIS/PIS/PASEP
+- Checkbox com documentos que possui:
+  - Certidão de nascimento
+  - Certidão de casamento
+  - Certificado de reservista
+  - Carteira de trabalho
+- Upload de:
+  - Foto do RG
+  - Foto de laudo médico (imagem ou PDF)
+
+#### 4. Contato
+- E-mail
+- Telefone
+- WhatsApp
+- Pessoas para contato (Nome + Telefone + WhatsApp)
+
+#### 5. Benefícios sociais
+- Cadastrado no CadÚnico? (Sim / Não)
+- Recebe:
+  - Bolsa Família (Sim / Não)
+  - BPC (Sim / Não)
+  - Cartão Alimentação (Sim / Não)
+  - Outros (Sim / Não)
+
+#### 6. Endereço
+- CEP
+- Estado
+- Município
+- Bairro
+- Logradouro (Rua)
+- Número
+- Complemento
+- Ponto de referência
+- Mora desde qual ano
+
+👉 **Importante:** incluir integração com **API do Google Maps** para autocomplete do endereço, preenchendo automaticamente CEP, bairro, cidade, estado, etc.
+
+#### 7. Informações do domicílio
+- Reside em área de risco? (Sim / Não)
+- Número de cômodos
+- Tipo de moradia
+- Material das paredes externas
+- Material do piso
+- Material do telhado
+- Abastecimento de água
+- Forma de iluminação
+- Destino do esgoto
+- Destino do lixo
+
+#### 8. Despesas
+- Campo de observações sobre condições financeiras
+
+#### 9. Informações adicionais
+- Data de entrada
+- Forma de acesso
+- Demandas (marcar múltiplas):
+  - Acesso a benefícios eventuais
+  - Acolhimento institucional
+  - Atendimento médico
+  - Atendimento odontológico
+  - Atividades de contraturno
+  - Capacitação profissional
+  - Grupos de convivência
+  - Serviços socioassistenciais
+
+#### 10. Observações
+- Campo livre para notas administrativas ou pedagógicas
+
+---
+
+### 👨‍👩‍👧 Responsáveis (Pai, Mãe e/ou Outro Responsável Legal)
+
+- Para cada pessoa responsável, perguntar:
+  - Esse responsável é: Pai / Mãe / Outro?
+    - Se for Pai ou Mãe, marcar automaticamente como responsável principal
+- Dados do responsável:
+  - Nome completo
+  - CPF (obrigatório)
+  - Data de nascimento
+  - Profissão
+  - Telefone
+  - WhatsApp
+  - E-mail
+  - Endereço (pode herdar o do aluno ou preencher outro)
+  - Esse contato é de emergência? (Sim / Não)
+  - Observações (campo texto livre)
+
+---
+
+### 📱 Mobile:
+- Layout em cards empilhados
+- Responsividade total com botões fixos e campos com boa leitura
+
+### 🖥️ Desktop:
+- Cards organizados em colunas onde possível
+- Separação visual clara entre seções
+
+📍 Usar o mesmo padrão visual já adotado na tela do professor, sem emojis, com campos bem alinhados e feedback visual para campos obrigatórios.

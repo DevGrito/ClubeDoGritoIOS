@@ -1,0 +1,61 @@
+Prompt para implementação de permissões na tela do professor
+🎯 Objetivo:
+Implementar uma lógica de permissões na tela do professor, dividindo as funcionalidades com base no tipo de usuário: líder ou professor comum.
+
+👥 Exemplo prático:
+Tipo: "lider" (acesso total às funções de gestão)
+
+Tipo: "professor" (acesso apenas às funções operacionais)
+
+🔒 Funções exclusivas do LÍDER 
+Essas funcionalidades só devem aparecer se o usuário logado for do tipo lider:
+
+Criar nova turma
+
+Editar ou excluir turmas
+
+Criar, editar ou excluir plano de aula
+
+Acessar histórico completo de chamadas e aulas (todas as turmas)
+
+Cadastrar eventos institucionais gerais
+
+Acessar relatórios e exportar PDF
+
+Editar ou excluir acompanhamentos registrados por professores
+
+✅ Funções liberadas para TODOS os professores 
+Essas funcionalidades devem aparecer sempre, para qualquer professor logado:
+
+Registrar chamada
+
+Visualizar plano de aula
+
+Registrar aulas
+
+Visualizar histórico das próprias aulas
+
+Cadastrar lembretes pessoais ou da turma
+
+Visualizar acompanhamentos registrados
+
+Visualizar dados dos alunos da própria turma
+
+Enviar observações ou anotações sobre alunos da sua turma
+
+🔧 Regras de implementação:
+A tela do professor continua sendo única.
+
+O sistema deve verificar o tipo de usuário (campo tipo) ao logar para definir o que será exibido.
+
+Utilizar um campo no banco de dados como tipo: "lider" ou tipo: "professor" para aplicar a lógica.
+
+O login e acesso continuam sendo feitos pelo campo já existente (telefone + código SMS).
+
+Não adicionar campo para o usuário escolher tipo de perfil. A lógica de permissão deve ser automática com base no banco de dados.
+
+⚠️ É essencial que todas as funcionalidades que já funcionam na tela atual continuem funcionando normalmente com essa separação.
+
+🚨 Observação obrigatória:
+É essencial que tudo o que for criado pelo líder (por exemplo, planos de aula criados por Felipe) apareça automaticamente para os demais professores (como Emily).
+A separação é apenas de permissão para criar ou editar, mas a visualização deve ser compartilhada entre todos os professores da mesma turma ou setor.

@@ -1,0 +1,34 @@
+Quero integrar o Checkout Cielo por link (página hospedada), sem usar a API.
+
+Requisitos:
+- Na tela de pagamento, já tenho: quantidade (qty), total calculado, e orderId gerado pelo meu backend (sequencial iniciando no 000003).
+- Adicionar um botão “Pagar com Cielo (Cartão/Parcelado)”.
+- Ao clicar, abrir o link do Checkout Cielo da minha loja (GUID fixo) em uma nova aba/janela:
+  Exemplo: https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=<GUID>
+  (ou o form POST para .../transactionalvnext/order/buynow com <input name="id" value="<GUID>">)
+- Antes de redirecionar, salvar no backend o orderId, qty, total e o “canal=checkout_cielo_link”, status “PENDENTE”.
+
+Backend:
+- Criar rota POST /webhooks/cielo para receber notificação (se o Checkout Cielo permitir configurar Notification URL).
+  - Registrar no log que chegou, associar pelo orderId (se vier) e atualizar status (APROVADO/NEGADO/CANCELADO).
+  - Nunca confiar em dados sensíveis; salvar só status, NSU/TID/PaymentId se enviados.
+- Criar rota GET /pagamento/cielo/retorno para ser Return URL do checkout.
+  - Ler query params (ex.: orderId, status se existir) e exibir tela de “Sucesso” ou “Falha”.
+  - Se não houver notificação, mostrar “Confirmando pagamento...” e permitir confirmação manual.
+
+Front-end:
+- Botão “Pagar com Cielo (Link)”: 
+  - Se existir o form POST buynow, submeter com target="_blank".
+  - Senão, window.open(URL_GUID, "_blank", "noopener,noreferrer");
+- Após o usuário retornar da Cielo (Return URL), chamar minha API para marcar o pedido como liberado (se status ok) e mostrar o QR/ingresso.
+
+Variáveis:
+- CIELO_CHECKOUT_GUID=<GUID fornecido>
+- RETURN_URL=https://meu-dominio.com.br/pagamento/cielo/retorno
+- NOTIFICATION_URL=https://meu-dominio.com.br/webhooks/cielo
+
+Entrega:
+- Componente do botão integrado.
+- Rotas /webhooks/cielo e /pagamento/cielo/retorno criadas.
+- Persistência do pedido antes do redirect e atualização do status no retorno/notificação.
+- Mensagens de UI claras em sucesso/falha.

@@ -1,0 +1,49 @@
+Prompt – Alterações no Sistema de Sorteio 
+Contexto:
+O sistema de sorteio já está implementado no aplicativo Clube do Grito, mas precisamos realizar ajustes para adequar às novas regras e funcionalidades.
+Todos os sorteios serão mensais e direcionados apenas para doadores ativos.
+
+1. Tela do Doador – “Sorteio Clube do Grito”
+Elementos que devem aparecer:
+Nome do sorteio
+Descrição do prêmio (texto livre)
+Data e hora do sorteio
+Quantidade de chances do usuário (calculada automaticamente com base no plano)
+Status de participação:
+Ativo (participando)
+Ineligível (pagamento atrasado ou não assinante)
+Aviso de transparência (texto fixo):
+“O sorteio é realizado de forma automática e auditável, usando algoritmo seguro e imparcial. Ninguém pode alterar o resultado.”
+Botão “Ver histórico de sorteios”
+Lista com:
+Nome do sorteio
+Data de realização
+Descrição do prêmio
+Nome do vencedor (primeiro nome + cidade)
+Link “Saiba como o sorteio foi feito” (abre explicação técnica)
+Mensagem padrão quando não houver sorteio ativo:
+“Aguardando próximo sorteio mensal.”
+2. Tela do Dev – Cadastro e Gerenciamento de Sorteios
+Elementos no formulário de cadastro:
+Nome do sorteio
+Descrição do prêmio (texto livre)
+Data e hora do sorteio (agendamento)
+Regras adicionais (opcional)
+Botão “Salvar”
+Ao salvar, o sorteio já aparece na tela do doador.
+Regras de funcionamento no backend:
+Remover completamente o campo “valor do prêmio” (não mostrar nem no form).
+Permitir cadastrar apenas 1 sorteio por mês.
+Calcular chances automaticamente por plano:
+Plano Eco → 1 chance
+Plano Voz → 2 chances
+Plano O Grito → 3 chances
+Plano Platinum → 5 chances
+Se pagamento estiver atrasado, chances = 0 e usuário inelegível.
+Sorteio executa automaticamente na data/hora agendadas.
+Registrar vencedor no banco de dados.
+Salvar histórico completo.
+Enviar notificação push para vencedor e atualizar tela do doador.
+Criar registro de auditoria (hash ou código de verificação do sorteio).
+
+

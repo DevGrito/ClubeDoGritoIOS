@@ -1,0 +1,96 @@
+// backend-clube-do-grito/index.js
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const twilio = require('twilio');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+// ========== Stripe Checkout ==========
+app.post('/checkout-session', async (req, res) => {
+  const { plano } = req.body;
+
+  const preco = {
+    eco: 990,
+    voz: 1990,
+    grito: 2990,
+  }[plano] || 990;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'brl',
+            product_data: {
+              name: `Plano ${plano}`,
+            },
+            unit_amount: preco,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: 'http://localhost:3000/cadastro',
+      cancel_url: 'http://localhost:3000/',
+    });
+    res.json({ id: session.id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao criar sessão de pagamento' });
+  }
+});
+
+// ========== Twilio - Enviar Código ==========
+app.post('/enviar-codigo', async (req, res) => {
+  const { telefone } = req.body;
+
+  try {
+    const response = await twilioClient.verify.v2
+      .services(process.env.TWILIO_SERVICE_SID)
+      .verifications.create({ to: `+55${telefone}`, channel: 'sms' });
+
+    res.json({ status: response.status });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao enviar código' });
+  }
+});
+
+// ========== Twilio - Verificar Código ==========
+app.post('/verificar-codigo', async (req, res) => {
+  const { telefone, codigo } = req.body;
+
+  try {
+    const verificationCheck = await twilioClient.verify.v2
+      .services(process.env.TWILIO_SERVICE_SID)
+      .verificationChecks.create({
+        to: `+55${telefone}`,
+        code: codigo,
+      });
+
+    if (verificationCheck.status === 'approved') {
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ error: 'Código inválido' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro na verificação' });
+  }
+});
+
+// ========== Inicialização ==========
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});

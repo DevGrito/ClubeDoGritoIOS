@@ -1,0 +1,205 @@
+Regras que você definiu
+
+Preço por ingresso: R$ 1.000,00 (ajusto via env).
+
+Quantidade: comprador escolhe 1..N (pode comprar vários).
+
+Parcelamento: até 10x sem juros.
+
+Descrição na fatura (softDescriptor): 4º Clube do Grito (precisamos respeitar o limite/format da Rede). 
+developer.userede.com.br
+
+OrderId: começar a cadastrar a partir do 03 (sequencial do seu sistema).
+
+3DS 2.0: contratado/habilitado (usaremos Rede MPI integrado + URLs de sucesso/falha/callback). 
+developer.userede.com.br
+
+Webhook: vamos criar /webhooks/rede para receber o threeDSecureCallback e mudanças de status. 
+developer.userede.com.br
+
+PCI: fluxo checkout transparente → seguir PCI SAQ A-EP (dados de cartão passam pelo seu servidor).
+
+Ambiente: começar no Sandbox e depois Produção. Endpoints:
+
+Sandbox: https://sandbox-erede.useredecloud.com.br/v1/transactions
+
+Produção: https://api.userede.com.br/erede/v1/transactions 
+developer.userede.com.br
+
+Auth: Basic Auth com base64(PV:Token). 
+developer.userede.com.br
+
+O que vou usar no payload da Rede
+
+Campos suportados/documentados pela e.Rede: reference (seu orderId), amount (em centavos), installments, capture, kind: "credit", dados do cartão, softDescriptor, grupo threeDSecure com embedded, userAgent, device, e URLs (threeDSecureSuccess, threeDSecureFailure, threeDSecureCallback). 
+developer.userede.com.br
++1
+
+Observação do softDescriptor: a Rede combina um “hard descriptor” (cadastrado no portal) + o softDescriptor enviado no payload, totalizando até 22 caracteres. Então vou encurtar para algo tipo 4CLUBEDOGRITO se precisar. 
+developer.userede.com.br
+
+Variáveis de ambiente sugeridas
+REDE_ENV=sandbox                       # sandbox | prod
+REDE_PV=xxxxxxxxxx
+REDE_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxx
+INGRESSO_UNIT_PRICE_CENTS=100000       # R$1.000,00
+REDE_SOFT_DESCRIPTOR="4CLUBEDOGRITO"   # curtas e sem acento/esp
+PUBLIC_URL=https://seu-dominio.com.br  # base para os redirects
+
+Rotas — backend (Node/Express) prontas pra colar
+1) Criar orderId e iniciar cobrança
+
+Regra do orderId: sequencial por ano/evento iniciando em ...-000003.
+
+amount = preço_unitário * quantidade.
+
+installments = 1..10 (sempre sem juros no seu pricing; na e.Rede basta enviar o número de parcelas).
+
+// POST /api/pagamentos/rede/checkout
+// body: { qty: number, installments: number, card: {cardholderName, cardNumber, expirationMonth, expirationYear, securityCode} }
+
+import express from "express";
+import fetch from "node-fetch";
+const router = express.Router();
+
+const BASE = process.env.REDE_ENV === "prod"
+  ? "https://api.userede.com.br/erede/v1"
+  : "https://sandbox-erede.useredecloud.com.br/v1";
+const AUTH = "Basic " + Buffer.from(`${process.env.REDE_PV}:${process.env.REDE_TOKEN}`).toString("base64");
+const UNIT = Number(process.env.INGRESSO_UNIT_PRICE_CENTS || 100000); // fallback R$1000
+const SOFT = (process.env.REDE_SOFT_DESCRIPTOR || "4CLUBEDOGRITO").slice(0, 22).replace(/[^\w]/g, "");
+
+function nextOrderId() {
+  // exemplo: GRITO-2025-000003, começando no 000003 como você pediu
+  // você deve persistir esse sequencial em DB para não repetir
+  // aqui é só um placeholder:
+  const seq = 3 + Math.floor(Math.random() * 100000); 
+  return `ING-2025-${String(seq).padStart(6, "0")}`;
+}
+
+router.post("/api/pagamentos/rede/checkout", async (req, res) => {
+  try {
+    const { qty = 1, installments = 1, card } = req.body;
+
+    if (!card?.cardNumber) return res.status(400).json({ ok:false, error:"Dados do cartão ausentes" });
+    if (qty < 1) return res.status(400).json({ ok:false, error:"Quantidade inválida" });
+    if (installments < 1 || installments > 10) return res.status(400).json({ ok:false, error:"Parcelas fora do limite (1-10)" });
+
+    const orderId = nextOrderId();
+    const amount = UNIT * qty;
+
+    const payload: any = {
+      capture: true,
+      kind: "credit",
+      reference: orderId,
+      amount,
+      installments,          // ex.: 10 (sem juros no seu pricing)
+      cardholderName: card.cardholderName,
+      cardNumber: card.cardNumber,
+      expirationMonth: Number(card.expirationMonth),
+      expirationYear: Number(card.expirationYear),
+      securityCode: card.securityCode,
+      softDescriptor: SOFT,
+      threeDSecure: {
+        embedded: true,            // usar MPI da Rede
+        onFailure: "continue",
+        userAgent: req.get("user-agent") || "unknown",
+        ipAddress: req.ip,
+        device: {
+          colorDepth: 24,
+          deviceType3ds: "BROWSER",
+          javaEnabled: false,
+          language: "pt-BR",
+          screenHeight: 1080,
+          screenWidth: 1920,
+          timeZoneOffset: -3
+        }
+      },
+      urls: [
+        { kind: "threeDSecureSuccess", url: `${process.env.PUBLIC_URL}/pagamento/sucesso?orderId=${orderId}` },
+        { kind: "threeDSecureFailure", url: `${process.env.PUBLIC_URL}/pagamento/erro?orderId=${orderId}` },
+        { kind: "threeDSecureCallback", url: `${process.env.PUBLIC_URL}/webhooks/rede?orderId=${orderId}` }
+      ]
+    };
+
+    const r = await fetch(`${BASE}/transactions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": AUTH },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await r.json();
+    return res.status(r.ok ? 200 : r.status).json({ ok: r.ok, orderId, data });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok:false, error:"Falha ao processar pagamento" });
+  }
+});
+
+export default router;
+
+
+Por que assim?
+
+transactions é o endpoint correto; amount em centavos; installments é aceito; capture define captura imediata; kind: "credit"; Basic Auth com PV:Token; e o bloco 3DS + URLs segue o manual da Rede. 
+developer.userede.com.br
++1
+
+2) Webhook/callback da Rede (3DS)
+// POST /webhooks/rede
+// Recebe o callback do 3DS/Transação (postback/callback). Valide e atualize o pedido.
+
+import crypto from "crypto";
+import express from "express";
+const wh = express.Router();
+
+wh.post("/webhooks/rede", express.json(), async (req, res) => {
+  try {
+    // Dica: crie um "segredo" próprio (ex.: REDE_WEBHOOK_SECRET) e exija um header para validar origem.
+    // A Rede permite configurar URL com/sem auth — se usar auth, valide o header/token. :contentReference[oaicite:8]{index=8}
+
+    const { reference, tid, returnCode, returnMessage, authorizationCode, status } = req.body || {};
+    // TODO: atualizar pedido no seu banco (orderId = reference) com TID, status, authCode, etc.
+    // Se status aprovado, liberar ingresso(s) e disparar e-mail/whatsapp.
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok:false });
+  }
+});
+
+export default wh;
+
+
+Observação: no manual, o threeDSecureCallback/“notification URL” é um POST para sua URL; aproveite para conciliar pelo reference (seu orderId) e tid. 
+developer.userede.com.br
+
+Front-end (resumo)
+
+Botão Pagar com a Rede abre modal com:
+
+Quantidade (1..N).
+
+Parcelas (1..10) — mostrar “sem juros”.
+
+Campos de cartão.
+
+Envia para /api/pagamentos/rede/checkout e trata:
+
+Se houver challenge 3DS, o fluxo redireciona/embeda e, ao final, a Rede chama as URLs configuradas (sucesso/falha) e seu callback. 
+developer.userede.com.br
+
+Teste em Sandbox — checklist
+
+Configure REDE_ENV=sandbox, PV e TOKEN de sandbox. Endpoints acima. 
+developer.userede.com.br
+
+Use cartões de teste fornecidos pela Rede (no manual/sandbox).
+
+Valide parcelas (1..10), quantidade (ex.: 2 ingressos → amount=200000).
+
+Confirme softDescriptor não ultrapassa o limite combinado (22 caracteres total com o “hard descriptor”). 
+developer.userede.com.br
+
+Verifique o callback chegando em /webhooks/rede e a atualização do pedido com tid/nsu/authorizationCode.

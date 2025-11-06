@@ -1,0 +1,98 @@
+🔧 Prompt para REFORMULAR a tela do Conselho (1º semestre de 2025):
+
+Atualize o conteúdo da tela “Painel do Conselho” com os dados do 1º semestre de 2025, organizando a informação de forma mais clara, visual e estratégica. Mantenha a hierarquia por áreas de atuação e destaque os dados-chave de impacto e investimento.
+
+✅ ESTRUTURA DA NOVA TELA
+1. Resumo Executivo (bloco fixo no topo)
+Exiba os principais números de forma destacada:
+
+👥 2.921 pessoas atendidas
+
+⏱️ 63.773 horas/aula
+
+📌 26.372 atendimentos
+
+🌎 12.476 pessoas impactadas (direta e indiretamente)
+
+Use ícones ou cards com destaque visual.
+
+2. Dados por Eixo de Atuação (dividido em seções ou abas)
+🏠 Casa Sonhar
+164 crianças | 5.670 atendimentos | 16.487 horas/aula
+
+Frequência: 79%
+
+Gênero: 43% masc. / 57% fem.
+
+Cor/raça: 52% pardo, 19% preto, 17% branco
+
+🏃 Polo Esportivo Cultural
+120 crianças | 1.892 atendimentos | 7.409 horas/aula
+
+Frequência: 82,2%
+
+Gênero: 43% masc. / 57% fem.
+
+Cor/raça: 63% pardo, 13% preto, 16% branco
+
+🎶 Sala Serenata
+45 pessoas | 637 atendimentos | 4.459 horas/aula
+
+Frequência: 78%
+
+Cor/raça: 43% pardo, 26% preto, 24% branco
+
+🧠 Psicossocial
+1.342 pessoas (de 6 a 70+ anos)
+
+Gênero: 47% masc. / 53% fem.
+
+Cor/raça: 52% pardo, 19% preto, 18% branco
+
+💼 Inclusão Produtiva
+218 pessoas formadas | 122 empreendedores/empregados
+
+2.475 atendimentos | 4.738 horas/aula
+
+Frequência: 95%
+
+Gênero: 81% fem. / 19% masc.
+
+Cor/raça: 24% pardo, 8% preto, 6% branco, 62% S/I
+
+🧃 Negócios Sociais
+3.556 itens vendidos | 5.548 doados
+
+1.456 pessoas atendidas (vendas)
+
+1.921 visitas | 1.198 pessoas em atividades coletivas
+
+265 moradores empregados | 27 qualificados
+
+50% dos espaços revitalizados
+
+37 caçambas recolhidas
+
+3. Investimento Semestral (gráfico interativo ou blocos)
+💰 Total: R$ 2.438.120,83
+
+PEC / Qualificação / Psicossocial: R$ 949.167,98
+
+Favela 3D: R$ 832.551,12
+
+Griffte/Outlet: R$ 117.152,80
+
+Outros blocos: conforme detalhamento
+
+Sugestão: exibir por tipo de despesa (gente, estrutura, eventos, transporte etc.)
+
+4. Mensagem institucional final (bloco no rodapé)
+“O Clube do Grito segue sendo um espaço de conexão entre quem se importa de verdade, quem age, quem transforma. É uma alegria ter você com a gente nessa jornada!”
+– Léo Martins
+
+🎨 Reforço de design e UX
+Use cores e ícones distintos por eixo (Favela 3D na cor roxo por exemplo)
+
+Interface responsiva tanto mobile quanto desktop com modo leitura rápida ou detalhado
+
+Gráficos de barras/pizza onde cabível

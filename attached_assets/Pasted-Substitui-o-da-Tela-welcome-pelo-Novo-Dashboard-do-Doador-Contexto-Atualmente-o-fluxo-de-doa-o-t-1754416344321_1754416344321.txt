@@ -1,0 +1,70 @@
+Substituição da Tela /welcome pelo Novo Dashboard do Doador
+Contexto
+Atualmente, o fluxo de doação termina na  tela /welcome após a verificação do código SMS pelo usuário. Essa tela deve ser substituída pela nova Tela do Doador, que oferece uma experiência personalizada, exibindo dados da assinatura e informações para o usuário gerenciar sua doação.
+
+Objetivo
+Substituir a tela /welcome atual pelo novo Dashboard do Doador, mantendo todo o fluxo anterior intacto e garantindo uma transição suave e integrada.
+
+Fluxo Atual (para referência)
+Usuário seleciona plano /plans
+
+Checkout e pagamento via Stripe /checkout/{plano}
+
+Tela pós-pagamento /pos-pagamento: coleta nome, telefone, email, salva no banco e envia código SMS via Twilio
+
+Verificação do código SMS /verify: validação do código e ativação da conta
+
+Tela final /welcome: boas-vindas e acesso liberado (atualmente deve ser substituída)
+
+O que deve ser feito
+Após a validação do código SMS na tela /verify, o sistema deve redirecionar o usuário para a nova Tela do Doador, em vez da tela /welcome atual.
+
+Nova Tela do Doador deve conter:
+
+Mensagem de boas-vindas personalizada com o nome do usuário cadastrado:
+"Bem-vindo(a), [NOME_DO_USUÁRIO]! Obrigado por fazer parte do Clube do Grito."
+
+Informações da assinatura:
+
+Nome do plano contratado
+
+Valor mensal do plano (ex: R$ 19,90/mês)
+
+Data de início da assinatura (data do pagamento confirmado)
+
+Total acumulado de doações feitas pelo usuário
+
+Formulário (caso o nome ou telefone não estejam completos no banco):
+
+Campo para confirmar ou editar nome completo
+
+Campo para confirmar ou editar telefone (formato brasileiro)
+
+Botão “Salvar e Continuar” para atualizar dados
+
+Sugestão para upgrade:
+"Quer causar ainda mais impacto? Conheça os planos com benefícios extras e aumente sua contribuição."
+Botão: “Conhecer outros planos” → abre tela interna de planos (/plans), sem sair do app.
+
+Design e UX:
+
+Interface responsiva, limpa, leve e coerente com o padrão visual do app.
+
+Navegação dentro do app, sem redirecionamentos externos.
+
+Dados:
+
+Buscar e exibir dados do usuário e assinatura do banco de dados.
+
+Salvar as atualizações de nome e telefone caso o usuário edite esses dados.
+
+Manter todo o fluxo anterior e integrações atuais (Stripe, Twilio, banco de dados).
+
+Resumo para implementação técnica
+No endpoint /verify, após ativar a conta do usuário, redirecionar para a nova tela do doador (ex: /donor-dashboard ou /welcome se preferir reaproveitar a rota).
+
+Construir a nova tela conforme especificações acima.
+
+Garantir integração de dados para mostrar as informações de assinatura e doações.
+
+Validar e salvar nome e telefone do usuário se editados.

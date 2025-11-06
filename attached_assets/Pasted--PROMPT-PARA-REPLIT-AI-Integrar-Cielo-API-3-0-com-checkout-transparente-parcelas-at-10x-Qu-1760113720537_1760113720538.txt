@@ -1,0 +1,166 @@
+🧠 PROMPT PARA REPLIT AI — Integrar Cielo (API 3.0) com checkout transparente + parcelas até 10x
+
+Quero migrar o checkout do meu app para a Cielo eCommerce (API 3.0), sem redirecionar (captura de dados do cartão no meu front → envio ao meu backend → backend chama a API da Cielo).
+Implemente do zero (ou ajuste o que existir) seguindo exatamente:
+
+1) Requisitos funcionais
+
+Produto: Ingresso (preço unitário definido por env).
+
+O usuário escolhe quantidade (>=1) e parcelas (1..10) sem juros.
+
+Descrição/softDescriptor: 4º Clube do Grito (cortar/acertar para o limite da Cielo, sem acento; usar env).
+
+OrderId: sequencial do meu sistema, começando a partir de ...000003 (persistido em DB para não repetir).
+
+3DS 2.0: habilitar Authenticate=true no payment (quando suportado) + ReturnUrl para tratar challenge.
+
+Sandbox primeiro, depois produção.
+
+2) Credenciais e env
+
+Criar variáveis de ambiente (não hard-code):
+
+CIELO_ENV=sandbox                 # sandbox | prod
+CIELO_MERCHANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+CIELO_MERCHANT_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+INGRESSO_UNIT_PRICE_CENTS=100000  # R$ 1.000,00
+CIELO_SOFT_DESCRIPTOR=4CLUBEDOGRITO
+PUBLIC_URL=https://meu-dominio.com.br
+
+
+Headers obrigatórios: MerchantId, MerchantKey, Content-Type: application/json.
+
+Endpoints:
+
+Sandbox: https://apisandbox.cieloecommerce.cielo.com.br/1/sales/
+
+Produção: https://api.cieloecommerce.cielo.com.br/1/sales/
+
+3) Backend (Node/Express)
+
+Criar rotas:
+
+POST /api/pagamentos/cielo/checkout
+
+Body:
+
+{
+  qty: number,                  // >=1
+  installments: number,         // 1..10 (sem juros)
+  card: {
+    holder: string,
+    number: string,
+    expirationMonth: string,    // "12"
+    expirationYear: string,     // "2030"
+    securityCode: string,       // "123"
+    brand?: "Visa"|"Master"|"Amex"|"Elo"|"Hipercard"
+  }
+}
+
+
+Regras:
+
+amount = INGRESSO_UNIT_PRICE_CENTS * qty (inteiro, em centavos).
+
+brand pode ser deduzida pelo BIN se não vier.
+
+installments fora de 1..10 → 400.
+
+3DS: enviar Authenticate: true e ReturnUrl: ${PUBLIC_URL}/pagamento/cielo/retorno.
+
+Capture: true (captura imediata).
+
+SoftDescriptor: sanitizar (sem acento, máx. permitido), usar env.
+
+Request JSON para Cielo (POST /1/sales/):
+
+{
+  "MerchantOrderId": "ING-2025-000123",
+  "Customer": { "Name": "Convidado" },
+  "Payment": {
+    "Type": "CreditCard",
+    "Amount": 100000,
+    "Installments": 3,
+    "Capture": true,
+    "Authenticate": true,
+    "SoftDescriptor": "4CLUBEDOGRITO",
+    "ReturnUrl": "https://meu-dominio.com.br/pagamento/cielo/retorno?orderId=ING-2025-000123",
+    "CreditCard": {
+      "CardNumber": "5448280000000007",
+      "Holder": "ELOIZA",
+      "ExpirationDate": "12/2036",
+      "SecurityCode": "123",
+      "Brand": "Master"
+    }
+  }
+}
+
+
+Resposta ao front:
+
+Em sucesso (2xx): devolver { ok:true, orderId, paymentId, status, tid, authorizationCode } extraindo de response.Payment.
+
+Em erro: repassar status, Code/Message retornados pela Cielo com { ok:false, gateway:"cielo", status, code, message }.
+
+Logs seguros: nunca logar PAN/CVV/keys; logar somente orderId, amount, installments, env.
+
+GET /api/pagamentos/cielo/status/:paymentId
+
+Faz GET no /1/sales/{paymentId} e retorna o status (para pooling no front se necessário).
+
+POST /pagamento/cielo/retorno
+
+ReturnUrl do 3DS: receber callback/redirect, ler orderId e confirmar status consultando paymentId salvo.
+
+(Opcional) POST /api/pagamentos/cielo/cancelar
+
+PUT /1/sales/{paymentId}/void (cancelamento total) — só estrutura.
+
+4) Front-end
+
+Modal “Pagar com Cielo”:
+
+Quantidade (1..N).
+
+Parcelas (sem juros) 1..10; mostrar x de R$ ....
+
+Campos de cartão + máscara (número, validade MM/AAAA, CVV).
+
+fetch("/api/pagamentos/cielo/checkout") com method: POST e headers: application/json.
+
+Tratar respostas:
+
+Se vier ok:true + status de autorizado/capturado, mostrar sucesso.
+
+Se houver 3DS challenge, a Cielo redireciona/retorna via ReturnUrl; exibir “confirmando pagamento...” e consultar status.
+
+Em erro, exibir message retornada pelo backend.
+
+5) Segurança/Conformidade
+
+Página do cartão servida via HTTPS.
+
+Não armazenar PAN/CVV; apenas PaymentId, TID, AuthorizationCode, OrderId, status.
+
+Rate-limit na rota de checkout e validações de payload.
+
+Se já temos um cofre/serviço de segredos, reusar; senão, ler MerchantId/Key de env apenas no servidor.
+
+Seguir PCI SAQ A-EP (captura no front, processamento no backend).
+
+6) Testes (sandbox)
+
+Criar script npm run test:cielo:sanity que:
+
+Verifica MerchantId/Key presentes.
+
+Faz uma venda de R$ 1,00 em 1x com cartão de teste e mostra status.
+
+Criar endpoint GET /health para ver se o servidor reiniciou.
+
+7) Fallback (opcional)
+
+Manter um botão oculto “Pagar via página hospedada (Checkout Cielo)” usando o form action=".../buynow" apenas como contingência. Não usar por padrão.
+
+Entregue o código completo das rotas, helpers de headers Cielo, validações, mapeamento de marcas por BIN, e a tela do front. Se algo já existir, refatore para este padrão sem quebrar o PIX e o checkout atual.

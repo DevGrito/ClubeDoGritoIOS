@@ -1,0 +1,319 @@
+ Service Worker registrado com sucesso!
+ Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+ 🔵 [OMIE HOOK] Iniciando busca de dados financeiros...
+ Conselho page - userData: {"success":true,"user":{"id":35,"nome":"Juliana  Correa","email":"marketing@institutoogrito.org","telefone":"+5531999887766","papel":"conselho","verificado":true,"conselhoStatus":"aprovado"}}
+ Conselho page - userPapel: conselho
+ Conselho page - userPhone: +5531999887766
+ Conselho page - isAuthorized by role: true
+ 🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /conselho
+ 🔍 [USER SESSION] userPapel: conselho
+ 🔍 [USER SESSION] userEmail: marketing@institutoogrito.org
+ 🔍 [USER SESSION] isVerified: true
+ 🔍 [USER SESSION] hasActiveSubscription: null
+ 🔍 [ALLOWED ROLES] Route expects: conselho, conselheiro
+ 🔍 [ROLE ROUTES] User role allows: /, /plans, /conselho, /central-ajuda
+ 🚨🚨🚨 [LEO DEBUG FORCE] SEMPRE EXECUTAR
+ 📧 Email: "marketing@institutoogrito.org"
+ 📱 Telefone: "+5531999887766"
+ 🆔 UserID: "35"
+ 🔍 [GLOBAL LEO CHECK] Email: false, Phone: false, CurrentID: 35
+ 🔍 [GLOBAL LEO CHECK] IsLeo final: false
+ 🔵 [OMIE HOOK] Iniciando busca de dados financeiros...
+ Conselho page - userData: {"success":true,"user":{"id":35,"nome":"Juliana  Correa","email":"marketing@institutoogrito.org","telefone":"+5531999887766","papel":"conselho","verificado":true,"conselhoStatus":"aprovado"}}
+ Conselho page - userPapel: conselho
+ Conselho page - userPhone: +5531999887766
+ Conselho page - isAuthorized by role: true
+ 🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /conselho
+ 🔍 [USER SESSION] userPapel: conselho
+ 🔍 [USER SESSION] userEmail: marketing@institutoogrito.org
+ 🔍 [USER SESSION] isVerified: true
+ 🔍 [USER SESSION] hasActiveSubscription: null
+ 🔍 [ALLOWED ROLES] Route expects: conselho, conselheiro
+ 🔍 [ROLE ROUTES] User role allows: /, /plans, /conselho, /central-ajuda
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🔍 [DATE DEBUG] Período: mensal, Start: 2025-09-01T03:00:00.000Z, End: 2025-09-25
+ 🎛️ [FILTROS] Renderizando filtros dinâmicos: Object
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ 📍 [CONSELHO KPI SECTION] Iniciando fetchKpiData com filtros: Object
+ 🔄 [CONSELHO KPI] Buscando dados com filtros: Object
+ 🎯 [TODOS OS KPIS] Iniciando busca com filtros: Object
+ 👶 [CRIANÇAS] Buscando dados mensais para período: mensal
+ 🎓 [PESSOAS] Buscando dados mensais para período: mensal
+ 🏠 [FAMÍLIAS] Buscando dados mensais para período: mensal
+ ⚡ [MÉTODO GRITO] Buscando dados mensais para período: mensal
+ 🔵 [OMIE HOOK] Iniciando busca de dados financeiros...
+ 🔄 [DASHBOARD] Detectada mudança no filtroArea: 
+ ⚠️ [DASHBOARD] refetchWithFilter não é uma função, usando refetch como fallback
+(anonymous) @ DashboardFinanceiro.tsx:62
+ 🔵 [OMIE HOOK] Iniciando busca de dados financeiros...
+ 🔵 [OMIE HOOK] Iniciando busca de dados financeiros...
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ Injected CSS loaded successfully
+ 🔧 [FINANCEIRO] Usando mock para série
+ 🔧 [FINANCEIRO] Usando mock para resumo
+ 🔧 [FINANCEIRO] Usando mock para comparativo
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🎛️ [FILTROS] Renderizando filtros dinâmicos: Object
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ Conselho page - userData: {"success":true,"user":{"id":35,"nome":"Juliana  Correa","email":"marketing@institutoogrito.org","telefone":"+5531999887766","papel":"conselho","verificado":true,"conselhoStatus":"aprovado"}}
+ Conselho page - userPapel: conselho
+ Conselho page - userPhone: +5531999887766
+ Conselho page - isAuthorized by role: true
+ 🔧 [FINANCEIRO] Usando mock para rubrica
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 156
+ 👶 [CRIANÇAS] Casa Sonhar: {"1":0,"2":165,"3":154,"4":156,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 156
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Polo Glória: {"1":26,"2":165,"3":151,"4":149,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Sala Serenata: {"1":26,"2":42,"3":36,"4":35,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 104
+ 👶 [CRIANÇAS] CURSOS PRESENCIAL: {"1":29,"2":30,"3":34,"4":30,"5":36,"6":42,"7":32,"8":104,"9":0,"10":40,"11":33,"12":36} → 104
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 41
+ 👶 [CRIANÇAS] LAB. VOZES DO FUTURO: {"1":57,"2":57,"3":72,"4":19,"5":21,"6":24,"7":19,"8":41,"9":0,"10":23,"11":19,"12":21} → 41
+ 👶 [CRIANÇAS] Total final: 365
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 25
+ 🎓 [PESSOAS] CURSOS EAD CGD: {"1":41,"2":14,"3":8,"4":47,"5":52,"6":61,"7":47,"8":25,"9":0,"10":58,"11":48,"12":52} → 25
+ 📅 [MENSAL] Mês 9: 0
+ 🎓 [PESSOAS] LAB. VOZES DO FUTURO: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+ 📅 [MENSAL] Mês 9: 0
+ 🎓 [PESSOAS] Laboratório Vozes do Futuro: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+ 🎓 [PESSOAS] Total final: 25
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 217
+ 🏠 [FAMÍLIAS] DECOLAGEM: {"1":238,"2":219,"3":219,"4":217,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 217
+ 🏠 [FAMÍLIAS] Total final: 217
+conselho:1 Error while trying to use the following icon from the Manifest: https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/icons/icon-192.png (Download error or resource isn't a valid image)
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 304
+ ⚡ [MÉTODO GRITO] ATIVIDADE TRANSVERSAL: {"1":0,"2":0,"3":463,"4":304,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 304
+ ⚡ [MÉTODO GRITO] Total final: 304
+ 🎯 [TODOS OS KPIS] Resultado final: Object
+ ✅ [CONSELHO KPI] Dados recebidos: Object
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🎯 [CONSELHO KPI SECTION] handleApplyFilters chamado com filtros: Object
+ 📍 [CONSELHO KPI SECTION] Iniciando fetchKpiData com filtros: Object
+ 🔄 [CONSELHO KPI] Buscando dados com filtros: Object
+ 🎯 [TODOS OS KPIS] Iniciando busca com filtros: Object
+ 👶 [CRIANÇAS] Buscando dados mensais para período: mensal
+ 🎓 [PESSOAS] Buscando dados mensais para período: mensal
+ 🏠 [FAMÍLIAS] Buscando dados mensais para período: mensal
+ ⚡ [MÉTODO GRITO] Buscando dados mensais para período: mensal
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 156
+ 👶 [CRIANÇAS] Casa Sonhar: {"1":0,"2":165,"3":154,"4":156,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 156
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Polo Glória: {"1":26,"2":165,"3":151,"4":149,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Sala Serenata: {"1":26,"2":42,"3":36,"4":35,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 104
+ 👶 [CRIANÇAS] CURSOS PRESENCIAL: {"1":29,"2":30,"3":34,"4":30,"5":36,"6":42,"7":32,"8":104,"9":0,"10":40,"11":33,"12":36} → 104
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 41
+ 👶 [CRIANÇAS] LAB. VOZES DO FUTURO: {"1":57,"2":57,"3":72,"4":19,"5":21,"6":24,"7":19,"8":41,"9":0,"10":23,"11":19,"12":21} → 41
+ 👶 [CRIANÇAS] Total final: 365
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 25
+ 🎓 [PESSOAS] CURSOS EAD CGD: {"1":41,"2":14,"3":8,"4":47,"5":52,"6":61,"7":47,"8":25,"9":0,"10":58,"11":48,"12":52} → 25
+ 📅 [MENSAL] Mês 9: 0
+ 🎓 [PESSOAS] LAB. VOZES DO FUTURO: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+ 📅 [MENSAL] Mês 9: 0
+ 🎓 [PESSOAS] Laboratório Vozes do Futuro: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+ 🎓 [PESSOAS] Total final: 25
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 217
+ 🏠 [FAMÍLIAS] DECOLAGEM: {"1":238,"2":219,"3":219,"4":217,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 217
+ 🏠 [FAMÍLIAS] Total final: 217
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 304
+ ⚡ [MÉTODO GRITO] ATIVIDADE TRANSVERSAL: {"1":0,"2":0,"3":463,"4":304,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 304
+ ⚡ [MÉTODO GRITO] Total final: 304
+ 🎯 [TODOS OS KPIS] Resultado final: Object
+ ✅ [CONSELHO KPI] Dados recebidos: Object
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🔍 [DATE DEBUG] Período: trimestral, Start: 2025-07-01T03:00:00.000Z, End: 2025-09-25
+ 🔄 [FILTERS] Período alterado para: trimestral, Start: 2025-07-01, End: 2025-09-25
+ 🎯 [CONSELHO KPI SECTION] handleApplyFilters chamado com filtros: Object
+ 📍 [CONSELHO KPI SECTION] Iniciando fetchKpiData com filtros: Object
+ 🔄 [CONSELHO KPI] Buscando dados com filtros: Object
+ 🎯 [TODOS OS KPIS] Iniciando busca com filtros: Object
+ 👶 [CRIANÇAS] Buscando dados mensais para período: mensal
+ 🎓 [PESSOAS] Buscando dados mensais para período: mensal
+ 🏠 [FAMÍLIAS] Buscando dados mensais para período: mensal
+ ⚡ [MÉTODO GRITO] Buscando dados mensais para período: mensal
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ ✅ [OMIE HOOK] Dados consolidados recebidos: Object
+ ✅ [OMIE HOOK] Contas a receber carregadas: 50
+ ⚠️ [OMIE HOOK] Erro ao carregar contas a pagar: HTTP 429: Too Many Requests
+fetchOmieData @ useOmieData.js:88
+ ⚠️ [OMIE HOOK] Erro ao carregar contas correntes: undefined
+fetchOmieData @ useOmieData.js:96
+ 📊 [OMIE HOOK] Indicadores brutos recebidos: Object
+ 📊 [OMIE HOOK] Valores parseados - Captado: 0 Realizado: 0
+ ⚠️ [OMIE HOOK] Indicadores zerados/ausentes - usando cálculo local
+ 📊 [OMIE HOOK] Indicadores calculados localmente: Object
+ ✅ [OMIE HOOK] Indicadores finais: Object
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ 🔄 [DASHBOARD] Aplicando filtros - Período: Object Área: 
+ ⚙️ [DASHBOARD] Filtro de período aplicado localmente
+ ✅ [DASHBOARD] Dados filtrados: Object
+ ✅ [OMIE HOOK] Dados consolidados recebidos: Object
+ ✅ [OMIE HOOK] Contas a receber carregadas: 50
+ ⚠️ [OMIE HOOK] Erro ao carregar contas a pagar: HTTP 429: Too Many Requests
+fetchOmieData @ useOmieData.js:88
+ ⚠️ [OMIE HOOK] Erro ao carregar contas correntes: undefined
+fetchOmieData @ useOmieData.js:96
+ 📊 [OMIE HOOK] Indicadores brutos recebidos: Object
+ 📊 [OMIE HOOK] Valores parseados - Captado: 0 Realizado: 0
+ ⚠️ [OMIE HOOK] Indicadores zerados/ausentes - usando cálculo local
+ 📊 [OMIE HOOK] Indicadores calculados localmente: Object
+ ✅ [OMIE HOOK] Indicadores finais: Object
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ 🎛️ [FILTROS] Renderizando filtros dinâmicos: Object
+ 🔧 [DASHBOARD] Renderizando com filtros: Object Área: 
+ 🔄 [DASHBOARD] Aplicando filtros - Período: Object Área: 
+ ⚙️ [DASHBOARD] Filtro de período aplicado localmente
+ ✅ [DASHBOARD] Dados filtrados: Object
+ 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ ✅ [OMIE HOOK] Dados consolidados recebidos: Object
+ ✅ [OMIE HOOK] Contas a receber carregadas: 50
+ ⚠️ [OMIE HOOK] Erro ao carregar contas a pagar: HTTP 429: Too Many Requests
+fetchOmieData @ useOmieData.js:88
+ ⚠️ [OMIE HOOK] Erro ao carregar contas correntes: undefined
+fetchOmieData @ useOmieData.js:96
+ 📊 [OMIE HOOK] Indicadores brutos recebidos: Object
+ 📊 [OMIE HOOK] Valores parseados - Captado: 0 Realizado: 0
+ ⚠️ [OMIE HOOK] Indicadores zerados/ausentes - usando cálculo local
+ 📊 [OMIE HOOK] Indicadores calculados localmente: Object
+ ✅ [OMIE HOOK] Indicadores finais: Object
+ ✅ [OMIE HOOK] Dados consolidados recebidos: Object
+ ✅ [OMIE HOOK] Contas a receber carregadas: 50
+ ⚠️ [OMIE HOOK] Erro ao carregar contas a pagar: HTTP 429: Too Many Requests
+fetchOmieData @ useOmieData.js:88
+ ⚠️ [OMIE HOOK] Erro ao carregar contas correntes: undefined
+fetchOmieData @ useOmieData.js:96
+ 📊 [OMIE HOOK] Indicadores brutos recebidos: Object
+ 📊 [OMIE HOOK] Valores parseados - Captado: 0 Realizado: 0
+ ⚠️ [OMIE HOOK] Indicadores zerados/ausentes - usando cálculo local
+ 📊 [OMIE HOOK] Indicadores calculados localmente: Object
+ ✅ [OMIE HOOK] Indicadores finais: Object
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 156
+ 👶 [CRIANÇAS] Casa Sonhar: {"1":0,"2":165,"3":154,"4":156,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 156
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Polo Glória: {"1":26,"2":165,"3":151,"4":149,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 32
+ 👶 [CRIANÇAS] Sala Serenata: {"1":26,"2":42,"3":36,"4":35,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 32
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 104
+ 👶 [CRIANÇAS] CURSOS PRESENCIAL: {"1":29,"2":30,"3":34,"4":30,"5":36,"6":42,"7":32,"8":104,"9":0,"10":40,"11":33,"12":36} → 104
+ 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 41
+ 👶 [CRIANÇAS] LAB. VOZES DO FUTURO: {"1":57,"2":57,"3":72,"4":19,"5":21,"6":24,"7":19,"8":41,"9":0,"10":23,"11":19,"12":21} → 41
+conselhoService.ts:300 👶 [CRIANÇAS] Total final: 365
+conselhoService.ts:152 📅 [MENSAL] Mês atual 9 sem dados, usando mês 8: 25
+conselhoService.ts:322 🎓 [PESSOAS] CURSOS EAD CGD: {"1":41,"2":14,"3":8,"4":47,"5":52,"6":61,"7":47,"8":25,"9":0,"10":58,"11":48,"12":52} → 25
+conselhoService.ts:158 📅 [MENSAL] Mês 9: 0
+conselhoService.ts:322 🎓 [PESSOAS] LAB. VOZES DO FUTURO: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:158 📅 [MENSAL] Mês 9: 0
+conselhoService.ts:322 🎓 [PESSOAS] Laboratório Vozes do Futuro: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:326 🎓 [PESSOAS] Total final: 25
+conselhoService.ts:152 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 217
+conselhoService.ts:350 🏠 [FAMÍLIAS] DECOLAGEM: {"1":238,"2":219,"3":219,"4":217,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 217
+conselhoService.ts:355 🏠 [FAMÍLIAS] Total final: 217
+conselhoService.ts:152 📅 [MENSAL] Mês atual 9 sem dados, usando mês 4: 304
+conselhoService.ts:377 ⚡ [MÉTODO GRITO] ATIVIDADE TRANSVERSAL: {"1":0,"2":0,"3":463,"4":304,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 304
+conselhoService.ts:381 ⚡ [MÉTODO GRITO] Total final: 304
+conselhoService.ts:409 🎯 [TODOS OS KPIS] Resultado final: Object
+ConselhoKpisSection.tsx:45 ✅ [CONSELHO KPI] Dados recebidos: Object
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ConselhoKpisSection.tsx:73 🎯 [CONSELHO KPI SECTION] handleApplyFilters chamado com filtros: Object
+ConselhoKpisSection.tsx:38 📍 [CONSELHO KPI SECTION] Iniciando fetchKpiData com filtros: Object
+ConselhoKpisSection.tsx:43 🔄 [CONSELHO KPI] Buscando dados com filtros: Object
+conselhoService.ts:392 🎯 [TODOS OS KPIS] Iniciando busca com filtros: Object
+conselhoService.ts:286 👶 [CRIANÇAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:312 🎓 [PESSOAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:338 🏠 [FAMÍLIAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:367 ⚡ [MÉTODO GRITO] Buscando dados mensais para período: trimestral
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 156
+conselhoService.ts:296 👶 [CRIANÇAS] Casa Sonhar: {"1":0,"2":165,"3":154,"4":156,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 156
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 31
+conselhoService.ts:296 👶 [CRIANÇAS] Polo Glória: {"1":26,"2":165,"3":151,"4":149,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 31
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 31
+conselhoService.ts:296 👶 [CRIANÇAS] Sala Serenata: {"1":26,"2":42,"3":36,"4":35,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 31
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 68
+conselhoService.ts:296 👶 [CRIANÇAS] CURSOS PRESENCIAL: {"1":29,"2":30,"3":34,"4":30,"5":36,"6":42,"7":32,"8":104,"9":0,"10":40,"11":33,"12":36} → 68
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 30
+conselhoService.ts:296 👶 [CRIANÇAS] LAB. VOZES DO FUTURO: {"1":57,"2":57,"3":72,"4":19,"5":21,"6":24,"7":19,"8":41,"9":0,"10":23,"11":19,"12":21} → 30
+conselhoService.ts:300 👶 [CRIANÇAS] Total final: 316
+financeiroService.ts:105 🔧 [FINANCEIRO] Usando mock para resumo
+financeiroService.ts:145 🔧 [FINANCEIRO] Usando mock para comparativo
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 36
+conselhoService.ts:322 🎓 [PESSOAS] CURSOS EAD CGD: {"1":41,"2":14,"3":8,"4":47,"5":52,"6":61,"7":47,"8":25,"9":0,"10":58,"11":48,"12":52} → 36
+conselhoService.ts:188 📅 [TRIMESTRAL] Nenhum trimestre com dados disponível
+conselhoService.ts:322 🎓 [PESSOAS] LAB. VOZES DO FUTURO: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:188 📅 [TRIMESTRAL] Nenhum trimestre com dados disponível
+conselhoService.ts:322 🎓 [PESSOAS] Laboratório Vozes do Futuro: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:326 🎓 [PESSOAS] Total final: 36
+financeiroService.ts:124 🔧 [FINANCEIRO] Usando mock para série
+financeiroService.ts:167 🔧 [FINANCEIRO] Usando mock para rubrica
+useOmieData.js:65 ✅ [OMIE HOOK] Dados consolidados recebidos: Object
+useOmieData.js:78 ✅ [OMIE HOOK] Contas a receber carregadas: 50
+useOmieData.js:86 ✅ [OMIE HOOK] Contas a pagar carregadas: 50
+useOmieData.js:96 ⚠️ [OMIE HOOK] Erro ao carregar contas correntes: undefined
+fetchOmieData @ useOmieData.js:96
+useOmieData.js:102 ✅ [OMIE HOOK] Projetos carregados: 0
+useOmieData.js:108 ✅ [OMIE HOOK] Categorias carregadas: 100
+useOmieData.js:119 📊 [OMIE HOOK] Indicadores brutos recebidos: Object
+useOmieData.js:125 📊 [OMIE HOOK] Valores parseados - Captado: 0 Realizado: 0
+useOmieData.js:132 ⚠️ [OMIE HOOK] Indicadores zerados/ausentes - usando cálculo local
+useOmieData.js:134 📊 [OMIE HOOK] Indicadores calculados localmente: Object
+useOmieData.js:137 ✅ [OMIE HOOK] Indicadores finais: Object
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 217
+conselhoService.ts:350 🏠 [FAMÍLIAS] DECOLAGEM: {"1":238,"2":219,"3":219,"4":217,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 217
+conselhoService.ts:355 🏠 [FAMÍLIAS] Total final: 217
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 304
+conselhoService.ts:377 ⚡ [MÉTODO GRITO] ATIVIDADE TRANSVERSAL: {"1":0,"2":0,"3":463,"4":304,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 304
+conselhoService.ts:381 ⚡ [MÉTODO GRITO] Total final: 304
+conselhoService.ts:409 🎯 [TODOS OS KPIS] Resultado final: Object
+ConselhoKpisSection.tsx:45 ✅ [CONSELHO KPI] Dados recebidos: Object
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+conselhoService.ts:443 🔍 [DATE DEBUG] Período: semestral, Start: 2025-07-01T03:00:00.000Z, End: 2025-09-25
+KpiFilters.tsx:26 🔄 [FILTERS] Período alterado para: semestral, Start: 2025-07-01, End: 2025-09-25
+ConselhoKpisSection.tsx:73 🎯 [CONSELHO KPI SECTION] handleApplyFilters chamado com filtros: Object
+ConselhoKpisSection.tsx:38 📍 [CONSELHO KPI SECTION] Iniciando fetchKpiData com filtros: Object
+ConselhoKpisSection.tsx:43 🔄 [CONSELHO KPI] Buscando dados com filtros: Object
+conselhoService.ts:392 🎯 [TODOS OS KPIS] Iniciando busca com filtros: Object
+conselhoService.ts:286 👶 [CRIANÇAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:312 🎓 [PESSOAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:338 🏠 [FAMÍLIAS] Buscando dados mensais para período: trimestral
+conselhoService.ts:367 ⚡ [MÉTODO GRITO] Buscando dados mensais para período: trimestral
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 156
+conselhoService.ts:296 👶 [CRIANÇAS] Casa Sonhar: {"1":0,"2":165,"3":154,"4":156,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 156
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 31
+conselhoService.ts:296 👶 [CRIANÇAS] Polo Glória: {"1":26,"2":165,"3":151,"4":149,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 31
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 31
+conselhoService.ts:296 👶 [CRIANÇAS] Sala Serenata: {"1":26,"2":42,"3":36,"4":35,"5":33,"6":39,"7":30,"8":32,"9":0,"10":37,"11":31,"12":33} → 31
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 68
+conselhoService.ts:296 👶 [CRIANÇAS] CURSOS PRESENCIAL: {"1":29,"2":30,"3":34,"4":30,"5":36,"6":42,"7":32,"8":104,"9":0,"10":40,"11":33,"12":36} → 68
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 30
+conselhoService.ts:296 👶 [CRIANÇAS] LAB. VOZES DO FUTURO: {"1":57,"2":57,"3":72,"4":19,"5":21,"6":24,"7":19,"8":41,"9":0,"10":23,"11":19,"12":21} → 30
+conselhoService.ts:300 👶 [CRIANÇAS] Total final: 316
+conselhoService.ts:183 📅 [TRIMESTRAL] Q3 (meses 7-9), média de 2 meses: 36
+conselhoService.ts:322 🎓 [PESSOAS] CURSOS EAD CGD: {"1":41,"2":14,"3":8,"4":47,"5":52,"6":61,"7":47,"8":25,"9":0,"10":58,"11":48,"12":52} → 36
+conselhoService.ts:188 📅 [TRIMESTRAL] Nenhum trimestre com dados disponível
+conselhoService.ts:322 🎓 [PESSOAS] LAB. VOZES DO FUTURO: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:188 📅 [TRIMESTRAL] Nenhum trimestre com dados disponível
+conselhoService.ts:322 🎓 [PESSOAS] Laboratório Vozes do Futuro: {"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 0
+conselhoService.ts:326 🎓 [PESSOAS] Total final: 36
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 217
+conselhoService.ts:350 🏠 [FAMÍLIAS] DECOLAGEM: {"1":238,"2":219,"3":219,"4":217,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 217
+conselhoService.ts:355 🏠 [FAMÍLIAS] Total final: 217
+conselhoService.ts:183 📅 [TRIMESTRAL] Q2 (meses 4-6), média de 1 meses: 304
+conselhoService.ts:377 ⚡ [MÉTODO GRITO] ATIVIDADE TRANSVERSAL: {"1":0,"2":0,"3":463,"4":304,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0} → 304
+conselhoService.ts:381 ⚡ [MÉTODO GRITO] Total final: 304
+conselhoService.ts:409 🎯 [TODOS OS KPIS] Resultado final: {criancasImpactadas: 316, pessoasFormadas: 36, familiasAcompanhadas: 217, atendimentosMetodoGrito: 304}
+ConselhoKpisSection.tsx:45 ✅ [CONSELHO KPI] Dados recebidos: {criancasImpactadas: 316, pessoasFormadas: 36, familiasAcompanhadas: 217, atendimentosMetodoGrito: 304}
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+ConselhoKpisSection.tsx:10 📍 [CONSELHO KPI SECTION] Componente renderizado!
+financeiroService.ts:105 🔧 [FINANCEIRO] Usando mock para resumo
+financeiroService.ts:124 🔧 [FINANCEIRO] Usando mock para série
+financeiroService.ts:145 🔧 [FINANCEIRO] Usando mock para comparativo
+financeiroService.ts:167 🔧 [FINANCEIRO] Usando mock para rubrica

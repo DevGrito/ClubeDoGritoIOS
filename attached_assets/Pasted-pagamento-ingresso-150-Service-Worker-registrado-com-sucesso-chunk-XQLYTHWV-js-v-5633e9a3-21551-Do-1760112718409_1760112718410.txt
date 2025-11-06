@@ -1,0 +1,79 @@
+pagamento-ingresso:150 Service Worker registrado com sucesso!
+chunk-XQLYTHWV.js?v=5633e9a3:21551 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+multi-tabs.js:5075 Injected CSS loaded successfully
+pagamento-ingresso.tsx:578  POST https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/api/pagamentos/rede/checkout 401 (Unauthorized)
+handleRedeSubmit @ pagamento-ingresso.tsx:578
+await in handleRedeSubmit
+callCallback2 @ chunk-XQLYTHWV.js?v=5633e9a3:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=5633e9a3:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=5633e9a3:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=5633e9a3:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=5633e9a3:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=5633e9a3:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=5633e9a3:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=5633e9a3:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=5633e9a3:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=5633e9a3:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=5633e9a3:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=5633e9a3:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=5633e9a3:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5449
+main.tsx:103 ❌ Erro ao processar Rede: Error: Erro ao processar pagamento
+    at handleRedeSubmit (pagamento-ingresso.tsx:622:15)
+console.error @ main.tsx:103
+handleRedeSubmit @ pagamento-ingresso.tsx:625
+await in handleRedeSubmit
+callCallback2 @ chunk-XQLYTHWV.js?v=5633e9a3:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=5633e9a3:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=5633e9a3:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=5633e9a3:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=5633e9a3:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=5633e9a3:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=5633e9a3:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=5633e9a3:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=5633e9a3:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=5633e9a3:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=5633e9a3:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=5633e9a3:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=5633e9a3:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5449
+pagamento-ingresso.tsx:578  POST https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/api/pagamentos/rede/checkout 401 (Unauthorized)
+handleRedeSubmit @ pagamento-ingresso.tsx:578
+await in handleRedeSubmit
+callCallback2 @ chunk-XQLYTHWV.js?v=5633e9a3:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=5633e9a3:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=5633e9a3:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=5633e9a3:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=5633e9a3:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=5633e9a3:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=5633e9a3:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=5633e9a3:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=5633e9a3:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=5633e9a3:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=5633e9a3:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=5633e9a3:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=5633e9a3:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5449
+main.tsx:103 ❌ Erro ao processar Rede: Error: Erro ao processar pagamento
+    at handleRedeSubmit (pagamento-ingresso.tsx:622:15)
+console.error @ main.tsx:103
+handleRedeSubmit @ pagamento-ingresso.tsx:625
+await in handleRedeSubmit
+callCallback2 @ chunk-XQLYTHWV.js?v=5633e9a3:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=5633e9a3:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=5633e9a3:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=5633e9a3:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=5633e9a3:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=5633e9a3:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=5633e9a3:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=5633e9a3:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=5633e9a3:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=5633e9a3:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=5633e9a3:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=5633e9a3:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=5633e9a3:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=5633e9a3:5449

@@ -1,0 +1,116 @@
+O que o Replit precisa implementar
+🔹 1. Nova rota / página de pagamento via link
+
+Criar uma rota separada, por exemplo:
+/pagamento/ingresso
+
+Nessa página o usuário vai clicar em “Comprar ingresso” → isso chama a API que cria um Checkout Session no Stripe.
+
+Exemplo no backend:
+
+import express from "express";
+import Stripe from "stripe";
+
+const router = express.Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20",
+});
+
+// Cria link de pagamento para ingresso
+router.post("/create-ingresso-session", async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "brl",
+            product_data: {
+              name: "Ingresso Clube do Grito",
+            },
+            unit_amount: 1990, // R$19,90
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: `${process.env.APP_URL}/ingresso/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL}/ingresso/cancelado`,
+    });
+    res.json({ url: session.url });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;
+
+
+👉 Isso gera um link do Stripe. O usuário é redirecionado para o checkout seguro, finaliza a compra, e depois volta para a página de sucesso do seu app.
+
+🔹 2. Webhook para confirmar pagamento
+
+No backend, criar um endpoint /webhook para ouvir o Stripe.
+
+Quando o pagamento for confirmado, gerar o ingresso:
+
+router.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err: any) {
+    return res.status(400).send(`Webhook error: ${err.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    // 👉 Aqui gera ingresso no banco
+    // 1. Buscar último número
+    // 2. Criar novo ingresso (001, 002…)
+    // 3. Vincular ao usuário
+  }
+
+  res.json({ received: true });
+});
+
+🔹 3. Página de exibição do ingresso
+
+Após sucesso, o usuário volta para /ingresso/sucesso.
+
+Nessa página, buscar no banco os ingressos do usuário e mostrar no carrossel de ingressos (como você desenhou).
+
+O template é fixo (logo, data, hora), só muda o número sequencial.
+
+🔹 4. Checkout transparente (fluxo separado)
+
+No outro fluxo (donation/subscription), você mantém o Stripe Elements / PaymentElement dentro do app → isso é o checkout transparente.
+
+Ele fica isolado do fluxo de pagamento via link (ingressos).
+
+O que falar para o Replit
+
+Você pode pedir assim (resumido, estilo prompt):
+
+Preciso que você crie um novo fluxo de pagamento separado do que já existe.
+
+Vai ser pagamento via link de pagamento do Stripe (Checkout).
+
+Esse fluxo é independente do checkout transparente que já temos no app.
+
+Estrutura do fluxo:
+
+Página /pagamento/ingresso com botão Comprar ingresso.
+
+Backend cria sessão do Stripe e retorna session.url.
+
+Usuário é redirecionado, paga e volta para /ingresso/sucesso.
+
+Webhook do Stripe confirma pagamento e gera ingresso sequencial (001, 002…).
+
+Página /ingresso/sucesso exibe o ingresso com o template fixo (data/hora) e número sequencial.
+
+Layout do ingresso está no Figma (template).
+
+Se o usuário tiver mais de um ingresso, mostrar no carrossel com as bolinhas de navegação.

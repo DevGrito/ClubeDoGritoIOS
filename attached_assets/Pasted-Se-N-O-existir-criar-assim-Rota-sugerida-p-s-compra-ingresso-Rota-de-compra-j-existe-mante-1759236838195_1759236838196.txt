@@ -1,0 +1,122 @@
+Se NÃO existir, criar assim
+
+Rota sugerida (pós-compra): /ingresso
+Rota de compra (já existe): manter como está (ex.: /ingressos/checkout)
+
+Requisitos
+
+A página /ingresso deve:
+
+Checar se o usuário tem um ingresso válido (ex.: GET /api/ingressos/me).
+
+Se tem, renderizar o card com: data, hora, número do ingresso, imagem e carrossel.
+
+Se não tem, redirecionar para /ingressos/checkout.
+
+Ser acessível pelo ícone “Ingresso” no bottom tab.
+
+Ter URL estável e compartilhável (sem state do navegador).
+
+Exemplo (React Router DOM + TS)
+
+Adicionar rota em src/router.tsx (ou onde registramos rotas):
+
+{
+  path: "/ingresso",
+  element: <IngressoPage />
+}
+
+
+Componente src/pages/IngressoPage.tsx:
+
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+type Ticket = {
+  id: number;
+  data: string;   // ISO
+  hora: string;   // "19:30"
+  numero: string; // "001"
+  imagemUrl: string;
+};
+
+export default function IngressoPage() {
+  const nav = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/ingressos/me", { credentials: "include" });
+        if (!r.ok) throw new Error("erro");
+        const data = await r.json();               // { hasTicket: boolean, ticket?: Ticket }
+        if (!data?.hasTicket) return nav("/ingressos/checkout", { replace: true });
+        setTicket(data.ticket);
+      } catch {
+        nav("/ingressos/checkout", { replace: true });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [nav]);
+
+  if (loading) return <div className="p-4">Carregando…</div>;
+  if (!ticket) return null;
+
+  return (
+    <main className="min-h-screen flex flex-col">
+      {/* header */}
+      <header className="p-4">
+        <h1 className="text-2xl font-extrabold">INGRESSO</h1>
+        <p className="text-sm opacity-80">
+          Esse ingresso é sua chave de acesso ao <b>Clube do Grito</b>.
+        </p>
+      </header>
+
+      {/* card / carrossel */}
+      <section className="px-4 pb-24">
+        <div className="rounded-2xl shadow-lg overflow-hidden">
+          <img src={ticket.imagemUrl} alt="Ingresso" className="w-full" />
+          <div className="p-4 bg-white">
+            <p><b>Data:</b> {ticket.data}</p>
+            <p><b>Horas:</b> {ticket.hora}</p>
+            <p className="text-center text-2xl font-bold mt-2">{ticket.numero}</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+
+Bottom Tab: garantir que o item “Ingresso” navegue para "/ingresso":
+
+// onClick / to="/ingresso"
+
+Backend (se precisar)
+
+Implementar GET /api/ingressos/me (autenticado) retornando:
+
+{ "hasTicket": true, "ticket": {
+  "id": 1, "data": "2025-10-23", "hora": "19:30",
+  "numero": "001", "imagemUrl": "/assets/ingresso-iv-encontro.png"
+}}
+
+Critérios de aceite
+
+ Ao finalizar a compra, redireciona para /ingresso.
+
+ Ícone “Ingresso” do bottom tab abre /ingresso.
+
+ Se o usuário não tiver ingresso, a página redireciona para o checkout.
+
+ URL /ingresso acessível diretamente (deep link/PWA).
+
+ Rota e arquivo documentados na resposta.
+
+Como você pode me responder
+
+Caso já exista: “Existe em /ingresso — arquivo src/pages/IngressoPage.tsx — aberto pelo bottom tab ‘Ingresso’.”
+
+Caso não exista: “Criei conforme specs. Rota: /ingresso. Arquivo: src/pages/IngressoPage.tsx. Endpoint usado: GET /api/ingressos/me.”

@@ -1,0 +1,149 @@
+🧠 Prompt para Reformular a Tela do Conselho do App – 1º Semestre 2025
+Reformule a tela “Painel do Conselho” no aplicativo, utilizando os dados do 1º semestre de 2025 do Instituto O Grito. A nova tela deve ser mais visual, interativa e organizada por eixos de atuação, com cards clicáveis que abrem painéis detalhados com gráficos, informações-chave e divisão de investimento.
+Remova o botão “Ver Gestão” e evite repetir dados diretamente na tela principal — o detalhamento deve estar dentro de cada card.
+
+📱 Estrutura da Nova Tela
+1. Resumo Geral de Impacto (topo fixo)
+Exiba 4 cards com números macro do semestre:
+
+👥 Pessoas atendidas: 2.921
+
+⏱️ Horas/aula realizadas: 63.773
+
+📌 Atendimentos realizados: 26.372
+
+🌍 Pessoas impactadas: 12.476 (direta e indiretamente)
+
+2. Cards Interativos por Eixo de Atuação
+Cada eixo será exibido como um card clicável com resumo + botão "Ver Detalhes", que abre um painel com os dados completos, gráficos e informações demográficas.
+
+🏠 Casa Sonhar
+164 crianças atendidas
+
+5.670 atendimentos
+
+16.487 horas/aula
+
+Frequência: 79%
+
+Gênero: 43% masc. / 57% fem.
+
+Cor/raça: 52% pardo, 19% preto, 17% branco
+
+Faixa etária: 6 a 14 anos
+
+🏃 Polo Esportivo Cultural
+120 crianças atendidas
+
+1.892 atendimentos
+
+7.409 horas/aula
+
+Frequência: 82,2%
+
+Gênero: 43% masc. / 57% fem.
+
+Cor/raça: 63% pardo, 13% preto, 16% branco
+
+Faixa etária: 6 a 14 anos
+
+🎶 Sala Serenata
+45 pessoas atendidas
+
+637 atendimentos
+
+4.459 horas/aula
+
+Frequência: 78%
+
+Gênero: 43% masc. / 57% fem.
+
+Cor/raça: 43% pardo, 26% preto, 24% branco
+
+Faixa etária: a partir de 13 anos
+
+🧠 Psicossocial
+1.342 pessoas atendidas
+
+Gênero: 47% masc. / 53% fem.
+
+Cor/raça: 52% pardo, 19% preto, 18% branco, 0,75% indígena
+
+Faixa etária: 6 a 70+ anos
+
+💼 Inclusão Produtiva
+218 pessoas formadas
+
+122 empregados ou empreendedores
+
+2.475 atendimentos
+
+4.738 horas/aula
+
+Frequência: 95%
+
+Gênero: 81% fem. / 19% masc.
+
+Cor/raça: 24% pardo, 8% preto, 6% branco, 62% S/I
+
+Faixa etária: 14 a +70 anos
+
+🧃 Negócios Sociais
+3.556 itens vendidos
+
+5.548 itens doados
+
+1.456 pessoas atendidas em vendas
+
+1.198 pessoas atendidas em atividades coletivas
+
+1.091 peças realizadas
+
+1.921 visitas
+
+🏙️ Favela 3D
+1.517 pessoas atendidas
+
+351 atendimentos realizados
+
+215 famílias acompanhadas
+
+265 moradores empregados
+
+27 moradores qualificados
+
+50% dos espaços revitalizados
+
+37 caçambas recolhidas
+
+Investimento estimado: R$ 832.551,12 a R$ 849.577,62
+
+3. Painel de Investimentos
+Use um gráfico de pizza ou barras empilhadas com os valores por eixo e por tipo de despesa.
+
+💰 Total investido no semestre: R$ 2.438.120,83
+
+PEC / Qualificação / Psicossocial: R$ 949.167,98
+
+Favela 3D: R$ 832.551,12
+
+Griffte/Outlet: R$ 117.152,80
+
+Administrativo + estrutura + eventos: restante discriminado
+
+Sugestão: permitir filtragem por eixo ou por categoria de gasto (gente, estrutura, alimentação, transporte etc.)
+
+4. Mensagem Final do CEO
+“O Clube do Grito segue sendo um espaço de conexão entre quem se importa de verdade, quem age, quem transforma. É uma alegria ter você com a gente nessa jornada!”
+– Léo Martins
+
+🎨 Instruções de Design
+Estilo limpo, com cores do Instituto O Grito
+
+Ícones exclusivos para cada eixo
+
+Cards com animação suave na abertura
+
+Gráficos responsivos e didáticos
+
+Priorizar clareza, acessibilidade e organização

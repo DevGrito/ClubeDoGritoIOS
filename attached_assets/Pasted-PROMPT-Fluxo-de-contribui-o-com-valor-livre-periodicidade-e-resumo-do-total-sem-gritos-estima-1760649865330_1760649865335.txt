@@ -1,0 +1,144 @@
+PROMPT – Fluxo de contribuição com valor livre + periodicidade e resumo do total (sem “gritos estimados”)
+
+Contexto
+Queremos que o usuário escolha um valor mensal (ex.: R$50, R$60, R$80 ou digitado livremente) e selecione a periodicidade (Mensal, Trimestral, Semestral, Anual). O UI deve atualizar em tempo real o total do período e manter a cobrança recorrente conforme nossa estratégia (Stripe/Pix). A seção “gritos estimados” deve ser removida. O layout deve usar o mesmo padrão do layout secundário dos planos (ex.: Eco) – ou seja, abrir em Sheet/Modal com o mesmo visual.
+
+Tarefas (frontend)
+
+Criar/instalar componente DonationPlanSheet.tsx (ou equivalente) usando React + TS + shadcn/ui + Tailwind:
+
+Campo de valor mensal (formato BRL, máscara e validação).
+
+Presets rápidos (35, 50, 60, 80, 100, 150, 200).
+
+Botões segmentados para periodicidade: Mensal (1), Trimestral (3), Semestral (6), Anual (12).
+
+Resumo financeiro em tempo real:
+
+Valor mensal
+
+Meses do período
+
+Total do período = valor mensal × meses
+
+Texto explicando que a cobrança é recorrente (preview apenas).
+
+Remover qualquer bloco/elemento de “gritos estimados”.
+
+Botão “Pagar com cartão” dispara onConfirm({ amountMonthly, intervalMonths }).
+
+Reaproveitar layout do plano Eco (o layout secundário que abre quando clica):
+
+Usar Sheet/Modal do shadcn/ui
+
+Estilização padrão: rounded-2xl, sombras suaves, botões segmentados.
+
+Manter tokens/cores atuais do app.
+
+Integração de UI:
+
+Onde hoje aparece o modal antigo, substituir pelo DonationPlanSheet.
+
+trigger do componente deve ser o CTA atual (ex.: “Contribuir”).
+
+Faixa permitida: mínimo R$ 35,00, máximo R$ 50.000,00 (config via props/env).
+
+Validações de UI:
+
+Bloquear botão se valor < min ou > max, ou inválido.
+
+Manter acessibilidade (labels, foco, teclado).
+
+Remover/ocultar o bloco “Gritos estimados” de todos os lugares onde esse modal for usado.
+
+Tarefas (backend)
+
+Endpoint POST /api/checkout/subscribe
+
+Request body (JSON):
+
+{
+  "tier": "PLATINUM",          // string opcional para analytics/benefícios
+  "amountMonthly": 50,         // número em BRL (float) ou inteiro em centavos
+  "intervalMonths": 1,         // 1, 3, 6, 12
+  "paymentMethod": "card"      // por ora, "card"; preparar para "pix" futuramente
+}
+
+
+Response (200):
+
+{
+  "checkoutUrl": "https://...",     // se usar Stripe Checkout
+  "clientSecret": "pm_xxx|pi_xxx",  // se usar Payment Element
+  "subscriptionId": "sub_xxx",      // se criarmos direto
+  "status": "pending|requires_action|active"
+}
+
+
+Erros (4xx/5xx) com message.
+
+Estratégia Stripe (escolha 1 e implemente):
+
+Opção A – Cobrança sempre mensal (recomendado inicialmente):
+
+Criar/usar um único Price mensal dinâmico com unit_amount = amountMonthly * 100 (price on-the-fly via API ou tabela de prices por valor).
+
+Criar Subscription mensal.
+
+Salvar intervalMonths no BD como preferência do usuário (para benefícios/comunicação).
+
+O “total do período” permanece apenas como preview na UI (não fatura adiantado).
+
+Opção B – Preços por período:
+
+Mapear intervalMonths → priceId (mensal, trimestral, semestral, anual).
+
+Criar Subscription com o priceId correspondente.
+
+Se for dinâmico por valor, gerar Prices por valor/intervalo (cuidado com explosão de prices).
+
+Persistência (Drizzle ORM):
+
+Adicionar (se ainda não existir) campos na tabela de assinatura/usuário:
+
+donation_interval_months (int, default 1)
+
+donation_amount_monthly_cents (int)
+
+tier (string)
+
+Atualizar no momento da criação/alteração de assinatura.
+
+Validação no backend:
+
+Rejeitar se amountMonthly < 35 ou > 50000.
+
+Rejeitar intervalMonths que não sejam {1, 3, 6, 12}.
+
+Sanitizar floats (usar centavos internamente).
+
+Webhooks Stripe (se já existirem, apenas conferir):
+
+Continuar tratando invoice.paid, invoice.payment_failed, customer.subscription.updated/deleted.
+
+Sincronizar valor mensal e status da assinatura no BD.
+
+Critérios de Aceite
+
+ Ao abrir o CTA do plano, abre um Sheet/Modal com o novo layout (sem “gritos estimados”).
+
+ Usuário consegue clicar presets (35, 50, 60, 80…) ou digitar valor manualmente (BRL).
+
+ Ao mudar periodicidade (Mensal/Trimestral/Semes/Anual), o total do período atualiza imediatamente.
+
+ O botão “Pagar com cartão” só habilita se o valor estiver entre 35 e 50.000.
+
+ Ao confirmar, é feito POST /api/checkout/subscribe com { amountMonthly, intervalMonths, tier }.
+
+ Se Stripe Checkout for usado, o backend retorna checkoutUrl e o frontend redireciona.
+
+ Se Payment Element for usado, retorna clientSecret e a tela segue para o formulário de cartão.
+
+ Logs não exibem dados sensíveis; erros mostram mensagens amigáveis ao usuário.
+
+ UI mantém consistência visual com o layout secundário do plano Eco (botões segmentados, bordas 2xl, etc.).

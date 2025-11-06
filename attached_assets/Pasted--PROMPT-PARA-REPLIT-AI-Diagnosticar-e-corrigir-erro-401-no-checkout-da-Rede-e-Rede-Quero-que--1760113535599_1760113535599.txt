@@ -1,0 +1,111 @@
+🧠 PROMPT PARA REPLIT AI — Diagnosticar e corrigir erro 401 no checkout da Rede (e.Rede)
+
+Quero que você investigue e corrija o erro de pagamento. No front aparece um toast “Erro ao processar pagamento” e, no console, um POST para /api/pagamentos/rede/checkout retornando 401 (Unauthorized). Às vezes as mudanças que você faz não refletem porque o servidor não reinicia. Faça tudo abaixo:
+
+1) Identificar a origem do 401
+
+Verifique se o 401 vem do nosso backend (middleware de auth/CORS/CSRF/rota protegida) ou da e.Rede (resposta do endpoint /v1/transactions com Basic Auth inválido).
+
+No handler /api/pagamentos/rede/checkout, registre de forma segura (console.warn) o trio:
+
+source="local" quando quem devolveu 401 foi o nosso servidor (antes de chamar a Rede).
+
+source="erede", status=r.status e body.returnCode/returnMessage quando a e.Rede respondeu 401/4xx.
+
+Nunca logue PV/Token, número de cartão ou CVV. Só registre orderId, amount, installments, env, e o comprimento dos segredos (ex.: pvLen, tokenLen) para saber se estão vazios.
+
+2) Garantir que o backend não bloqueie o checkout
+
+Confirme que NENHUM middleware de autenticação de usuário (ex.: requireAdmin, requireAuth, verificação de cookie) esteja protegendo POST /api/pagamentos/rede/checkout. Se estiver, remova a proteção apenas desta rota (o checkout deve ser público, com validação de payload).
+
+Ajuste CORS:
+
+credentials: true somente se o front usar cookies/sessão.
+
+origin igual ao domínio do app (incluindo o domínio do Replit se for o caso).
+
+Se houver CSRF, libere essa rota ou inclua cabeçalho/ token necessário no fetch do front.
+
+3) Verificar montagem do Basic Auth para a e.Rede
+
+Antes de chamar a e.Rede, recupere PV/Token do serviço de segredos (ou process.env) e valide:
+
+Se ausentes → retorne 500 com mensagem clara "Credenciais da Rede não configuradas".
+
+Se presentes → monte Authorization: Basic ${base64(PV:Token)}.
+
+Logue apenas pvLen e tokenLen (>0) e env (sandbox|prod).
+
+Garanta que o endpoint está correto:
+
+Sandbox: https://sandbox-erede.useredecloud.com.br/v1/transactions
+
+Produção: https://api.userede.com.br/erede/v1/transactions
+
+4) Melhorar mensagens de erro para o front
+
+Quando a e.Rede responder != 2xx, repasse status, returnCode e returnMessage para o front (sanitizados), ex.:
+
+{ "ok": false, "gateway": "erede", "status": 401, "code": "xx", "message": "mensagem da adquirente" }
+
+
+No caso de erro local (ex.: falta de credencial), retorne:
+
+{ "ok": false, "gateway": "local", "message": "Credenciais da Rede não configuradas" }
+
+5) Checar o front (requisição)
+
+Garanta que o front chama a rota relativa "/api/pagamentos/rede/checkout" (sem domínio externo) para evitar problemas de CORS/credenciais.
+
+Se o backend depender de sessão/cookie, o fetch deve ter credentials: "include".
+
+Valide que os campos enviados são:
+
+{ qty:number>=1, installments:1..10, card:{ cardholderName, cardNumber, expirationMonth, expirationYear, securityCode } }
+
+
+Mostre no UI a mensagem amigável vinda do backend (message/returnMessage).
+
+6) Reinício do servidor (Replit)
+
+Se o servidor não estiver reiniciando, ajuste o script dev para usar nodemon/tsx --watch e confira se o Replit está usando esse script.
+
+Adicione logs de boot (console.log("[server] started", { env: process.env.REDE_ENV })) para sabermos se reiniciou.
+
+Se necessário, adicione um endpoint de healthcheck GET /health que retorna { ok:true, env, time }.
+
+7) Testes automatizados rápidos (manual/cURL)
+
+Implemente um comando npm run test:erede:sanity que:
+
+Checa presença de PV/Token.
+
+Faz um POST de exemplo para o sandbox com cartão dummy (sem expor PAN real) e captura apenas o status/returnMessage.
+
+Adicione no README a instrução de rodar esse teste.
+
+8) Checklist de segurança
+
+Não logar dados sensíveis (PAN/CVV/PV/Token).
+
+softDescriptor ≤ 22 chars (sem acento); cortar caso ultrapasse.
+
+amount sempre em centavos (inteiro).
+
+Parcelas entre 1 e 10 (sem juros no nosso pricing).
+
+9) Entregáveis
+
+Commit com mensagem: fix(rede): diagnostico 401, harden checkout, logs seguros, mensagens claras.
+
+Printar no console quando o primeiro pagamento de teste for feito: "[erede] request sent", { orderId, amount, installments, env } e, na resposta, status + returnCode/returnMessage (se houver).
+
+Me mostre (no diff) exatamente:
+
+O middleware/rota onde o 401 local ocorria (se era o caso) e sua correção.
+
+A criação/ajuste do Authorization: Basic e a validação das credenciais.
+
+O tratamento de erro melhorado para o front.
+
+Observação: se o 401 for da e.Rede, a correção provavelmente é credencial inválida/faltando (PV/Token), endpoint de sandbox errado, ou montagem incorreta do Basic Auth. Se o 401 for local, é CORS/auth/CSRF/middleware protegendo a rota. Faça a triagem e a correção completa.

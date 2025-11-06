@@ -1,0 +1,41 @@
+workflows:
+  ios-capacitor:
+    name: iOS Capacitor Build
+    environment:
+      vars:
+        APP_NAME: "Clube do Grito"
+        BUNDLE_ID: "com.institutoogrito.clubedogrito"
+      node: 20
+      xcode: 16.0
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm ci
+      - name: Build web app
+        script: |
+          npm run build --workspace client
+      - name: Sync Capacitor iOS
+        script: |
+          npx cap sync ios
+      - name: Build iOS app
+        script: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath $CM_BUILD_DIR/build/App.xcarchive \
+            clean archive CODE_SIGN_STYLE=Automatic
+      - name: Export IPA
+        script: |
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/build/App.xcarchive \
+            -exportPath $CM_BUILD_DIR/build \
+            -exportOptionsPlist ios/App/exportOptions.plist
+    artifacts:
+      - build/*.ipa
+      - build/*.dSYM.zip
+      - build/*.xcarchive
+    publishing:
+      app_store_connect:
+        auth: api_key
+        submit_to_testflight: true
+        submit_to_app_store: false

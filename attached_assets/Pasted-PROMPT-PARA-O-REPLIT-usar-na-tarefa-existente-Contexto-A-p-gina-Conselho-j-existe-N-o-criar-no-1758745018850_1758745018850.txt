@@ -1,0 +1,100 @@
+PROMPT PARA O REPLIT (usar na tarefa existente)
+
+Contexto: A página Conselho já existe. Não criar nova página. Apenas implementar a seção de status/KPIs (cards verdes) no topo da Home do Conselho, exatamente como no mock mobile enviado.
+
+O que implementar
+
+Inserir um bloco ConselhoKpisSection no topo da página do Conselho (antes dos gráficos/listas já existentes).
+
+Esta seção contém:
+
+Barra de filtros própria (diferente do “gestor da visita”):
+
+Período: Mensal (default), Trimestral, Semestral, Anual, Custom (date range).
+
+Escopo: “Geral” (default) e, quando aplicável, seleção de unidade/polo e turma (apenas p/ PEC e Inclusão Produtiva).
+
+Botões: Aplicar e Limpar.
+
+Grid de 4 cards verdes (2 por linha no mobile; 4 em telas ≥ md) com ícones e tipografia conforme mock:
+
+Crianças impactadas (ícone Users) → total de crianças únicas atendidas no PEC (todas as oficinas/atividades) no período/escopo.
+
+Pessoas formadas (ícone GraduationCap) → concluintes da Inclusão Produtiva: LEB + Curso 30h + EAD (somados) no período/escopo.
+
+Famílias acompanhadas (ícone Home) → famílias ativas no Favela 3D no período.
+
+Método Grito – Atendimentos (ícone Activity) → total de atendimentos registrados no período.
+
+Cada card exibe: título pequeno, número grande, e um mini-badge opcional (“Mês”, “Acumulado” etc.), com fundo verde (#16A34A ou o verde do design system) e tipografia branca.
+
+Arquitetura / Código
+
+Criar componentes em src/pages/conselho/components/:
+
+ConselhoKpisSection.tsx (coordena filtros, busca e renderiza os 4 cards)
+
+ConselhoFilters.tsx (UI dos filtros + validação)
+
+KpiCard.tsx (card verde reutilizável: title, value, icon, subtitle?, isLoading)
+
+Inserir <ConselhoKpisSection /> na página já existente do Conselho (home) sem quebrar conteúdo atual.
+
+Estado dos filtros em ConselhoKpisSection (useState). Só refetch ao clicar Aplicar.
+
+Loading: skeleton nos cards; Erro: toast + botão “Tentar novamente”.
+
+Animação sutil na entrada dos cards com Framer Motion.
+
+Dados (usar serviço + mocks se precisar)
+
+Criar src/services/conselhoService.ts com funções que recebem { start, end, unitId?, classId? } e retornam números agregados. Se algum endpoint não existir, mock temporário em src/mocks/ e manter a mesma assinatura.
+
+Contratos esperados (adapter adequa à API real):
+
+GET /api/pec/children-impacted?start&end&unitId?&classId? → { total: number }
+
+GET /api/inclusao/formados?start&end&unitId? → { total: number, breakdown: { leb: number, curso30h: number, ead: number } }
+
+GET /api/favela3d/familias-acompanhadas?start&end → { total: number }
+
+GET /api/metodo-grito/atendimentos?start&end → { total: number }
+
+Regras de agregação:
+
+Crianças impactadas: alunos únicos com ≥1 presença no período (evitar duplicidade entre oficinas/turmas).
+
+Pessoas formadas: apenas concluintes (status aprovado/concluído) somando LEB + 30h + EAD.
+
+Famílias acompanhadas: status ativo no período.
+
+Atendimentos (Método Grito): somatória simples no período.
+
+Tipos
+type ConselhoFilters = {
+  period: 'mensal' | 'trimestral' | 'semestral' | 'anual' | 'custom';
+  start?: string; // ISO
+  end?: string;   // ISO
+  unitId?: string | null;
+  classId?: string | null;
+};
+
+UX/Estilo
+
+Mobile-first; grid grid-cols-2 no mobile e md:grid-cols-4 no desktop.
+
+Usar shadcn/ui, Tailwind e ícones lucide-react (Users, GraduationCap, Home, Activity).
+
+Acessibilidade (aria-busy em loading, labels nos inputs).
+
+Critérios de aceite
+
+Ao abrir a Home do Conselho, os 4 cards aparecem com valores (mock se necessário) com Período = Mensal (mês atual) e Escopo = Geral.
+
+Alterar período para Trimestral → clicar Aplicar → todos os 4 valores atualizam.
+
+“Custom” com intervalo de datas funciona e atualiza.
+
+Layout igual ao mock (fundo verde, texto branco, número grande, dois por linha no mobile).
+
+O restante da página do Conselho permanece intacto.

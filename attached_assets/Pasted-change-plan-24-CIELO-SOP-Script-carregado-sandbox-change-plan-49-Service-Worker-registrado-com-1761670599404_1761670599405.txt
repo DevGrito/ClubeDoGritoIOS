@@ -1,0 +1,22 @@
+change-plan:24 ✅ [CIELO SOP] Script carregado: sandbox
+change-plan:49 Service Worker registrado com sucesso!
+index-DsLrvnMK.js:8476 🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /change-plan
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] userPapel: leo
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] userEmail: leo@clubedogrito.com
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] isVerified: true
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] hasActiveSubscription: false
+index-DsLrvnMK.js:8476 🔍 [ALLOWED ROLES] Route expects: doador, user
+index-DsLrvnMK.js:8476 🔍 [ROLE ROUTES] User role allows: /, /plans, /administrador, /leo-martins, /central-ajuda, /tdoador, /welcome, /busca, /noticias, /perfil, /dados-cadastrais, /pagamentos, /configuracoes, /sobre, /change-plan, /beneficios, /meus-lances, /missoes-semanais
+index-DsLrvnMK.js:8476 🚨 [PAYMENT DEBUG] routeName: /change-plan, hasActiveSubscription: false, userPapel: leo, isRBACUser: false
+index-DsLrvnMK.js:8476 ✅ [ACCESS] Permitindo acesso para usuário verificado - verificação de pagamento no backend se necessário
+index-DsLrvnMK.js:8476 🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /change-plan
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] userPapel: leo
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] userEmail: leo@clubedogrito.com
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] isVerified: true
+index-DsLrvnMK.js:8476 🔍 [USER SESSION] hasActiveSubscription: false
+index-DsLrvnMK.js:8476 🔍 [ALLOWED ROLES] Route expects: doador, user
+index-DsLrvnMK.js:8476 🔍 [ROLE ROUTES] User role allows: /, /plans, /administrador, /leo-martins, /central-ajuda, /tdoador, /welcome, /busca, /noticias, /perfil, /dados-cadastrais, /pagamentos, /configuracoes, /sobre, /change-plan, /beneficios, /meus-lances, /missoes-semanais
+index-DsLrvnMK.js:8476 🚨 [PAYMENT DEBUG] routeName: /change-plan, hasActiveSubscription: false, userPapel: leo, isRBACUser: false
+index-DsLrvnMK.js:8476 ✅ [ACCESS] Permitindo acesso para usuário verificado - verificação de pagamento no backend se necessário
+The script has an unsupported MIME type ('text/html').
+change-plan:1 Uncaught (in promise) SecurityError: Failed to register a ServiceWorker for scope ('https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/') with script ('https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/sw.js'): The script has an unsupported MIME type ('text/html').

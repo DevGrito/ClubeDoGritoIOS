@@ -1,0 +1,374 @@
+Visão rápida (como funciona)
+
+Seu app dispara eventos (ex.: user.signed_up, donation.created) via POST /events.
+
+O Event Store grava o evento (com idempotência) e roda as regras (automations).
+
+Cada regra pode: enviar e-mail/push, postar webhook para o CRM, criar tarefa, etc.
+
+O Webhook Dispatcher entrega para 1..N endpoints do CRM, com retry + assinatura HMAC.
+
+Catálogo de eventos (comece com estes)
+
+user.signed_up (cadastro concluído)
+
+user.profile_completed (perfil 100%)
+
+plan.subscribed (assinatura iniciada)
+
+payment.succeeded / payment.failed
+
+benefit.redeemed (benefício usado)
+
+event.registered / event.checked_in (inscrição/presença)
+
+engagement.inactive_14d / engagement.inactive_30d (gerados por job diário)
+
+Todos carregam user_id, timestamp, source (app, stripe, intelbras, etc.) e payload com campos específicos.
+
+Schemas (Supabase/Postgres)
+-- Registro de eventos
+create table grito_events (
+  id uuid primary key default gen_random_uuid(),
+  event_name text not null,
+  user_id uuid not null,
+  source text not null,
+  occurred_at timestamptz not null default now(),
+  payload jsonb not null,
+  idempotency_key text unique,           -- evita duplicar
+  processed_at timestamptz
+);
+
+-- Assinaturas de webhooks (CRM e outros destinos)
+create table grito_webhook_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  destination_name text not null,        -- "CRM-Doadores"
+  endpoint_url text not null,
+  secret text not null,                  -- para HMAC assinatura
+  enabled boolean not null default true,
+  event_filter text[] not null,          -- quais eventos ouvir
+  created_at timestamptz default now()
+);
+
+-- Entregas de webhooks (log + retries)
+create table grito_webhook_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  subscription_id uuid references grito_webhook_subscriptions(id),
+  event_id uuid references grito_events(id),
+  status text not null,                  -- PENDING | OK | FAIL
+  attempt int not null default 0,
+  last_error text,
+  next_attempt_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- Regras de automação (um "motor" simples)
+create table grito_automations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,                    -- "Boas-vindas"
+  is_active boolean not null default true,
+  match_event text not null,             -- ex: 'user.signed_up'
+  condition_sql text,                    -- opcional (ex.: "payload->>'plan' is null")
+  action jsonb not null,                 -- {type:'email'|'webhook'|..., template_id:'...', endpoint_ref:'CRM-Doadores'}
+  created_at timestamptz default now()
+);
+
+API do coletor de eventos (Node/Express)
+// routes/events.ts
+import express from "express";
+import crypto from "crypto";
+import { db } from "./db"; // seu knex/pg-promise/etc.
+
+const router = express.Router();
+
+/**
+ * POST /events
+ * Body: { event_name, user_id, source, occurred_at?, payload, idempotency_key? }
+ */
+router.post("/", async (req, res) => {
+  try {
+    const { event_name, user_id, source, occurred_at, payload, idempotency_key } = req.body;
+
+    if (!event_name || !user_id || !source || !payload) {
+      return res.status(400).json({ error: "Campos obrigatórios: event_name, user_id, source, payload" });
+    }
+
+    // idempotência
+    if (idempotency_key) {
+      const exists = await db.oneOrNone(
+        "select id from grito_events where idempotency_key = $1",
+        [idempotency_key]
+      );
+      if (exists) return res.status(200).json({ ok: true, id: exists.id, dedup: true });
+    }
+
+    const inserted = await db.one(
+      `insert into grito_events (event_name, user_id, source, occurred_at, payload, idempotency_key)
+       values ($1,$2,$3, coalesce($4, now()), $5, $6)
+       returning id`,
+      [event_name, user_id, source, occurred_at, payload, idempotency_key || null]
+    );
+
+    // enfileira automations e webhooks
+    await queueAutomations(inserted.id);
+    await queueWebhooks(inserted.id);
+
+    res.json({ ok: true, id: inserted.id });
+  } catch (e:any) {
+    console.error(e);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+export default router;
+
+// ===== Helpers (exemplo simples) =====
+async function queueAutomations(eventId:string) {
+  await db.none(`
+    insert into grito_webhook_deliveries (subscription_id, event_id, status)
+    select s.id, $1, 'PENDING'
+    from grito_webhook_subscriptions s
+    join grito_events e on e.id = $1
+    where s.enabled = true and e.event_name = ANY(s.event_filter)
+  `, [eventId]);
+}
+
+async function queueWebhooks(eventId:string) {
+  // se preferir, use uma tabela específica de "jobs" ou um worker/redis.
+  // aqui já usamos grito_webhook_deliveries como fila.
+  return;
+}
+
+Dispatcher de Webhooks (worker com retry + HMAC)
+// workers/webhook-dispatcher.ts
+import fetch from "node-fetch";
+import crypto from "crypto";
+import { db } from "../db";
+
+const MAX_ATTEMPTS = 6; // ~exponential backoff
+
+function sign(secret:string, body:string) {
+  const hmac = crypto.createHmac("sha256", secret).update(body).digest("hex");
+  return `sha256=${hmac}`;
+}
+
+export async function runOnce() {
+  // pega 20 pendentes cujo next_attempt_at <= now()
+  const jobs = await db.manyOrNone(`
+    select d.id as delivery_id, d.attempt, s.endpoint_url, s.secret, e.*
+    from grito_webhook_deliveries d
+    join grito_webhook_subscriptions s on s.id = d.subscription_id
+    join grito_events e on e.id = d.event_id
+    where d.status = 'PENDING'
+      and (d.next_attempt_at is null or d.next_attempt_at <= now())
+    limit 20
+  `);
+
+  for (const j of jobs) {
+    const payload = {
+      id: j.id,
+      event_name: j.event_name,
+      user_id: j.user_id,
+      occurred_at: j.occurred_at,
+      source: j.source,
+      payload: j.payload,
+    };
+    const body = JSON.stringify(payload);
+    const signature = sign(j.secret, body);
+
+    try {
+      const res = await fetch(j.endpoint_url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Grito-Signature": signature,
+          "X-Grito-Event": j.event_name,
+        },
+        body
+      });
+
+      if (res.ok) {
+        await db.none(`update grito_webhook_deliveries set status='OK', attempt=attempt+1 where id=$1`, [j.delivery_id]);
+      } else {
+        throw new Error(`${res.status} ${await res.text()}`);
+      }
+    } catch (err:any) {
+      const next = j.attempt + 1;
+      const delayMin = Math.pow(2, Math.min(next, 5)); // 2,4,8,16,32 min
+      await db.none(`
+        update grito_webhook_deliveries
+        set attempt = $2,
+            last_error = $3,
+            next_attempt_at = now() + ($4 || ' minutes')::interval,
+            status = case when $2 >= $5 then 'FAIL' else 'PENDING' end
+        where id = $1
+      `, [j.delivery_id, next, String(err), String(delayMin), MAX_ATTEMPTS]);
+    }
+  }
+}
+
+
+Agende o runOnce() a cada minuto com um cron (ou setInterval num worker).
+
+Verificação do webhook no CRM (lado receptor)
+// CRM: /webhooks/grito
+import express from "express";
+import crypto from "crypto";
+const router = express.Router();
+const GRITO_SECRET = process.env.GRITO_WEBHOOK_SECRET!;
+
+function verify(sigHeader:string|undefined, raw:string) {
+  if (!sigHeader) return false;
+  const hmac = crypto.createHmac("sha256", GRITO_SECRET).update(raw).digest("hex");
+  return sigHeader === `sha256=${hmac}`;
+}
+
+router.post("/grito", express.raw({ type: "application/json" }), (req, res) => {
+  const raw = req.body.toString("utf8");
+  const ok = verify(req.header("X-Grito-Signature") as string, raw);
+  if (!ok) return res.status(401).send("invalid signature");
+
+  const evt = JSON.parse(raw);
+  // mapear para entidades do CRM
+  // ex.: se event_name = user.signed_up -> criar/atualizar contato
+  // se donation.created -> criar doação vinculada ao contato
+  res.json({ received: true });
+});
+
+export default router;
+
+Exemplo prático: “cadastro concluído” → e-mail + CRM
+
+Seu app chama:
+
+POST /events
+{
+  "event_name": "user.signed_up",
+  "user_id": "c3f1-...",
+  "source": "app",
+  "idempotency_key": "signup:c3f1-...:2025-09-25",
+  "payload": {
+    "name": "Maria Souza",
+    "email": "maria@email.com",
+    "bairro": "Jardim Alvorada",
+    "plano": null
+  }
+}
+
+
+Você tem uma automation:
+
+insert into grito_automations (name, match_event, action)
+values (
+  'Boas-vindas',
+  'user.signed_up',
+  '{
+     "type":"email",
+     "template_id":"welcome_01",
+     "to":"{{payload.email}}",
+     "variables": {"nome":"{{payload.name}}"}
+   }'::jsonb
+);
+
+
+E uma assinatura de webhook para o CRM:
+
+insert into grito_webhook_subscriptions (destination_name, endpoint_url, secret, event_filter)
+values (
+  'CRM-Doadores',
+  'https://crm.suaorg.org/webhooks/grito',
+  'SEU_SEGREDO_LONGO_ALEATORIO',
+  array['user.signed_up','donation.created','plan.subscribed','payment.failed']
+);
+
+
+Resultado: ao criar o evento, o sistema envia o e-mail de boas-vindas e posta o mesmo evento no CRM com HMAC.
+
+Eventos por integrações externas (Stripe, Intelbras, etc.)
+
+Stripe: concentre tudo em um endpoint /webhooks/stripe; traduza para plan.subscribed, payment.succeeded, payment.failed e publique via POST /events internamente.
+
+Intelbras/controle de acesso: normalize para event.checked_in com payload: { unidade, turma, turno, device_id }.
+
+Jobs diários (cron): varra quem não loga há 14/30 dias e gere engagement.inactive_*.
+
+Campos recomendados no payload (padrão leve)
+
+email, name, document (CPF), bairro, tags (ex.: ["PEC","Favela3D"])
+
+plan: { id, name, status }
+
+donation: { amount, currency, method, tx_id }
+
+event: { id, title, start_at, location }
+
+Boas práticas
+
+Idempotência: sempre envie idempotency_key em integrações (ex.: stripe_event_id, tx_id, signup:<user>:<date>).
+
+Observabilidade: logue cada decisão de automação e retorno do CRM.
+
+Segurança: assine todas as saídas e valide todas as entradas.
+
+Rate limits: backoff exponencial e DLQ (marcar FAIL e reprocessar manualmente).
+
+Prompt pronto pro Replit (colar e mandar executar)
+
+Objetivo: criar no backend Node/Express do Clube do Grito um módulo de eventos + webhooks + automations (com Postgres/Supabase) que permita acionar e-mails e enviar webhooks ao CRM quando certos eventos ocorrerem (ex.: cadastro concluído).
+
+Implemente no meu projeto Node/Express:
+
+1) Tabelas Postgres (usar Supabase): grito_events, grito_webhook_subscriptions, grito_webhook_deliveries, grito_automations (usar os CREATE TABLE que vou colar abaixo sem alterar nomes/colunas).
+
+2) Rotas:
+   - POST /events:
+     - Valida campos obrigatórios (event_name, user_id, source, payload).
+     - Suporta idempotência via idempotency_key (unique).
+     - Salva evento e enfileira:
+       a) execução de automations (com base em match_event e condition_sql),
+       b) webhooks para todas assinaturas que contêm o event_name no event_filter.
+     - Responde { ok, id }.
+
+   - POST /webhooks/stripe:
+     - Verifica assinatura da Stripe.
+     - Traduz eventos relevantes (checkout.session.completed, invoice.payment_succeeded/failed, customer.subscription.created/updated/canceled) para meus eventos:
+       plan.subscribed, payment.succeeded, payment.failed.
+     - Para cada tradução, chama internamente o mesmo caminho de persistência de /events (idempotente).
+
+3) Worker "webhook-dispatcher":
+   - A cada minuto, busca 20 deliveries PENDING com next_attempt_at <= now().
+   - POST para endpoint_url com body = {id, event_name, user_id, occurred_at, source, payload}.
+   - Headers: Content-Type: application/json, X-Grito-Event, X-Grito-Signature (HMAC sha256 do body com o secret da assinatura).
+   - Atualiza status para OK em sucesso; em erro, attempt+1 e next_attempt_at com backoff exponencial (2,4,8,16,32 min), marcando FAIL após 6 tentativas.
+
+4) Motor simples de automations:
+   - Ao salvar um evento, avalie grito_automations onde match_event = event_name e is_active = true.
+   - Se condition_sql estiver preenchido, avalie via SELECT EXISTS usando payload do evento.
+   - action.jsonb suporta:
+     {type:'email', template_id:'...', to:'{{payload.email}}', variables:{...}}
+     {type:'webhook', endpoint_ref:'CRM-Doadores'}
+   - Para 'email', chame meu serviço de e-mail já existente (ou crie um stub "emailService.send(template_id, to, variables)").
+   - Para 'webhook', crie uma entrega em grito_webhook_deliveries para a assinatura cujo destination_name = endpoint_ref.
+
+5) Segurança:
+   - Para /events, exigir API key via header X-Api-Key (validar em env: EVENTS_API_KEY).
+   - Para /webhooks/stripe, validar assinatura com STRIPE_WEBHOOK_SECRET.
+   - Para enviar webhooks, assinar com HMAC sha256.
+
+6) Observabilidade:
+   - Log estruturado (event_id, automation_id, delivery_id, status).
+   - Endpoint GET /health que verifica DB e fila.
+
+7) Entregar seed SQL:
+   - Uma assinatura de webhook:
+     insert into grito_webhook_subscriptions (destination_name, endpoint_url, secret, event_filter)
+     values ('CRM-Doadores','https://meu-crm.org/webhooks/grito','SECRETO_LONGO', array['user.signed_up','donation.created','plan.subscribed','payment.failed']);
+
+   - Uma automation de boas-vindas:
+     insert into grito_automations (name, match_event, action)
+     values ('Boas-vindas','user.signed_up','{"type":"email","template_id":"welcome_01","to":"{{payload.email}}","variables":{"nome":"{{payload.name}}"}}');
+
+8) Me entregue:
+   - Arquivos: routes/events.ts, webhooks/stripe.ts, workers/webhook-dispatcher.ts, services/emailService.ts, sql/migrations.sql
+   - Scripts npm: "worker:webhooks": "node dist/workers/webhook-dispatcher.js"
+   - Documentação rápida de uso (README) explicando como postar um evento e como cadastrar um web

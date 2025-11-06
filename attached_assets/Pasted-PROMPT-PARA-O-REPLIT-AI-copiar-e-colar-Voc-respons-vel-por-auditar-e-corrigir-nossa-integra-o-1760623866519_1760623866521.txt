@@ -1,0 +1,139 @@
+PROMPT PARA O REPLIT AI (copiar e colar)
+
+Você é responsável por auditar e corrigir nossa integração de assinaturas recorrentes Stripe (Node/Express + TypeScript) para o app “Clube do Grito”. Precisamos garantir que as assinaturas cobrem todo mês, que o primeiro pagamento não “expire” sem tratamento e que a reativação funcione. Faça as alterações necessárias no backend e, se preciso, mínimos ajustes no frontend (sem mudar layout). Não gere boilerplate desnecessário.
+
+1) Auditoria rápida (listar o que encontrar e depois corrigir)
+
+Procure nos arquivos do backend algo como:
+
+src/lib/stripe.ts (ou stripeClient.ts)
+
+src/routes/stripe/*.ts (webhooks, checkout)
+
+src/routes/billing/*.ts ou src/controllers/billing/*.ts
+
+Verifique como criamos assinaturas: se usamos Stripe API direta (stripe.subscriptions.create) ou Stripe Checkout (stripe.checkout.sessions.create com mode: 'subscription').
+
+Cheque envs: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID_* ou lista de prices, STRIPE_SUCCESS_URL, STRIPE_CANCEL_URL, APP_BASE_URL.
+
+Identifique se usamos payment_behavior ao criar assinatura e qual valor.
+
+Veja se tratamos webhooks: invoice.paid, invoice.payment_failed, invoice.payment_action_required, customer.subscription.created/updated/deleted, checkout.session.completed.
+
+Veja se existem faturas ficando draft (precisa auto_advance: true em casos de reativação manual).
+
+Cheque se o intervalo do price é mensal e se o collection_method está como charge_automatically no objeto de invoice/subscription.
+
+Verifique se temos lógica para “reativar” quando a primeira fatura expira (status incomplete_expired e invoice void).
+
+2) Correções obrigatórias na criação da assinatura
+
+Ao criar assinatura (API direta):
+
+Use payment_behavior: 'default_incomplete'.
+
+Gere a primeira invoice e o PaymentIntent para o cliente confirmar (3DS quando necessário).
+
+Não considere a assinatura “ativa” no nosso banco até confirmação.
+
+Se for via Stripe Checkout:
+
+Não atualize nada no banco até receber checkout.session.completed.
+
+Depois disso, confirme o status da assinatura (subscription.status === 'active').
+
+Regra dos 23h (padrão Stripe):
+
+Se a primeira fatura/PaymentIntent não for paga em ~23h, a assinatura vira incomplete_expired e a invoice vira void.
+
+Implementar fluxo de reativação: na API, exponha um endpoint POST /billing/reactivate que, dado o customerId (e o plano), cria uma NOVA assinatura com o mesmo price e metadados.
+
+No frontend, quando detectarmos subscription.status === 'incomplete_expired' ou invoice void, mostrar CTA “Reativar assinatura” que chama esse endpoint.
+
+3) Webhooks (fonte da verdade)
+
+Implemente/ajuste o handler para os eventos abaixo, idempotente e com logs claros. Em cada evento, sincronize o status no nosso banco (Customer, Subscription, Invoices, Licenças/Acessos):
+
+checkout.session.completed: marcar como “assinatura iniciada” e coletar subscriptionId/customerId.
+
+invoice.paid: marcar assinatura como active; liberar acesso.
+
+invoice.payment_failed: marcar assinatura como past_due; agendar comunicação ao usuário; registrar próxima next_payment_attempt (Smart Retries).
+
+invoice.payment_action_required: sinalizar no banco/usuário que é necessária autenticação 3DS; frontend deve permitir retomar o fluxo com confirmCardPayment.
+
+customer.subscription.updated | customer.subscription.deleted: refletir upgrades/downgrades/cancelamentos.
+
+Importante: ignorar invoices void na determinação de acesso e status (seguir a regra da Stripe de considerar a fatura não anulada mais recente).
+
+4) Lidar com assinaturas não pagas (past_due/unpaid)
+
+Se past_due, a assinatura continua gerando faturas. Use as Smart Retries do Stripe.
+
+Se a política levar a unpaid, não tente cobrança automática; mostre instruções para o usuário pagar a última fatura aberta ou atualizar o método de pagamento. Ao pagar, setar assinatura para active.
+
+Garanta que, em reativações manuais, invoices draft tenham auto_advance: true, e depois sejam finalizadas/pagas.
+
+5) Pagamentos que exigem ação (3DS)
+
+Ao detectar invoice.payment_action_required, implemente endpoint para retornar o client_secret do PaymentIntent para o frontend chamar stripe.confirmCardPayment.
+
+Após sucesso, aguardamos invoice.paid no webhook para provisionar acesso (não confiar apenas no retorno do front).
+
+6) Política de falha de pagamento e comunicação
+
+Habilitar/confirmar Smart Retries no Dashboard.
+
+No backend, ao receber invoice.payment_failed, salve next_payment_attempt e dispare (ou registre para disparo) e-mail/notificação pedindo atualização do cartão.
+
+Opcional: regra de bloqueio de acesso quando assinatura ficar unpaid.
+
+7) Billing mensal e âncoras
+
+Confirmar que o Price usado é recurring.interval = 'month'.
+
+Se houver necessidade, alinhar billing_cycle_anchor (por ex.: ao dia da compra).
+
+Em upgrades/downgrades, definir proration_behavior apropriado (geralmente create_prorations).
+
+8) Segurança e confiabilidade
+
+Validar assinatura do webhook com STRIPE_WEBHOOK_SECRET.
+
+Tornar handlers idempotentes (usar chaves de idempotência nos writes ou checagem prévia por event.id).
+
+Logs com event.type, invoice.id, subscription.id, customer.id, status e decisões tomadas.
+
+9) Ajustes mínimos de UI/UX (sem mudar layout)
+
+Quando incomplete_expired/void, mostrar botão “Reativar assinatura” -> chama nosso endpoint de reativação.
+
+Quando payment_action_required, mostrar alerta “Autentique seu pagamento” e botão “Continuar pagamento” que chama o endpoint para obter client_secret e aciona confirmCardPayment.
+
+Quando past_due, exibir mensagem “Pagamento falhou; atualize seu cartão ou tente novamente” e atalho para portal de faturamento/checkout.
+
+10) Testes e critérios de aceite
+
+Cenário A – Sucesso: criar assinatura nova → pagar → receber invoice.paid → status active no nosso banco; fatura paid.
+
+Cenário B – 3DS: assinatura com requires_action → autenticar → webhook invoice.paid recebido → active.
+
+Cenário C – Expirada (23h): não pagar a primeira fatura → assinatura vira incomplete_expired, invoice void → front oferece “Reativar” → nova assinatura criada → fluxo normal.
+
+Cenário D – Falha de cartão: invoice.payment_failed → registrar next_payment_attempt → comunicação ao usuário → ao atualizar cartão/pagar a invoice aberta → assinatura volta para active.
+
+Cenário E – unpaid: manter acesso bloqueado até pagar a última fatura aberta.
+
+Validar que cobranças mensais são geradas automaticamente (price mensal) e que webhooks atualizam o acesso sem race conditions.
+
+11) Entregáveis
+
+Código atualizado dos handlers de webhook e criação/reativação de assinatura.
+
+Endpoints documentados rapidamente no README interno (rotas, payloads, respostas).
+
+Lista de ENV necessárias e onde configurá-las.
+
+Registro dos testes feitos (A–E) e prints/logs principais.
+
+Objetivo final: evitar assinaturas travadas em incomplete_expired/void, garantir cobrança mensal automática, reativação simples, tratamento de 3DS e sincronismo confiável via webhooks.

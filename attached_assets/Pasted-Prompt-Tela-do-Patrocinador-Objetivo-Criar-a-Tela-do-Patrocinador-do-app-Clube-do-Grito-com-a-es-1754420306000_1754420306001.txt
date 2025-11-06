@@ -1,0 +1,75 @@
+Prompt Tela do Patrocinador
+🎯 Objetivo
+Criar a Tela do Patrocinador do app Clube do Grito, com a estrutura visual e informacional pronta. O login será feito com número de telefone e código SMS, como já acontece em outras partes do sistema.
+
+🔐 Acesso
+O acesso à tela será feito por login com telefone + código SMS (autenticação já existente no sistema).
+
+Não é necessário implementar essa lógica agora, apenas garantir que a tela será compatível com esse modelo de autenticação posteriormente.
+
+🧱 Estrutura da Tela (Componentização / Página)
+1. Cabeçalho de Boas-vindas
+plaintext
+Copiar
+Editar
+"Bem-vindo(a), [NOME_DO_PATROCINADOR]! É uma honra contar com o seu apoio como Patrocinador [CATEGORIA]."
+Exibir o nome do patrocinador e a categoria (Oficial, Diamante, Master, Gold, Silver ou Bronze)
+
+2. Informações do Patrocínio
+Exibir em blocos ou cards:
+
+Nome do patrocinador (pessoa física ou empresa)
+
+Categoria do patrocínio
+
+Valor da contribuição (mensal ou total acordado)
+
+Data de início da parceria
+
+Total acumulado investido
+
+Status da parceria (ativo / em renovação / encerrado)
+
+3. Impacto Gerado (resumo simples)
+Exibir dados simulados como:
+
+Número estimado de atendimentos viabilizados
+
+Projetos ou comunidades apoiadas
+
+Total de ações realizadas com apoio
+
+4. Documentos
+Lista de arquivos para download (usar placeholders por enquanto):
+
+Certificado de patrocínio (PDF)
+
+Relatório de impacto (PDF)
+
+Kit institucional (logos, selo, etc.)
+
+5. Botões de Ação
+Editar dados do patrocinador
+
+Falar com o Instituto O Grito (botão de contato)
+
+Ver novas oportunidades de apoio
+
+💻 Design
+Visual limpo, institucional e responsivo
+
+Cards/seções bem organizadas
+
+Placeholder para selo da categoria de patrocínio
+
+Cores e estilos alinhados ao app
+
+📌 Observações Técnicas
+Criar a página/component sem integrar com o fluxo de ativação ainda
+
+Usar dados mockados (simulados) no momento
+
+A tela deve estar pronta para ser chamada após login com telefone e código, no futuro
+
+Rota sugerida: /patrocinador-dashboard
+não altere nada além disso no sistema e nem quebre outras funcionalidades

@@ -1,0 +1,91 @@
+import { useState } from "react";
+import QRCode from "react-qr-code";
+
+export default function PagamentoIngresso() {
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [mostrarPix, setMostrarPix] = useState(false);
+
+  // Payload Pix oficial (CNPJ: 28.790.664/0001-10 | Valor: R$ 1.000,00)
+  const pixPayload =
+    "00020126360014BR.GOV.BCB.PIX01142879066400011052040000530398654061000.005802BR5917INSTITUTO O GRITO6008RIBEIRAO62070503***63045B06";
+
+  // Deep Link para abrir direto no app do banco (quando suportado)
+  const pixDeepLink = `intent://pix?payload=${encodeURIComponent(
+    pixPayload
+  )}#Intent;scheme=pix;end`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setMostrarPix(true);
+  };
+
+  return (
+    <div className="max-w-xl mx-auto p-6 bg-white rounded-2xl shadow-lg">
+      <h2 className="text-2xl font-bold text-center mb-4">Comprar Ingresso</h2>
+
+      {!mostrarPix ? (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            placeholder="Nome completo"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            className="w-full p-3 border rounded-lg"
+            required
+          />
+          <input
+            type="tel"
+            placeholder="Telefone"
+            value={telefone}
+            onChange={(e) => setTelefone(e.target.value)}
+            className="w-full p-3 border rounded-lg"
+            required
+          />
+
+          {/* Botão Pix */}
+          <button
+            type="submit"
+            className="w-full bg-black text-white py-3 rounded-lg hover:bg-yellow-600 transition"
+          >
+            Pagar com Pix (R$ 1.000,00)
+          </button>
+
+          {/* Botão Cartão (Stripe) */}
+          <button
+            type="button"
+            className="w-full bg-yellow-500 text-black py-3 rounded-lg hover:bg-yellow-600 transition"
+          >
+            Pagar com Cartão
+          </button>
+        </form>
+      ) : (
+        <div className="space-y-4 text-center">
+          <h3 className="text-lg font-semibold">Pagamento via Pix</h3>
+
+          {/* QR Code Pix */}
+          <QRCode value={pixPayload} size={180} />
+
+          {/* Código copia e cola */}
+          <p className="break-all bg-gray-100 p-3 rounded-lg">{pixPayload}</p>
+
+          {/* Botão copiar */}
+          <button
+            onClick={() => navigator.clipboard.writeText(pixPayload)}
+            className="w-full bg-gray-800 text-white py-2 rounded-lg hover:bg-gray-600"
+          >
+            Copiar código Pix
+          </button>
+
+          {/* Deep Link */}
+          <a
+            href={pixDeepLink}
+            className="block w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700"
+          >
+            Abrir no App do Banco
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}

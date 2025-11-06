@@ -1,0 +1,74 @@
+{
+  "favela3d": {
+    "cadastroFamilias": {
+      "meta": 300,
+      "realizado": 268
+    },
+    "atendimentosMensais": {
+      "meta": 60,
+      "realizado": 52
+    },
+    "frequenciaAtividades": {
+      "meta": 75,
+      "realizado": 61.3
+    },
+    "participacaoWorkshops": {
+      "meta": 25,
+      "realizado": 18
+    }
+  },
+  "inclusaoProdutiva": {
+    "totalParticipantes": {
+      "meta": 1200,
+      "realizado": 1121
+    },
+    "taxaConclusao": {
+      "meta": 70,
+      "realizado": 62.2
+    },
+    "cursosAtivos": {
+      "meta": 6,
+      "realizado": 4
+    },
+    "empregabilidade": {
+      "meta": 80,
+      "realizado": 75
+    }
+  },
+  "pec": {
+    "totalAlunos": {
+      "meta": 250,
+      "realizado": 226
+    },
+    "frequenciaGeral": {
+      "meta": 85,
+      "realizado": 75.8
+    },
+    "modalidadesOfertadas": {
+      "meta": 8,
+      "realizado": 6
+    },
+    "evasao": {
+      "meta": 10,
+      "realizado": 8.5
+    }
+  },
+  "psicossocial": {
+    "totalAtendimentos": {
+      "meta": 350,
+      "realizado": 327
+    },
+    "taxaResolucao": {
+      "meta": 85,
+      "realizado": 78.5
+    },
+    "casosAtivos": {
+      "meta": 40,
+      "realizado": 30
+    },
+    "tempoMedioAtendimento": {
+      "meta": 45,
+      "realizado": 38
+    }
+  }
+}

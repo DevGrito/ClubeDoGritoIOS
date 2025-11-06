@@ -1,0 +1,80 @@
+Prompt (ajuste de fluxo inicial)
+
+Quero corrigir o fluxo de primeira abertura do meu app no domínio de produção:
+https://clube-do-grito-OGRITO.replit.app
+
+Objetivo
+
+Sempre que o usuário abrir a raiz / desse domínio (mobile ou desktop), o app deve:
+
+Exibir a Splash Screen imediatamente (tela cheia, sem piscadas de layout).
+
+Após a Splash, navegar automaticamente para a tela Plans (rota /plans).
+
+Não deve cair em nenhuma outra rota antes desses dois passos.
+
+Implementar
+
+Criar/ajustar um Gate inicial (ex.: SplashGate ou FirstRunGate) que é o único elemento renderizado em /.
+
+O Gate:
+
+Renderiza a Splash Screen.
+
+Aguarda um dos critérios (o que ocorrer primeiro):
+
+timeout configurável (ex.: 1200–1800ms) OU
+
+signal de pronto (ex.: fontes/carregamento mínimo concluído).
+
+Em seguida, faz navigate("/plans", { replace: true }).
+
+Garanta que o Router tenha:
+
+Rota / → apenas o Gate (sem layout global).
+
+Rota /plans → tela de planos.
+
+*" → redirect para "/" (SPA fallback).
+
+Deep links:
+
+Se o usuário abrir diretamente /plans, renderiza normalmente.
+
+A partir de /, sempre executar Splash → /plans (sem pular).
+
+PWA/Service Worker:
+
+Evitar versões antigas que pulam o Gate (versionar SW e chamar skipWaiting()/clientsClaim() ou desabilitar SW até validar).
+
+Servidor/Deploy (Replit):
+
+Ativar fallback de 404 para index.html para não quebrar as rotas do SPA.
+
+Critérios de aceite (teste manual)
+
+Acessar https://clube-do-grito-OGRITO.replit.app/:
+
+Vê Splash imediatamente.
+
+Após ~1–2s, redireciona para /plans sem flash de conteúdo intermediário.
+
+Acessar diretamente …/plans:
+
+Abre a tela de planos sem passar pela Splash.
+
+Recarregar em / múltiplas vezes:
+
+Sempre Splash → /plans.
+
+Em dispositivos iOS/Android e desktop:
+
+Mesmo comportamento, sem tela branca prolongada.
+
+Observações
+
+Não renderizar layout global antes do Gate decidir (evita “piscada”).
+
+Se existir lógica antiga de onboarding/auth, não deve interferir no fluxo / → Splash → /plans. Essa lógica só entra depois que já estamos em /plans (se aplicável).
+
+Entregue as alterações garantindo esse comportamento no domínio informado e me mostre os arquivos de Router e o componente do Gate/Splash que foram modificados.

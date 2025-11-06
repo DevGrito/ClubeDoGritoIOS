@@ -1,0 +1,40 @@
+✅ 1. Abrir a tela correta do Conselho após aprovação
+Atualmente, depois da aprovação do Léo, o app não está redirecionando para a tela certa.
+A pessoa sai da tela de espera, mas não acessa a tela com os eixos e os dados reais do Conselho.
+
+✅ 2. Solicitação de aprovação deve acontecer somente na primeira vez que a pessoa logar
+Hoje, o sistema está tratando toda tentativa de login como se fosse a primeira, e manda de novo a solicitação para o Léo, o que não pode acontecer.
+Depois que o Léo aprovar uma vez, essa pessoa deve sempre ir direto para a tela do Conselho nas próximas vezes que logar — sem passar pela tela de espera e sem depender de nova aprovação.
+
+📲 Prompt completo para solicitar esses dois ajustes
+Estou quase com o fluxo 100% funcional, mas ainda preciso que vocês corrijam dois pontos fundamentais:
+
+⚠️ 1. Redirecionar corretamente para a tela do Conselho (com os eixos e dados reais)
+Após o Léo aprovar a solicitação, o usuário deixa a tela de espera, mas não está sendo levado para a tela correta do Conselho.
+
+Precisa redirecionar o usuário para a tela funcional do Conselho, onde aparecem:
+
+Os eixos existentes;
+
+Os dados e informações reais vinculados à atuação do Conselho.
+
+✅ Garantir que isso aconteça imediatamente após o status mudar para “aprovado”.
+
+⚠️ 2. Aprovação do Léo deve acontecer apenas uma vez (na primeira vez que a pessoa logar)
+Atualmente, toda vez que a pessoa loga, o sistema envia uma nova solicitação de acesso para o Léo aprovar.
+Isso precisa mudar.
+
+A aprovação só deve acontecer na primeira vez que a pessoa fizer login.
+Após ser aprovada, nas próximas vezes que logar, o usuário deve ser redirecionado diretamente para a tela do Conselho, sem passar pela tela de espera e sem depender de nova autorização.
+
+✅ Sugestão de controle:
+Armazenar no banco um campo como status_conselho, com os valores:
+
+pendente: exibe tela de espera e envia para aprovação do Léo.
+
+aprovado: redireciona direto para o Conselho.
+
+recusado: impede acesso e exibe mensagem de acesso negado.
+
+Esse campo deve ser verificado no login, e o comportamento do app deve ser ajustado com base nesse status.
+

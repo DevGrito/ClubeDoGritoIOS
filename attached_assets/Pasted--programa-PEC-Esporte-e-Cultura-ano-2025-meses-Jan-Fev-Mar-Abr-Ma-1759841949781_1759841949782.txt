@@ -1,0 +1,107 @@
+{
+  "programa": "PEC - Esporte e Cultura",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "projetos": [
+    {
+      "projeto": "SALA SERENATA",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [70.6,83,85,80,82,71,78.21,82,null,null,null,null] },
+        { "nome": "Evasão", "meta": "<10 Alunos", "periodicidade": "Mensal", "mensal": [0,0,0,0,0,0,0,1,null,null,null,null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] },
+        { "nome": "Quantidade de Alunos", "meta": "35", "periodicidade": "Mensal", "mensal": [42,36,35,35,35,45,45,null,null,null,null,null] },
+        { "nome": "NPS", "meta": "50", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "POLO GLÓRIA",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [78,75,94,82,80.5,82.2,81.9,0.9,null,null,null,null] },
+        { "nome": "Evasão", "meta": "<20 Alunos", "periodicidade": "Mensal", "mensal": [0,13,0,13,0,0,13,92,null,null,null,null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] },
+        { "nome": "Quantidade de Alunos", "meta": "150", "periodicidade": "Mensal", "mensal": [165,151,149,149,165,120,120,153,null,null,null,null] },
+        { "nome": "NPS", "meta": "70", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "CASA SONHAR",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [73,76,84,78,82,81,79.12,1,null,null,null,null] },
+        { "nome": "Evasão", "meta": "<20 Alunos", "periodicidade": "Mensal", "mensal": [0,19,0,19,0,0,19,0,null,null,null,null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] },
+        { "nome": "Quantidade de Alunos", "meta": "150", "periodicidade": "Mensal", "mensal": [165,154,156,156,153,164,164,169,null,null,null,null] },
+        { "nome": "NPS", "meta": "70", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "LAB. VOZES DO FUTURO",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [64,68,73,null,null,97,96.5,94,null,null,null,null] },
+        { "nome": "Evasão", "meta": "<6 Alunos", "periodicidade": "Mensal", "mensal": [0,0,0,null,null,0,0,0,null,null,null,null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "90%", "periodicidade": "Semestral", "mensal": [null,null,89,null,null,null,null,43,null,null,null,null] },
+        { "nome": "Quantidade de Alunos", "meta": "60", "periodicidade": "Mensal", "mensal": [57,57,72,null,null,null,40,40,null,null,41,null] },
+        { "nome": "NPS", "meta": "70", "periodicidade": "Trimestral", "mensal": [null,null,75,null,null,null,null,81,null,null,null,null] },
+        { "nome": "Empregabilidade", "meta": "22", "periodicidade": "Mensal", "mensal": [0,21,8,null,null,null,null,null,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "CURSOS PRESENCIAIS",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [null,null,null,90.75,91,88.44,83,87.32,87,null,null,null] },
+        { "nome": "Evasão", "meta": "<40 Alunos", "periodicidade": "Mensal", "mensal": [null,null,null,0,0,0,1,1,0,null,null,null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,81,81,null,null,null,null] },
+        { "nome": "Quantidade de Alunos", "meta": "400", "periodicidade": "Mensal", "mensal": [null,null,null,30,30,167,92,289,104,null,null,null] },
+        { "nome": "NPS", "meta": "70", "periodicidade": "Semestral", "mensal": [null,null,null,null,null,null,87,87,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "CURSOS EAD CGD",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [null,100,100,null,100,99,100,99.75,100,null,null,null] },
+        { "nome": "Evasão", "meta": "<50 Alunos", "periodicidade": "Mensal", "mensal": [0,0,null,0,0,0,0,0,null,null,null,null] },
+        { "nome": "Alunos Ativos", "meta": "200", "periodicidade": "Mensal", "mensal": [14,8,null,22,44,72,138,25,null,null,null,null] },
+        { "nome": "Alunos Formados", "meta": null, "periodicidade": "Mensal", "mensal": [14,8,null,0,44,66,25,null,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "CARAVANA O GRITO",
+      "indicadores": [
+        { "nome": "Eventos (Rua de Lazer)", "meta": "3", "periodicidade": "Mensal", "mensal": [null,null,null,1,1,null,null,1,null,null,null,null] },
+        { "nome": "Pessoas Presentes", "meta": "300", "periodicidade": "Mensal", "mensal": [null,null,null,650,650,null,null,650,null,null,null,null] }
+      ]
+    },
+    {
+      "projeto": "ATIVIDADE TRANSVERSAL",
+      "indicadores": [
+        { "nome": "Pesquisa de Clima", "meta": "60", "periodicidade": "Mensal", "mensal": [null,null,null,null,null,null,null,null,null,null,null,null] },
+        { "nome": "Ações com os Colaboradores", "meta": "5", "periodicidade": "Mensal", "mensal": [1,null,1,null,null,1,null,null,null,null,null,null] },
+        { "nome": "Espaços Coletivos com o Time", "meta": "10", "periodicidade": "Mensal", "mensal": [1,1,1,3,1,1,5,null,null,null,null,null] },
+        { "nome": "Visitas", "meta": "20", "periodicidade": "Mensal", "mensal": [null,34,35,16,51,24,14,89,null,null,null,null] },
+        { "nome": "Atendimentos Individuais", "meta": "20", "periodicidade": "Mensal", "mensal": [null,10,33,77,16,22,81,null,null,null,null,null] },
+        { "nome": "Intervenções do Método O Grito", "meta": null, "periodicidade": "Mensal", "mensal": [0,463,304,767,285,290,1342,null,null,null,null,null] }
+      ]
+    }
+  ]
+}
+🔧 Instruções para o Replit/RAPID
+O dashboard deve usar a mesma lógica:
+
+Mês atual → Date.getMonth() (0–11).
+
+Mês anterior: (mêsAtual - 1 + 12) % 12.
+
+Cada card exibe:
+
+valor = indicador.mensal[mêsAnterior]
+
+meta = indicador.meta
+
+percentual = (valor/meta)*100 (quando for “<X Alunos”, inverter o cálculo).
+
+Para o filtro de mês, renderize as opções de "meses".
+
+Ao selecionar, substitua o índice usado.
+
+Se mensal[idx] === null, mostrar “—”.
+
+Os gráficos (linha ou barra) devem usar o array completo mensal e meses como rótulos.

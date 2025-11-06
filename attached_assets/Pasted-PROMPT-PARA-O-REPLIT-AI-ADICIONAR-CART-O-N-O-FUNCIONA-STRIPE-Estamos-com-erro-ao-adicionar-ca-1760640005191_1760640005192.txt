@@ -1,0 +1,161 @@
+PROMPT PARA O REPLIT AI — “ADICIONAR CARTÃO NÃO FUNCIONA (STRIPE)”
+
+Estamos com erro ao adicionar cartão no app Clube do Grito (React 18 + TS + Vite + Tailwind + shadcn/ui + TanStack Query v5 | Node/Express + TS + Drizzle + Postgres | Stripe).
+Sua missão é diagnosticar e corrigir o fluxo de salvar método de pagamento (cartão) para uso em assinaturas e cobranças off-session.
+
+1) Faça uma auditoria rápida (listar achados e depois corrigir)
+
+Frontend: procure componentes/serviços de pagamento, ex.:
+
+PaymentMethods.tsx, AddCardDialog.tsx, Billing.tsx, usePaymentMethods.ts, etc.
+
+Uso de Stripe.js/Elements (CardElement/PaymentElement).
+
+Mutations TanStack Query relacionadas (ex.: ['/api/users', userId, 'payment-methods']).
+
+Backend: rotas/serviços, ex.:
+
+POST /api/billing/setup_intent (ou similar)
+
+POST /api/billing/attach_payment_method
+
+GET /api/users/:id/payment-methods
+
+Webhooks: payment_method.attached, setup_intent.succeeded, invoice.paid, etc.
+
+Banco: tabela/entidade de payment_methods (ou similar) e vínculo com stripe_customer_id.
+
+2) Corrija o fluxo padrão (Stripe recomendado) para salvar cartão com SetupIntent
+
+Back-end
+
+Endpoint POST /api/billing/setup_intent deve:
+
+Garantir que o usuário tem stripe_customer_id (se não, criar customers.create e persistir).
+
+Criar SetupIntent com:
+
+customer: <customer_id>
+
+usage: 'off_session'
+
+payment_method_types: ['card']
+
+Retornar client_secret (e opcionalmente customer_id).
+
+Endpoint POST /api/billing/attach_payment_method deve:
+
+Validar que o payment_method pertence ao customer.
+
+(Opcional) definir como padrão no customer: invoice_settings.default_payment_method = pm.
+
+Persistir no DB: pm_id, brand, last4, exp_month, exp_year, is_default, user_id, customer_id.
+
+Retornar lista atualizada de métodos.
+
+Front-end
+
+Ao abrir “Adicionar cartão”:
+
+Chamar setup_intent → pegar client_secret.
+
+Renderizar Elements e chamar stripe.confirmCardSetup(client_secret, { payment_method: { card, billing_details } }).
+
+Em sucesso: pegar setupIntent.payment_method e chamar attach_payment_method.
+
+Após attach, invalidar queries:
+
+queryClient.invalidateQueries({ queryKey: ['/api/users', userId, 'payment-methods'] })
+
+
+Tratar 3DS (o confirmCardSetup já cuida do fluxo).
+
+Exibir toasts de sucesso/erro.
+
+3) Consertar causas comuns do erro “não adiciona cartão”
+
+Chaves/ambiente:
+
+Garanta STRIPE_SECRET_KEY (sk_) e STRIPE_PUBLISHABLE_KEY (pk_) corretas (test vs live coerentes).
+
+STRIPE_WEBHOOK_SECRET configurado (para eventos relevantes).
+
+Cliente/Assinatura: criar customer antes do SetupIntent; não crie SetupIntent sem customer.
+
+CORS / body-parser: endpoints de billing aceitando application/json; CORS permitido para o domínio atual.
+
+CSRF / headers: se houver proteção, alinhar com fetch do front.
+
+Elements: certificar que o componente está dentro de <Elements stripe={...}>.
+
+Billing details: enviar billing_details básicos (nome/email do usuário) para reduzir falhas de validação.
+
+Attach incorreto: não tente paymentMethods.attach no backend com customer errado.
+
+Assinaturas existentes: se o objetivo for usar o cartão na assinatura atual, garantir que subscription.default_payment_method ou customer.invoice_settings.default_payment_method seja atualizado pós-attach.
+
+Replit/preview: conferir se o HTTPS/domínio não bloqueia Stripe.js (usar origem válida).
+
+4) Webhooks (fonte de verdade)
+
+Garanta handlers para:
+
+setup_intent.succeeded → logar e opcionalmente confirmar/gravar PM.
+
+payment_method.attached → opcional, reconciliar DB.
+
+Validar a assinatura do webhook com STRIPE_WEBHOOK_SECRET.
+
+Handlers idempotentes: ignore eventos repetidos (guardar event.id).
+
+5) Persistência e esquema (se faltando)
+
+Tabela user_payment_methods (ou equivalente):
+
+id, user_id, stripe_customer_id, pm_id, brand, last4, exp_month, exp_year, is_default, created_at.
+
+Constraint: UNIQUE(user_id, pm_id).
+
+Atualize/normalize função que lista métodos (GET /api/users/:id/payment-methods) para ler do Stripe (fonte) e/ou DB (cache), mas exibir consistente com o Stripe.
+
+6) Mensagens de erro e UX
+
+Exibir erros vindos de confirmCardSetup: error.message (declines, autenticação, etc.).
+
+Caso falhe por 3DS não concluído, orientar o usuário a tentar novamente.
+
+Ao sucesso: toast “Cartão adicionado com sucesso”.
+
+7) Logs e diagnóstico
+
+Backend: logue cada etapa com user_id, customer_id, setup_intent.id, payment_method.id.
+
+Frontend: capture erros no Sentry/console com contexto do mutation.
+
+Gere um reprodutor: passo a passo para QA (abrir modal, dados fictícios de testes, etc.).
+
+8) Critérios de Aceite (obrigatórios)
+
+Abrir “Adicionar cartão” → gera SetupIntent e o card é salvo com 3DS quando exigido.
+
+Após salvar, a lista em /payment-methods atualiza automaticamente (invalidateQueries funcionando).
+
+O cartão pode ser definido como padrão e será usado em cobranças de assinatura futuras (off-session).
+
+Webhooks registrados e idempotentes.
+
+Erros de chaves, CORS ou attach incorreto tratados com mensagens claras.
+
+Em modo de teste, consigo adicionar cartões 4242… e 4000 0027 6000 3184 (3DS) com sucesso.
+
+9) Entregáveis
+
+Ajustes nos endpoints (setup_intent, attach_payment_method, listagem) e no componente de UI.
+
+Migração/ajuste de schema (se necessário).
+
+README curto com variáveis de ambiente, fluxo de adicionar cartão e como testar (incluindo cartão 3DS).
+
+Prints/logs de um teste bem-sucedido.
+
+Importante: não reescreva o módulo inteiro — corrija o que causa o erro de adicionar cartão e deixe o fluxo alinhado às práticas da Stripe (SetupIntent + confirmCardSetup + attach + default_payment_method).

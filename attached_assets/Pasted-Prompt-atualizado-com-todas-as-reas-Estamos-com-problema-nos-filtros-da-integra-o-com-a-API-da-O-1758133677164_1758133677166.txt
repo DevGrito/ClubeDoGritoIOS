@@ -1,0 +1,120 @@
+Prompt atualizado (com todas as áreas)
+Estamos com problema nos filtros da integração com a API da Omie.  
+Hoje, quando aplico filtro por área (ex: Casa Sonhar, Negócios Sociais, Favela 3D), a API retorna zerado.  
+Descobri o motivo: o backend está enviando o **nome do projeto** ou label direto para a Omie, mas a Omie só aceita o **código numérico do projeto** (campo `codigo`) no parâmetro `filtrar_por_projeto`.
+
+O que precisamos que você faça:
+
+1. No backend, implemente uma chamada inicial ao método `ListarProjetos` da Omie para buscar todos os projetos e seus `codigo` e `nome`.  
+   - Exemplo de retorno:  
+     ```json
+     {
+       "codigo": 123,
+       "nome": "Casa Sonhar"
+     }
+     ```
+
+2. Monte um mapa interno (`AREAS_MAP`) que relacione os nomes/labels que usamos no app com os `codigo` de projeto da Omie.  
+   As áreas que precisam estar no mapa são:  
+   - Favela 3D  
+   - Negócios Sociais  
+   - Polo Esportivo Cultural  
+   - Casa Sonhar  
+   - Psicosocial  
+   - Inclusão Produtiva  
+
+   Exemplo:
+   ```ts
+   const AREAS_MAP = {
+     "favela-3d": 101,
+     "negocios-sociais": 102,
+     "polo-esportivo-cultural": 103,
+     "casa-sonhar": 104,
+     "psicossocial": 105,
+     "inclusao-produtiva": 106
+   }
+
+
+(substituir os números pelos códigos reais retornados pela Omie)
+
+Quando o usuário aplicar um filtro de área no app, o backend deve enviar esse código numérico no campo filtrar_por_projeto tanto no ListarContasPagar quanto no ListarContasReceber.
+
+Exemplo de payload correto:
+
+{
+  "call": "ListarContasReceber",
+  "app_key": "SUA_KEY",
+  "app_secret": "SUA_SECRET",
+  "param": [
+    {
+      "pagina": 1,
+      "registros_por_pagina": 50,
+      "filtrar_por_projeto": 123
+    }
+  ]
+}
+
+
+Adicione logs no backend para mostrar:
+
+Qual área foi recebida do front (Casa Sonhar, por exemplo)
+
+Qual código de projeto foi resolvido (104)
+
+O payload final enviado para a Omie (filtrar_por_projeto: 104)
+
+Resumindo:
+👉 Ajustar o backend para não mandar string (“Casa Sonhar”) e sim o codigo real do projeto no campo filtrar_por_projeto.
+👉 Mapear os labels → códigos com base no ListarProjetos.
+👉 Garantir que isso funcione para todas as 6 áreas: Favela 3D, Negócios Sociais, Polo Esportivo Cultural, Casa Sonhar, Psicosocial e Inclusão Produtiva.
+
+
+---
+
+Quer que eu já deixe esse `AREAS_MAP` em **TypeScript pronto com os slugs normalizados** (`"casa-sonhar"`, `"polo-esportivo-cultural"`, etc.), pra você só substituir os códigos reais quando o `ListarProjetos` retornar?
+
+Você disse:
+pode 
+O ChatGPT disse:
+
+Top! 🚀 Já deixo o AREAS_MAP pronto em TypeScript, com os nomes das áreas normalizados (em slug: minúsculo + hífen).
+Assim você só precisa substituir os números pelos codigo reais que vierem do ListarProjetos da Omie.
+
+AREAS_MAP.ts
+// Mapeamento das áreas do app para os códigos de projeto da Omie
+// ⚠️ Substitua os números pelos códigos reais retornados no ListarProjetos
+
+export const AREAS_MAP: Record<string, number> = {
+  "favela-3d": 101,              // Código real da Omie para Favela 3D
+  "negocios-sociais": 102,       // Código real da Omie para Negócios Sociais
+  "polo-esportivo-cultural": 103,// Código real da Omie para Polo Esportivo Cultural
+  "casa-sonhar": 104,            // Código real da Omie para Casa Sonhar
+  "psicossocial": 105,           // Código real da Omie para Psicosocial
+  "inclusao-produtiva": 106      // Código real da Omie para Inclusão Produtiva
+}
+
+Exemplo de uso no backend
+import { AREAS_MAP } from "./AREAS_MAP"
+
+function getOmieFilterFromArea(areaLabel: string) {
+  const slug = areaLabel
+    .toLowerCase()
+    .normalize("NFD") // remove acentos
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-"); // troca espaços por hífen
+
+  return AREAS_MAP[slug];
+}
+
+// Exemplo:
+console.log(getOmieFilterFromArea("Casa Sonhar")); 
+// deve imprimir 104 (código que você colocar no mapa)
+
+
+📌 Resumo prático:
+
+Rodar ListarProjetos e anotar os códigos reais.
+
+Substituir no AREAS_MAP.
+
+Toda vez que vier um filtro do front (Casa Sonhar, Negócios Sociais etc.), converter para slug → pegar código → enviar para Omie em filtrar_por_projeto.

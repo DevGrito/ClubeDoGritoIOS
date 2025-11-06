@@ -1,0 +1,193 @@
+1. Identificação – Dados Principais (Obrigatórios)
+
+CPF do Aluno
+
+Nome Completo
+
+Foto do perfil (upload .jpg, .jpeg, .png – máx. 20 MB)
+
+Data de Nascimento
+
+Gênero
+
+Número de matrícula (gerado automaticamente)
+
+Família do atendido (nome da família ou responsável)
+
+Situação do atendimento
+
+Estado civil
+
+Religião
+
+Naturalidade (cidade/estado)
+
+Nacionalidade
+
+Pode sair sozinho da instituição?
+
+2. Dados Complementares
+
+Tamanho de Calça
+
+Tamanho de Camiseta
+
+Tamanho de Calçado
+
+Cor/Raça
+
+Frequenta projeto social?
+
+Possui acesso à internet?
+
+3. Endereço
+
+CEP (com preenchimento automático)
+
+Logradouro (Rua)
+
+Número
+
+Bairro
+
+Cidade/Município
+
+Estado
+
+Complemento
+
+Ponto de referência
+
+Mora no endereço desde (ano)
+
+4. Contatos
+
+E-mail
+
+Telefone
+
+WhatsApp
+
+Pessoa para contato de emergência (nome)
+
+Telefone do contato de emergência
+
+WhatsApp do contato de emergência
+
+5. Documentos
+
+RG
+
+Órgão emissor
+
+Carteira de trabalho (CTPS) – número e série
+
+Título de eleitor
+
+NIS/PIS/PASEP
+
+Documentos que possui (checklist):
+
+Certidão de nascimento
+
+Certidão de casamento
+
+Certificado de reservista
+
+Carteira de trabalho
+
+Upload de identidade (frente e verso, até 20 MB cada)
+
+6. Benefícios Sociais
+
+Família cadastrada no CadÚnico?
+
+Recebe Bolsa Família?
+
+Recebe BPC?
+
+Recebe Cartão Alimentação?
+
+Recebe outros benefícios? (quais)
+
+7. Saúde
+
+Possui deficiência?
+
+Possui alergia?
+
+Faz uso de medicamento?
+
+8. Educação
+
+Escolaridade
+
+Estuda atualmente?
+
+Observações sobre educação
+
+9. Situação Familiar
+
+Número de filhos
+
+Com quem mora? (ex.: pais, avós)
+
+Composição familiar (descrição)
+
+Renda familiar mensal
+
+Situação da moradia
+
+Tipo de moradia
+
+10. Dados dos Pais e Responsável
+Dados da Mãe
+
+Nome completo
+
+CPF
+
+Profissão
+
+Telefone/WhatsApp
+
+Mora com o aluno? (sim/não)
+
+Responsável legal?
+
+Dados do Pai
+
+Nome completo
+
+CPF
+
+Profissão
+
+Telefone/WhatsApp
+
+Mora com o aluno? (sim/não)
+
+Responsável legal?
+
+Responsável Legal (se não for pai ou mãe)
+
+Nome completo
+
+CPF
+
+Grau de parentesco
+
+Profissão
+
+Telefone/WhatsApp
+
+E-mail (opcional)
+
+Mora com o aluno? (sim/não)
+
+É contato de emergência? (sim/não)
+
+11. Observações
+
+Campo livre para anotações do professor ou coordenação
+(comportamento, aprendizado, necessidades especiais, etc.)

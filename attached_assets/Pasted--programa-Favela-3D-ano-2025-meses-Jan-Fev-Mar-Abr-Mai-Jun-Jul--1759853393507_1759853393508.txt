@@ -1,0 +1,41 @@
+{
+  "programa": "Favela 3D",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "eixos": [
+    {
+      "nome": "Decolagem",
+      "indicadores": [
+        { "nome": "Famílias Ativas", "meta": 250, "mensal": [238,219,219,217,216,217,null,null,null,null,null,null] },
+        { "nome": "Visitas Mentores", "meta": 3000, "mensal": [300,276,305,297,318,371,354,null,null,null,null,null] },
+        { "nome": "Famílias no Triângulo", "meta": 1160, "mensal": [116,10,39,29,23,91,73,null,null,null,null,null] }
+      ]
+    },
+    {
+      "nome": "Desenvolvimento Social",
+      "indicadores": [
+        { "nome": "Atendimentos Gerais", "meta": 480, "mensal": [40,47,60,40,40,43,47,null,null,null,null,null] },
+        { "nome": "Gerando Lideranças", "meta": 12, "mensal": [12,0,1,1,2,1,0,null,null,null,null,null] },
+        { "nome": "Roda de Conversa", "meta": 12, "mensal": [12,1,1,1,0,1,1,null,null,null,null,null] },
+        { "nome": "Grupo de Mulheres", "meta": 24, "mensal": [1,1,2,1,1,1,1,null,null,null,null,null] },
+        { "nome": "Assembleia Comunitária", "meta": 6, "mensal": [null,1,null,1,null,1,null,null,null,null,null,null] },
+        { "nome": "Mobiliza D", "meta": 6, "mensal": [null,1,null,1,null,1,null,null,null,null,null,null] }
+      ]
+    },
+    {
+      "nome": "Emprego e Renda",
+      "indicadores": [
+        { "nome": "Formandos", "meta": 100, "mensal": [10,0,0,0,0,null,27,null,null,null,null,null] },
+        { "nome": "Empregados", "meta": "75% território interessado", "mensal": [0,1,1,0,null,2,null,null,null,null,null,null] },
+        { "nome": "Empreendedores Mapeados", "meta": 10, "mensal": [1,0,0,0,44,null,43,null,null,null,null,null] }
+      ]
+    },
+    {
+      "nome": "Moradia e Urbanismo",
+      "indicadores": [
+        { "nome": "Equipamentos", "meta": 4, "mensal": [0,1,0,0,null,null,null,null,null,null,null,null] },
+        { "nome": "Melhoria Habitacional", "meta": 50, "mensal": [0,0,0,0,null,null,null,null,null,null,null,null] }
+      ]
+    }
+  ]
+}

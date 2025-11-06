@@ -1,0 +1,332 @@
+{
+  "project": {
+    "name": "Clube do Grito — Módulo de Leilões de Pontos",
+    "goal": "Criar telas e fluxos de leilões (galeria, detalhes, dar lance, confirmação e meus lances) alinhados à identidade visual do app, e uma página de DevMarketing para operacionalizar prêmios/leilões, notificações e regras.",
+    "north_star": "Experiência simples, segura e vibrante, que comunica impacto social e reforça o valor dos pontos conquistados por participação."
+  },
+  "brand": {
+    "primary": "#FFCC00",
+    "primary_on": "#111111",
+    "secondary": "#000000",
+    "surface": "#FFFFFF",
+    "muted": "#F3F4F6",
+    "info": "#2563EB",
+    "success": "#16A34A",
+    "warning": "#F59E0B",
+    "danger": "#DC2626",
+    "radii": { "lg": "1rem", "xl": "1.25rem", "2xl": "1.5rem" },
+    "shadows": { "card": "0 8px 24px rgba(0,0,0,0.06)", "elevated": "0 12px 32px rgba(0,0,0,0.10)" },
+    "font": { "family": "Inter, ui-sans-serif, system-ui", "weights": [400, 500, 600, 700] },
+    "iconography": "lucide (Gavel, Crown, Clock, Wallet, BellRing, Trophy)"
+  },
+  "accessibility_and_motion": {
+    "contrast_minimum": "WCAG AA",
+    "tap_targets_min": "44x44px",
+    "motion": {
+      "micro": "fade/scale 120–180ms, easing out",
+      "emphasis": "slide/fade 180–240ms"
+    },
+    "focus_style": "outline 2px #FFCC00 com offset 2px"
+  },
+  "pages": [
+    {
+      "id": "auction_gallery",
+      "title": "Galeria de Leilões",
+      "route": "/leiloes",
+      "layout": {
+        "header": {
+          "left": { "icon": "Gavel", "label": "Leilões de Pontos" },
+          "right": [
+            { "icon": "Wallet", "label": "Saldo", "bind": "user.balance" },
+            { "icon": "BellRing", "label": "Alertas", "action": "open_notifications" }
+          ]
+        },
+        "grid": {
+          "type": "responsive_cards",
+          "cols": { "base": 1, "sm": 2, "lg": 3 },
+          "card": {
+            "imageRatio": "16:9",
+            "badges": [
+              { "text": "Ativo", "tone": "success" },
+              { "text": "Termina em {{timeLeft}}", "tone": "warning" }
+            ],
+            "title": "{{auction.title}}",
+            "meta": [
+              { "icon": "Crown", "text": "Líder: {{auction.leader.name || '—'}}" },
+              { "icon": "Trophy", "text": "Maior lance: {{auction.currentBid}} pts" }
+            ],
+            "cta": { "label": "Dar lance", "action": "go:/leiloes/{{auction.id}}" }
+          }
+        }
+      },
+      "data": {
+        "source": "GET /leiloes",
+        "polling_ms": 15000
+      }
+    },
+    {
+      "id": "auction_details",
+      "title": "Detalhes do Leilão",
+      "route": "/leiloes/:id",
+      "layout": {
+        "two_column": true,
+        "left": {
+          "media": {
+            "type": "image",
+            "src": "{{auction.imageUrl}}",
+            "fallback": "placeholder",
+            "ratio": "16:9",
+            "radius": "2xl"
+          },
+          "info_cards": [
+            {
+              "title": "Termina em",
+              "kpi": "{{countdown}}",
+              "progress_bar": { "value_bind": "timeProgress24h" },
+              "icon": "Clock"
+            },
+            {
+              "title": "Líder atual",
+              "kpi": "{{auction.leader.name || '—'}}",
+              "icon": "Crown"
+            },
+            {
+              "title": "Maior lance",
+              "kpi": "{{auction.currentBid}} pts",
+              "icon": "Trophy"
+            }
+          ]
+        },
+        "right": {
+          "panel": {
+            "title": "Dar um lance",
+            "description": "Próximo lance mínimo: {{minNext}} pts",
+            "form": {
+              "fields": [
+                { "type": "number", "name": "amount", "label": "Valor do lance (pts)", "placeholder": "{{minNext}}", "min": "{{minNext}}" }
+              ],
+              "helper_text": "Se for superado, seus pontos voltam 100% na hora.",
+              "primary_action": { "label": "Confirmar lance", "open_modal": "confirm_bid" },
+              "secondary_actions": [
+                { "label": "+{{increment}}", "action": "increment_amount" },
+                { "label": "Máx permitido", "action": "set_amount:user.balance" }
+              ],
+              "validation": [
+                "amount >= minNext",
+                "amount <= user.balance",
+                "auction.timeRemaining > 0"
+              ]
+            }
+          },
+          "history": {
+            "title": "Meus lances neste leilão",
+            "list_item": "{{bid.amount}} pts — {{bid.createdAt | fromNow}} {{bid.isLeader ? '(líder)' : ''}}",
+            "empty": "Você ainda não deu lances aqui.",
+            "source": "GET /meus-lances?leilao={{:id}}",
+            "height": 280
+          }
+        }
+      },
+      "modals": [
+        {
+          "id": "confirm_bid",
+          "title": "Confirmar lance?",
+          "body": "Você vai dar um lance de {{amount}} pts. Se alguém superar, seus pontos voltam 100% imediatamente.",
+          "legal_hint": "Lances usam o horário do servidor. Consulte o Regulamento.",
+          "actions": [
+            { "label": "Cancelar", "variant": "ghost", "close": true },
+            { "label": "Dar lance", "variant": "primary", "action": "POST /leiloes/{{:id}}/lance { amount }", "then": ["toast: Lance enviado!", "refresh:auction", "refresh:history", "close"] }
+          ]
+        }
+      ],
+      "data": {
+        "source": "GET /leiloes/{{:id}}",
+        "polling_ms": 5000,
+        "server_time_offset_support": true
+      }
+    },
+    {
+      "id": "my_bids",
+      "title": "Meus Lances",
+      "route": "/meus-lances",
+      "layout": {
+        "header": { "title": "Seu histórico" },
+        "table": {
+          "columns": [
+            { "header": "Leilão", "accessor": "auction.title" },
+            { "header": "Seu lance", "accessor": "amount", "suffix": " pts" },
+            { "header": "Status", "accessor": "status", "badges": true },
+            { "header": "Quando", "accessor": "createdAt", "format": "fromNow" }
+          ],
+          "empty": "Você ainda não participou de nenhum leilão.",
+          "pagination": true
+        }
+      },
+      "data": { "source": "GET /meus-lances" }
+    }
+  ],
+  "components": {
+    "toast_messages": [
+      { "id": "bid_ok", "title": "Lance enviado!", "desc": "Se alguém superar, seus pontos voltam 100% na hora." },
+      { "id": "bid_fail", "title": "Falha no lance", "desc": "Tente novamente.", "tone": "danger" },
+      { "id": "overbid", "title": "Lance superado", "desc": "Você foi superado em {{auction.title}}.", "tone": "warning" },
+      { "id": "auction_end", "title": "Leilão encerrado", "desc": "Resultado disponível em Meus Lances." }
+    ],
+    "empty_states": {
+      "gallery": "Nenhum leilão ativo no momento. Volte em breve!",
+      "history": "Sem lances ainda. Participe de um leilão para ver seu histórico aqui."
+    },
+    "skeletons": {
+      "card": "image bar title meta meta",
+      "detail": "image kpis form table"
+    }
+  },
+  "copy": {
+    "regulation_cta": "Leia o Regulamento",
+    "legal_short": "Pontos não são vendidos. Regras no Regulamento. Devolução integral e imediata para lances superados.",
+    "timer_labels": { "h": "h", "m": "m", "s": "s" }
+  },
+  "api": {
+    "endpoints": [
+      { "method": "GET", "path": "/leiloes", "use": "Listar leilões ativos" },
+      { "method": "GET", "path": "/leiloes/:id", "use": "Detalhes do leilão + serverNow opcional" },
+      { "method": "POST", "path": "/leiloes/:id/lance", "use": "Dar lance (transaction + saldo + devolução ao antigo líder)" },
+      { "method": "GET", "path": "/meus-lances", "use": "Histórico do usuário" }
+    ],
+    "server_time_policy": "Relógio centralizado do servidor; cliente apenas exibe offset.",
+    "security": ["Regras 100% no servidor", "Transações no DB", "Validação de saldo e incremento mínimo", "Rate limit por usuário/leilão" ]
+  },
+  "dev_marketing": {
+    "page": {
+      "id": "dev_marketing_auctions",
+      "route": "/dev-marketing/leiloes",
+      "title": "Leilões — Operação e Configuração",
+      "permissions": ["marketing_admin", "operacao_leiloes"],
+      "tabs": [
+        {
+          "id": "premios",
+          "title": "Prêmios",
+          "actions": [
+            { "type": "button", "label": "Adicionar Prêmio", "open_drawer": "novo_premio" }
+          ],
+          "table": {
+            "columns": [
+              { "header": "Título", "accessor": "title" },
+              { "header": "Categoria", "accessor": "category" },
+              { "header": "Estoque", "accessor": "stock" },
+              { "header": "Imagem", "accessor": "imageUrl", "type": "thumbnail" },
+              { "header": "Ações", "type": "row_actions", "actions": ["edit", "delete"] }
+            ],
+            "source": "GET /dev/premios"
+          },
+          "drawers": [
+            {
+              "id": "novo_premio",
+              "title": "Novo Prêmio",
+              "form": {
+                "fields": [
+                  { "type": "text", "name": "title", "label": "Título", "required": true },
+                  { "type": "select", "name": "category", "label": "Categoria", "options": ["Produtos", "Experiências", "Serviços"], "required": true },
+                  { "type": "number", "name": "stock", "label": "Estoque", "min": 0, "required": true },
+                  { "type": "file", "name": "image", "label": "Imagem (16:9)", "accept": ["image/*"], "required": true },
+                  { "type": "textarea", "name": "description", "label": "Descrição", "rows": 4 }
+                ],
+                "submit": { "label": "Salvar", "action": "POST /dev/premios" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "leiloes",
+          "title": "Leilões",
+          "actions": [ { "type": "button", "label": "Criar Leilão", "open_drawer": "novo_leilao" } ],
+          "table": {
+            "columns": [
+              { "header": "Prêmio", "accessor": "prize.title" },
+              { "header": "Início", "accessor": "startsAt", "format": "datetime" },
+              { "header": "Término", "accessor": "endsAt", "format": "datetime" },
+              { "header": "Min. incremento", "accessor": "minIncrement" },
+              { "header": "Status", "accessor": "status", "badges": true },
+              { "header": "Ações", "type": "row_actions", "actions": ["view", "cancel"] }
+            ],
+            "source": "GET /dev/leiloes"
+          },
+          "drawers": [
+            {
+              "id": "novo_leilao",
+              "title": "Novo Leilão",
+              "form": {
+                "fields": [
+                  { "type": "select", "name": "prizeId", "label": "Prêmio", "source": "GET /dev/premios", "map": { "label": "title", "value": "id" }, "required": true },
+                  { "type": "datetime", "name": "startsAt", "label": "Início (server time)", "required": true },
+                  { "type": "datetime", "name": "endsAt", "label": "Término (server time)", "required": true },
+                  { "type": "number", "name": "minIncrement", "label": "Incremento mínimo (pts)", "min": 1, "required": true },
+                  { "type": "switch", "name": "notifyFollowers", "label": "Notificar seguidores do prêmio" },
+                  { "type": "textarea", "name": "rules", "label": "Regras específicas (opcional)", "rows": 3 }
+                ],
+                "submit": { "label": "Publicar", "action": "POST /dev/leiloes" }
+              }
+            }
+          ]
+        },
+        {
+          "id": "notificacoes",
+          "title": "Notificações",
+          "description": "Configurar push de 'lance superado' e 'fim de leilão'",
+          "form": {
+            "fields": [
+              { "type": "switch", "name": "overbidPushEnabled", "label": "Ativar push de lance superado" },
+              { "type": "switch", "name": "endPushEnabled", "label": "Ativar push de fim de leilão" },
+              { "type": "select", "name": "provider", "label": "Provedor", "options": ["FCM", "OneSignal"] },
+              { "type": "text", "name": "templateOverbid", "label": "Template Overbid", "placeholder": "Você foi superado em {{auction.title}}." },
+              { "type": "text", "name": "templateEnd", "label": "Template Fim", "placeholder": "Leilão encerrado: {{auction.title}}." }
+            ],
+            "submit": { "label": "Salvar", "action": "POST /dev/notifications" }
+          }
+        },
+        {
+          "id": "regras",
+          "title": "Regulamento",
+          "form": {
+            "fields": [
+              { "type": "markdown", "name": "rules_md", "label": "Texto do Regulamento", "minChars": 400 },
+              { "type": "switch", "name": "requireAcceptOnFirstBid", "label": "Exigir aceite do regulamento no primeiro lance" }
+            ],
+            "submit": { "label": "Publicar", "action": "POST /dev/rules" }
+          }
+        }
+      ]
+    },
+    "rollout": {
+      "checklist": [
+        "Criar tabelas: Leiloes, Lances, Premios",
+        "Publicar endpoints de API",
+        "Configurar CRON de encerramento automático",
+        "Ativar push notifications",
+        "Cadastrar primeiros prêmios e leilões no DevMarketing",
+        "Publicar Regulamento no app"
+      ]
+    }
+  },
+  "design_tokens_usage": [
+    "Botões primários: fundo #FFCC00, texto #111, hover: brilho + sombra",
+    "Cards: borda 2px #111 (5% opacidade) com radius 1.5rem e sombra leve",
+    "Badges de status: success/warning/danger com fundo suave e texto forte",
+    "Contador regressivo: pill com dígitos mono (tabular-nums)"
+  ],
+  "states": {
+    "loading": ["skeleton cards na galeria", "skeleton media + kpis no detalhe"],
+    "empty": ["galeria sem itens", "meus lances sem histórico"],
+    "error": ["toast danger + botão tentar novamente"],
+    "near_end": "estilizar contador em warning quando <60s"
+  },
+  "acceptance_criteria": [
+    "Usuário consegue ver leilões ativos e detalhes",
+    "Usuário consegue dar lance com confirmação",
+    "Regras legais e de negócio exibidas em local acessível",
+    "DevMarketing permite CRUD de prêmios e criação de leilões",
+    "Push de lance superado e fim de leilão configuráveis",
+    "Relógio do servidor como fonte única de verdade",
+    "Devolução 100% imediata quando superado (feedback visível)"
+  ]
+}

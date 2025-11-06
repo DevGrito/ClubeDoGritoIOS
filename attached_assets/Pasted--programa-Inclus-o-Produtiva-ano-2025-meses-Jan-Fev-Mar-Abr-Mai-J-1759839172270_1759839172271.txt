@@ -1,0 +1,52 @@
+{
+  "programa": "Inclusão Produtiva",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "projetos": [
+    {
+      "projeto": "LAB. VOZES DO FUTURO",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal",
+          "mensal": [64, 68, 73, null, null, 97, 96.5, 94, null, null, null, null] },
+        { "nome": "Evasão", "meta": "<06 Alunos",
+          "mensal": [0, 0, 0, 0, 0, 0, null, null, null, null, null, null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "90%",
+          "mensal": [null, null, 89, null, null, 43, null, null, null, null, null, null] },
+        { "nome": "Quantidade de Alunos", "meta": "60", "periodicidade": "Mensal",
+          "mensal": [57, 57, 72, 40, 40, 41, null, null, null, null, null, null] },
+        { "nome": "NPS", "meta": "70", "periodicidade": "Trimestral",
+          "mensal": [null, null, 75, null, 81, null, null, null, null, null, null, null] },
+        { "nome": "Empregabilidade", "meta": "22",
+          "mensal": [0, 21, 8, null, null, null, null, null, null, null, null, null] }
+      ]
+    },
+    {
+      "projeto": "CURSOS PRESENCIAIS",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal",
+          "mensal": [90.75, 91, 88.44, 83, 87.32, 87, null, null, null, null, null, null] },
+        { "nome": "Evasão", "meta": "<40 Alunos",
+          "mensal": [0, 0, 0, 1, 1, 0, null, null, null, null, null, null] },
+        { "nome": "Avaliação de Aprendizagem", "meta": "80%",
+          "mensal": [81, 81, null, null, null, null, null, null, null, null, null, null] },
+        { "nome": "Quantidade de Alunos", "meta": "400",
+          "mensal": [30, 30, 167, 92, 289, 104, null, null, null, null, null, null] },
+        { "nome": "NPS", "meta": "70",
+          "mensal": [87, 87, null, null, null, null, null, null, null, null, null, null] }
+      ]
+    },
+    {
+      "projeto": "CURSOS EAD CGD",
+      "indicadores": [
+        { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal",
+          "mensal": [100, 100, 100, 99, 100, 99.75, 100, null, null, null, null, null] },
+        { "nome": "Evasão", "meta": "<50 Alunos",
+          "mensal": [0, 0, 0, 0, 0, 0, null, null, null, null, null, null] },
+        { "nome": "Alunos Ativos", "meta": "200",
+          "mensal": [14, 8, 22, 44, 72, 138, 25, null, null, null, null, null] },
+        { "nome": "Alunos Formados", "meta": null,
+          "mensal": [14, 8, 0, 44, 66, 25, null, null, null, null, null, null] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+✅ Fase 1: Backend e Infraestrutura (O Motor do Sistema)
+[ ] Banco de Dados: Criar as tabelas Leiloes, Lances e Premios.
+[ ] API (Endpoints): Desenvolver as rotas para:
+Listar leilões ativos (GET /leiloes).
+Ver detalhes de um leilão (GET /leiloes/{id}).
+Permitir que um usuário dê um lance (POST /leiloes/{id}/lance).
+Listar os lances de um usuário (GET /meus-lances).
+[ ] Lógica Principal: Implementar a função de "dar lance", garantindo a verificação de saldo e a devolução de pontos ao antigo líder.
+[ ] Notificações Push: Configurar o envio de alertas para "lance superado" e "fim de leilão".
+[ ] Rotina Automática (Cron Job): Criar o processo que verifica e finaliza os leilões automaticamente quando o tempo acaba.
+✅ Fase 2: Legal e Regras de Negócio (A Base de Confiança)
+[ ] Redigir Regulamento: Escrever as regras de funcionamento dos leilões de forma clara e acessível no app.
+[ ] Confirmar Modelo de Pontos: Garantir que pontos só podem ser obtidos por ações no app (check-in, missões) e nunca por compra com dinheiro real.
+[ ] Garantir Devolução de Pontos: Assegurar que a devolução dos pontos para perdedores é 100% integral e imediata.
+[ ] Consulta Jurídica: (Recomendado) Validar o regulamento e o fluxo com um profissional da área jurídica para garantir conformidade com a legislação brasileira.
+✅ Fase 3: Segurança (Para um Jogo Justo)
+[ ] Lógica no Servidor: Centralizar 100% das regras de negócio e validações no backend, nunca no app.
+[ ] Transações Seguras: Usar "transações" no banco de dados para que a operação de dar um lance não falhe no meio.
+[ ] Relógio Centralizado: Utilizar o horário do servidor como a única referência de tempo.
+✅ Fase 4: Interface do App (O Que o Usuário Vê)
+[ ] Tela 1: Galeria de Leilões: Criar a tela principal que lista todos os prêmios ativos.
+[ ] Tela 2: Detalhes do Leilão: Desenvolver a tela de um item específico, com contador, informações e campo para dar o lance.
+[ ] Tela 3: Modal de Confirmação: Implementar o pop-up de confirmação para evitar lances acidentais.
+[ ] Tela 4: "Meus Lances": Criar a área onde o usuário acompanha seu histórico de participação.
+✅ Fase 5: Painel Ju (Seu Controle Total)
+[ ] Gerenciamento de Prêmios: Implementar a funcionalidade de Adicionar, Editar e Excluir os prêmios.
+[ ] Gerenciamento de Leilões: Implementar a funcionalidade de Criar, Visualizar e, se necessário, Cancelar os leilões.
+—-------------------------------------------------------------------------------------------------------------
+Checklist de Legalidade para o Seu Projeto:
+Para se manter 100% seguro, siga estes mandamentos:
+[✔] NUNCA venda pontos por dinheiro. Mantenha a aquisição de pontos estritamente ligada às atividades gratuitas no app.
+[✔] SEMPRE devolva 100% dos pontos de quem não venceu o leilão.
+[✔] TENHA um Regulamento claro, transparente e de fácil acesso no app, explicando todas as regras.
+[✔] NUNCA use a palavra "sorteio" ou "aposta" para descrever o sistema. Use "leilão de pontos", "disputa" ou "lances".

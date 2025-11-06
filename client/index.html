@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Clube do Grito</title>
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Cielo Silent Order Post Script -->
+    <script id="cielo-sop-script"></script>
+    <script>
+      // Carrega o script correto baseado no ambiente (via variável process.env.CIELO_ENV)
+      (function() {
+        // Determina ambiente via meta tag (setado pelo backend)
+        const cieloEnvMeta = document.querySelector('meta[name="cielo-env"]');
+        const cieloEnv = cieloEnvMeta ? cieloEnvMeta.getAttribute('content') : 'sandbox';
+        
+        const sopScriptUrl = cieloEnv === 'prod'
+          ? 'https://transaction.pagador.com.br/post/scripts/silentorderpost-1.0.min.js'
+          : 'https://transactionsandbox.pagador.com.br/post/scripts/silentorderpost-1.0.min.js';
+        
+        const scriptEl = document.getElementById('cielo-sop-script');
+        scriptEl.src = sopScriptUrl;
+        scriptEl.onload = function() {
+          console.log('✅ [CIELO SOP] Script carregado:', cieloEnv);
+        };
+        scriptEl.onerror = function() {
+          console.error('❌ [CIELO SOP] Erro ao carregar script');
+        };
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- Replit banner script - disabled on mobile to prevent DOM conflicts -->
+    <script>
+      // Only load Replit banner script on desktop to avoid mobile DOM conflicts
+      if (window.innerWidth > 768 && !navigator.userAgent.match(/Mobile|Android|iPhone|iPad/i)) {
+        const script = document.createElement('script');
+        script.type = 'text/javascript';
+        script.src = 'https://replit.com/public/js/replit-dev-banner.js';
+        document.head.appendChild(script);
+      }
+    </script>
+    <script>
+      // DESABILITAR SERVICE WORKER COMPLETAMENTE
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => {
+            console.log('🔥 FORÇANDO DESREGISTRO DO SW...');
+            registration.unregister();
+          });
+        });
+      }
+      // Limpar TODOS os caches
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          console.log('🗑️ DELETANDO TODOS OS CACHES:', names);
+          names.forEach(name => caches.delete(name));
+        });
+      }
+      // FORÇA HARD REFRESH
+      console.log('🚀 VERSÃO DO CÓDIGO: 3.0.0-PLAN-FIX-' + Date.now());
+    </script>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/assets/logo192.png" />
+  </body>
+</html>

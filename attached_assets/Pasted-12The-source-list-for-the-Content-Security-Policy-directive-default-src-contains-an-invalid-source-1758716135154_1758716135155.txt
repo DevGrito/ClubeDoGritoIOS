@@ -1,0 +1,69 @@
+12The source list for the Content Security Policy directive 'default-src' contains an invalid source: ''unsafe-dynamic''. It will be ignored.Understand this error
+12The Content-Security-Policy directive 'default-src' contains 'report-uri' as a source expression. Did you want to add it as a directive and forget a semicolon?Understand this error
+12The source list for Content Security Policy directive 'default-src' contains a source with an invalid path: '/api/4509669501698048/security/?sentry_key=7eb3d90eb4660416caf507087367e67e'. The query component, including the '?', will be ignored.Understand this error
+/t/o-grito:1 The source list for the Content Security Policy directive 'default-src' contains an invalid source: ''unsafe-dynamic''. It will be ignored.Understand this error
+/t/o-grito:1 The Content-Security-Policy directive 'default-src' contains 'report-uri' as a source expression. Did you want to add it as a directive and forget a semicolon?Understand this error
+/t/o-grito:1 The source list for Content Security Policy directive 'default-src' contains a source with an invalid path: '/api/4509669501698048/security/?sentry_key=7eb3d90eb4660416caf507087367e67e'. The query component, including the '?', will be ignored.Understand this error
+_app-929b0e24de2c5fe1.js:34 
+      /////////////////////
+   ///////////////////////////
+  ////////@@@@@@@//////////////
+  ////////@@@@@@@//////////////
+  ////////@@@@@@@//////////////        Curious and driven?
+  ///////////////@@@@@@@///////        Work with us!
+  ///////////////@@@@@@@///////
+  ///////////////@@@@@@@///////        https://join.replit.com/hack.with.us
+  ////////@@@@@@@//////////////
+  ////////@@@@@@@//////////////
+  ////////@@@@@@#//////////////
+   ///////////////////////////
+      /////////////////////
+      
+_app-929b0e24de2c5fe1.js:34 [LaunchDarkly] LaunchDarkly client initialized
+multi-tabs.js:5075 Injected CSS loaded successfully
+main.MWM1NDgwZmE2MQ.js:1 Deprecated API for given entry type.
+(anonymous) @ main.MWM1NDgwZmE2MQ.js:1Understand this warning
+/t/o-grito:1 Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner.
+framework-af3aff93c3c4ed2c.js:1 Error while parsing the 'sandbox' attribute: 'allow-downloads-without-user-activation' is an invalid sandbox flag.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this error
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'ambient-light-sensor'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'battery'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'execution-while-not-rendered'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'execution-while-out-of-viewport'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'layout-animations'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'legacy-image-formats'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'navigation-override'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'oversized-images'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'publickey-credentials'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'speaker-selection'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'unoptimized-images'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'unsized-media'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'pointer-lock'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Allow attribute will take precedence over 'allowfullscreen'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Allow attribute will take precedence over 'allowpaymentrequest'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Error while parsing the 'sandbox' attribute: 'allow-downloads-without-user-activation' is an invalid sandbox flag.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this error
+framework-af3aff93c3c4ed2c.js:1 Error while parsing the 'sandbox' attribute: 'allow-downloads-without-user-activation' is an invalid sandbox flag.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this error
+index-mvQEg4fs.js:8316 🚨🚨🚨 [LEO DEBUG FORCE] SEMPRE EXECUTAR
+index-mvQEg4fs.js:8316 📧 Email: "temp@temp.com"
+index-mvQEg4fs.js:8316 📱 Telefone: "+5531981156288"
+index-mvQEg4fs.js:8316 🆔 UserID: "33"
+index-mvQEg4fs.js:8316 🔍 [GLOBAL LEO CHECK] Email: false, Phone: false, CurrentID: 33
+index-mvQEg4fs.js:8316 🔍 [GLOBAL LEO CHECK] IsLeo final: false
+workspace_iframe.html?initialPath=%2Fdonation-flow%3Fplan%3Deco%26periodicity%3Dmensal&id=%3Are3%3A:26 Service Worker registrado com sucesso!

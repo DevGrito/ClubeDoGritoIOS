@@ -1,0 +1,44 @@
+// =========================
+// src/pages/PosPagamento.jsx - Tela após pagamento
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import Lottie from "lottie-react";
+import animacaoConfirmado from "../assets/pagamento-confirmado.json"; // Arquivo Lottie
+
+export default function PosPagamento() {
+  const [formData, setFormData] = useState({ nome: "", sobrenome: "", telefone: "" });
+  const navigate = useNavigate();
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const res = await fetch("/api/send-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefone: formData.telefone })
+    });
+    if (res.ok) navigate("/verify", { state: formData });
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-black flex flex-col items-center justify-center p-6">
+      <div className="w-28 h-28 mb-4">
+        <Lottie animationData={animacaoConfirmado} loop={false} />
+      </div>
+      <h2 className="text-2xl font-bold mb-2">Pagamento confirmado</h2>
+      <p className="text-center text-gray-600 mb-6">Complete seu cadastro</p>
+
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
+        <input name="nome" onChange={handleChange} placeholder="Nome" className="w-full p-3 border rounded" required />
+        <input name="sobrenome" onChange={handleChange} placeholder="Sobrenome" className="w-full p-3 border rounded" required />
+        <input name="telefone" onChange={handleChange} placeholder="(11) 99999-9999" className="w-full p-3 border rounded" required />
+        <p className="text-sm text-gray-500">Enviaremos um código de verificação via SMS</p>
+        <button type="submit" className="w-full bg-black text-white p-3 rounded">Continuar</button>
+      </form>
+    </div>
+  );
+}

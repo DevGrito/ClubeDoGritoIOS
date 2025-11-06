@@ -1,0 +1,51 @@
+Compra → Geração de Ingresso → Validação.
+
+Pelo que entendi, vocês já têm parte do sistema rodando, principalmente a criação do convite/ingresso com um número único. Esse número é o seu "código gold" e a chave para o sucesso!
+
+Veja como integrar o QR Code e o Scanner nesse fluxo:
+
+1. Integração da Geração do QR Code
+A etapa de geração do QR Code deve acontecer imediatamente após a confirmação do pagamento ou o envio do convite, na sua página de /ingresso/pagamento.
+
+O que Fazer:
+Usar o ID Existente: Você mencionou que o convite já está gerando um número/ID único. Esse é o dado que você deve codificar no QR Code. Não invente outro número; use o que já é o identificador principal do ingresso no seu banco de dados.
+
+Exemplo: Se o número do convite é CONVITE-2025-A1B2C3, o QR Code deve conter apenas o texto CONVITE-2025-A1B2C3.
+
+Geração no Backend: A melhor prática é que o seu servidor/backend (onde o pagamento é processado e o ingresso é salvo no DB) gere a imagem do QR Code.
+
+Utilize uma biblioteca de QR Code para a linguagem que você usa no backend (como PHP, Python, Node.js, etc.).
+
+A biblioteca pegará o ID do ingresso e transformará em um arquivo de imagem (PNG, SVG).
+
+Exibição:
+
+No Aplicativo: Salve a imagem do QR Code e exiba-a na tela do ingresso/convite do usuário.
+
+Por E-mail: Anexe a imagem do QR Code ao e-mail de confirmação.
+
+💡 Foco na Simplicidade: O QR Code só precisa codificar o número único do ingresso. Quanto menos informação ele tiver, mais rápido e confiável será a leitura.
+
+2. A Construção do Aplicativo de Scanner
+Esta é a fase final do processo, que você fará após garantir que todos os ingressos estejam sendo gerados corretamente com o QR Code.
+
+A Lógica Essencial:
+Passo	Ação no Aplicativo de Scanner	Ação no Servidor/Backend
+1. Leitura	O app abre a câmera e escaneia o QR Code, extraindo o ID Único (ex: CONVITE-2025-A1B2C3).	N/A
+2. Envio	O app envia esse ID para a sua API de validação (ex: POST /api/validar-ingresso).	N/A
+3. Validação	O Backend recebe o ID e consulta o banco de dados para verificar 3 coisas:	✅ ENCONTRADO? Sim.
+✅ É VÁLIDO? O ingresso existe.
+✅ ESTÁ USADO? Status é "Não Usado".
+4. Atualização	Se a validação for positiva, o Backend muda o status do ingresso no banco de dados para "Usado".	MUDAR STATUS para "USADO"
+5. Resposta	O Backend envia uma resposta simples de SUCESSO ou FALHA ao app.	Resposta JSON: {"status": "sucesso", "nome": "João Silva"}
+6. Feedback	O app recebe a resposta e mostra uma tela VERDE (Acesso Liberado) ou VERMELHA (Acesso Negado).	N/A
+
+Exportar para as Planilhas
+Pontos Chave para o Scanner:
+Velocidade: A consulta ao servidor (Passos 2 a 5) deve ser super rápida (milissegundos), pois isso é o que define a agilidade da fila de entrada.
+
+Segurança: A API de validação (o endpoint que recebe o ID) precisa ser protegida para que apenas o seu aplicativo de scanner e a sua equipe possam acessá-la. Use tokens de autenticação (API Key, JWT, etc.).
+
+Design: O feedback visual deve ser claro e imediato (cores fortes e sons) para que o porteiro/recepcionista saiba a decisão instantaneamente.
+
+O seu plano é perfeitamente executável. Concentre-se primeiro em garantir que o QR Code está sendo gerado e codificando apenas o ID único do ingresso, e depois construa o módulo de scanner com a API de validação.

@@ -1,0 +1,58 @@
+INDICADORES INSTITUTO O GRITO																					
+PROGRAMA	PROJETO	INDICADOR	META 	RECORRÊNCIA	JANEIRO	FEVEREIRO	MARÇO	ABRIL	MÉDIA TRIMESTRAL	MAIO	JUNHO	MÉDIA SEMESTRAL	JULHO	AGOSTO	SETEMBRO	MÉDIA TRIMESTRAL	OUTUBRO	NOVEMBRO	DEZEMBRO	MÉDIA SEMESTRAL	ANUAL
+					PREENCHER					PREENCHER			PREENCHER				PREENCHER				
+PROGRAMA DE CULTURA E ESPORTE	SALA SERENATA 	FREQUÊNCIA	85%	Mensal	Não se aplica	70,6	83	85	80	82	71	78,21	82%								
+		EVASÃO	< 10 ALUNOS			0	0	0	0	0	0	0	1								
+																					
+		AVALIAÇÃO DE APRENDIZAGEM	80%	Semestral		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica									
+		QUANTIDADE DE ALUNOS	35			42	36	35	35	35	45	45	82%								
+		NPS	50	Semestral		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica									
+	POLO               GLORIA 	FREQUÊNCIA	85%	Mensal	Não se aplica	78	75	94	82	80,5	82,2	81,9	0,9								#REF!
+		EVASÃO	< 20 ALUNOS			0,0	13,0	0,0	13	0,0	0,0	13,0	92								105
+		AVALIAÇÃO DE APRENDIZAGEM	80%	Semestral		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica										#DIV/0!
+		QUANTIDADE DE ALUNOS	150			165	151	149	149	165	120	120	153								0
+		NPS	70	Semestral		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica										#DIV/0!
+	CASA                SONHAR	FREQUÊNCIA	85%	Mensal		73	76	84	78	82	81	79,12	1								1
+		EVASÃO	< 20 ALUNOS			0	19	0	19	0	0	19	0								0
+		AVALIAÇÃO DE APRENDIZAGEM	80%	Semestral	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica										0
+		QUANTIDADE DE ALUNOS	150			165	154	156	156	153	164	164	169								0
+		NPS	70	Semestral		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica		2	111111111111111000000000000000000000000000000000000000000000000000000							55
+PROGRAMA DE INCLUSÃO PRODUTIVA	LAB. VOZES DO FUTURO	FREQUÊNCIA	85%	Mensal	64	68	73	Não se aplica		Não se aplica	97	96,50	94								79
+		EVASÃO	< 06 ALUNOS		0	0	0				0,0	0	0								0
+		AVALIAÇÃO DE APRENDIZAGEM	90%		Não se aplica	Não se aplica	89		Não se aplica		Não se aplica		43								#DIV/0!
+		QUANTIDADE DE ALUNOS	60	Mensal	57	57	72				40	40	41								267
+		NPS	70	Trimestral	Não se aplica	Não se aplica	75				Não se aplica		81								#DIV/0!
+		EMPREGABILIDADE	22		0	21	8				Não se aplica										0
+	CURSOS PRESENCIAL	FREQUÊNCIA	85%	Mensal	Não se aplica	Não se aplica	Não se aplica	90,75	91	88,44	83	87,32	87								87
+		EVASÃO	< 40 ALUNOS					0	0,0	0,0	1,0	1	0								1
+		AVALIAÇÃO DE APRENDIZAGEM	80%					Não se aplica	Não se aplica	Não se aplica	81	81	Não se aplica								81
+		QUANTIDADE DE ALUNOS	400					30	30	167	92	289	104								393
+		NPS	70					Não se aplica	Não se aplica	Não se aplica	87	87	Não se aplica								87
+	CURSOS EAD  CGD	FREQUÊNCIA	85%	Mensal	Não se aplica	100	100	Não se aplica	100	99	100	99,75	100								100
+		EVASÃO	< 50 ALUNOS			0	0		0,0	0	0,0	0	0								0
+		Alunos ativos 	200			14	8		22	44	72	138	25								163
+		Alunos Formados				14	8			0	44	66	25								
+PSICOSSOCIAL	CARAVANA O GRITO	EVENTOS (RUA DE LAZER) 	3		Não se aplica	Não se aplica	Não se aplica	1	1	Não se aplica	Não se aplica	1									
+		PESSOAS PRESENTES	300					650	650	Não se aplica	Não se aplica	650									
+	ATIVIDADE TRANSVERSAL	PESQUISA DE CLIMA	60		Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica	Não se aplica										
+		AÇÕES COM OS COLABORADORES	5				1		1	Não se aplica	Não se aplica	1									
+		ESPAÇOS COLETIVOS COM O TIME	10			1	1	1	3	1	1	5									
+		VISITAS	20		Não se aplica	34	35	16	51	24	14	89									
+		ATENDIMENTOS INDIVIDUAIS	20				10	33	77	16	22	81									
+		INTERVENÇÕES DO METODO O GRITO				0	463	304	767	285	290	1342									
+MARKETING	MKT	SEGUIDORES	15000	500	1096	92	61	128		57	48	10587	78								10587
+		DOADOR RECOR.			0,00	0,00	4,00	0,00	0,00	0,00	0,00		0,00								0,00
+FAVELA 3D	DECOLAGEM	FAMILIAS ATIVAS	250		238	219	219	217	217	216	217	217									
+		VISITAS MENTORES	3000	300	276	305	297	318	1196	371	354	1921									
+		FAMILIAS TRIÂNGULO 	1.160	116	10	39	29	23	101	91	73	265									
+	DESENVOLVIMENTO SOCIAL	ATENDIMENTOS GERAIS	480	40	47	60	40	40	187	43	47	277									
+		GERANDO LIDERANÇAS	12	12	0	1	1	2	4	1	0	5									
+		RODA DE CONVERSA	12	12	1	1	1	0	3	1	1	5									
+		GRUPO DE MULHERES	24	1	1	2	1	1	5	1	1	7									
+		ASSEMBLEIA COMUNITARIA	6		1	Não se aplica	1	Não se aplica	2	1	Não se aplica	3		Não se aplica			Não se aplica		Não se aplica		
+		MOBILIZA D	6		Não se aplica	1	Não se aplica	1	2	Não se aplica	1		Não se aplica		Não se aplica			Não se aplica			
+	EMPREGO E RENDA	FORMANDOS	100	10	0	0	0	0	0	Não se aplica	27	27									
+		EMPREGADOS	75% do territorio que tem interesse em trabalhar.		0	1	1	0	0		2	4									
+		EMPREENDEDORES MAPEADOS	10	1	0	0	0	44	1		43	43									
+	MORADIA E URBANISMO	EQUIPAMENTOS 	4		0	1	0	0	1												
+		MELHORIA HABITACIONAL 	50		0	0	0	0	0												

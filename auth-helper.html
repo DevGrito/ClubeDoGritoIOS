@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leo Martins Auth Helper</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .button { 
+            background: #0079F2; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h2>Leo Martins Dashboard Access Helper</h2>
+    <p>Click the button below to authenticate as Leo Martins and access the dashboard:</p>
+    
+    <button class="button" onclick="authenticateAsLeo()">Autenticar como Leo Martins</button>
+    
+    <p><strong>Then navigate to:</strong> <a href="http://localhost:5000/leo-martins" target="_blank">http://localhost:5000/leo-martins</a></p>
+
+    <script>
+        function authenticateAsLeo() {
+            // Set the authentication data that the app expects
+            localStorage.setItem("userTelefone", "31986631203");
+            localStorage.setItem("userPapel", "leo");
+            localStorage.setItem("userName", "Leo Martins");
+            localStorage.setItem("userEmail", "leo@institutoogrito.org");
+            localStorage.setItem("isLoggedIn", "true");
+            localStorage.setItem("userRole", "leo");
+            
+            alert("Autenticação definida! Agora você pode acessar o dashboard do Leo Martins.");
+            
+            // Redirect to Leo Martins dashboard
+            window.open("http://localhost:5000/leo-martins", "_blank");
+        }
+    </script>
+</body>
+</html>

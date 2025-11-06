@@ -1,0 +1,60 @@
+Prompt pronto pro Replit (colar e mandar executar)
+
+Objetivo: criar no backend Node/Express do Clube do Grito um módulo de eventos + webhooks + automations (com Postgres/Supabase) que permita acionar e-mails e enviar webhooks ao CRM quando certos eventos ocorrerem (ex.: cadastro concluído).
+
+Implemente no meu projeto Node/Express:
+
+1) Tabelas Postgres (usar Supabase): grito_events, grito_webhook_subscriptions, grito_webhook_deliveries, grito_automations (usar os CREATE TABLE que vou colar abaixo sem alterar nomes/colunas).
+
+2) Rotas:
+   - POST /events:
+     - Valida campos obrigatórios (event_name, user_id, source, payload).
+     - Suporta idempotência via idempotency_key (unique).
+     - Salva evento e enfileira:
+       a) execução de automations (com base em match_event e condition_sql),
+       b) webhooks para todas assinaturas que contêm o event_name no event_filter.
+     - Responde { ok, id }.
+
+   - POST /webhooks/stripe:
+     - Verifica assinatura da Stripe.
+     - Traduz eventos relevantes (checkout.session.completed, invoice.payment_succeeded/failed, customer.subscription.created/updated/canceled) para meus eventos:
+       plan.subscribed, payment.succeeded, payment.failed.
+     - Para cada tradução, chama internamente o mesmo caminho de persistência de /events (idempotente).
+
+3) Worker "webhook-dispatcher":
+   - A cada minuto, busca 20 deliveries PENDING com next_attempt_at <= now().
+   - POST para endpoint_url com body = {id, event_name, user_id, occurred_at, source, payload}.
+   - Headers: Content-Type: application/json, X-Grito-Event, X-Grito-Signature (HMAC sha256 do body com o secret da assinatura).
+   - Atualiza status para OK em sucesso; em erro, attempt+1 e next_attempt_at com backoff exponencial (2,4,8,16,32 min), marcando FAIL após 6 tentativas.
+
+4) Motor simples de automations:
+   - Ao salvar um evento, avalie grito_automations onde match_event = event_name e is_active = true.
+   - Se condition_sql estiver preenchido, avalie via SELECT EXISTS usando payload do evento.
+   - action.jsonb suporta:
+     {type:'email', template_id:'...', to:'{{payload.email}}', variables:{...}}
+     {type:'webhook', endpoint_ref:'CRM-Doadores'}
+   - Para 'email', chame meu serviço de e-mail já existente (ou crie um stub "emailService.send(template_id, to, variables)").
+   - Para 'webhook', crie uma entrega em grito_webhook_deliveries para a assinatura cujo destination_name = endpoint_ref.
+
+5) Segurança:
+   - Para /events, exigir API key via header X-Api-Key (validar em env: EVENTS_API_KEY).
+   - Para /webhooks/stripe, validar assinatura com STRIPE_WEBHOOK_SECRET.
+   - Para enviar webhooks, assinar com HMAC sha256.
+
+6) Observabilidade:
+   - Log estruturado (event_id, automation_id, delivery_id, status).
+   - Endpoint GET /health que verifica DB e fila.
+
+7) Entregar seed SQL:
+   - Uma assinatura de webhook:
+     insert into grito_webhook_subscriptions (destination_name, endpoint_url, secret, event_filter)
+     values ('CRM-Doadores','https://meu-crm.org/webhooks/grito','SECRETO_LONGO', array['user.signed_up','donation.created','plan.subscribed','payment.failed']);
+
+   - Uma automation de boas-vindas:
+     insert into grito_automations (name, match_event, action)
+     values ('Boas-vindas','user.signed_up','{"type":"email","template_id":"welcome_01","to":"{{payload.email}}","variables":{"nome":"{{payload.name}}"}}');
+
+8) Me entregue:
+   - Arquivos: routes/events.ts, webhooks/stripe.ts, workers/webhook-dispatcher.ts, services/emailService.ts, sql/migrations.sql
+   - Scripts npm: "worker:webhooks": "node dist/workers/webhook-dispatcher.js"
+   - Documentação rápida de uso (README) explicando como postar um evento e como cadastrar um webhook/au

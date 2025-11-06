@@ -1,0 +1,46 @@
+Crie um painel de dashboards responsivo com 4 cards informativos para exibir na tela do Professor, logo abaixo de uma saudação como “Olá, Prof. Fulano”.
+
+Estilo visual:
+- Os **cards devem ter fundo branco**, com **somente os detalhes (bordas, ícones, indicadores, textos de destaque) em cores suaves**.
+- **Evitar o uso de emojis.**
+- Usar **bordas arredondadas**, sombra leve e **espaçamento equilibrado**.
+- Layout clean, moderno, sem excesso de informação visual.
+
+Cards solicitados:
+
+1. Frequência da Semana  
+   - Título: “Frequência da Semana”  
+   - Valor em destaque: “83%”  
+   - Barra de progresso ou visual circular em verde claro
+
+2. Alunos em Alerta  
+   - Título: “Alunos em Alerta”  
+   - Lista com até 2 nomes fictícios (ex: João, Ana)  
+   - Pequeno ícone de alerta discreto (ex: triângulo laranja claro ou ponto de atenção)
+
+3. Aulas Registradas  
+   - Título: “Aulas Registradas”  
+   - Número em destaque: “12”  
+   - Subtexto: “no mês atual”
+
+4. Lembrete da Semana  
+   - Título: “Próximo Lembrete”  
+   - Texto: “Reunião com coordenação – Sexta, 14h”
+
+Layout responsivo:
+- **No desktop**: cards organizados em **2 colunas (ou 2x2 grid)**
+- **No mobile**: cards empilhados verticalmente ou em **scroll horizontal**
+- Deve funcionar bem entre 320px e 414px de largura
+
+Menu lateral ou inferior:
+- Quando o professor clica em um item do menu (ex: “Plano de Aula”), ele deve ficar com o fundo ou borda em **amarelo (#FFD700 ou semelhante)** para indicar o item ativo
+- Atualmente a cor está azul — substituir pelo **amarelo de destaque**
+- Todos os itens do menu devem ter tamanhos, fontes e espaçamentos consistentes
+
+Extras:
+- Se for usar React, os dashboards devem ser componentes reutilizáveis
+- Se estiver usando Tailwind CSS, aplicar classes utilitárias para tornar o design leve e responsivo
+- Nenhum emoji deve ser usado no layout ou nos textos
+- Pode usar ícones SVG ou Font Awesome em versão discreta
+
+O conteúdo pode ser estático (hardcoded) inicialmente.

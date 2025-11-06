@@ -1,0 +1,148 @@
+Redefinição da Tela do Aluno 
+✅ Objetivo
+Reestruturar e aprimorar a Tela do Aluno do app Clube do Grito, tornando-a mais funcional, organizada e engajadora — sem alterar nenhuma outra parte do sistema e sem quebrar funcionalidades existentes.
+
+📌 Instruções Gerais
+Toda a implementação deve ser responsiva (funcionar bem em mobile e desktop).
+
+Nenhuma outra parte do sistema deve ser modificada além desta tela.
+
+Todas as funcionalidades já existentes devem continuar funcionando normalmente.
+
+A tela pode ser montada com dados mockados no momento.
+
+Usar componentes modulares e reutilizáveis.
+
+🧱 Estrutura Atualizada da Tela do Aluno
+1. Cabeçalho e Boas-vindas Personalizadas
+Mensagem dinâmica com nome do aluno e incentivo:
+
+plaintext
+Copiar
+Editar
+"Olá, [NOME_DO_ALUNO]! Pronto pra mais um passo rumo ao seu futuro?"
+Mensagens contextuais com base em comportamento recente (frequência, retorno após ausência, etc.).
+
+2. Menu Lateral (ou Superior) Reorganizado
+arduino
+Copiar
+Editar
+📊 Painel do Aluno
+📅 Agenda (Calendário + Próximas aulas + Tarefas)
+📚 Minhas Aulas
+🧠 Minhas Competências
+📩 Recados
+👤 Meu Perfil
+⚙️ Configurações
+🚪 Sair
+3. Painel do Aluno (Dashboard Principal)
+A. Resumo Educacional
+Frequência no mês (barra de progresso)
+
+Última aula (nome, data, competência)
+
+Próxima aula (disciplina, horário, botão "ver agenda")
+
+Competências (4 com barras de progresso e feedback textual opcional)
+
+B. Motivação
+Cards com benefícios do projeto
+
+Depoimentos de ex-alunos
+
+Missão ou meta da semana (opcional)
+
+4. Minhas Aulas
+Lista de aulas recentes
+
+Data, status (presente/ausente), conteúdo
+
+Histórico de frequência com média por mês
+
+5. Agenda / Calendário (📌 Atualização Importante)
+➕ NOVA FUNÇÃO: Tarefas do Aluno
+Além de eventos, workshops e aulas, o calendário deve permitir que o aluno:
+
+Visualize tarefas que precisa realizar, como:
+
+Entregar trabalhos
+
+Participar de oficinas
+
+Responder atividades sugeridas
+
+Cada tarefa deve ter:
+
+Nome
+
+Data limite
+
+Status (pendente/concluído)
+
+O aluno pode marcar a tarefa como feita
+
+Interface amigável para adicionar lembretes pessoais
+
+✅ Funcionalidades do calendário:
+
+Visual por mês (navegável)
+
+Diferenciação visual entre aulas, eventos, tarefas e lembretes
+
+Modal com detalhes ao clicar em cada item
+
+6. Minhas Competências
+Exibição de progresso por competência (comunicação, criatividade, etc.)
+
+Barras de progresso + percentual
+
+Possível espaço para feedback textual
+
+7. Recados
+Lista de recados dos professores e coordenação
+
+Título, conteúdo, data
+
+Status (lido/não lido) com botão para marcar como lido
+
+8. Meu Perfil
+Nome, telefone, CPF, nascimento
+
+Botão de edição
+
+Avatar do aluno
+
+9. Configurações
+Preferências do sistema
+
+Notificações
+
+Botão para contato com a coordenação (formulário ou WhatsApp)
+
+🔧 Detalhes Técnicos
+Design responsivo (mobile-first + desktop)
+
+Layout em grid adaptativo
+
+Não alterar fluxos de login, cadastro, pagamentos ou dados do sistema
+
+Evitar impacto em outros usuários ou componentes
+
+Mockar os dados inicialmente com:
+
+João Silva, plano Grito, frequência 85%
+
+3 próximas aulas, 4 passadas
+
+2 recados
+
+3 eventos + 2 tarefas no calendário 🔄 Futuro: Integração Backend
+Essa estrutura já deve estar preparada para no futuro:
+
+Buscar dados reais da API do sistema
+
+Integrar com banco de dados de presença
+
+Receber recados em tempo real
+
+Gerar certificados com base em frequência

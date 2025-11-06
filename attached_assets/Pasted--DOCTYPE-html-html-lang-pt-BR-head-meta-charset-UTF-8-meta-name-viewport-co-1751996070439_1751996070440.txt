@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clube do Grito</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', sans-serif;
+    }
+
+    body {
+      background-color: #f9f9f9;
+      color: #333;
+      padding-bottom: 80px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      margin: 24px 16px;
+      color: #004990;
+    }
+
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 0 16px;
+    }
+
+    .card {
+      background-color: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    }
+
+    .card h2 {
+      font-size: 1.2rem;
+      color: #004990;
+      margin-bottom: 4px;
+    }
+
+    .card p {
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .button-container {
+      margin: 32px 16px;
+    }
+
+    .button-container button {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: bold;
+      background-color: #000;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .button-container button:hover {
+      background-color: #222;
+    }
+
+    .bottom-nav {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 73, 144);
+      width: 260px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+      z-index: 999;
+    }
+
+    .bottom-nav button {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .bottom-nav button:hover {
+      transform: translateY(-3px);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Faça parte do Clube do Grito</h1>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Eco</h2>
+      <p>Seu grito começa a se propagar.</p>
+    </div>
+    <div class="card">
+      <h2>Voz</h2>
+      <p>Deixe seu grito tomar força.</p>
+    </div>
+    <div class="card">
+      <h2>O Grito</h2>
+      <p>Seu grito ecoa por toda parte.</p>
+    </div>
+  </div>
+
+  <div class="button-container">
+    <button>Seja Premium</button>
+  </div>
+
+  <div class="bottom-nav">
+    <button onclick="alert('Home')">🏠</button>
+    <button onclick="alert('Notícias')">📰</button>
+    <button onclick="alert('Busca')">🔍</button>
+    <button onclick="alert('Login')">👤</button>
+  </div>
+
+</body>
+</html>

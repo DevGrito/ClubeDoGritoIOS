@@ -1,0 +1,87 @@
+Prompt para Gerar Relatório Financeiro Cruzando Dados do Excel
+Título: Criação de Relatório Financeiro com Análise de Planejado vs. Realizado
+
+Objetivo: Gerar um relatório financeiro que consolide dados de dois arquivos Excel distintos ("Planejamento" e "Controle de Pagamentos") para calcular e apresentar três indicadores chave: Valor Planejado, Gasto Realizado e Saldo Final.
+
+Arquivos de Origem:
+
+Arquivo 1: "Planejamento.xlsx"
+
+Aba "Geral": Contém as metas financeiras.
+
+Valores em verde: Representam a Meta de Arrecadação (receita esperada).
+
+Aba "Metas por Setor": Contém o orçamento de gastos para cada área.
+
+Coluna "Setor": Nome do setor (ex: Marketing, Operações).
+
+Coluna "Meta de Gasto": Valor que cada setor tem como meta para gastar.
+
+Arquivo 2: "Controle de Pagamentos.xlsx"
+
+Aba "Contas Pagas": Contém todas as despesas que já foram efetivadas.
+
+Coluna "Valor Pago": O montante de cada despesa paga.
+
+Aba "Pago/Recebido": Contém os gastos reais, detalhados por setor.
+
+Coluna "Setor": Nome do setor responsável pelo gasto.
+
+Coluna "Valor": O valor real gasto por aquele setor.
+
+Lógica e Cálculos Solicitados:
+
+Passo 1: Calcular o "Valor Planejado"
+
+Acesse o arquivo "Planejamento.xlsx".
+
+Na aba "Geral", some todos os valores que estão na cor verde (Meta de Arrecadação).
+
+Acesse o arquivo "Controle de Pagamentos.xlsx".
+
+Na aba "Contas Pagas", some todos os valores da coluna "Valor Pago".
+
+Calcule o "Valor Planejado" com a seguinte fórmula:
+
+Planejado = (Soma da Meta de Arrecadação) - (Soma das Contas Pagas)
+
+Passo 2: Calcular o "Gasto Realizado"
+
+Acesse o arquivo "Planejamento.xlsx".
+
+Na aba "Metas por Setor", some a coluna "Meta de Gasto" para obter a meta total de gastos de todos os setores.
+
+Acesse o arquivo "Controle de Pagamentos.xlsx".
+
+Na aba "Pago/Recebido", some a coluna "Valor" para obter o total real gasto pelos setores.
+
+Calcule o "Gasto Realizado" com a seguinte fórmula:
+
+Gasto Realizado = (Soma da Meta de Gasto dos Setores) - (Soma do Pago/Recebido)
+
+Passo 3: Calcular o "Saldo Final"
+
+Utilize os resultados dos passos anteriores.
+
+Calcule o "Saldo Final" com a seguinte fórmula:
+
+Saldo Final = (Valor Planejado) - (Gasto Realizado)
+
+Formato da Saída:
+
+Apresente os resultados finais de forma clara e direta em um dashboard ou resumo:
+
+Valor Planejado: R$ [Resultado do Passo 1]
+
+Gasto Realizado: R$ [Resultado do Passo 2]
+
+Saldo Final: R$ [Resultado do Passo 3]
+
+Confirmação de Entendimento:
+Sim, eu entendi a lógica. O prompt reflete exatamente o que você me explicou:
+
+Planejado: É a sua meta de receita (verdinho) menos as contas que você já sabe que tem que pagar.
+
+Realizado: É a meta de gastos que os setores tinham menos o que eles de fato já gastaram e foi registrado.
+
+Saldo: É a diferença entre o seu planejado e o realizado, mostrando o resultado final da operação.

@@ -1,0 +1,35 @@
+1. Estrutura Geral da Tela:
+Tamanho: A tela deve ocupar 100% da largura e altura do dispositivo (full-screen), em orientação vertical.
+
+Fundo Principal: A tela de fundo é predominantemente cinza claro (ou branco suave, #F8F8F8 ou similar) em toda a área visível que não é coberta pelo cartão do story.
+
+Card da História (Elemento Central): Um card retangular com cantos arredondados, que contém a imagem da história, o ícone e a área branca inferior. Este card "flutua" sobre o fundo principal.
+
+2. Cabeçalho (Topo da Tela):
+Barras de Progresso: No topo, dentro da área amarela, existem as barras de progresso brancas. Elas são segmentadas (neste caso, 3 segmentos visíveis, com o primeiro preenchido), indicando a duração e o número de quadros da história.
+
+Texto Informativo: Acima das barras de progresso, deve haver um texto informativo em cinza claro, alinhado à esquerda, indicando o contexto da história. Ex: "HISTORIAS DE SUCESSO - 1" (o número indica qual quadro está sendo visualizado).
+
+3. Conteúdo do Card da História:
+Imagem de Fundo: A imagem principal (neste exemplo, "Dona Laís") ocupa a maior parte do card, estendendo-se horizontalmente e verticalmente, mas terminando em uma linha diagonal na parte inferior-direita, cortando para cima.
+
+Área Branca Inferior: Abaixo da imagem, no canto inferior-esquerdo do card, há uma área branca de formato irregular, delimitada pela linha diagonal da imagem e pelas bordas arredondadas do card.
+
+Texto "Lorem Ipsum": Dentro desta área branca, centralizado ou alinhado à esquerda, está o texto "Lorem Ipsum" (que será substituído pelo conteúdo real da história).
+
+Ícone "Homem do Megafone":
+
+Este é um ícone vetorial ou ilustrativo, posicionado no canto inferior-direito do card, sobreposto tanto à imagem quanto à área branca.
+
+É composto por uma figura humana estilizada (cabeça e corpo) em amarelo, segurando um megafone vermelho.
+
+Do megafone, saem três "ondas sonoras" em formato de raios amarelos, que se sobrepõem ligeiramente à imagem de fundo da história.
+
+A figura e o megafone estão parcialmente fora dos limites da área branca e se sobrepõem à imagem da história.
+
+4. Ajustes Finais no Card:
+Bordas: As bordas externas do card da história devem ser arredondadas em todos os cantos.
+
+Sombra: O card possui uma sombra sutil que o destaca do fundo cinza, dando profundidade.
+
+Por favor, garanta que essa composição exata seja replicada, com atenção especial à sobreposição dos elementos (imagem, área branca, ícone do megafone) e às formas não retangulares na parte inferior.

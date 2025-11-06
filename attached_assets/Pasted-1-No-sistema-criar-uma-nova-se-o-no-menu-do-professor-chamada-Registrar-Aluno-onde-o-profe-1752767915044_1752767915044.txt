@@ -1,0 +1,64 @@
+1. No sistema, criar uma nova seção no menu do professor chamada **"Registrar Aluno"**, onde o professor poderá acessar o formulário de cadastro.
+
+2. O formulário deve ser dividido em seções claras:
+  - Dados Pessoais (Nome, data nascimento, gênero, cor/raça, nacionalidade, naturalidade, CPF, RG, endereço completo, quantidade de pessoas na casa)
+  - Dados da Família (nome, telefone e grau de parentesco dos responsáveis, estado civil dos pais, responsável legal, contato de emergência)
+  - Dados Escolares (turma, turno, ano de ingresso, escola, tipo de escola, repetência, notas recentes, necessidades especiais e laudos)
+  - Dados de Saúde (condições médicas, medicações, alergias, tipo sanguíneo, cartão SUS)
+  - Benefícios Sociais (Bolsa Família, NIS, outros programas, renda familiar em faixas)
+  - Observações Gerais (campo aberto para observações)
+
+3. Os campos obrigatórios devem ser validados (ex: nome do aluno, data nascimento, telefone do responsável).
+
+4. Deve haver upload de arquivos para anexar laudos médicos ou boletins escolares.
+
+5. Deve conter botões "Salvar Cadastro" e "Cancelar / Voltar".
+
+6. O formulário deve ser responsivo para desktop e mobile.
+
+7. Ao salvar, validar os campos obrigatórios e exibir mensagens de erro claras caso algo esteja faltando.
+
+8. Os campos opcionais não devem impedir o salvamento.
+
+9. Formate as perguntas e campos de forma amigável e acessível, com placeholders e seleções para gêneros, cor/raça (conforme IBGE), estado civil, tipo de escola, faixa de renda, etc.
+
+10. Permita seleção para perguntas tipo sim/não, e campos condicionais (exemplo: se “Já repetiu de ano?” for sim, mostrar campo para qual ano).
+
+11. Para endereço, valide CEP e permita preenchimento separado por rua, número, bairro, cidade, estado.
+
+---
+
+Construa o formulário com base nessas especificações, pronto para integração em um sistema educacional.
+
+---
+
+Exemplo de campos e validações no formulário:
+
+- Nome Completo (input texto) – obrigatório  
+- Data de Nascimento (input data) – obrigatório, deve ser menor que hoje  
+- Gênero (select: masculino, feminino, outro, prefiro não dizer)  
+- Cor/Raça (select conforme IBGE: branca, preta, parda, amarela, indígena)  
+- CPF (input texto, validar formato)  
+- Telefone do responsável (input telefone) – obrigatório  
+- Upload de arquivo (botão para anexar arquivo)  
+- Botão salvar com validação
+
+---
+
+Crie o código para esse formulário ou descreva a estrutura JSON/objeto com os campos, validações e interações para que uma aplicação web ou backend possa usar.
+
+---
+
+Se for necessário, crie também funções para validação dos campos obrigatórios e formatos específicos (exemplo CPF, telefone).
+
+---
+
+**Não crie código que dependa de frameworks específicos sem solicitação, prefira uma estrutura genérica que possa ser adaptada.**
+
+---
+
+Comece listando os campos, tipos, obrigatoriedade, opções de seleção e regras de validação. Depois, sugira uma estrutura geral para a UI e validação.
+
+---
+
+Aguardo sua resposta detalhada e organizada.

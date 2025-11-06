@@ -1,0 +1,208 @@
+# PROMPT — Implementar Módulo **Colaboradores**
+
+## 1) Contexto
+
+Crie/ajuste a seção **Colaboradores** no painel interno do Clube do Grito. Não gere código específico da stack — siga as especificações funcionais abaixo para aplicar na tecnologia já usada no projeto.
+
+## 2) Objetivo
+
+* Exibir **Satisfação** (vinda do **aplicativo** — dados internos do app).
+* Exibir **Distribuição por Departamento**.
+* Disponibilizar um botão **“Ver todos os colaboradores”** que abre uma **lista** com **nome** e **telefone** (e departamento), com busca e filtro por departamento.
+* **NÃO** implementar métricas de produtividade agora (deixe só preparado para futuro).
+* **Frequência/assiduidade** virá de **Intelbras** — **não coletar agora**, apenas deixar **placeholder** de integração documentado.
+
+## 3) Escopo “agora” vs “depois”
+
+* **Agora**
+
+  * Cards/visuais: Satisfação média (0–100 ou 0–5 → padronizar em 0–100 para exibição) e pizza/barras de distribuição por departamento.
+  * Botão **“Ver todos os colaboradores”** → abre modal/tela com listagem paginada + busca + filtro por departamento.
+  * Campos na lista: **Nome**, **Telefone**, **Departamento**.
+  * Origem da **Satisfação**: **dados do app** (mesma base usada pelo aplicativo dos colaboradores/usuários internos).
+  * **Sem produtividade** por enquanto.
+  * **Sem frequência** por enquanto (apenas deixar contrato para Intelbras).
+
+* **Depois**
+
+  * Integração **Intelbras** para Frequência (ponto/biometria/acesso): rotas/serviços a definir.
+  * Métricas de **Produtividade** (KPIs e metas) quando a área disponibilizar as regras.
+
+## 4) Departamentos (usar exatamente estes rótulos)
+
+1. Inclusão Produtiva
+2. Administrativo Financeiro
+3. Administrativo
+4. Marketing
+5. Psicossocial
+6. Favela 3D
+7. GRIFT
+8. Outlet
+9. Casa Sonhar
+10. Casa Sonhar e PEC
+
+> Observação: padronize capitalização exatamente como acima nas telas. Para filtros/queries, pode usar slugificação interna.
+
+## 5) UX / Comportamento
+
+* **Seção Colaboradores** (painel):
+
+  * **Card Satisfação**: mostrar valor médio (0–100). Se origem estiver indisponível, exibir estado vazio “Ainda sem dados do app”.
+  * **Gráfico de Distribuição**: pizza ou barras horizontais; legenda com os 10 departamentos. Se algum não tiver dados, mostrar com valor 0.
+  * **Botão** destacado “**Ver todos os colaboradores**” (com ícone de usuários). Ao clicar:
+
+    * Abrir **modal** ou navegar para **tela de listagem** com:
+
+      * **Busca** por nome/telefone (string livre, case-insensitive).
+      * **Filtro** por departamento (dropdown com os 10 rótulos, opção “Todos”).
+      * **Tabela/List** com colunas: **Nome**, **Telefone**, **Departamento**.
+      * **Paginação** (padrão 20 por página). Mostrar total de registros.
+      * Ação de **copiar telefone** (qualquer UX simples: clique no telefone ou ícone).
+    * Edge case: se não houver registros, exibir “Nenhum colaborador encontrado”.
+
+## 6) Dados & Contratos (genéricos — adaptar à stack atual)
+
+> Ajuste nomes/rotas para combinar com seu backend. Se já existir algo similar, adapte mantendo estes campos.
+
+* **Estatísticas (para cards/gráficos)**
+
+  * **Endpoint sugerido (GET)**: `/colaboradores/stats`
+  * **Resposta esperada**:
+
+    ```json
+    {
+      "satisfacaoMedia": 82.4,
+      "distribuicao": [
+        { "departamento": "Inclusão Produtiva", "total": 12 },
+        { "departamento": "Administrativo Financeiro", "total": 7 },
+        { "departamento": "Administrativo", "total": 9 },
+        { "departamento": "Marketing", "total": 5 },
+        { "departamento": "Psicossocial", "total": 8 },
+        { "departamento": "Favela 3D", "total": 11 },
+        { "departamento": "GRIFT", "total": 6 },
+        { "departamento": "Outlet", "total": 10 },
+        { "departamento": "Casa Sonhar", "total": 4 },
+        { "departamento": "Casa Sonhar e PEC", "total": 3 }
+      ]
+    }
+    ```
+  * **Origem Satisfação**: dados calculados do **aplicativo**. Se houver escala 1–5, converter para 0–100: `nota% = (nota/5)*100`.
+
+* **Listagem de Colaboradores**
+
+  * **Endpoint sugerido (GET)**: `/colaboradores`
+  * **Query params**: `?page=1&pageSize=20&departamento=Casa%20Sonhar&search=ana`
+  * **Resposta esperada**:
+
+    ```json
+    {
+      "items": [
+        { "id": 101, "nome": "Ana Souza", "telefone": "+55 31 90000-0000", "departamento": "Casa Sonhar" },
+        { "id": 102, "nome": "Bruno Lima", "telefone": "+55 31 98888-8888", "departamento": "Marketing" }
+      ],
+      "total": 2,
+      "page": 1,
+      "pageSize": 20
+    }
+    ```
+
+* **Placeholder Integração Intelbras (não implementar agora)**
+
+  * **Contratos a reservar/documentar** (exemplos):
+
+    * `GET /integracoes/intelbras/frequencia?colaboradorId=...&dataInicio=...&dataFim=...`
+    * Resposta (exemplo futuro):
+
+      ```json
+      {
+        "colaboradorId": 101,
+        "registros": [
+          { "data": "2025-10-01", "presenca": true },
+          { "data": "2025-10-02", "presenca": false }
+        ]
+      }
+      ```
+  * **Estado atual**: não chamar/mostrar; apenas deixar documentado para fase 2.
+
+* **Produtividade (futuro)**
+
+  * **Estado atual**: não coletar; não exibir. Apenas manter feature flag/desligado.
+
+## 7) Regras & Validações
+
+* Telefone: exibir no formato internacional BR quando possível (ex.: `+55 31 9XXXX-XXXX`). Se tiver raw, exibir como enviado.
+* Departamentos: aceitar apenas os dez definidos no filtro.
+* Busca: deve considerar nome **ou** telefone.
+* Paginação: default 20; limite máximo 100.
+
+## 8) Telemetria (se o app já tiver analytics)
+
+* `colaboradores_view_open`
+* `colaboradores_click_ver_todos`
+* `colaboradores_filter_departamento` (prop: departamento)
+* `colaboradores_search` (prop: queryLength)
+* `colaboradores_copy_phone` (prop: colaboradorId)
+
+## 9) Performance & Estados
+
+* Carregar **stats** no mount da página.
+* Carregar **lista** somente quando abrir “Ver todos” e ao trocar filtros/página.
+* States previstos: carregando, vazio, erro. Fornecer mensagens claras.
+
+## 10) Acessibilidade
+
+* Modal com foco inicial no campo de busca.
+* Títulos/aria-labels em botões (“Ver todos”, “Copiar telefone”, “Fechar”).
+* Tabela com `th` apropriados.
+
+## 11) Entregáveis
+
+* Tela/Seção “Colaboradores” com cards + gráfico + botão “Ver todos”.
+* Modal/Tela de listagem com busca, filtro e paginação.
+* Contratos de API implementados/adaptados (ou mocks temporários) conforme seção 6.
+* Documentação curta no README do módulo com endpoints e como plugar a fonte da Satisfação.
+
+## 12) Critérios de Aceite (Checklist)
+
+* [ ] Card de **Satisfação** aparece e usa dados do app (com fallback “sem dados”).
+* [ ] **Distribuição** mostra os 10 departamentos e seus totais (0 quando inexistente).
+* [ ] Botão **“Ver todos os colaboradores”** abre lista com **nome**, **telefone**, **departamento**.
+* [ ] **Busca** funciona por nome **ou** telefone.
+* [ ] **Filtro** por departamento funciona com os 10 rótulos.
+* [ ] **Paginação** funcional (default 20).
+* [ ] Ação de **copiar telefone** presente.
+* [ ] Nada de **produtividade** visível (feature off).
+* [ ] Nada de **frequência Intelbras** visível (somente documentado).
+
+## 13) Dados de Exemplo (seed/mock opcional)
+
+```json
+{
+  "satisfacaoMedia": 76.5,
+  "distribuicao": [
+    { "departamento": "Inclusão Produtiva", "total": 14 },
+    { "departamento": "Administrativo Financeiro", "total": 9 },
+    { "departamento": "Administrativo", "total": 11 },
+    { "departamento": "Marketing", "total": 6 },
+    { "departamento": "Psicossocial", "total": 8 },
+    { "departamento": "Favela 3D", "total": 10 },
+    { "departamento": "GRIFT", "total": 5 },
+    { "departamento": "Outlet", "total": 12 },
+    { "departamento": "Casa Sonhar", "total": 7 },
+    { "departamento": "Casa Sonhar e PEC", "total": 4 }
+  ],
+  "lista": {
+    "items": [
+      { "id": 1, "nome": "João Silva", "telefone": "+55 31 98888-1111", "departamento": "Favela 3D" },
+      { "id": 2, "nome": "Maria Souza", "telefone": "+55 31 97777-2222", "departamento": "Casa Sonhar" }
+    ],
+    "total": 2,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
+
+---
+
+**Observação final:** implementar mantendo o visual padrão do app/painel do Grito. Se já existirem componentes (cards, tabela, modal, dropdown, input), **reutilizar** para manter consistência.

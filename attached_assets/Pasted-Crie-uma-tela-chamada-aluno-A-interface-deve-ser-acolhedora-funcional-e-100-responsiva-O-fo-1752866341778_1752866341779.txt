@@ -1,0 +1,71 @@
+Crie uma tela chamada “aluno”  
+
+A interface deve ser acolhedora, funcional e 100% responsiva. O foco é permitir que o aluno acompanhe sua evolução, aulas, recados e benefícios do projeto.
+
+📌 Estrutura da tela:
+
+1. 👋 Saudação inicial
+   - Texto: “Olá, [Nome do aluno]! Que bom te ver por aqui.”
+   - Subtexto: “Pronto pra mais um passo no seu futuro?”
+
+2. 📊 Painel de dashboards (cards informativos)
+   - **Presença no mês**
+     - Percentual de presença (ex: 76%)
+     - Abaixo de 80%: alerta visual (laranja/vermelho)
+     - Acima: mensagem positiva
+   - **Última aula registrada**
+     - Nome, data, competência trabalhada
+     - Botão: “Ver mais”
+   - **Minha evolução**
+     - Barras de progresso por competências
+   - **Próxima aula**
+     - Nome, data e hora da próxima atividade
+
+3. 🎓 Seção “Benefícios de estudar aqui”
+   - Cards ou carrossel com frases como:
+     - “Você aprende o que a escola não ensina.”
+     - “Oficinas, vivências, certificados e desenvolvimento pessoal.”
+     - “Conexão com oportunidades reais de futuro.”
+
+4. 📢 “Depoimentos de ex-alunos”
+   - Carrossel com até 3 depoimentos curtos
+   - Nome, curso e comentário
+   - Avatar ou foto
+
+5. 📆 Calendário de Aulas
+   - Visual mensal com aulas marcadas
+   - Lista das próximas (nome, data e horário)
+   - Botão: “Ver todas”
+
+6. 📘 Minhas Aulas
+   - Histórico de aulas com status (presente, ausente, justificada)
+   - Conteúdo da aula acessível
+
+7. 💬 Recados e Avisos
+   - Lista de mensagens dos educadores
+   - Botão “Confirmar leitura” ou ícone de visto
+
+8. 👤 Meu Perfil
+   - Dados pessoais editáveis
+   - Botão “Sair”
+
+🎨 Estilo visual:
+- Design limpo, moderno e jovem
+- Cards com fundo branco, bordas suaves e sem emojis
+- Ícones simples e organizados
+- Tipografia clara e acolhedora
+
+📱 No **mobile**:
+- Menu fixo **no rodapé** com ícones:  
+  Início | Aulas | Calendário | Recados | Perfil
+- Cards empilhados verticalmente
+
+🖥️ No **desktop**:
+- Menu fixo **na lateral esquerda** 
+  - Ícones + textos
+  - Itens: Início, Minhas Aulas, Calendário, Recados, Perfil, Sair
+- Conteúdo exibido na área central direita, com cards em grid
+
+⚙️ Técnicas:
+- Layout 100% responsivo (320px até 1440px)
+- Pode usar React, HTML+Tailwind ou HTML+CSS 

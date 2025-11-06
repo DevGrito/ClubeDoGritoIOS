@@ -1,0 +1,293 @@
+🚀 Starting Clube do Grito deployment...
+✅ Environment variables validated
+🛑 Stopping existing containers...
+🏗️ Building and starting containers...
+WARN[0000] /root/clubedogrito/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+WARN[0000] Docker Compose is configured to build using Bake, but buildkit isn't enabled 
+[+] Running 0/1
+ ⠸ Service app  Building                                                                                                                      12.4s 
+[+] Running 0/1ontext to Docker daemon  266.3MB
+[+] Running 0/1 Building                                                                                                                      13.4s 
+ ⠦ Service app  Building                                                                                                                      13.7s 
+9824c27679d3: Already exists 
+8c59d92d6fc9: Already exists 
+[+] Running 0/1lready exists 
+ ⠋ Service app  Building                                                                                                                      14.1s 
+Digest: sha256:df02558528d3d3d0d621f112e232611aecfee7cbc654f6b375765f72bb262799
+Status: Downloaded newer image for node:20-alpine
+[+] Running 0/1192
+ ⠙ Service app  Building                                                                                                                      14.2s 
+ ---> Running in 2efb74d6d53c
+ ---> Removed intermediate container 2efb74d6d53c
+ ---> 05d59b0ab560
+Step 3/18 : COPY package*.json ./
+ ---> 8b3e25c29ed1
+[+] Running 0/1 npm ci --only=production
+[+] Running 0/1 Building                                                                                                                      14.9s 
+ ⠦ Service app  Building                                                                                                                      39.7s 
+
+added 458 packages, and audited 459 packages in 25s
+
+57 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 low, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.5.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.5.2
+[+] Running 0/1pdate run: npm install -g npm@11.5.2
+ ⠧ Service app  Building                                                                                                                      59.8s 
+ ---> Removed intermediate container 9bec6465f59b
+[+] Running 0/160f
+ ⠇ Service app  Building                                                                                                                      63.9s 
+ ---> c21991ba6a9a
+[+] Running 0/1 apk add --no-cache curl
+[+] Running 0/1 Building                                                                                                                      64.2s 
+[+] Running 0/1 Building                                                                                                                      64.3s 
+[+] Running 0/1 Building                                                                                                                      64.8s 
+ ⠇ Service app  Building                                                                                                                      64.9s 
+(2/9) Installing c-ares (1.34.5-r0)
+(3/9) Installing libunistring (1.3-r0)
+(4/9) Installing libidn2 (2.3.7-r0)
+(5/9) Installing nghttp2-libs (1.65.0-r0)
+(6/9) Installing libpsl (0.21.5-r3)
+(7/9) Installing zstd-libs (1.5.7-r0)
+(8/9) Installing libcurl (8.14.1-r1)
+[+] Running 0/1g curl (8.14.1-r1)
+[+] Running 0/1 Building                                                                                                                      65.0s 
+ ⠸ Service app  Building                                                                                                                      65.4s 
+ ---> Removed intermediate container 2a4d02319b8e
+[+] Running 0/1993
+[+] Running 0/1 Building                                                                                                                      65.5s 
+ ⠇ Service app  Building                                                                                                                      65.9s 
+ ---> Removed intermediate container 0b6c895d1cb8
+[+] Running 0/1de1
+[+] Running 0/1 Building                                                                                                                      66.0s 
+ ⠸ Service app  Building                                                                                                                      66.4s 
+ ---> Removed intermediate container de59f1b88169
+[+] Running 0/15bf
+ ⠼ Service app  Building                                                                                                                      66.5s 
+ ---> f7a324e2187b
+[+] Running 0/1N chmod +x /usr/local/bin/docker-healthcheck.sh
+ ⠇ Service app  Building                                                                                                                      66.9s 
+ ---> Removed intermediate container 57194501c1e7
+ ---> d298b5c4e6b6
+[+] Running 0/1N chown -R nextjs:nodejs /app
+ ⠋ Service app  Building                                                                                                                     139.1s 
+ ---> Removed intermediate container bdeeed0a7d1f
+[+] Running 0/1851
+ ⠙ Service app  Building                                                                                                                     139.2s 
+ ---> Running in 25a3e236f6ee
+ ---> Removed intermediate container 25a3e236f6ee
+[+] Running 0/1dd7
+ ⠹ Service app  Building                                                                                                                     139.3s 
+ ---> Running in d0ece5b66cb8
+ ---> Removed intermediate container d0ece5b66cb8
+[+] Running 0/1ff8
+ ⠸ Service app  Building                                                                                                                     139.4s 
+ ---> 0a2b15609662
+[+] Running 0/1N chmod +x /usr/local/bin/docker-healthcheck.sh
+[+] Running 0/1 Building                                                                                                                     139.6s 
+ ⠏ Service app  Building                                                                                                                     139.9s 
+The command '/bin/sh -c chmod +x /usr/local/bin/docker-healthcheck.sh' returned a non-zero code: 1
+root@ubuntu-s-2vcpu-2gb-amd-sfo3-01:~/clubedogrito# export DOCKER_BUILDKIT=1
+root@ubuntu-s-2vcpu-2gb-amd-sfo3-01:~/clubedogrito# nano Dockerfile
+root@ubuntu-s-2vcpu-2gb-amd-sfo3-01:~/clubedogrito# docker compose build --no-cache app
+docker compose up -d
+WARN[0000] /root/clubedogrito/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+#1 [internal] load local bake definitions
+#1 reading from stdin 511B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 947B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:20-alpine
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 261B done
+#4 DONE 0.0s
+
+#5 [ 1/12] FROM docker.io/library/node:20-alpine
+#5 DONE 0.0s
+
+#6 [ 2/12] WORKDIR /app
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 151.17kB 0.2s done
+#7 DONE 0.2s
+
+#8 [ 3/12] COPY package*.json ./
+#8 DONE 0.0s
+
+#9 [ 4/12] RUN npm ci --only=production
+#9 0.815 npm warn config only Use `--omit=dev` to omit dev dependencies from the install.
+#9 27.27 
+#9 27.27 added 458 packages, and audited 459 packages in 27s
+#9 27.27 
+#9 27.27 57 packages are looking for funding
+#9 27.27   run `npm fund` for details
+#9 27.27 
+#9 27.27 5 vulnerabilities (3 low, 1 high, 1 critical)
+#9 27.27 
+#9 27.27 To address issues that do not require attention, run:
+#9 27.27   npm audit fix
+#9 27.27 
+#9 27.27 Some issues need review, and may require choosing
+#9 27.27 a different dependency.
+#9 27.27 
+#9 27.27 Run `npm audit` for details.
+#9 27.28 npm notice
+#9 27.28 npm notice New major version of npm available! 10.8.2 -> 11.5.2
+#9 27.28 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.5.2
+#9 27.28 npm notice To update run: npm install -g npm@11.5.2
+#9 27.28 npm notice
+#9 DONE 27.7s
+
+#10 [ 5/12] COPY . .
+#10 DONE 1.5s
+
+#11 [ 6/12] RUN apk add --no-cache curl
+#11 0.310 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/APKINDEX.tar.gz
+#11 0.422 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/community/x86_64/APKINDEX.tar.gz
+#11 0.960 (1/9) Installing brotli-libs (1.1.0-r2)
+#11 0.989 (2/9) Installing c-ares (1.34.5-r0)
+#11 0.994 (3/9) Installing libunistring (1.3-r0)
+#11 1.007 (4/9) Installing libidn2 (2.3.7-r0)
+#11 1.022 (5/9) Installing nghttp2-libs (1.65.0-r0)
+#11 1.026 (6/9) Installing libpsl (0.21.5-r3)
+#11 1.029 (7/9) Installing zstd-libs (1.5.7-r0)
+#11 1.041 (8/9) Installing libcurl (8.14.1-r1)
+#11 1.055 (9/9) Installing curl (8.14.1-r1)
+#11 1.063 Executing busybox-1.37.0-r18.trigger
+#11 1.077 OK: 15 MiB in 27 packages
+#11 DONE 1.3s
+
+#12 [ 7/12] RUN addgroup -g 1001 -S nodejs
+#12 DONE 0.4s
+
+#13 [ 8/12] RUN adduser -S nextjs -u 1001
+#13 DONE 0.3s
+
+#14 [ 9/12] COPY --chown=root:root --chmod=0755 docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh
+#14 DONE 0.0s
+
+#15 [10/12] RUN chown -R nextjs:nodejs /app
+#15 DONE 46.1s
+
+#16 [11/12] COPY docker-healthcheck.sh /usr/local/bin/
+#16 DONE 0.0s
+
+#17 [12/12] RUN chmod +x /usr/local/bin/docker-healthcheck.sh
+#17 0.332 chmod: /usr/local/bin/docker-healthcheck.sh: Operation not permitted
+#17 ERROR: process "/bin/sh -c chmod +x /usr/local/bin/docker-healthcheck.sh" did not complete successfully: exit code: 1
+------
+ > [12/12] RUN chmod +x /usr/local/bin/docker-healthcheck.sh:
+0.332 chmod: /usr/local/bin/docker-healthcheck.sh: Operation not permitted
+------
+Dockerfile:35
+
+--------------------
+
+  33 |     # Copy health check script
+
+  34 |     COPY docker-healthcheck.sh /usr/local/bin/
+
+  35 | >>> RUN chmod +x /usr/local/bin/docker-healthcheck.sh
+
+  36 |     
+
+  37 |     # Health check
+
+--------------------
+
+failed to solve: process "/bin/sh -c chmod +x /usr/local/bin/docker-healthcheck.sh" did not complete successfully: exit code: 1
+
+WARN[0000] /root/clubedogrito/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+#1 [internal] load local bake definitions
+#1 reading from stdin 487B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 947B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:20-alpine
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 261B done
+#4 DONE 0.0s
+
+#5 [ 1/12] FROM docker.io/library/node:20-alpine
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 150.25kB 0.1s done
+#6 DONE 0.1s
+
+#7 [ 4/12] RUN npm ci --only=production
+#7 CACHED
+
+#8 [ 6/12] RUN apk add --no-cache curl
+#8 CACHED
+
+#9 [ 7/12] RUN addgroup -g 1001 -S nodejs
+#9 CACHED
+
+#10 [ 9/12] COPY --chown=root:root --chmod=0755 docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh
+#10 CACHED
+
+#11 [ 3/12] COPY package*.json ./
+#11 CACHED
+
+#12 [ 5/12] COPY . .
+#12 CACHED
+
+#13 [10/12] RUN chown -R nextjs:nodejs /app
+#13 CACHED
+
+#14 [ 8/12] RUN adduser -S nextjs -u 1001
+#14 CACHED
+
+#15 [ 2/12] WORKDIR /app
+#15 CACHED
+
+#16 [11/12] COPY docker-healthcheck.sh /usr/local/bin/
+#16 CACHED
+
+#17 [12/12] RUN chmod +x /usr/local/bin/docker-healthcheck.sh
+#17 0.225 chmod: /usr/local/bin/docker-healthcheck.sh: Operation not permitted
+#17 ERROR: process "/bin/sh -c chmod +x /usr/local/bin/docker-healthcheck.sh" did not complete successfully: exit code: 1
+------
+ > [12/12] RUN chmod +x /usr/local/bin/docker-healthcheck.sh:
+0.225 chmod: /usr/local/bin/docker-healthcheck.sh: Operation not permitted
+------
+Dockerfile:35
+
+--------------------
+
+  33 |     # Copy health check script
+
+  34 |     COPY docker-healthcheck.sh /usr/local/bin/
+
+  35 | >>> RUN chmod +x /usr/local/bin/docker-healthcheck.sh
+
+  36 |     
+
+  37 |     # Health check
+
+--------------------
+
+failed to solve: process "/bin/sh -c chmod +x /usr/local/bin/docker-healthcheck.sh" did not complete successfully: exit code: 1

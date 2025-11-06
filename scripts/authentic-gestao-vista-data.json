@@ -1,0 +1,96 @@
+{
+  "favela3d": {
+    "totalFamilias": 268,
+    "familiasAtendidas": 141,
+    "taxaFrequencia": 61.3,
+    "ativosNoCiclo": 112,
+    "proximasAtividades": []
+  },
+  "inclusaoProdutiva": {
+    "totalParticipantes": 1121,
+    "participantesAtivos": 610,
+    "taxaConclusao": 62.2,
+    "cursosDisponiveis": 4,
+    "proximosCursos": []
+  },
+  "pec": {
+    "totalAlunos": 226,
+    "alunosAtivos": 35,
+    "taxaFrequencia": 75.8,
+    "modalidadesOfertadas": 6,
+    "proximasAulas": []
+  },
+  "psicossocial": {
+    "totalAtendimentos": 327,
+    "casosAtivos": 30,
+    "profissionais": 3,
+    "taxaResolucao": 23.5,
+    "estatisticasMensais": [
+      {
+        "mes": "Jul",
+        "individual": 98,
+        "grupal": 65,
+        "familiar": 49
+      },
+      {
+        "mes": "Ago",
+        "individual": 114,
+        "grupal": 81,
+        "familiar": 58
+      },
+      {
+        "mes": "Set",
+        "individual": 104,
+        "grupal": 91,
+        "familiar": 65
+      },
+      {
+        "mes": "Out",
+        "individual": 124,
+        "grupal": 98,
+        "familiar": 52
+      },
+      {
+        "mes": "Nov",
+        "individual": 130,
+        "grupal": 85,
+        "familiar": 71
+      },
+      {
+        "mes": "Dez",
+        "individual": 137,
+        "grupal": 104,
+        "familiar": 81
+      }
+    ],
+    "distribuicaoServicos": [
+      {
+        "nome": "Psicologia",
+        "valor": 147,
+        "percentual": 45
+      },
+      {
+        "nome": "Serviço Social",
+        "valor": 98,
+        "percentual": 30
+      },
+      {
+        "nome": "Orientação Familiar",
+        "valor": 49,
+        "percentual": 15
+      },
+      {
+        "nome": "Mediação",
+        "valor": 32,
+        "percentual": 10
+      }
+    ],
+    "prioridadeCasos": {
+      "emergencial": 3,
+      "urgente": 7,
+      "normal": 15,
+      "baixa": 4
+    },
+    "proximosAtendimentos": []
+  }
+}

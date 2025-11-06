@@ -1,0 +1,92 @@
+Prompt para Replit
+
+Estamos com um problema na integração com o Monday: os dados estão vindo zerados (0 programas, 0 workstreams, 0 indicadores), mesmo tendo dados reais cadastrados no Monday.
+
+O que descobrimos:
+
+O backend está conectado, mas está tentando filtrar usando os labels/nomes ("Casa Sonhar", "Negócios Sociais", "Favela 3D") direto.
+
+O Monday não aceita texto como filtro, e sim o ID da coluna e o índice numérico (value.index) correspondente ao status ou dropdown.
+
+A query GraphQL atual provavelmente está incompleta e não está trazendo column_values com id, text e value.
+
+Também precisamos confirmar se o backend está usando o board ID correto do Monday. Se estiver apontando para um board vazio, vai sempre retornar 0.
+
+O que você precisa implementar no backend:
+
+Rodar uma chamada inicial ao Monday para listar todos os itens e colunas do board:
+
+query {
+  boards(ids: BOARD_ID) {
+    id
+    name
+    items {
+      id
+      name
+      column_values {
+        id
+        title
+        text
+        value
+      }
+    }
+  }
+}
+
+
+Isso deve ser usado para mapear as áreas/projetos.
+
+Montar um mapa interno (MONDAY_AREAS_MAP) que relacione os labels do app com os dados reais do Monday (coluna + índice).
+Exemplo:
+
+const MONDAY_AREAS_MAP = {
+  "casa-sonhar": { columnId: "status", index: 2 },
+  "negocios-sociais": { columnId: "status", index: 3 },
+  "favela-3d": { columnId: "status", index: 4 },
+  "polo-esportivo-cultural": { columnId: "status", index: 5 },
+  "psicossocial": { columnId: "status", index: 6 },
+  "inclusao-produtiva": { columnId: "status", index: 7 }
+}
+
+
+Quando o usuário aplicar filtro no app, o backend deve traduzir esse filtro para o formato aceito pelo Monday.
+Exemplo de payload correto (GraphQL variável):
+
+query ($boardId: Int!, $columnId: String!, $index: Int!) {
+  boards(ids: [$boardId]) {
+    items {
+      id
+      name
+      column_values(ids: [$columnId]) {
+        id
+        text
+        value
+      }
+    }
+  }
+}
+
+
+E no variables:
+
+{
+  "boardId": 123456789,
+  "columnId": "status",
+  "index": 2
+}
+
+
+Adicionar logs no backend mostrando:
+
+Qual filtro foi aplicado no app (ex: "Casa Sonhar")
+
+Para qual columnId e index foi traduzido (ex: status / 2)
+
+Qual board ID está sendo consultado
+
+Resumindo:
+
+👉 Precisamos que o backend do Monday não mande string como filtro.
+👉 Ele deve mapear label → coluna + índice e passar isso na query GraphQL.
+👉 Também verificar se o boardId configurado é o correto.
+👉 Adicionar logs para debug.

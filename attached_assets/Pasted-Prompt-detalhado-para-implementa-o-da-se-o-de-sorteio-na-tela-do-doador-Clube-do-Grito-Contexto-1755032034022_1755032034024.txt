@@ -1,0 +1,66 @@
+Prompt detalhado para implementação da seção de sorteio na tela do doador – Clube do Grito
+
+Contexto:
+No aplicativo do Clube do Grito, será implementada uma seção exclusiva na tela do doador destinada ao sistema de sorteio mensal. Essa seção visa informar, engajar e incentivar a participação dos doadores nos sorteios que ocorrem periodicamente, com base na fidelidade e valor da contribuição de cada um.
+
+Descrição da seção na tela do doador:
+
+Seção exclusiva “Sorteio Clube do Grito”
+
+A seção ficará localizada em local de fácil acesso na tela principal do doador, destacando-se visualmente para chamar atenção.
+
+Ela mostrará informações claras e objetivas sobre o sorteio vigente.
+
+Informações exibidas:
+
+Nome do sorteio atual (ex.: “Sorteio Mensal do Clube do Grito”).
+
+Data e horário programados para o próximo sorteio.
+
+Status de participação do doador, incluindo:
+
+Se está elegível (pagamento em dia).
+
+Número de chances que possui, calculadas com base no valor do plano contratado.
+
+Exemplo: doadores com planos de valor maior terão mais chances de ganhar.
+
+“Seu plano de R$ 29,90 garante 5 chances neste sorteio, enquanto o plano de R$ 9,90 garante 1 chance.”
+
+Regras básicas do sorteio, explicadas de forma simples e direta, para transparência.
+
+Interatividade e engajamento:
+
+Caso seja necessário, botão para confirmação de participação no sorteio (ou indicar que a participação é automática para elegíveis).
+
+Botão para visualizar os resultados anteriores, com lista dos ganhadores recentes, prêmios e planos.
+
+Notificações internas para avisar o doador caso ele seja o vencedor do sorteio.
+
+Lógica técnica por trás da seção:
+
+O backend será responsável por:
+
+Verificar a elegibilidade do doador (pagamento e plano ativo).
+
+Calcular o número de chances com base no valor do plano (planos mais caros têm mais chances).
+
+Realizar o sorteio de forma segura e auditável.
+
+Disponibilizar via API os dados para consumo pela tela do doador.
+
+O frontend consumirá essas informações e atualizará a interface dinamicamente.
+
+Objetivos:
+
+Tornar o processo do sorteio transparente e motivador.
+
+Recompensar a fidelidade e o valor da contribuição de forma justa.
+
+Aumentar o engajamento dos doadores com a causa e com o app.
+
+Tecnologias:
+
+Backend: REST API segura com endpoints para status do sorteio, participação e resultados.
+
+Frontend mobile: integração com a API para exibição em tempo real na tela do doador.

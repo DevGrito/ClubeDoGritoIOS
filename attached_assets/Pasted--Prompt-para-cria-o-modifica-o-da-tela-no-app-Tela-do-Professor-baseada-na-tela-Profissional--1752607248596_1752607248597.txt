@@ -1,0 +1,142 @@
+ Prompt para criação/modificação da tela no app: Tela do Professor (baseada na tela “Profissional”)
+
+Por favor, modifique a tela chamada "Profissional" para criar a nova tela do Professor, conforme os seguintes requisitos:
+
+🎨 Layout geral:
+Substituir o layout atual por um menu lateral fixo à esquerda da tela.
+
+Ao lado do menu, haverá uma área principal, que exibe uma saudação fixa no topo e o conteúdo dinâmico de acordo com a opção selecionada no menu.
+
+A navegação deve funcionar em SPA (Single Page Application) – ou seja, o conteúdo da área principal muda sem recarregar a página.
+
+👋 Saudação (fixa no topo da área principal):
+Texto:
+Olá, Prof. [Nome completo] 👋
+
+O nome do professor deve ser recuperado automaticamente com base no login (via número de telefone).
+
+🧭 Menu Lateral (funcionalidades e comportamentos):
+Ver Alunos
+
+Exibe uma lista de alunos vinculados à turma do professor.
+
+Cada item da lista deve conter: nome, idade, avatar (ou ícone genérico) e um indicador de status básico (ex: ativo, inativo).
+
+Ao clicar em um aluno, redirecionar para o Acompanhamento individual desse aluno.
+
+Caso o professor não tenha nenhuma turma vinculada, exibir a seguinte mensagem:
+
+“Você ainda não está vinculado a nenhuma turma. Aguarde a coordenação ou clique abaixo para criar uma.”
+
+Se tiver permissão, exibir também o botão “Criar nova turma”.
+
+Fazer Chamada (Presença)
+
+Exibir a lista de alunos da turma com três botões ao lado de cada nome:
+
+✅ Presente
+
+❌ Ausente
+
+⚠️ Justificada
+
+Ao final da lista, incluir o botão “Salvar presença”, com mensagem de confirmação.
+
+As informações devem ser armazenadas no banco ou simuladas via mock.
+
+Registrar Aula (Diário de Aula)
+
+Formulário com:
+
+Campo de texto para descrição da aula.
+
+Lista de checkboxes com as competências trabalhadas (pré-definidas no sistema).
+
+Botão “Salvar aula”, com feedback visual de confirmação.
+
+O objetivo é registrar o conteúdo pedagógico de cada encontro.
+
+Acompanhamento
+
+Permite registrar observações pedagógicas individuais sobre os alunos.
+
+Fluxo:
+
+Selecionar aluno (pode abrir a lista em pop-up ou dropdown).
+
+Campo de texto para escrever a observação.
+
+Seleção de progresso do aluno (ex: "Em desenvolvimento", "Avançado", "Com dificuldade").
+
+Botão “Adicionar observação”.
+
+Opcional: botão de encaminhamento ao setor psicossocial, se necessário.
+
+Agenda e Lembretes
+
+Exibe os compromissos pedagógicos futuros do professor.
+
+Lista com datas e descrições de aulas, reuniões e eventos.
+
+Botão “Adicionar lembrete”, abrindo formulário com:
+
+Campo de texto + seleção de data/hora.
+
+Botão de salvar lembrete.
+
+Gerar Relatórios
+
+Tela com filtros por período: semana / mês / trimestre.
+
+Ao aplicar o filtro, exibir um relatório resumido da turma, contendo:
+
+Frequência dos alunos.
+
+Participação (pode ser simples: alta, média, baixa).
+
+Observações registradas no acompanhamento.
+
+Opções:
+
+Gerar visualização na tela.
+
+Exportar como PDF ou capturar print.
+
+Editar Perfil
+
+Tela para o professor atualizar seus dados pessoais:
+
+Campos: Nome, Apelido, E-mail.
+
+Upload de imagem para troca de avatar.
+
+Botão “Salvar alterações”, com confirmação visual.
+
+Configurações
+
+Ajustes básicos de sistema:
+
+Seleção de idioma (se aplicável).
+
+Preferências de notificação (ativar/desativar).
+
+Espaço reservado para incluir “Redefinir senha” futuramente.
+
+Sair
+
+Faz logout do sistema.
+
+Redireciona para a tela de login.
+
+⚙️ Considerações Técnicas
+O menu lateral deve permanecer fixo enquanto a área principal se atualiza dinamicamente.
+
+O layout precisa ser 100% responsivo para uso em mobile e desktop.
+
+Não exibir dados fictícios ou carregar turmas padrão automaticamente.
+
+Evitar cabeçalho fixo ou menus suspensos.
+
+Toda interação deve seguir os princípios de clareza, simplicidade e fluidez.
+
+O nome do professor deve ser exibido com base no número de telefone logado.

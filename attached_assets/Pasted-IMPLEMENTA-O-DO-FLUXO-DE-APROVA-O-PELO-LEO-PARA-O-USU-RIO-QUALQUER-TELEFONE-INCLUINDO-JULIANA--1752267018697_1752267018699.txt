@@ -1,0 +1,41 @@
+IMPLEMENTAÇÃO DO FLUXO DE APROVAÇÃO PELO LEO
+
+PARA O USUÁRIO (QUALQUER TELEFONE, INCLUINDO JULIANA):
+
+Login Inicial: O usuário insere seu número de telefone e conclui a verificação com o código OTP.
+
+Tela de Espera por Aprovação: IMEDIATAMENTE APÓS a verificação bem-sucedida do OTP, o aplicativo DEVE exibir uma NOVA "TELA DE ESPERA POR APROVAÇÃO". Esta tela precisa informar claramente ao usuário que seu acesso à "Tela do Conselho" está pendente de liberação pelo administrador (Leo) e que ele deve aguardar.
+
+Conexão Ativa: Enquanto na "Tela de Espera", o aplicativo DEVE manter uma conexão ativa (ex: via WebSockets ou polling) com o backend para receber uma notificação de aprovação em tempo real.
+
+NO BACKEND (LÓGICA E BANCO DE DADOS):
+
+Registro de Solicitações Pendentes: Quando um número de telefone conclui a verificação de OTP e ainda não possui acesso aprovado à "Tela do Conselho", o backend DEVE registrar essa tentativa de login (associada ao NÚMERO DE TELEFONE fornecido na hora) com um status_acesso = 'pendente' para o perfil de Conselheiro.
+
+APIs de Aprovação/Rejeição: Crie endpoints seguros que o dashboard do Leo possa chamar para atualizar o status_acesso de um número de telefone para 'aprovado' ou 'rejeitado'.
+
+Notificação em Tempo Real: Implemente um mecanismo para que, quando o status_acesso de um telefone muda para 'aprovado' pelo Leo, o backend possa enviar uma notificação em tempo real para o aplicativo do usuário correspondente (que está na "Tela de Espera").
+
+NO DASHBOARD DO LEO (ADMINISTRADOR - CRIAÇÃO E USO DA SEÇÃO "CONSELHO"):
+
+No dashboard do Leo, CRIE UMA NOVA SEÇÃO DEDICADA CHAMADA "CONSELHO" (se ainda não existir). Esta seção deve ser visível no menu ou navegação principal do dashboard do Leo.
+
+Dentro desta NOVA SEÇÃO "CONSELHO", crie uma NOVA ÁREA/PAINEL dedicada para "SOLICITAÇÕES DE ACESSO PENDENTES DO CONSELHO".
+
+Nesta nova área, o Leo DEVE visualizar uma lista clara de TODOS os números de telefone que estão com status_acesso = 'pendente'.
+
+Para CADA número de telefone pendente, o Leo DEVE ter botões claros para "APROVAR ACESSO" e "REJEITAR ACESSO".
+
+Nota: O número de telefone será pego na hora do login pelo usuário e não estará pré-cadastrado no sistema de aprovação do Leo.
+
+REDIRECIONAMENTO PÓS-APROVAÇÃO:
+
+Quando o Leo aprova o acesso de um número de telefone, o aplicativo do usuário (que está na "Tela de Espera") deve ser automaticamente liberado e redirecionado para a "Tela do Conselho" JÁ EXISTENTE.
+
+O acesso desse número de telefone deve ser salvo como "aprovado" no banco de dados, para que em logins futuros, ele vá direto para a "Tela do Conselho" (sem passar pela "Tela de Espera").
+
+REDIRECIONAMENTO PADRÃO FUTURO (MANTER):
+
+Por enquanto, todos os usuários que logarem com sucesso por telefone (e forem aprovados, ou se já forem aprovados) devem ser direcionados para a "Tela do Conselho" JÁ EXISTENTE.
+
+Considere a arquitetura para que, no futuro, o Leo possa definir qual tela específica (Conselho, Colaborador, etc.) um determinado número de telefone ou tipo de usuário deverá acessar após o login.

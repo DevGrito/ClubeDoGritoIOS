@@ -1,0 +1,204 @@
+PROMPT PARA O REPLIT AI — “Acompanhamento de Assinaturas Recorrentes (Doadores)”
+
+Quero um módulo completo de acompanhamento das assinaturas recorrentes (Stripe) no app Clube do Grito, dentro da seção Doadores. O objetivo é:
+
+Garantir que todo doador que fez cadastro/assinatura no dia X tenha cobrança automática no dia X do mês seguinte (ou conforme o billing cycle),
+
+Mostrar status em tempo real (active, incomplete, incomplete_expired, past_due, unpaid, canceled, paused),
+
+Exibir próxima cobrança (billing_cycle_anchor/next_payment_attempt), método de pagamento e alertas quando faltarem configs,
+
+Rodar reconciliação com Stripe e notificar quando algo impedir a cobrança.
+
+1) Frontend (React + TS + TanStack Query + shadcn/ui)
+
+Criar página/aba Doadores → Assinaturas com:
+
+A) Header (resumo)
+
+KPIs do período (mês atual):
+
+Assinaturas ativas
+
+Cobranças programadas hoje
+
+Falhas nas últimas 24h
+
+Pendentes de método de pagamento
+
+Botão “Reconciliar agora” (chama endpoint de reconciliação).
+
+B) Tabela “Assinaturas” (paginação, filtros e busca por nome/e-mail):
+Colunas:
+
+Doador (nome + e-mail)
+
+Status da assinatura (badge colorido)
+
+Próxima cobrança (data/hora)
+
+Método de pagamento (brand + last4 + validade) / Alerta se ausente
+
+Plano/price (mensal)
+
+Último evento (ex.: invoice.paid, payment_failed, payment_action_required)
+
+Ações: Reenviar cobrança, Solicitar atualização de cartão, Reativar (se possível)
+
+C) Drawer/Detalhe do Doador (ao clicar na linha):
+
+Stripe Customer ID, Subscription ID
+
+Linha do tempo (timeline): created → checkout.session.completed → invoice.paid → …
+
+Próxima cobrança calculada e next_payment_attempt (se existir)
+
+Botões:
+
+Atualizar método de pagamento (link para fluxo de add card com SetupIntent)
+
+Marcar cobrança manualmente como paga (apenas se política permitir e houver invoice aberta)
+
+Cancelar no fim do ciclo (se permitido)
+
+Estados: skeleton loaders, erros com toast, timezone America/Sao_Paulo para exibição.
+
+2) Backend (Node/Express + TS + Drizzle + Postgres)
+
+Endpoints (REST)
+
+GET /api/donors/subscriptions?status=&q=&page= → lista com campos necessários para a tabela.
+
+GET /api/donors/subscriptions/:id → detalhe (inclui invoices recentes e next_payment_attempt).
+
+POST /api/donors/subscriptions/:id/retry → tenta pagar a fatura mais recente aberta (se houver).
+
+POST /api/donors/subscriptions/:id/reactivate → cria nova assinatura quando status for incomplete_expired ou reanexa PM e reativa quando aplicável.
+
+POST /api/donors/reconcile → reconciliação (ver item 4).
+
+POST /api/donors/payment-method/link → inicia SetupIntent para atualizar cartão (retorna client_secret).
+
+POST /api/donors/payment-method/attach → confirma attach e define como default_payment_method.
+
+Regras de criação/atualização de assinatura (confirmar/ajustar)
+
+Criar com payment_behavior: 'default_incomplete', collection_method: 'charge_automatically', price mensal, e billing_cycle_anchor no momento apropriado.
+
+Garantir que customer.invoice_settings.default_payment_method fique setado após salvar cartão.
+
+Se a primeira cobrança não ocorrer em ~23h → tratar incomplete_expired: exibir “Reativar” no front para criar nova assinatura.
+
+3) Webhooks (fonte da verdade; idempotentes)
+
+Implementar/ajustar handlers (com verificação de assinatura) para:
+
+checkout.session.completed → vincular subscriptionId ao usuário e registrar início.
+
+invoice.paid → marcar active e registrar fatura como paga.
+
+invoice.payment_failed → marcar past_due; salvar next_payment_attempt; disparar ação de dunning.
+
+invoice.payment_action_required → marcar “ação necessária (3DS)”; front deve oferecer retomada de autenticação.
+
+customer.subscription.updated/deleted → sincronizar status.
+
+Importante: ignorar invoices void ao calcular status; considerar a não anulada mais recente.
+
+Gravar tudo em billing_events (ou similar) para montar a timeline no front.
+
+4) Reconciliação programada (cron/job)
+
+Criar job (cron/queue) diário e horário:
+
+Diário (05:00 America/Sao_Paulo):
+
+Conferir todas as assinaturas com Stripe (via API) e comparar com DB.
+
+Se collection_method != 'charge_automatically' ou sem default_payment_method → marcar como “ação requerida”.
+
+Recalcular próximas cobranças (usar billing_cycle_anchor e current_period_end).
+
+De hora em hora:
+
+Buscar assinaturas past_due com next_payment_attempt vencendo nas próximas 24h → agendar e-mail/WhatsApp pedindo atualização de cartão (dunning).
+
+Assinaturas incomplete_expired nas últimas 48h → enviar CTA de Reativação.
+
+Endpoint POST /api/donors/reconcile roda a mesma rotina sob demanda (botão “Reconciliar agora”).
+
+5) UI de Alerta e Dunning
+
+Linha com badge “Sem cartão padrão” quando default_payment_method ausente → botão “Adicionar cartão”.
+
+Quando payment_action_required, mostrar “Autentique o pagamento” → fluxo confirmCardPayment com client_secret da invoice.
+
+Quando past_due, botão “Pagar fatura” ou “Atualizar cartão”.
+
+Opcional: status chips com cores (verde = active, amarelo = past_due, vermelho = unpaid/canceled, cinza = incomplete/incomplete_expired/paused).
+
+6) Dados persistidos / Drizzle
+
+Tabela donor_subscriptions: user_id, stripe_customer_id, stripe_subscription_id, status, billing_cycle_anchor, current_period_end, default_payment_method, plan_price_id, timestamps.
+
+Tabela billing_events: type, invoice_id, payment_intent_id, next_payment_attempt, payload resumido, created_at.
+
+UNIQUE(user_id, stripe_subscription_id); índices por status e current_period_end.
+
+7) Garantias para COBRANÇA AUTOMÁTICA mensal
+
+Na criação/atualização da assinatura:
+
+collection_method = 'charge_automatically'
+
+customer.invoice_settings.default_payment_method definido
+
+price com recurring.interval = 'month'
+
+Para quem assinou dia 1: billing_cycle_anchor fixa a recorrência (Stripe já renova automaticamente).
+
+Em upgrades/downgrades, use proration_behavior conforme política atual (default create_prorations).
+
+8) Telemetria, Logs e Sentry
+
+Logue: user_id, subscription_id, invoice_id, status → new_status, next_payment_attempt.
+
+Capturar erros no backend e frontend; mapear erros comuns (chave errada, PM inválido, falha 3DS, CORS).
+
+Painel mostra último erro por assinatura (se houver).
+
+9) Testes de Aceite
+
+Criar doador hoje → assinatura ativa, próxima cobrança exibida no dia correto (anchor) e cartão padrão definido.
+
+Falha no cartão → status past_due, next_payment_attempt aparece, UI mostra CTA de atualização.
+
+Sessão expirada na 1ª cobrança → incomplete_expired; botão Reativar cria nova assinatura e normaliza.
+
+Reconciliação detecta assinaturas sem default_payment_method e marca “ação requerida”.
+
+Webhooks atualizam timeline e tabela imediatamente.
+
+Botão “Reconciliar agora” roda e atualiza contadores/linhas.
+
+10) Tipografia e UX
+
+Manter fonte Inter (herdar global).
+
+Tabela responsiva; no mobile, virar cards empilhados.
+
+Estados de loading/empty/erro padronizados.
+
+Timezone America/Sao_Paulo em toda exibição de datas.
+
+Entrega esperada:
+
+Nova página/aba Doadores → Assinaturas (tabela + detalhe).
+
+Endpoints novos/ajustados, webhooks e cron de reconciliação.
+
+README curto: variáveis Stripe, como testar (cartões 4242 e 3DS), e como rodar reconciliação.
+
+Prints/logs de um fluxo completo bem-sucedido.
+
+Objetivo final: ver claramente quem será cobrado quando, garantir que o Stripe está configurado para cobrança automática mensal, alertar antes de falhar e permitir correção rápida (atualizar cartão/reativar).

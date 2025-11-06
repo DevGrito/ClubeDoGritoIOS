@@ -1,0 +1,77 @@
+4) Endpoints (REST) — prontos para implementação
+GET  /api/projects
+POST /api/projects
+GET  /api/projects/:id
+PUT  /api/projects/:id
+
+GET  /api/projects/:id/activities
+POST /api/projects/:id/activities
+
+GET  /api/activities/:id
+PUT  /api/activities/:id
+
+GET  /api/activities/:id/instances
+POST /api/activities/:id/instances
+
+GET  /api/instances/:id
+PUT  /api/instances/:id
+
+GET  /api/instances/:id/staff
+POST /api/instances/:id/staff
+DELETE /api/staff/:staffAssignmentId
+
+GET  /api/instances/:id/enrollments
+POST /api/instances/:id/enrollments (bulk CSV opcional)
+
+GET  /api/instances/:id/sessions
+POST /api/instances/:id/sessions
+PUT  /api/sessions/:id
+DELETE /api/sessions/:id
+
+GET  /api/sessions/:id/attendance
+POST /api/sessions/:id/attendance  // { enrollmentId, present }
+
+GET  /api/instances/:id/photos
+POST /api/instances/:id/photos
+
+// Relatório mensal
+GET /api/instances/:id/report?month=2025-09
+// retorna JSON com: header, metas, totals, diary[], enrollments[], gallery[]
+
+
+Consulta exemplo (agregados do relatório mensal)
+
+Horas do mês
+
+SELECT COALESCE(SUM(hours),0) AS hours_in_month
+FROM sessions
+WHERE activity_instance_id = $1
+  AND date >= $2::date AND date < ($2::date + INTERVAL '1 month');
+
+
+Atendidos no mês
+
+SELECT COUNT(DISTINCT a.enrollment_id) AS attendees_in_month
+FROM attendance a
+JOIN sessions s ON s.id = a.session_id
+WHERE s.activity_instance_id = $1
+  AND s.date >= $2::date AND s.date < ($2::date + INTERVAL '1 month')
+  AND a.present = true;
+
+
+Participantes & frequência por sessão (diário)
+
+SELECT s.id, s.date, s.hours, s.title, s.description, s.observations, s.location, s.educator_names,
+       SUM(CASE WHEN a.present THEN 1 ELSE 0 END) AS presentes,
+       (SELECT COUNT(*) FROM enrollments e
+         WHERE e.activity_instance_id = s.activity_instance_id AND e.active = true) AS inscritos,
+       ROUND(
+         100.0 * SUM(CASE WHEN a.present THEN 1 ELSE 0 END) /
+         GREATEST(1,(SELECT COUNT(*) FROM enrollments e
+                     WHERE e.activity_instance_id = s.activity_instance_id AND e.active = true))
+       ,2) AS freq_percent
+FROM sessions s
+LEFT JOIN attendance a ON a.session_id = s.id
+WHERE s.activity_instance_id = $1
+  AND s.date >= $2::date AND s.date < ($2::date + INTERVAL '1 month')
+GROUP BY s.id;

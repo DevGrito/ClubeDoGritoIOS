@@ -1,0 +1,169 @@
+PROMPT ATUALIZADO PARA O REPLIT AI
+
+Implemente/ajuste a Gestão à Vista na aba Impacto com regras de cor e cálculo de atingimento, agregando dados anuais por programas/subprogramas conforme mapeamentos abaixo.
+Mantenha o mesmo layout (semáforo de barras coloridas).
+
+1) Escopo dos dados (ANUAL)
+
+Sempre considerar o ano inteiro (jan–dez).
+
+Endpoint principal: /api/gestao-vista.
+
+Cada indicador deve retornar:
+{ valor: number, meta?: number, tipo: 'percent'|'count' }.
+
+2) Regras de cor (semáforo)
+
+Crie um util getKpiColor({ id, valor, meta, tipo }) que devolve 'green'|'yellow'|'red' e progress (0–100).
+
+2.1 Indicadores percentuais (geral)
+
+Verde: valor >= meta
+
+Amarelo: 0.70 * meta <= valor < meta
+
+Vermelho: valor < 0.70 * meta
+
+progress = clamp(valor, 0, 100)
+
+2.2 Frequência
+
+Verde: valor >= meta
+
+Amarelo: 80 <= valor < meta
+
+Vermelho: valor < 70
+
+2.3 Evasão (menor é melhor)
+
+Verde: valor <= meta
+
+Amarelo: meta < valor <= meta * 1.15
+
+Vermelho: valor > meta * 1.15
+
+progress = 100 - clamp(valor, 0, 100)
+
+2.4 Critério de Sucesso
+
+Verde: valor >= meta
+
+Amarelo: 0.70 * meta <= valor < meta
+
+Vermelho: valor < 0.50 * meta
+
+2.5 NPS
+
+Converter (-100..+100) → (nps + 100) / 2.
+
+Aplicar regra percentual padrão.
+
+2.6 Indicadores de contagem
+
+Verde: valor >= meta
+
+Amarelo: 0.70 * meta <= valor < meta
+
+Vermelho: valor < 0.70 * meta
+
+progress = min(100, (valor / meta) * 100)
+
+Sem meta → cor cinza, barra neutra curta.
+
+3) Mapeamentos de origem (agregação ANUAL)
+
+Frequência (%) – PEC + Inclusão Produtiva
+
+PEC → Casa Sonhar, Glória Marques, Sala Serenata
+
+Inclusão Produtiva → Lab. Vozes do Futuro, Cursos 30 Horas, Cursos EAD
+
+Cálculo: média ponderada (presenças/previstas)
+
+Evasão, Critério de Sucesso e NPS → mesmas fontes da Frequência.
+
+Alunos Formados (qtde)
+
+Inclusão Produtiva → Lab. Vozes do Futuro, Cursos 30 Horas, Cursos EAD
+
+Alunos em Formação (qtde)
+
+Inclusão Produtiva → Lab. Vozes do Futuro, Cursos 30 Horas, Cursos EAD
+
+Crianças Atendidas (qtde)
+
+PEC → Casa Sonhar, Glória Marques, Sala Serenata
+
+Empreendedores (qtde)
+
+Inclusão Produtiva (pasta Empreendedorismo)
+
+Favela 3D (pasta Emprego e Renda, apenas registros classificados como empreendedorismo).
+
+Deduplicar CPFs.
+
+Pessoas Empregadas (qtde)
+
+Favela 3D (pasta Emprego e Renda)
+
+Considerar também Empregadas (empregabilidade).
+
+Somar admissões únicas.
+
+Famílias Ativas (qtde)
+
+Favela 3D → famílias com prontuário ativo.
+
+Visitas (qtde) e Atendimentos (qtde)
+
+Psicossocial → abas “Visitas” e “Atendimentos”.
+
+4) Normalizações
+
+Percentuais → média ponderada.
+
+Contagens → soma deduplicada.
+
+Se algum subprograma não tiver dados, considerar 0 ou ignorar no denominador (para %).
+
+Metas anuais: consolidar de mensais se necessário.
+
+5) Ordem final dos indicadores
+
+Frequência
+
+Evasão
+
+Critério de Sucesso
+
+NPS
+
+Alunos Formados
+
+Alunos em Formação
+
+Crianças Atendidas
+
+Empreendedores
+
+Pessoas Empregadas
+
+Famílias Ativas
+
+Visitas
+
+Atendimentos
+
+Cada item → { valor, meta, tipo, cor, progress }.
+
+6) Testes rápidos
+
+Frequência meta=90 / valor=92 → verde
+
+Evasão meta=8 / valor=10 → amarelo
+
+Critério meta=85 / valor=60 → vermelho
+
+NPS bruto=20 → verde se meta=70%
+
+Alunos Formados meta=150 / valor=120 → amarelo

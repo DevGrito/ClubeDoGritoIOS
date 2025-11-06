@@ -1,0 +1,95 @@
+import { pgTable, serial, varchar, text, timestamp, integer, boolean, date, numeric, pgEnum, uuid } from "drizzle-orm/pg-core";
+
+export const activityStatus = pgEnum("activity_status", ["ativa","inativa"]);
+export const activitySituation = pgEnum("activity_situation", ["execucao","planejamento","encerrada"]);
+export const periodOfDay = pgEnum("period_of_day", ["matutino","vespertino","noturno"]);
+export const sessionStatus = pgEnum("session_status", ["realizado","cancelado","reagendado"]);
+
+export const projects = pgTable("projects",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name",{length:200}).notNull(),                    // Casa Sonhar Patrimar 2025
+  description: text("description"),
+  category: varchar("category",{length:120}),                      // SCFV
+  who_can_participate: text("who_can_participate"),                // Qualquer atendido
+  period_start: date("period_start"),
+  period_end: date("period_end"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow()
+});
+
+export const activities = pgTable("activities",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  project_id: uuid("project_id").references(() => projects.id).notNull(),
+  name: varchar("name",{length:160}).notNull(),                    // Contraturno, Dança, Circo...
+  description: text("description"),
+  period: periodOfDay("period"),
+  control_presence: boolean("control_presence").default(true),
+  status: activityStatus("status").default("ativa"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow()
+});
+
+export const activityInstances = pgTable("activity_instances",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  activity_id: uuid("activity_id").references(() => activities.id).notNull(),
+  title: varchar("title",{length:220}).notNull(),                  // Contraturno Manhã M1 2025 | 6–8 anos
+  code: varchar("code",{length:40}),                               // M1, T2, etc (opcional)
+  location: varchar("location",{length:160}),                      // Casa Sonhar Patrimar
+  situation: activitySituation("situation").default("execucao"),
+  period_label: periodOfDay("period_label"),                       // Matutino
+  age_min: integer("age_min"),
+  age_max: integer("age_max"),
+  occurrence_start: date("occurrence_start"),
+  occurrence_end: date("occurrence_end"),
+  expected_total_hours: numeric("expected_total_hours", { precision:6, scale:2 }),
+  notes: text("notes"),
+  created_on: date("created_on"),                                  // “Criado em” (12/12/2024)
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow()
+});
+
+export const staffAssignments = pgTable("staff_assignments",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  activity_instance_id: uuid("activity_instance_id").references(() => activityInstances.id).notNull(),
+  person_id: uuid("person_id").notNull(),                          // ref. tabela de pessoas/colaboradores
+  role: varchar("role",{length:60}).notNull()                      // "Monitor PEC", "Coordenadora PEC", "Educador"
+});
+
+export const enrollments = pgTable("enrollments",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  activity_instance_id: uuid("activity_instance_id").references(() => activityInstances.id).notNull(),
+  person_id: uuid("person_id").notNull(),                          // ref. base de atendidos
+  gender: varchar("gender",{length:20}),
+  birthdate: date("birthdate"),
+  enrollment_date: date("enrollment_date").defaultNow(),
+  active: boolean("active").default(true)
+});
+
+export const sessions = pgTable("sessions",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  activity_instance_id: uuid("activity_instance_id").references(() => activityInstances.id).notNull(),
+  date: date("date").notNull(),
+  hours: numeric("hours",{precision:4, scale:2}).notNull(),        // Carga horária (ex.: 3.00)
+  title: varchar("title",{length:200}),                            // "Aula de circo..." (opcional)
+  description: text("description"),                                 // Descrição do dia
+  observations: text("observations"),
+  status: sessionStatus("status").default("realizado"),
+  location: varchar("location",{length:160}),
+  educator_names: text("educator_names")                           // captura rápida do(s) educador(es) do dia
+});
+
+export const attendance = pgTable("attendance",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  session_id: uuid("session_id").references(() => sessions.id).notNull(),
+  enrollment_id: uuid("enrollment_id").references(() => enrollments.id).notNull(),
+  present: boolean("present").default(false)
+});
+
+export const photos = pgTable("photos",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  activity_instance_id: uuid("activity_instance_id").references(() => activityInstances.id).notNull(),
+  session_id: uuid("session_id").references(() => sessions.id),
+  date: date("date"),
+  url: text("url").notNull(),
+  caption: varchar("caption",{length:200})
+});

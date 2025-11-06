@@ -1,0 +1,192 @@
+PROMPT – Refatorar Tabela alunos no Banco de Dados (Back-end)
+Não é necessário alterar o front-end. O formulário de registro de alunos já está implementado e pede todos os dados corretamente.
+
+Agora, o que precisa ser feito é refatorar a tabela alunos no banco de dados para aceitar todos os campos que o front-end envia. Ou seja, é necessário:
+
+Atualizar a estrutura da tabela para conter todos os campos mencionados abaixo.
+
+Garantir que o endpoint de cadastro de aluno (POST) armazene corretamente todos esses dados no banco de dados.
+
+Validar o campo cpf como chave primária (PRIMARY KEY) da tabela.
+
+🗂️ Campos que devem estar na tabela alunos
+Organize os campos conforme os grupos abaixo. Todos eles já estão sendo enviados pelo front-end:
+
+🟡 Dados principais
+cpf (chave primária)
+
+nome_completo
+
+foto_perfil (nome/URL do arquivo salvo)
+
+data_nascimento
+
+genero
+
+numero_matricula
+
+familia_nome
+
+situacao_atendimento
+
+estado_civil
+
+religiao
+
+naturalidade
+
+nacionalidade
+
+pode_sair_sozinho
+
+🟡 Dados complementares
+tamanho_calca
+
+tamanho_camiseta
+
+tamanho_calcado
+
+cor_raca
+
+frequenta_projeto_social
+
+acesso_internet
+
+🟡 Endereço
+cep
+
+logradouro
+
+numero
+
+bairro
+
+cidade
+
+estado
+
+complemento
+
+ponto_referencia
+
+mora_desde
+
+🟡 Contato
+email
+
+telefone
+
+whatsapp
+
+contato_emergencia_nome
+
+contato_emergencia_telefone
+
+contato_emergencia_whatsapp
+
+🟡 Documentos
+rg
+
+orgao_emissor
+
+ctps_numero
+
+ctps_serie
+
+titulo_eleitor
+
+nis_pis_pasep
+
+documentos_possui (array ou JSON)
+
+upload_identidade_frente
+
+upload_identidade_verso
+
+🟡 Benefícios Sociais
+cadunico
+
+bolsa_familia
+
+bpc
+
+cartao_alimentacao
+
+outros_beneficios
+
+🟡 Saúde
+possui_deficiencia
+
+possui_alergia
+
+faz_uso_medicamento
+
+observacoes_saude
+
+upload_laudo_medico
+
+🟡 Família e moradia
+quantidade_filhos
+
+com_quem_mora
+
+composicao_familiar
+
+renda_familiar_mensal
+
+situacao_moradia
+
+tipo_moradia
+
+🟡 Educação
+escolaridade
+
+estuda_atualmente
+
+observacoes_educacao
+
+🟡 Dados da Mãe
+mae_nome
+
+mae_cpf
+
+mae_profissao
+
+mae_telefone
+
+mae_mora_com_aluno
+
+mae_responsavel_legal
+
+🟡 Dados do Pai
+pai_nome
+
+pai_cpf
+
+pai_profissao
+
+pai_telefone
+
+pai_mora_com_aluno
+
+pai_responsavel_legal
+
+🟡 Responsável Legal
+responsavel_nome
+
+responsavel_cpf
+
+responsavel_grau_parentesco
+
+responsavel_profissao
+
+responsavel_telefone
+
+responsavel_email
+
+responsavel_mora_com_aluno
+
+responsavel_contato_emergencia
+
+🟡 Observações finais
+observacoes_gerais

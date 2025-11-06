@@ -1,0 +1,180 @@
+PROMPT PARA O RAPPS — RBAC ISOLADO (Professor / Monitor / Coordenador)
+
+Objetivo:
+Implementar isolamento total de áreas por papel. Usuário Professor enxerga apenas a área de Professor; Monitor enxerga apenas a área de Monitor; Coordenador enxerga apenas a área de Coordenador, mas pode abrir páginas e consultar dados de Professores e Monitores (sem que estes vejam o do Coordenador).
+Sem menus cruzados entre Professor/Monitor/Coordenador. Logout/Login para trocar de papel.
+
+1) Papéis
+
+Adicionar/confirmar os papéis:
+
+PROFESSOR
+
+MONITOR
+
+COORDENADOR_INCLUSAO
+
+COORDENADOR_PEC (Esporte e Cultura)
+
+COORDENADOR_PSICO
+
+(Opcional) ADMIN
+
+Se houver enum no DB, criar migration. Se roles vêm do IdP/claims, apenas mapear.
+
+2) Rotas (todas protegidas por guard)
+
+Professor: /professor
+
+Monitor: /monitor
+
+Coordenador (dashboard base): /coordenador
+
+Inclusão Produtiva: /coordenador/inclusao-produtiva
+
+Esporte e Cultura: /coordenador/esporte-cultura
+
+Psicossocial: /coordenador/psicossocial
+
+Guards (front):
+
+/professor → somente PROFESSOR (ou ADMIN).
+
+/monitor → somente MONITOR (ou ADMIN).
+
+/coordenador/* → somente COORDENADOR_* (ou ADMIN).
+
+Se user não tiver o papel, redirect para /login ou página “Acesso negado”.
+
+Exemplo (React + TS):
+
+function RoleGuard({ allow, children }: { allow: string[]; children: React.ReactNode }) {
+  const { user } = useAuth();
+  return allow.includes(user?.role || "") ? <>{children}</> : <Navigate to="/login" replace />;
+}
+
+3) Menus (sidebar/header) — isolados
+
+Se role === "PROFESSOR" → Mostrar somente item “Área do Professor” (sem links para Monitor ou Coordenador).
+
+Se role === "MONITOR" → Mostrar somente “Área do Monitor”.
+
+Se role começa com COORDENADOR_ → Mostrar somente “Área do Coordenador”, com apenas as páginas da sua área (ex.: um Coordenador de Inclusão não vê PEC/Psico).
+
+Inserir botão Sair (Logout) sempre visível.
+
+Exemplo:
+
+const menuByRole: Record<string, MenuItem[]> = {
+  PROFESSOR: [{ label: "Área do Professor", to: "/professor", icon: "Chalkboard" }],
+  MONITOR:   [{ label: "Área do Monitor",   to: "/monitor",   icon: "UserRoundCheck" }],
+  COORDENADOR_INCLUSAO: [
+    { label: "Área do Coordenador", to: "/coordenador/inclusao-produtiva", icon: "FolderKanban" },
+  ],
+  COORDENADOR_PEC: [
+    { label: "Área do Coordenador", to: "/coordenador/esporte-cultura", icon: "FolderKanban" },
+  ],
+  COORDENADOR_PSICO: [
+    { label: "Área do Coordenador", to: "/coordenador/psicossocial", icon: "FolderKanban" },
+  ],
+  ADMIN: [
+    // Admin pode ter um menu próprio ou um switch de papéis, se existir.
+  ],
+};
+
+4) Páginas
+
+Monitor: duplicar a página de Professor (mesmo layout/funcionalidade) em /monitor.
+
+Coordenador: dashboard base em /coordenador, com 3 variantes por rota:
+
+/coordenador/inclusao-produtiva
+
+/coordenador/esporte-cultura
+
+/coordenador/psicossocial
+
+Nestes dashboards, deixar cards/seções para (futuro): visão geral, turmas/grupos, equipe (prof/monitores), indicadores rápidos, relatórios, comunicação.
+
+Importante: não mostrar links de “voltar para Professor/Monitor”. Troca de área somente por Logout/Login (ou “Trocar Perfil” se existir esse recurso).
+
+5) Autorização no backend (obrigatório)
+
+Além do guard no front, reforçar autorização por papel e escopo no backend:
+
+Endpoints “de Professor” (ex.: turmas do professor, chamadas, planos de aula):
+
+Permitidos: PROFESSOR acessando apenas os próprios recursos;
+
+Permitidos: COORDENADOR_* (com escopo da área quando aplicável) para consulta (e edição se for requisito futuro);
+
+Negar para MONITOR (se o recurso for exclusivo de Professor, a menos que exista rota análoga do Monitor).
+
+Endpoints “de Monitor”:
+
+Permitidos: MONITOR (escopo próprio);
+
+Permitidos: COORDENADOR_* (consulta/gestão conforme política);
+
+Negar para PROFESSOR.
+
+Endpoints “de Coordenador”:
+
+Somente COORDENADOR_* (com escopo da área) e ADMIN.
+
+Middleware exemplo (Node/Express):
+
+function requireRole(...allowed: string[]) {
+  return (req, res, next) => {
+    const role = req.user?.role;
+    if (!role || !allowed.includes(role)) return res.status(403).json({ error: "forbidden" });
+    next();
+  };
+}
+
+
+Escopo por área (coordenador vê dados do seu domínio):
+
+No token/claim do coordenador incluir area: "INCLUSAO" | "PEC" | "PSICO".
+
+Filtrar queries por area quando os dados forem segmentados (ex.: turmas PEC vs. Inclusão).
+
+6) Critérios de aceitação
+
+Logado como Professor:
+
+Só consigo acessar /professor; qualquer tentativa de /monitor ou /coordenador/* redireciona para /login (ou 403).
+
+Menu exibe apenas “Área do Professor”.
+
+Logado como Monitor:
+
+Só acesso /monitor; bloqueado em /professor e /coordenador/*.
+
+Menu exibe apenas “Área do Monitor”.
+
+Logado como Coordenador (cada área):
+
+Acesso /coordenador/<minha-area> e posso abrir listagens/visões de dados de Professor e Monitor da minha área (ex.: listas de turmas, frequência, relatórios).
+
+Não aparecem menus de Professor/Monitor.
+
+Se tento rotas de outra área de coordenador, bloqueia.
+
+Backend retorna 403 quando papel não autorizado chamar endpoints de outra área.
+
+Testes de UX: não existem links cruzados entre as áreas; troca só via logout/login (ou “Trocar Perfil”, se houver).
+
+7) Entregáveis
+
+Novas rotas e guards implementados.
+
+Sidebar/Header isolados por papel (sem cross-link).
+
+Página Monitor = cópia funcional da de Professor.
+
+Páginas Coordenador (3 variantes) com layout-base e placeholders.
+
+Middleware de autorização no backend + filtros de escopo por área.
+
+README com instruções de como atribuir papéis para teste.

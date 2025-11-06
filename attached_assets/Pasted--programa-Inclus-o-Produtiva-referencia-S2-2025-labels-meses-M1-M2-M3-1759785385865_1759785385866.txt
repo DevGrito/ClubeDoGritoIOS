@@ -1,0 +1,116 @@
+{
+  "programa": "Inclusão Produtiva",
+  "referencia": "S2/2025",
+  "labels_meses": ["M1","M2","M3","M4","M5","M6","M7","M8"],
+  "projetos": [
+    {
+      "projeto": "LAB. VOZES DO FUTURO",
+      "indicadores": [
+        {
+          "nome": "Frequência",
+          "meta": "85%",
+          "periodicidade": "Mensal",
+          "valores": [64, 68, 73, null, null, 97, 96.5, 94],
+          "media_semestral": 82.08
+        },
+        {
+          "nome": "Evasão",
+          "meta": "<06 Alunos",
+          "valores": [0, 0, 0, 0, 0, 0],
+          "media_semestral": 0.0
+        },
+        {
+          "nome": "Avaliação de Aprendizagem",
+          "meta": "90%",
+          "valores": [null, null, 89, null, null, 43],
+          "media_semestral": 66.0
+        },
+        {
+          "nome": "Quantidade de Alunos",
+          "meta": "60",
+          "periodicidade": "Mensal",
+          "valores": [57, 57, 72, 40, 40, 41],
+          "media_semestral": 51.17
+        },
+        {
+          "nome": "NPS",
+          "meta": "70",
+          "periodicidade": "Trimestral",
+          "valores": [null, null, 75, null, 81],
+          "media_semestral": 78.0
+        },
+        {
+          "nome": "Empregabilidade",
+          "meta": "22",
+          "valores": [0, 21, 8],
+          "media_semestral": 9.67
+        }
+      ]
+    },
+    {
+      "projeto": "CURSOS PRESENCIAIS",
+      "indicadores": [
+        {
+          "nome": "Frequência",
+          "meta": "85%",
+          "periodicidade": "Mensal",
+          "valores": [90.75, 91, 88.44, 83, 87.32, 87],
+          "media_semestral": 87.92
+        },
+        {
+          "nome": "Evasão",
+          "meta": "<40 Alunos",
+          "valores": [0, 0, 0, 1, 1, 0],
+          "media_semestral": 0.33
+        },
+        {
+          "nome": "Avaliação de Aprendizagem",
+          "meta": "80%",
+          "valores": [81, 81],
+          "media_semestral": 81.0
+        },
+        {
+          "nome": "Quantidade de Alunos",
+          "meta": "400",
+          "valores": [30, 30, 167, 92, 289, 104],
+          "media_semestral": 118.67
+        },
+        {
+          "nome": "NPS",
+          "meta": "70",
+          "valores": [87, 87],
+          "media_semestral": 87.0
+        }
+      ]
+    },
+    {
+      "projeto": "CURSOS EAD CGD",
+      "indicadores": [
+        {
+          "nome": "Frequência",
+          "meta": "85%",
+          "periodicidade": "Mensal",
+          "valores": [100, 100, 100, 99, 100, 99.75, 100],
+          "media_semestral": 99.82
+        },
+        {
+          "nome": "Evasão",
+          "meta": "<50 Alunos",
+          "valores": [0, 0, 0, 0, 0, 0],
+          "media_semestral": 0.0
+        },
+        {
+          "nome": "Alunos Ativos",
+          "meta": "200",
+          "valores": [14, 8, 22, 44, 72, 138, 25],
+          "media_semestral": 46.14
+        },
+        {
+          "nome": "Alunos Formados",
+          "valores": [14, 8, 0, 44, 66, 25],
+          "media_semestral": 26.17
+        }
+      ]
+    }
+  ]
+}

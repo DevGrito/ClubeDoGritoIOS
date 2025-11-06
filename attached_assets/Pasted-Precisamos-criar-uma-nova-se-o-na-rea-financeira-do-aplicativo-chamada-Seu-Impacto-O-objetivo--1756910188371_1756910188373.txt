@@ -1,0 +1,41 @@
+Precisamos criar uma nova seção na área financeira do aplicativo chamada "Seu Impacto". O objetivo é mostrar ao usuário o valor total de sua contribuição e como ela é distribuída nas causas que ele escolheu apoiar (os "gritos" dele). A imagem de referência para o layout é a image_0e86a1.png.
+
+1. Estrutura Geral da Seção:
+Título Principal: A seção deve começar com o título "SEU IMPACTO" alinhado à esquerda.
+
+Filtro de Período: No mesmo nível do título, alinhado à direita, deve haver um filtro de período (ex: "ANUAL", "MENSAL").
+
+Valor Total do Impacto: Logo abaixo do título, o valor total doado pelo usuário no período selecionado deve ser exibido com grande destaque (fonte grande e em negrito).
+
+Lógica: Este valor (ex: R$ 118,80) deve ser buscado no banco de dados, somando todas as doações do usuário de acordo com o plano dele (mensal) e o filtro de período selecionado (anual).
+
+2. Detalhamento do Impacto por "Grito":
+Esta é a parte principal. Abaixo do valor total, vamos mostrar a divisão desse impacto de acordo com as causas que o usuário selecionou no momento do cadastro.
+
+Lógica de Exibição: O sistema deve verificar quais "gritos" o usuário marcou em seu perfil (ex: "Cultura", "Esporte", "Educação", "Pelas Crianças", "Pelos Jovens"). Para cada "grito" selecionado, um componente de gráfico deve ser exibido.
+
+Cálculo da Distribuição: O valor total do impacto deve ser dividido igualmente entre os "gritos" selecionados pelo usuário.
+
+Exemplo: Se o total é R$ 118,00 e o usuário escolheu 2 gritos ("Cultura" e "Esporte"), cada causa receberá R$ 59,00. Se ele escolheu 3, cada uma receberá R$ 39,33, e assim por diante.
+
+Layout dos Componentes: Os componentes de cada "grito" devem ser exibidos lado a lado (em duas colunas, por exemplo, como na imagem de referência).
+
+3. Design do Componente Individual de cada "Grito":
+Cada "grito" será representado por um card/componente com os seguintes elementos, exatamente como na imagem image_0e86a1.png:
+
+Gráfico Circular (Donut Chart): Um gráfico em formato de anel que representa visualmente a porcentagem daquela causa em relação ao total.
+
+Valor Simplificado (Dentro do Gráfico): Dentro do círculo, exiba o valor arredondado destinado àquela causa (ex: R$ 36).
+
+Valor Completo (Abaixo do Gráfico): Exiba o valor exato, com centavos (ex: R$ 36,00).
+
+Nome do "Grito" (Rótulo): Abaixo do valor completo, escreva o nome da causa (ex: CULTURA, ESPORTE).
+
+Resumo das Funcionalidades:
+Buscar o valor total doado pelo usuário no período.
+
+Buscar as causas ("gritos") que o usuário selecionou em seu perfil.
+
+Dividir o valor total igualmente entre as causas selecionadas.
+
+Para cada causa, renderizar um componente com o gráfico circular e os valores correspondentes.

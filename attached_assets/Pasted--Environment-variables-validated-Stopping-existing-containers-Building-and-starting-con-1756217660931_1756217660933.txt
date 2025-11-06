@@ -1,0 +1,40 @@
+✅ Environment variables validated
+🛑 Stopping existing containers...
+🏗️ Building and starting containers...
+WARN[0000] /root/clubedogrito/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+[+] Building 103.0s (17/17) FINISHED                                                                                                                
+ => [internal] load local bake definitions                                                                                                     0.0s
+ => => reading from stdin 487B                                                                                                                 0.0s
+ => [internal] load build definition from Dockerfile                                                                                           0.0s
+ => => transferring dockerfile: 1.19kB                                                                                                         0.0s
+ => [internal] load metadata for docker.io/library/node:20-alpine                                                                              0.0s
+ => [internal] load .dockerignore                                                                                                              0.0s
+ => => transferring context: 261B                                                                                                              0.0s
+ => [ 1/10] FROM docker.io/library/node:20-alpine                                                                                              0.0s
+ => [internal] load build context                                                                                                              0.2s
+ => => transferring context: 151.42kB                                                                                                          0.1s
+ => CACHED [ 2/10] WORKDIR /app                                                                                                                0.0s
+ => [ 3/10] RUN apk add --no-cache curl                                                                                                        1.9s
+ => [ 4/10] RUN addgroup -g 1001 -S nodejs && adduser -S -G nodejs -u 1001 nextjs                                                              0.4s 
+ => [ 5/10] COPY package*.json ./                                                                                                              0.1s 
+ => [ 6/10] RUN npm ci --only=production                                                                                                      29.7s 
+ => [ 7/10] COPY . .                                                                                                                           2.0s 
+ => [ 8/10] COPY docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh                                                                    0.0s 
+ => [ 9/10] RUN chmod 0755 /usr/local/bin/docker-healthcheck.sh  && chown root:root /usr/local/bin/docker-healthcheck.sh                       0.4s 
+ => [10/10] RUN chown -R nextjs:nodejs /app                                                                                                   50.6s 
+ => exporting to image                                                                                                                        17.5s 
+ => => exporting layers                                                                                                                       17.5s 
+ => => writing image sha256:573d49e9a6eb24bf8a1f3be227c9b4787d0a4d131d86f0eaceec3372bb7b94ee                                                   0.0s
+ => => naming to docker.io/library/clubedogrito-app                                                                                            0.0s
+ => resolving provenance for metadata file                                                                                                     0.0s
+[+] Running 6/6
+ ✔ clubedogrito-app                     Built                                                                                                  0.0s 
+ ✔ Network clubedogrito_app-network     Created                                                                                                0.1s 
+ ✔ Volume "clubedogrito_postgres_data"  Created                                                                                                0.0s 
+ ✔ Container clubedogrito-db-1          Healthy                                                                                               31.1s 
+ ✔ Container clubedogrito-app-1         Started                                                                                               31.3s 
+ ✔ Container clubedogrito-nginx-1       Started                                                                                               31.7s 
+⏳ Waiting for database to be ready...
+📊 Running database migrations...
+WARN[0000] /root/clubedogrito/docker-compose.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion 
+Error response from daemon: Container 6ff99993c931ba912db4c417964261540cca34bdda83e9b227d18a6405a55c97 is restarting, wait until the container is running

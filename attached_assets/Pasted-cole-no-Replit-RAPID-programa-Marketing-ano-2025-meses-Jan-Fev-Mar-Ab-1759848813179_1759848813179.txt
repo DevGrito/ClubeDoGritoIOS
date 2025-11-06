@@ -1,0 +1,147 @@
+cole no Replit/RAPID:
+
+{
+  "programa": "Marketing",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "indicadores": [
+    {
+      "nome": "Seguidores (total)",
+      "meta": { "valor": 15000, "unidade": "contagem", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [10102, 10157, 10248, 10358, null, null, null, null, null, null, null, null],
+      "observacoes": "Série cumulativa do total de seguidores."
+    },
+    {
+      "nome": "Engajamento - IG",
+      "meta": { "valor": 500, "unidade": "interacoes", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [731, 1162, 1133, 1046, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Taxa de Engajamento - IG",
+      "meta": { "valor": 3, "unidade": "%", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "percentual",
+      "realizado_mensal": [8.89, 3.32, 3.52, 3.94, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Visualizações de Reels",
+      "meta": { "valor": 5000, "unidade": "views", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [6285, 1428, 31671, 5411, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Engajamento - E-mail Mkt",
+      "meta": { "valor": 20, "unidade": "%", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "percentual",
+      "realizado_mensal": [27.0, 44.01, 15.0, null, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Engajamento LK - Léo Martins",
+      "meta": { "valor": 10, "unidade": "%", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "percentual",
+      "realizado_mensal": [7.81, 6.35, 5.44, 1.81, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Engajamento LinkedIn (página)",
+      "meta": { "valor": 5, "unidade": "%", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "percentual",
+      "realizado_mensal": [2, 2, 3, 5, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Quantidade de Posts - IG",
+      "meta": { "valor": 12, "unidade": "posts", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [8, 10, 12, 18, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Quantidade de Posts - LinkedIn (página)",
+      "meta": { "valor": 12, "unidade": "posts", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [2, 3, 6, 5, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Quantidade de Posts - LinkedIn (Léo Martins)",
+      "meta": { "valor": 12, "unidade": "posts", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [null, null, null, 18, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Quantidade de Posts - Site",
+      "meta": { "valor": 6, "unidade": "posts", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [7, 0, 4, 4, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Seguidores Ganhos",
+      "meta": { "valor": 100, "unidade": "contagem", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [235, 169, 211, 254, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Seguidores Perdidos",
+      "meta": { "valor": 50, "unidade": "contagem", "periodicidade": "Mensal", "direcao": "menor_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [134, 113, 129, 116, null, null, null, null, null, null, null, null],
+      "observacoes": "Meta operada como limite máximo mensal (menor é melhor)."
+    },
+    {
+      "nome": "Posts mais Performáticos (views)",
+      "meta": { "valor": 1000, "unidade": "views", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [2619, 4284, 805, 119, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Eventos",
+      "meta": { "valor": 10, "unidade": "eventos", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [1, 1, 1, 1, null, null, null, null, null, null, null, null],
+      "observacoes": "Meta anual; realizado distribuído mês a mês."
+    },
+    {
+      "nome": "Público nos Eventos do Instituto",
+      "meta": { "valor": 200, "unidade": "pessoas", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [25, 325, 20, 650, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Novos Doadores Recrutados",
+      "meta": { "valor": 400, "unidade": "pessoas", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [1, 0, 0, null, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Adesões ao Clube do Grito",
+      "meta": { "valor": 30000.00, "unidade": "BRL", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "moeda",
+      "realizado_mensal": [0, 0, 0, 3, null, null, null, null, null, null, null, null],
+      "observacoes": "Valor de realizado atual está em 'unidades' (3). Se a meta for monetária, mapear conversão."
+    },
+    {
+      "nome": "Materiais Distribuídos",
+      "meta": { "valor": 6000, "unidade": "itens", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [null, null, null, null, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "Retenção de Voluntários",
+      "meta": { "valor": 5, "unidade": "pessoas", "periodicidade": "Anual", "direcao": "maior_melhor" },
+      "tipo_valor": "inteiro",
+      "realizado_mensal": [null, null, null, 2, null, null, null, null, null, null, null, null]
+    },
+    {
+      "nome": "App Clube do Grito (progresso)",
+      "meta": { "valor": 70, "unidade": "%", "periodicidade": "Mensal", "direcao": "maior_melhor" },
+      "tipo_valor": "percentual",
+      "realizado_mensal": [20, 30, 30, 40, null, null, null, null, null, null, null, null],
+      "observacoes": "No quadro de metas fornecido havia 'Adesões ao Clube (R$30k)'; aqui mantive também o indicador de progresso do app (%)."
+    }
+  ]
+}
+
+
+quer que eu:
+
+preencha mai/jun com os números corretos (se você tiver),
+
+ou gere cards de resumo (média do semestre, % de meta) a partir desse JSON?

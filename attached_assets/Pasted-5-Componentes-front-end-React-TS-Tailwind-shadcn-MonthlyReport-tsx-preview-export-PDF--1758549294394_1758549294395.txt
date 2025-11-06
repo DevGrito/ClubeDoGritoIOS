@@ -1,0 +1,64 @@
+5) Componentes front-end (React + TS + Tailwind + shadcn)
+MonthlyReport.tsx (preview + export PDF)
+
+Props: instanceId, month.
+
+Chama /api/instances/:id/report?month=YYYY-MM e renderiza:
+
+Header com: Título da turma, Projeto, Categoria (SCFV), Período do projeto, Gestores/Educadores, Período do dia, “Controle de Presença”.
+
+Cards: Carga horária do mês, Atendidos do mês.
+
+Tabela (diário): data, dia da semana, carga horária, resumo da aula, observações, participantes, frequência (%), local, status, educador(es).
+
+Lista de inscritos: nome, gênero, idade, data da inscrição.
+
+Galeria (grid com data abaixo).
+
+Botões: “Exportar PDF” (use react-to-print ou endpoint server-side que renderiza HTML → PDF).
+
+ActivityInstanceForm.tsx
+
+Campos exatamente como na seção Turma.
+
+Multi-select de colaboradores (papéis: Gestor/Monitor/Educador).
+
+SessionForm.tsx + Planilha de Presenças
+
+Criação/edição de sessão.
+
+Aba “Presenças”: lista de inscritos com toggle; contador atualiza Participantes e Frequência em tempo real.
+
+6) JSON do relatório (contrato de API)
+{
+  "header": {
+    "project": "Casa Sonhar Patrimar 2025",
+    "activity": "Contraturno",
+    "instanceTitle": "Contraturno Manhã M1 2025 | 6–8 anos",
+    "category": "SCFV",
+    "periodOfDay": "Matutino",
+    "projectPeriod": {"start":"2025-01-01","end":"2025-12-31"},
+    "managers": ["Monitor PEC e Casa Sonhar","Coordenadora PEC e Casa Sonhar"],
+    "educators": ["A DEFINIR*"],
+    "whoCanParticipate": "Qualquer atendido",
+    "description": "Espaço educativo..."
+  },
+  "totals": {
+    "hoursInMonth": 42,
+    "attendeesInMonth": 12
+  },
+  "diary": [
+    {
+      "date":"2025-09-02","weekday":"Terça-feira","hours":3,
+      "description":"Aula de circo e introdução ao tema...",
+      "observations":"Sem observação",
+      "status":"REALIZADO","educators":[], "participants":12,"frequency":83.33,"location":"Casa Sonhar Patrimar"
+    }
+  ],
+  "enrollments":[
+    {"name":"ARTHUR AUGUSTO...", "gender":"Masculino", "age":8, "enrollmentDate":"2025-01-15"}
+  ],
+  "gallery":[
+    {"date":"2025-09-02","url":"https://..."}
+  ]
+}

@@ -1,0 +1,182 @@
+[vite] connecting... client:495:9
+Service Worker registrado com sucesso! tdoador:150:31
+[vite] connected. client:618:15
+Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools chunk-RPCDYKBN.js:21551:25
+Acesso a cookies ou armazenamento particionado foi fornecido para “https://js.stripe.com/v3/controller-with-preconnect-02904fee95f6168c56ddbd80ccecd4e0.html#__shared_params__[version]=basil&__shared_params__[light_experiment_assignments]=%7B%22token%22%3A%2294f8b10d-d98f-4a0c-a5b1-a14bfa53b5be%22%2C%22assignments%22%3A%7B%22elements_phone_numbers_library%22%3A%22control%22%2C%22optimize_ewcs_link_get_cookie%22%3A%22treatment%22%7D%7D&apiKey=pk_test_51RdaS1Qlsea8vAKZC1WmSHcCGXNGGTxJuLZ3iq90MUpeCxq5CUhj5C2QwmHWO008hWIMSaZ0yh75EzrSUpXyvTs6002cYD8L9l&apiVersion=2025-03-31.basil&stripeJsId=94f8b10d-d98f-4a0c-a5b1-a14bfa53b5be&stripeObjId=sobj-a45be454-87b1-4d31-aa50-8e0d5c6de0f1&firstStripeInstanceCreatedLatency=12&controllerCount=1&isCheckout=false&stripeJsLoadTime=1756932585698&manualBrowserDeprecationRollout=false&mids[guid]=NA&mids[muid]=7a86917e-efc5-4434-9912-63cab3ce30d0e50e6a&mids[sid]=be505672-fabc-412b-8a1c-bc3395c68b1839042d&referrer=https%3A%2F%2F752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev%2Ftdoador&controllerId=__privateStripeController3851” porque é carregado em contexto de terceiros e o particionamento de estado dinâmico está ativado. controller-with-preconnect-5d7be9ec4f2184ea28d1dd347f4b3c19.js:1:183346
+Acesso a cookies ou armazenamento particionado foi fornecido para “https://m.stripe.network/inner.html#url=https%3A%2F%2F752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev%2Ftdoador&title=Clube%20do%20Grito&referrer=&muid=7a86917e-efc5-4434-9912-63cab3ce30d0e50e6a&sid=be505672-fabc-412b-8a1c-bc3395c68b1839042d&version=6&preview=false&__shared_params__[version]=basil” porque é carregado em contexto de terceiros e o particionamento de estado dinâmico está ativado. out-4.5.44.js:1:39660
+Avisos de cookies 3
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+✅ IMAGEM CARREGADA COM SUCESSO! StoriesViewer.tsx:535:43
+✅ MEGAFONE CARREGADO! StoriesViewer.tsx:590:45
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+✅ IMAGEM CARREGADA COM SUCESSO! StoriesViewer.tsx:535:43
+✅ MEGAFONE CARREGADO! StoriesViewer.tsx:590:45
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+✅ IMAGEM CARREGADA COM SUCESSO! StoriesViewer.tsx:535:43
+✅ MEGAFONE CARREGADO! StoriesViewer.tsx:590:45
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIcon: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123" }
+StoriesViewer.tsx:575:27
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+[vite] hot updated: /src/components/StoriesViewer.tsx client:223:19
+[vite] hot updated: /src/index.css?v=LFu1kTL90PmY-ibhHFFUq client:223:19
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 0, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11
+🎨 APLICANDO LAYOUT DA CAPA! currentSlideIndex === 0 - USANDO STYLE INLINE COM !IMPORTANT StoriesViewer.tsx:515:25
+🖼️ DEBUG IMAGEM: 
+Object { hasImage: true, imageUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...", slideType: "image" }
+StoriesViewer.tsx:520:27
+📢 DEBUG MEGAFONE: 
+Object { megafoneIconPath: "/@fs/home/runner/workspace/attached_assets/MEGAFONE%20SEM%20FUNDO_Prancheta%201_1756835037939.png", storyTitle: "Teste 123", megafoneExists: true }
+StoriesViewer.tsx:575:27
+✅ IMAGEM CARREGADA COM SUCESSO! StoriesViewer.tsx:535:43
+✅ MEGAFONE CARREGADO! StoriesViewer.tsx:591:45
+🔍 STORIES VIEWER DEBUG: 
+Object { useRealData: false, storiesLength: 1, realStoriesLength: 1, isLoading: false, realStories: (1) […] }
+StoriesViewer.tsx:71:11
+📖 CURRENT STORY DEBUG: 
+Object { currentStoryIndex: 0, currentSlideIndex: 1, currentStory: {…}, currentSlide: {…}, finalStoriesLength: 1 }
+StoriesViewer.tsx:156:11

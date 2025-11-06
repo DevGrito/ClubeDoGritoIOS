@@ -1,0 +1,1106 @@
+{
+  "source": "Programas_Projetos_Indicadores_1758740188655.xlsx",
+  "imported_at": "2025-09-25T15:29:23.818Z",
+  "indicators": [
+    {
+      "programa": "PROGRAMA DE CULTURA E ESPORTE",
+      "projeto": "SALA SERENATA ",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": 70.6,
+        "marco": 83,
+        "abril": 85,
+        "maio": 82,
+        "junho": 71,
+        "julho": 0.82,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 10 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": 1,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AVALIAÇÃO DE APRENDIZAGEM",
+      "meta": 0.8,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "QUANTIDADE DE ALUNOS",
+      "meta": 35,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 42,
+        "marco": 36,
+        "abril": 35,
+        "maio": 35,
+        "junho": 45,
+        "julho": 0.82,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "NPS",
+      "meta": 50,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "POLO               GLORIA ",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": 78,
+        "marco": 75,
+        "abril": 94,
+        "maio": 80.5,
+        "junho": 82.2,
+        "julho": 0.9,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 20 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 13,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": 92,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AVALIAÇÃO DE APRENDIZAGEM",
+      "meta": 0.8,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "QUANTIDADE DE ALUNOS",
+      "meta": 150,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 165,
+        "marco": 151,
+        "abril": 149,
+        "maio": 165,
+        "junho": 120,
+        "julho": 153,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "NPS",
+      "meta": 70,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "CASA                SONHAR",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 73,
+        "marco": 76,
+        "abril": 84,
+        "maio": 82,
+        "junho": 81,
+        "julho": 1,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 20 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 19,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AVALIAÇÃO DE APRENDIZAGEM",
+      "meta": 0.8,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "QUANTIDADE DE ALUNOS",
+      "meta": 150,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 165,
+        "marco": 154,
+        "abril": 156,
+        "maio": 153,
+        "junho": 164,
+        "julho": 169,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "NPS",
+      "meta": 70,
+      "recorrencia": "Semestral",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": 2,
+        "agosto": 1.11111111111111e+68,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "PROGRAMA DE INCLUSÃO PRODUTIVA",
+      "projeto": "LAB. VOZES DO FUTURO",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": 64,
+        "fevereiro": 68,
+        "marco": 73,
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": 97,
+        "julho": 94,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 06 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AVALIAÇÃO DE APRENDIZAGEM",
+      "meta": 0.9,
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": 89,
+        "abril": null,
+        "maio": null,
+        "junho": "Não se aplica",
+        "julho": 43,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "QUANTIDADE DE ALUNOS",
+      "meta": 60,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": 57,
+        "fevereiro": 57,
+        "marco": 72,
+        "abril": null,
+        "maio": null,
+        "junho": 40,
+        "julho": 41,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "NPS",
+      "meta": 70,
+      "recorrencia": "Trimestral",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": 75,
+        "abril": null,
+        "maio": null,
+        "junho": "Não se aplica",
+        "julho": 81,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EMPREGABILIDADE",
+      "meta": 22,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 21,
+        "marco": 8,
+        "abril": null,
+        "maio": null,
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "CURSOS PRESENCIAL",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": 90.75,
+        "maio": 88.44,
+        "junho": 83,
+        "julho": 87,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 40 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": 1,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AVALIAÇÃO DE APRENDIZAGEM",
+      "meta": 0.8,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": 81,
+        "julho": "Não se aplica",
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "QUANTIDADE DE ALUNOS",
+      "meta": 400,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": 30,
+        "maio": 167,
+        "junho": 92,
+        "julho": 104,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "NPS",
+      "meta": 70,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": 87,
+        "julho": "Não se aplica",
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "CURSOS EAD  CGD",
+      "indicador": "FREQUÊNCIA",
+      "meta": 0.85,
+      "recorrencia": "Mensal",
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": 100,
+        "marco": 100,
+        "abril": "Não se aplica",
+        "maio": 99,
+        "junho": 100,
+        "julho": 100,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EVASÃO",
+      "meta": "< 50 ALUNOS",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "Alunos ativos ",
+      "meta": 200,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 14,
+        "marco": 8,
+        "abril": null,
+        "maio": 44,
+        "junho": 72,
+        "julho": 25,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "Alunos Formados",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 14,
+        "marco": 8,
+        "abril": null,
+        "maio": null,
+        "junho": 44,
+        "julho": 25,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "PSICOSSOCIAL",
+      "projeto": "CARAVANA O GRITO",
+      "indicador": "EVENTOS (RUA DE LAZER) ",
+      "meta": 3,
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": 1,
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "PESSOAS PRESENTES",
+      "meta": 300,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": 650,
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "ATIVIDADE TRANSVERSAL",
+      "indicador": "PESQUISA DE CLIMA",
+      "meta": 60,
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": "Não se aplica",
+        "marco": "Não se aplica",
+        "abril": "Não se aplica",
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "AÇÕES COM OS COLABORADORES",
+      "meta": 5,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 1,
+        "abril": null,
+        "maio": "Não se aplica",
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "ESPAÇOS COLETIVOS COM O TIME",
+      "meta": 10,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 1,
+        "marco": 1,
+        "abril": 1,
+        "maio": 1,
+        "junho": 1,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "VISITAS",
+      "meta": 20,
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": 34,
+        "marco": 35,
+        "abril": 16,
+        "maio": 24,
+        "junho": 14,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "ATENDIMENTOS INDIVIDUAIS",
+      "meta": 20,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 10,
+        "abril": 33,
+        "maio": 16,
+        "junho": 22,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "INTERVENÇÕES DO METODO O GRITO",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 463,
+        "abril": 304,
+        "maio": 285,
+        "junho": 290,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "MARKETING",
+      "projeto": "MKT",
+      "indicador": "SEGUIDORES",
+      "meta": 15000,
+      "recorrencia": 500,
+      "monthlyData": {
+        "janeiro": 1096,
+        "fevereiro": 92,
+        "marco": 61,
+        "abril": 128,
+        "maio": 57,
+        "junho": 48,
+        "julho": 78,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "DOADOR RECOR.",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": 4,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "FAVELA 3D",
+      "projeto": "DECOLAGEM",
+      "indicador": "FAMILIAS ATIVAS",
+      "meta": 250,
+      "monthlyData": {
+        "janeiro": 238,
+        "fevereiro": 219,
+        "marco": 219,
+        "abril": 217,
+        "maio": 216,
+        "junho": 217,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "VISITAS MENTORES",
+      "meta": 3000,
+      "recorrencia": 300,
+      "monthlyData": {
+        "janeiro": 276,
+        "fevereiro": 305,
+        "marco": 297,
+        "abril": 318,
+        "maio": 371,
+        "junho": 354,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "FAMILIAS TRIÂNGULO ",
+      "meta": 1160,
+      "recorrencia": 116,
+      "monthlyData": {
+        "janeiro": 10,
+        "fevereiro": 39,
+        "marco": 29,
+        "abril": 23,
+        "maio": 91,
+        "junho": 73,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "DESENVOLVIMENTO SOCIAL",
+      "indicador": "ATENDIMENTOS GERAIS",
+      "meta": 480,
+      "recorrencia": 40,
+      "monthlyData": {
+        "janeiro": 47,
+        "fevereiro": 60,
+        "marco": 40,
+        "abril": 40,
+        "maio": 43,
+        "junho": 47,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "GERANDO LIDERANÇAS",
+      "meta": 12,
+      "recorrencia": 12,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 1,
+        "marco": 1,
+        "abril": 2,
+        "maio": 1,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "RODA DE CONVERSA",
+      "meta": 12,
+      "recorrencia": 12,
+      "monthlyData": {
+        "janeiro": 1,
+        "fevereiro": 1,
+        "marco": 1,
+        "abril": null,
+        "maio": 1,
+        "junho": 1,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "GRUPO DE MULHERES",
+      "meta": 24,
+      "recorrencia": 1,
+      "monthlyData": {
+        "janeiro": 1,
+        "fevereiro": 2,
+        "marco": 1,
+        "abril": 1,
+        "maio": 1,
+        "junho": 1,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "ASSEMBLEIA COMUNITARIA",
+      "meta": 6,
+      "monthlyData": {
+        "janeiro": 1,
+        "fevereiro": "Não se aplica",
+        "marco": 1,
+        "abril": "Não se aplica",
+        "maio": 1,
+        "junho": "Não se aplica",
+        "julho": null,
+        "agosto": "Não se aplica",
+        "setembro": null,
+        "outubro": "Não se aplica",
+        "novembro": null,
+        "dezembro": "Não se aplica"
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "MOBILIZA D",
+      "meta": 6,
+      "monthlyData": {
+        "janeiro": "Não se aplica",
+        "fevereiro": 1,
+        "marco": "Não se aplica",
+        "abril": 1,
+        "maio": "Não se aplica",
+        "junho": 1,
+        "julho": "Não se aplica",
+        "agosto": null,
+        "setembro": "Não se aplica",
+        "outubro": null,
+        "novembro": "Não se aplica",
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "EMPREGO E RENDA",
+      "indicador": "FORMANDOS",
+      "meta": 100,
+      "recorrencia": 10,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": "Não se aplica",
+        "junho": 27,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EMPREGADOS",
+      "meta": "75% do territorio que tem interesse em trabalhar.",
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 1,
+        "marco": 1,
+        "abril": null,
+        "maio": null,
+        "junho": 2,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "EMPREENDEDORES MAPEADOS",
+      "meta": 10,
+      "recorrencia": 1,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": 44,
+        "maio": null,
+        "junho": 43,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "MORADIA E URBANISMO",
+      "indicador": "EQUIPAMENTOS ",
+      "meta": 4,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": 1,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    },
+    {
+      "programa": "Não informado",
+      "projeto": "Não informado",
+      "indicador": "MELHORIA HABITACIONAL ",
+      "meta": 50,
+      "monthlyData": {
+        "janeiro": null,
+        "fevereiro": null,
+        "marco": null,
+        "abril": null,
+        "maio": null,
+        "junho": null,
+        "julho": null,
+        "agosto": null,
+        "setembro": null,
+        "outubro": null,
+        "novembro": null,
+        "dezembro": null
+      }
+    }
+  ]
+}

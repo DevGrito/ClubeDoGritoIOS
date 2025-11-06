@@ -1,0 +1,82 @@
+// =========================
+// src/pages/Entrar.jsx - Tela de Login Simples (Telefone + Código SMS)
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useUserStore } from "../store/userStore";
+
+export default function Entrar() {
+  const navigate = useNavigate();
+  const { setUser } = useUserStore();
+  const [telefone, setTelefone] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [etapa, setEtapa] = useState("telefone");
+
+  const handleEnviarCodigo = async () => {
+    // Aqui você envia o código via Twilio
+    console.log("Enviando código para:", telefone);
+    setEtapa("codigo");
+  };
+
+  const handleVerificarCodigo = async () => {
+    // Aqui você verifica o código via Twilio (simulação abaixo)
+    console.log("Verificando código:", codigo);
+
+    // Simulação: buscar papel do banco com base no telefone
+    const userFake = {
+      nome: "Usuário Teste",
+      telefone,
+      papel: telefone === "31986631203" ? "leo" : "doador"
+    };
+
+    setUser(userFake);
+
+    if (userFake.papel === "leo") navigate("/leo");
+    else if (userFake.papel === "admin") navigate("/admin");
+    else if (userFake.papel === "conselho") navigate("/conselho");
+    else if (userFake.papel === "doador") navigate("/doador");
+    else if (userFake.papel === "colaborador") navigate("/colaborador");
+    else navigate("/");
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white text-black p-6">
+      <h1 className="text-2xl font-bold mb-4">Entrar no Clube do Grito</h1>
+
+      {etapa === "telefone" && (
+        <div className="w-full max-w-sm space-y-4">
+          <input
+            type="tel"
+            placeholder="Digite seu telefone"
+            value={telefone}
+            onChange={(e) => setTelefone(e.target.value)}
+            className="w-full border border-gray-300 p-3 rounded"
+          />
+          <button
+            onClick={handleEnviarCodigo}
+            className="w-full bg-black text-white font-semibold py-2 rounded hover:opacity-90"
+          >
+            Enviar código de verificação
+          </button>
+        </div>
+      )}
+
+      {etapa === "codigo" && (
+        <div className="w-full max-w-sm space-y-4">
+          <input
+            type="text"
+            placeholder="Digite o código recebido"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            className="w-full border border-gray-300 p-3 rounded"
+          />
+          <button
+            onClick={handleVerificarCodigo}
+            className="w-full bg-yellow-400 text-black font-semibold py-2 rounded hover:opacity-90"
+          >
+            Verificar e Entrar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,140 @@
+Quero adicionar um terceiro botão de pagamento no fluxo de checkout do meu PWA:
+
+Já existem: “Pagar com PIX” e “Pagar com Cartão”.
+
+Preciso agora do botão: “Pagar com Rede” (meu gateway próprio).
+
+O que implementar
+
+Frontend (React/PWA)
+
+Na tela/ componente de checkout (ex.: Checkout.tsx):
+
+Adicionar um botão “Pagar com Rede” ao lado dos já existentes.
+
+Comportamento:
+
+Estado: idle → loading → success | error.
+
+Desabilitar todos os botões enquanto estiver loading (evitar múltiplos cliques).
+
+Mostrar spinner e texto “Processando…” durante loading.
+
+Em caso de erro, exibir toast/alert amigável com a mensagem do backend.
+
+Ao clicar em Pagar com Rede, chamar POST /api/checkout/rede com:
+
+{
+  "orderId": "<UUID da ordem>",
+  "amount": <valor_em_centavos>,
+  "installments": <1..10>,
+  "customer": { "name": "...", "email": "...", "phone": "..." }
+}
+
+
+Resposta esperada do backend:
+
+{
+  "ok": true,
+  "transactionId": "string",
+  "status": "AUTHORIZED" | "CAPTURED" | "PENDING" | "DECLINED",
+  "redirectUrl": null
+}
+
+
+Se status for CAPTURED ou AUTHORIZED, considerar como pago/confirmado (ou aguardar webhook, ver abaixo) e avançar para liberação do ingresso.
+
+UX:
+
+Exibir valor por parcela quando installments > 1.
+
+Se houver tabela de juros no env (ex.: GATEWAY_INTEREST_JSON), usar no preview; se backend retornar valores finais por parcela, priorizar os do backend.
+
+Backend (Express + TypeScript)
+
+Nova rota: POST /api/checkout/rede
+
+Validar payload (orderId, amount, installments 1..10).
+
+Idempotência: aceitar header Idempotency-Key e não duplicar a criação de cobrança.
+
+Criar a cobrança na API da Rede (gateway próprio) via client lib/gateway.ts (função createChargeRede(...)), enviando:
+
+orderId, amount, installments, capture: true, callbackUrl: https://<meu-dominio>/api/webhooks/gateway.
+
+Registrar/atualizar payments no DB com status inicial PENDING e depois o status retornado.
+
+Retornar JSON conforme o contrato acima.
+
+Webhook (já existente ou criar): POST /api/webhooks/gateway
+
+Validar assinatura HMAC (GATEWAY_WEBHOOK_SECRET).
+
+Atualizar pagamento por transactionId/orderId para CAPTURED quando pago.
+
+Ao confirmar pagamento, chamar serviço liberarIngresso(orderId) (idempotente).
+
+Banco (Drizzle)
+
+Garantir nas tabelas:
+
+payments.gateway = 'rede' para este fluxo.
+
+payments.installments preenchido.
+
+Índice por order_id e gateway_transaction_id.
+
+Feature flag & ENV
+
+Só exibir o botão “Pagar com Rede” se process.env.REDE_ENABLED === 'true'.
+
+Variáveis necessárias:
+
+REDE_ENABLED=true
+REDE_BASE_URL=https://api.minha-rede.com
+REDE_MERCHANT_ID=...
+REDE_SECRET_KEY=...
+REDE_PUBLIC_KEY=...
+GATEWAY_WEBHOOK_SECRET=...
+GATEWAY_INTEREST_JSON={"1":0,"2":0,"3":0,"4":0.012,"5":0.015,"6":0.018,"7":0.02,"8":0.022,"9":0.024,"10":0.026}
+
+
+Nunca transitar PAN/CSC no backend — usar token seguro gerado pelo SDK da Rede caso o fluxo exija cartão.
+
+Telemetria & Logs
+
+Logar: orderId, installments, amount, transactionId, status.
+
+Não logar dados sensíveis.
+
+Adicionar métricas simples (contagem de cliques e conversões por método: pix/cartao/rede).
+
+Testes de aceitação
+
+Casos:
+
+installments = 1, installments = 10.
+
+Retorno AUTHORIZED e confirmação posterior via webhook.
+
+Retorno DECLINED.
+
+Webhook repetido (idempotência).
+
+Depois do PAID, redirecionar para /ingresso/visualizar/:id (pegar orderId → ticketId).
+
+Arquivos a tocar/criar
+
+src/client/components/Checkout.tsx (ou arquivo equivalente): adicionar o botão e estados.
+
+src/server/routes/checkout.ts: incluir rota POST /api/checkout/rede.
+
+src/server/routes/webhooks.ts: garantir consumo do evento da Rede.
+
+src/server/lib/gateway.ts: nova função createChargeRede.
+
+src/server/services/pagamentos.ts: integrar liberarIngresso(orderId) quando pago.
+
+.env / docker-compose.yml: novas variáveis e reinício.
+
+Implemente com código completo, comentários em PT-BR explicando pontos críticos (idempotência, assinatura do webhook, conciliação por orderId) e mantenha o estilo do projeto.

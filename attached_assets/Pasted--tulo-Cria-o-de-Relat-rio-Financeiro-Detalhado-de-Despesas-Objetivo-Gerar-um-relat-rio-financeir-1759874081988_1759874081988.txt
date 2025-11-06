@@ -1,0 +1,81 @@
+ítulo: Criação de Relatório Financeiro Detalhado de Despesas
+
+Objetivo: Gerar um relatório financeiro de despesas para o período de [informe o período, ex: Janeiro a Dezembro de 2025], apresentando duas visualizações principais: um dashboard macro com o consolidado até o mês anterior e uma visão detalhada com filtro mensal e detalhamento por setor.
+
+Dados de Entrada (Exemplo):
+
+Meta de Gastos Mensal: [Ex: R$ 50.000,00]
+
+Mês de Referência para o Dashboard: [Ex: Setembro de 2025 (o dashboard consolidará de Janeiro a Setembro)]
+
+Lista de Setores: [Ex: Marketing, Recursos Humanos, Operações, Administrativo, Tecnologia]
+
+Dados de Despesas: Forneça os dados brutos, como uma tabela com colunas: Mês, Setor, Descrição da Despesa, Valor Gasto.
+
+Estrutura do Relatório Solicitado:
+
+1. Dashboard Financeiro (Visão Macro Consolidada)
+
+Crie um painel de controle com os dados acumulados desde o início do ano até o final do mês de [mês anterior ao atual, ex: Setembro de 2025]. O dashboard deve conter:
+
+Meta Acumulada: O valor total da meta de gastos para o período.
+
+Fórmula: (Meta Mensal) x (Número de Meses Passados)
+
+Realizado Acumulado: O valor total de todas as despesas gastas no período.
+
+Saldo Macro: A diferença entre a meta acumulada e o realizado acumulado.
+
+Fórmula: (Meta Acumulada) - (Realizado Acumulado)
+
+Exibir o saldo de forma clara, indicando se é positivo (economia) ou negativo (excedente).
+
+2. Relatório Detalhado (Visão Filtrada por Mês e Setor)
+
+Abaixo do dashboard, crie uma seção que permita filtrar os dados por mês. Para cada mês selecionado, exiba uma tabela detalhada com as seguintes informações:
+
+Cabeçalho: "Detalhamento de Despesas - [Mês Selecionado]"
+
+Resumo do Mês:
+
+Meta do Mês: [Valor da meta mensal]
+
+Total Realizado no Mês: Soma de todos os gastos do mês.
+
+Saldo do Mês: Diferença entre a meta e o realizado do mês.
+
+Tabela de Despesas por Setor:
+
+Coluna 1: Setor: Liste cada setor que teve gastos no mês.
+
+Coluna 2: Total Gasto no Setor: A soma de todas as despesas daquele setor no mês.
+
+Coluna 3 (Opcional): Detalhes: Uma breve lista ou resumo das principais despesas dentro daquele setor.
+
+Exemplo de como o resultado final deveria se parecer:
+
+Dashboard Financeiro (Consolidado até Setembro de 2025)
+Meta Acumulada: R$ 450.000,00
+
+Realizado Acumulado: R$ 435.000,00
+
+Saldo Macro: R$ 15.000,00 (Positivo)
+
+Detalhes de Despesas (Filtro por Mês)
+(Exibindo dados para o mês de: Setembro)
+
+Resumo de Setembro:
+
+Meta: R$ 50.000,00
+
+Realizado: R$ 48.500,00
+
+Saldo: R$ 1.500,00
+
+Gastos por Setor:
+| Setor | Total Gasto no Setor |
+| :--- | :--- |
+| Marketing | R$ 15.000,00 |
+| Operações | R$ 20.500,00 |
+| Administrativo | R$ 10.000,00 |
+| Recursos Humanos| R$ 3.000,00 |

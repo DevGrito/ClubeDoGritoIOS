@@ -1,0 +1,66 @@
+Prompt para Atualizar o Fluxo de Pagamento com Stripe Subscriptions
+Introdução:
+
+"Eu quero refatorar meu sistema de pagamento para usar Stripe Subscriptions em vez de Payment Intents."
+
+"O objetivo é ter assinaturas recorrentes que se renovam automaticamente todo mês, sem que o usuário precise digitar os dados do cartão novamente."
+
+"O novo fluxo deve suportar: planos fixos (Eco, Voz, Grito), um plano flexível (Platinum) onde o usuário define o valor, e a capacidade de o usuário mudar de plano a qualquer momento após a compra."
+
+Plano de Ação Detalhado:
+
+Backend - Refatorar a criação do Checkout:
+
+Substitua a rota que cria o PaymentIntent por uma nova rota que cria uma Checkout Session para assinaturas.
+
+A nova rota deve receber o planId e, opcionalmente, o customAmount (para o plano Platinum).
+
+Use o método stripe.checkout.sessions.create() com mode: 'subscription'.
+
+Para os planos fixos, passe o price_id correspondente do Stripe.
+
+Para o plano flexível ("Seja Platinum"), use price_data para definir o valor dinamicamente.
+
+Defina success_url e cancel_url para redirecionar o usuário após o pagamento, garantindo que o session_id seja incluído na URL de sucesso.
+
+Frontend - Ajustar o fluxo de checkout:
+
+Quando o usuário selecionar um plano, o frontend deve chamar a nova rota de backend.
+
+Ao receber a resposta do backend, redirecione o usuário para a URL da checkout_session retornada (window.location.href = session.url).
+
+Isso vai direcionar o usuário para a página de checkout do próprio Stripe, onde ele preencherá os dados do cartão.
+
+Backend - Criar um Webhook para eventos do Stripe:
+
+Configure um endpoint no seu backend para receber webhooks do Stripe.
+
+No Stripe Dashboard, adicione o URL desse endpoint e selecione os eventos checkout.session.completed e customer.subscription.updated.
+
+Quando o evento checkout.session.completed for recebido:
+
+Verifique se o pagamento foi bem-sucedido.
+
+Recupere o customer_id e o subscription_id da sessão.
+
+Associe essas informações ao usuário no seu banco de dados.
+
+Ative o plano do usuário.
+
+Quando o evento customer.subscription.updated for recebido, atualize o status do plano do usuário no seu banco de dados.
+
+Backend e Frontend - Implementar a mudança de plano:
+
+Crie uma nova rota de backend, por exemplo, POST /api/update-subscription, que recebe o ID da assinatura do usuário (subscription_id) e o novo price_id.
+
+Essa rota deve usar stripe.subscriptions.update() para modificar a assinatura.
+
+No frontend, na tela de gerenciamento do doador, crie botões para "Mudar para..." que chamam essa nova rota.
+
+Importante: Faça a validação no backend para garantir que apenas upgrades e downgrades permitidos possam ser feitos.
+
+Ajustes na Estrutura de Dados:
+
+Atualize a estrutura de dados no seu banco para armazenar o stripe_customer_id e o stripe_subscription_id de cada usuário.
+
+Substitua os planPrices por um mapeamento para os price_id criados no Stripe.

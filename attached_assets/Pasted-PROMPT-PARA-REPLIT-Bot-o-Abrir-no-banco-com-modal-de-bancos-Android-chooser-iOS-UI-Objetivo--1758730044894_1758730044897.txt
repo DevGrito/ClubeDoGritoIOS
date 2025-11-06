@@ -1,0 +1,218 @@
+PROMPT PARA REPLIT — Botão “Abrir no banco” com modal de bancos (Android chooser + iOS UI)
+Objetivo
+
+Implementar um botão “Abrir no banco” que:
+
+Android: dispara br.gov.bcb.pix://<payload_emv> (ou intent://…) sem package → o chooser do Android deve listar os apps de banco instalados compatíveis com PIX.
+
+iOS (Safari/PWA/WebView): abrir um modal interno (“sheet”) listando botões por banco (mapeados por deep links conhecidos) + um botão “PIX genérico” (br.gov.bcb.pix://<payload_emv>).
+
+iOS não permite listar apps instalados via web. Então a lista é configurável (Nubank, Itaú, Inter, PicPay, etc.) e o usuário escolhe. Se o app estiver instalado e aceitar o deep link, abre direto; senão, o usuário volta e usa o QR/cópia.
+
+Fallback comum (ambos): se nada abrir em ~2s (Android/iOS) ou se o usuário preferir, mostrar QR Code + “Copiar código PIX”.
+
+Requisitos
+
+Recebe payloadEmv (string EMV válida do PIX Copia e Cola, começando com 000201...).
+
+Funções utilitárias: isAndroid(), isIOS().
+
+Componente PixOpenButton:
+
+Em Android: tentar window.location.href = br.gov.bcb.pix://<payloadEmv>; isso deve acionar o chooser quando há mais de um handler.
+
+Em iOS: abrir PixBankPickerModal com lista de apps (config) + botão “PIX genérico”.
+
+PixBankPickerModal:
+
+Renderiza botões a partir de um catálogo (BANKS[]) com {name, linkBuilder}.
+
+linkBuilder(payloadEmv) retorna o deep link do banco (ex.: genérico br.gov.bcb.pix://<payload>).
+
+Se não houver deep link específico, usar o genérico.
+
+PixFallback (já temos): renderiza QR e copiar.
+
+(Opcional) Capacitor/React Native: se o app for empacotado nativamente, habilitar no iOS a detecção via canOpenURL com LSApplicationQueriesSchemes e montar o chooser real com os apps instalados.
+
+Código (React + TS)
+// utils/device.ts
+export const isAndroid = () =>
+  /android/i.test(navigator.userAgent || "");
+export const isIOS = () =>
+  /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+
+// utils/pix.ts
+export const buildPixDeepLink = (payloadEmv: string) =>
+  `br.gov.bcb.pix://${encodeURIComponent(payloadEmv)}`;
+
+// Em Android, também podemos usar intent:// para garantir resolução pelo SO:
+// NOTE: manter sem package para permitir chooser
+export const buildAndroidIntent = (payloadEmv: string) =>
+  `intent://pay/#Intent;scheme=br.gov.bcb.pix;S.payload=${encodeURIComponent(payloadEmv)};end;`;
+
+// config/banks.ts
+// Catálogo configurável de deep links por banco.
+// Alguns bancos aceitam o genérico br.gov.bcb.pix://<payload>. Outros possuem esquemas próprios.
+// Mantenha isso em config para evoluir sem mexer no código de UI.
+export type Bank = {
+  id: string;
+  name: string;
+  linkBuilder: (payloadEmv: string) => string;
+};
+
+// Comece com o genérico e ajuste ao aprender os esquemas dos parceiros.
+// (Ex.: alguns apps aceitam parâmetros próprios; se não souber, caia no genérico).
+export const BANKS: Bank[] = [
+  {
+    id: "generic",
+    name: "PIX genérico (qualquer banco)",
+    linkBuilder: (p) => `br.gov.bcb.pix://${encodeURIComponent(p)}`,
+  },
+  // Exemplo de placeholders para bancos (substituir quando confirmados):
+  // { id: "nubank", name: "Nubank", linkBuilder: (p) => `br.gov.bcb.pix://${encodeURIComponent(p)}` },
+  // { id: "itau", name: "Itaú", linkBuilder: (p) => `br.gov.bcb.pix://${encodeURIComponent(p)}` },
+  // { id: "inter", name: "Banco Inter", linkBuilder: (p) => `br.gov.bcb.pix://${encodeURIComponent(p)}` },
+  // { id: "picpay", name: "PicPay", linkBuilder: (p) => `br.gov.bcb.pix://${encodeURIComponent(p)}` },
+];
+
+// components/PixBankPickerModal.tsx
+import { BANKS } from "@/config/banks";
+
+type Props = {
+  payloadEmv: string;
+  onClose: () => void;
+  onFallback: () => void;
+};
+
+export function PixBankPickerModal({ payloadEmv, onClose, onFallback }: Props) {
+  const openBank = (build: (p: string) => string) => {
+    const url = build(payloadEmv);
+    // Tenta abrir o deep link
+    const t = setTimeout(() => {
+      // Se nada aconteceu, oferece fallback
+      onFallback();
+    }, 1800);
+    try {
+      window.location.href = url;
+    } finally {
+      // Não dá para saber com 100% de certeza se abriu; timeout cobre o caso de falha.
+      // Se abrir, o usuário sai da página; caso contrário, cai no fallback.
+    }
+    onClose();
+    // Não limpamos o timeout, pois se o app abriu, o usuário terá saído.
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+      <div className="w-full max-w-md bg-white rounded-t-2xl p-4">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-semibold">Escolha seu banco</h3>
+          <button onClick={onClose} className="text-sm">Fechar</button>
+        </div>
+        <div className="space-y-2 max-h-[60vh] overflow-auto">
+          {BANKS.map((b) => (
+            <button
+              key={b.id}
+              className="w-full text-left px-3 py-3 rounded-xl border hover:bg-gray-50"
+              onClick={() => openBank(b.linkBuilder)}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 text-xs text-gray-500">
+          Se o app não abrir, voltaremos para gerar o QR Code e copiar o código PIX.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// components/PixOpenButton.tsx
+import { useState, useRef } from "react";
+import { isAndroid, isIOS } from "@/utils/device";
+import { buildPixDeepLink, buildAndroidIntent } from "@/utils/pix";
+import { PixBankPickerModal } from "@/components/PixBankPickerModal";
+import { PixFallback } from "@/components/PixFallback";
+
+type Props = { payloadEmv: string };
+
+export default function PixOpenButton({ payloadEmv }: Props) {
+  const [showPicker, setShowPicker] = useState(false);
+  const [showFallback, setShowFallback] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  const openAndroid = () => {
+    // Tenta deep link nativo
+    const tryUris = [
+      buildPixDeepLink(payloadEmv),
+      buildAndroidIntent(payloadEmv),
+    ];
+
+    let tried = 0;
+    const tryNext = () => {
+      if (tried >= tryUris.length) {
+        setShowFallback(true);
+        return;
+      }
+      const uri = tryUris[tried++];
+      timerRef.current = window.setTimeout(() => {
+        tryNext();
+      }, 1200);
+      try {
+        window.location.href = uri;
+      } catch {
+        tryNext();
+      }
+    };
+
+    tryNext();
+  };
+
+  const onOpen = () => {
+    if (isAndroid()) {
+      // Android: não defina package → o SO mostra o chooser se houver múltiplos handlers
+      openAndroid();
+    } else if (isIOS()) {
+      // iOS: abrir nosso modal de escolha (UI interna)
+      setShowPicker(true);
+    } else {
+      // Desktop → fallback direto
+      setShowFallback(true);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <button
+        onClick={onOpen}
+        className="px-4 py-2 rounded-xl bg-black text-white"
+      >
+        Abrir no banco
+      </button>
+
+      {showPicker && (
+        <PixBankPickerModal
+          payloadEmv={payloadEmv}
+          onClose={() => setShowPicker(false)}
+          onFallback={() => {
+            setShowPicker(false);
+            setShowFallback(true);
+          }}
+        />
+      )}
+
+      {showFallback && <PixFallback payloadEmv={payloadEmv} />}
+    </div>
+  );
+}
+
+
+Observações:
+
+Android: ao usar br.gov.bcb.pix://<payload> sem informar package, o SO decide o handler e, havendo múltiplos, exibe o chooser (o “modal dos apps”).
+
+iOS (via web/PWA): não há API para listar apps instalados. O nosso modal interno entrega a mesma experiência de escolha, com links por banco (quando soubermos o esquema), além do PIX genérico.
+
+Nativo (opcional): se o app for empacotado (Capacitor/React Native), no iOS dá pra montar um chooser de verdade usando canOpenURL para cada esquema (depois de cadastrar em LSApplicationQueriesSchemes) e listar apenas os apps instalados.

@@ -1,0 +1,220 @@
+Fluxo de Missão da Semana
+0) Entrada
+
+De: Aba “Missão da Semana” → Página: Lista de Missões
+
+Mostrar: cards com título, pontos, prazo, status (Disponível / Pendente validação / Concluída / Expirada) e “Participar”.
+
+1) Detalhe da Missão
+
+Ao tocar no card:
+
+Banner com título + pontos + prazo.
+
+Descrição curta (o que fazer).
+
+Critério de elegibilidade (plano, nível, quantidade mínima de “Gritos”, etc.).
+
+Tipo de Evidência exigida (vem da tabela):
+
+comentario (texto)
+
+print (upload de imagem)
+
+link (URL)
+
+checkin (geolocalização ou botão “fiz aqui”)
+
+video (upload curto ou link)
+
+quiz (perguntas/respostas)
+
+Botão “Participar” (se elegível) ou “Ver como participar” (se não elegível → CTA de upgrade).
+
+2) Formulário dinâmico (conforme tipo de evidência)
+
+Regra: renderizar o formulário pelo campo evidence_type.
+
+comentario
+
+Campo textarea (min 20 chars, máx 600).
+
+Placeholder orientativo (ex.: “Conte rapidamente como você cumpriu a missão…”).
+
+print
+
+Upload 1–3 imagens (JPG/PNG), tamanho máx 5MB cada.
+
+Campo opcional “Observação” (até 140 chars).
+
+Pré-visualização + recorte 4:5/16:9.
+
+link
+
+Campo URL (validação http/https).
+
+Validação de domínio permitido (se houver).
+
+Campo opcional “Comentário” (até 140 chars).
+
+checkin
+
+Botão “Fazer check-in” (solicita localização).
+
+Distância máxima do ponto-alvo (ex.: ≤ 500m) ou janela de tempo.
+
+Fallback manual com foto + avaliação humana (se sem GPS).
+
+video
+
+Upload (até 60s) ou link (YouTube/Drive).
+
+Thumb gerada automaticamente.
+
+quiz
+
+Lista de perguntas (múltipla escolha).
+
+Regra de acerto (ex.: ≥70% para concluir).
+
+Em todos os tipos:
+
+Checkbox “Declaro que é conteúdo original”.
+
+Botão Enviar evidência (desabilitado até passar na validação local).
+
+3) Confirmação & Status
+
+Ao enviar: status = "pendente_validacao".
+
+Toast: “Recebemos sua evidência. Validaremos em até X horas.”
+
+Botão “Acompanhar” leva para Meus Envio(s).
+
+4) Validação (automática + humana)
+
+Automática (sincrona):
+
+Tamanho/formatos, URL válida, geofence, quiz score, anti-spam (mesmo link/imagem repetida).
+
+Humana (assíncrona / fila):
+
+Moderador marca Aprovado (ganha pontos) / Reprovado (informar motivo e permitir Refazer 1x).
+
+5) Pontuação e feedback
+
+Aprovado → creditar pontos, mostrar selo “Concluída” no card, registrar em Histórico.
+
+Reprovado → exibir motivo e botão Refazer (se permitido pela missão).
+
+Expirada → bloquear envio e exibir “Missão encerrada”.
+
+Regras de Negócio (resumo)
+
+Cada missão possui:
+
+plano_minimo, nivel_minimo, pontos_recompensa, prazo_inicio/fim, limite_envios (ex.: 1 por usuário), evidence_type, review_required (boolean), auto_approve (quiz/check-in).
+
+Upgrade CTA quando plano do usuário < plano_minimo.
+
+Anti-fraude:
+
+Hash de arquivos/imagens para impedir reuso massivo.
+
+Bloqueio de URLs repetidas em massa.
+
+Delay mínimo entre envios da mesma missão.
+
+Acessibilidade: mensagem de ajuda por tipo de evidência + exemplos.
+
+Modelo de Dados (sugestão)
+// missions
+{
+  "id": "uuid",
+  "title": "Convide um Amigo",
+  "description": "Indique um amigo...",
+  "points_reward": 200,
+  "plan_min": "eco|voz|grito",
+  "level_min": 0,
+  "evidence_type": "comentario|print|link|checkin|video|quiz",
+  "rules": {
+    "min_chars": 20,
+    "max_chars": 600,
+    "allowed_domains": ["instagram.com","linkedin.com"],
+    "max_images": 3,
+    "max_video_seconds": 60,
+    "geofence": {"lat": -19.83, "lng": -44.08, "radius_m": 500},
+    "quiz_min_score": 70
+  },
+  "start_at": "2025-09-09T00:00:00Z",
+  "end_at": "2025-09-15T23:59:59Z",
+  "limit_per_user": 1,
+  "auto_approve": false,
+  "review_required": true
+}
+
+// submissions
+{
+  "id": "uuid",
+  "mission_id": "uuid",
+  "user_id": "uuid",
+  "evidence": {
+    "text": "…",
+    "images": ["file1.jpg","file2.jpg"],
+    "url": "https://…",
+    "video": "…",
+    "geo": {"lat": -19.83, "lng": -44.08, "acc_m": 20},
+    "quiz": {"score": 80, "answers": [2,1,3]}
+  },
+  "status": "pendente_validacao|aprovado|reprovado|expirado",
+  "moderation_reason": null,
+  "created_at": "…",
+  "approved_at": null,
+  "points_awarded": 0
+}
+
+Endpoints (REST)
+
+GET /missoes/semana → lista (com status do usuário e elegibilidade).
+
+GET /missoes/{id} → detalhe + regras.
+
+POST /missoes/{id}/enviar → payload varia conforme evidence_type.
+
+GET /me/missoes → envios do usuário.
+
+POST /moderacao/submissions/{id}/aprovar
+
+POST /moderacao/submissions/{id}/reprovar
+
+POST /missoes/{id}/refazer (se permitido)
+
+Renderização dinâmica (pseudocódigo)
+function EvidenceForm({ mission }) {
+  switch (mission.evidence_type) {
+    case 'comentario':
+      return <Textarea minLength={20} maxLength={600} required />;
+    case 'print':
+      return <ImageUploader maxFiles={3} accept={['image/png','image/jpeg']} />;
+    case 'link':
+      return <UrlInput validate={isValidUrl} allowedDomains={mission.rules?.allowed_domains} />;
+    case 'checkin':
+      return <CheckInButton geofence={mission.rules?.geofence} />;
+    case 'video':
+      return <VideoUploader maxSeconds={mission.rules?.max_video_seconds || 60} />;
+    case 'quiz':
+      return <Quiz questions={mission.quiz_questions} minScore={mission.rules?.quiz_min_score || 70} />;
+  }
+}
+
+Textos prontos (UI)
+
+Missão disponível: “Complete a tarefa, envie a evidência e ganhe {pontos} Gritos.”
+
+Pendente: “Recebido! Validaremos sua evidência em até 24h.”
+
+Aprovada: “Parabéns! 🎉 Você ganhou {pontos} Gritos.”
+
+Reprovada: “Sua evidência não atendeu às regras: {motivo}. Toque em Refazer.”
+
+Expirada: “Missão encerrada. Fique de olho na próxima semana!”

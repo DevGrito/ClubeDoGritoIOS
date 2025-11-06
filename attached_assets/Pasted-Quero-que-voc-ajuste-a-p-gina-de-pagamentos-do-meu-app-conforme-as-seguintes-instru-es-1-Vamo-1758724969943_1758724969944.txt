@@ -1,0 +1,110 @@
+Quero que você ajuste a página de pagamentos do meu app conforme as seguintes instruções:
+
+1. Vamos ter dois botões principais:
+   - **Comprar ingresso com Pix (R$ 1.000,00 fixo)**
+   - **Comprar ingresso com Cartão (Stripe)**
+
+2. Fluxo do Pix:
+   - Ao clicar no botão "Pagar com Pix", abrir um formulário simples pedindo:
+     - Nome completo
+     - Telefone
+   - Depois que o usuário preencher e enviar, deve aparecer:
+     - O QR Code Pix (gerado automaticamente no frontend).
+     - O código Pix copia e cola (payload fixo).
+     - Um botão para "Copiar código Pix".
+     - Um botão para "Abrir no app do banco" usando **Deep Link (intent://pix?payload=...#Intent;scheme=pix;end)**.
+
+3. Dados do Pix:
+   - Valor fixo: R$ 1.000,00
+   - Chave Pix (CNPJ): 28.790.664/0001-10
+   - Beneficiário: Instituto O Grito
+   - Payload Pix Copia e Cola (use este como base):
+     ```
+     00020126360014BR.GOV.BCB.PIX01142879066400011052040000530398654061000.005802BR5915INSTITUTO O GRITO6009SAO PAULO62070503***6304ABCD
+     ```
+
+4. O QR Code deve ser gerado usando a lib `react-qr-code`.
+
+5. O botão de cartão já existe com Stripe, apenas mantenha ele logo abaixo do Pix.
+
+6. Visual:
+   - Usar Tailwind para deixar bonito, com cards centralizados, bordas arredondadas e sombras leves.
+   - Botão Pix: preto com hover dourado.
+   - Botão cartão: amarelo com hover mais escuro.
+   - Botão "Abrir no App do Banco": verde.
+
+Exemplo de código (adapte dentro da página de pagamento):
+
+```tsx
+import { useState } from "react";
+import QRCode from "react-qr-code";
+
+export default function PagamentoIngresso() {
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [mostrarPix, setMostrarPix] = useState(false);
+
+  const pixPayload = "00020126360014BR.GOV.BCB.PIX01142879066400011052040000530398654061000.005802BR5915INSTITUTO O GRITO6009SAO PAULO62070503***6304ABCD";
+  const pixDeepLink = `intent://pix?payload=${encodeURIComponent(pixPayload)}#Intent;scheme=pix;end`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setMostrarPix(true);
+  };
+
+  return (
+    <div className="max-w-xl mx-auto p-6 bg-white rounded-2xl shadow-lg">
+      <h2 className="text-2xl font-bold text-center mb-4">Comprar Ingresso</h2>
+      {!mostrarPix ? (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            placeholder="Nome completo"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            className="w-full p-3 border rounded-lg"
+            required
+          />
+          <input
+            type="tel"
+            placeholder="Telefone"
+            value={telefone}
+            onChange={(e) => setTelefone(e.target.value)}
+            className="w-full p-3 border rounded-lg"
+            required
+          />
+          <button
+            type="submit"
+            className="w-full bg-black text-white py-3 rounded-lg hover:bg-yellow-600 transition"
+          >
+            Pagar com Pix (R$ 1.000,00)
+          </button>
+          <button
+            type="button"
+            className="w-full bg-yellow-500 text-black py-3 rounded-lg hover:bg-yellow-600 transition"
+          >
+            Pagar com Cartão
+          </button>
+        </form>
+      ) : (
+        <div className="space-y-4 text-center">
+          <h3 className="text-lg font-semibold">Pagamento via Pix</h3>
+          <QRCode value={pixPayload} size={180} />
+          <p className="break-all bg-gray-100 p-3 rounded-lg">{pixPayload}</p>
+          <button
+            onClick={() => navigator.clipboard.writeText(pixPayload)}
+            className="w-full bg-gray-800 text-white py-2 rounded-lg hover:bg-gray-600"
+          >
+            Copiar código Pix
+          </button>
+          <a
+            href={pixDeepLink}
+            className="block w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700"
+          >
+            Abrir no App do Banco
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,148 @@
+🧠 PROMPT PARA REPLIT AI — Tela de Scanner + Validação por QR Code no Banco
+
+Quero implementar uma tela de scanner de ingressos (PWA/React + TypeScript) e um endpoint no backend (Node/Express + TS) para validar o ingresso buscando pelo QR Code no banco. Cada ingresso possui um QR Code único salvo no banco (coluna qr_code). Requisitos:
+
+FRONT-END
+
+Rota: /scanner (protegida para usuários STAFF; use nosso middleware/guard existente. Se não existir, criar um placeholder simples).
+
+Componente: QRScanner.tsx usando @zxing/browser (preferência).
+
+Abrir a câmera traseira automaticamente (facingMode: "environment").
+
+Botões: Trocar câmera, Ligar/desligar lanterna (se suportado), Pausar/Retomar.
+
+Debounce de ~1500ms entre leituras.
+
+Quando decodificar, extrair o valor do QR:
+
+Se for URL, pegar code ou id dos query params; se não, usar o texto puro.
+
+Chamar POST /api/ingressos/validar com body:
+
+{ "code": "<valorDoQRCode>", "deviceId": "<idDoDispositivoScanner>", "timestamp": "<ISO>" }
+
+
+Exibir resultado com 3 estados:
+
+liberado (verde): mostrar nome do titular, quantidade, hora do uso
+
+usado (amarelo): mostrar quando/onde foi usado
+
+invalido (vermelho): “Ingresso não localizado ou inválido”
+
+Feedback: beep/vibração no sucesso.
+
+Layout simples com Tailwind (frame 1:1 com máscara).
+
+BACK-END (Express + TS)
+
+Endpoint: POST /api/ingressos/validar
+
+Body: { code: string, deviceId: string, timestamp?: string }
+
+Regra principal: procurar o ingresso pelo QR Code salvo no banco:
+
+Buscar por igualdade exata na coluna qr_code (ex.: SELECT * FROM tickets WHERE qr_code = $1 LIMIT 1), sem hash.
+
+Obs.: Se já existir helper de hash, ignore; a regra agora é por qr_code exatamente.
+
+Validações:
+
+Se não encontrar → 404 com { ok:false, status:"invalido", message:"Ingresso não localizado ou inválido" }
+
+Se status em ["cancelado","expirado"] → 404 como acima
+
+Se status = "usado" → responder 200 com { ok:false, status:"usado", usedAt, gate:{ deviceId: used_device_id } } (idempotente)
+
+Se válido:
+
+Em transação, marcar como usado: status='usado', used_at=now(), used_device_id=deviceId, used_operator_id (se houver auth de usuário)
+
+Inserir um registro em ticket_scans com result='liberado'
+
+Responder 200:
+
+{
+  "ok": true,
+  "status": "liberado",
+  "ticketId": "<uuid>",
+  "holderName": "<nome>",
+  "quantity": <int>,
+  "usedAt": "<ISO>",
+  "gate": { "deviceId": "<id>" }
+}
+
+
+Segurança:
+
+Proteger a rota com RBAC STAFF (usar nosso middleware requireStaff; se não existir, criar stub que sempre permite, mas deixe o TODO).
+
+Rate limit por IP/deviceId (básico).
+
+Logs sem dados sensíveis; logar ticketId, status, deviceId.
+
+DB (usar nossa camada existente; se usar Drizzle/Prisma, implemente lá)
+
+Tabela tickets já existe. Garantir que tem as colunas (se faltar, criar migration):
+
+id (uuid/serial), qr_code (text UNIQUE), status (ativo|usado|cancelado|expirado),
+holder_name (text), quantity (int),
+used_at (timestamptz null), used_device_id (text null), used_operator_id (uuid/text null).
+
+Tabela ticket_scans (se não existir, criar):
+
+id (uuid/serial), ticket_id (fk), device_id (text), operator_id (uuid/text null),
+scanned_at (timestamptz default now), result (liberado|usado|invalido), location (text null), note (text null).
+
+CONTRATO DO QR
+
+O valor do QR no ingresso é exatamente o que está na coluna qr_code.
+
+O scanner deve aceitar tanto valores puros (ex.: QRCODE_ABC123) quanto URL com query (ex.: https://app/ingresso/visualizar?code=QRCODE_ABC123).
+
+Na validação, sempre enviar o valor extraído como "code" e o backend faz o lookup por qr_code = code.
+
+ARQUIVOS A GERAR/ALTERAR
+
+Front:
+
+src/pages/ScannerPage.tsx
+
+src/components/QRScanner.tsx
+
+src/lib/qr.ts (função extractCodeFromText que extrai code de URL ou retorna texto cru)
+
+Back:
+
+src/routes/tickets.ts (adicionar as rotas)
+
+src/services/tickets.ts (funções: findByQrCode, markUsed, insertScan)
+
+Migrations (se necessário) para qr_code UNIQUE e ticket_scans.
+
+Router/App: registrar /scanner no front e as rotas no backend.
+
+UX EXTRA
+
+Mostrar o orderId e o tipo de ingresso (se existirem) no retorno “liberado”.
+
+Botão “Tentar outro” reseta o estado e volta a ler.
+
+Se a câmera falhar, oferecer upload de imagem para leitura via jsQR.
+
+NÃO QUEBRAR O QUE EXISTE
+
+Não remover PIX/checkout atuais.
+
+Isolar o scanner e as novas rotas.
+
+Se houver conflito de dependência, resolver mantendo o build do PWA.
+
+No final, deixe prints/logs:
+
+[scanner] camera started { deviceId }
+
+[scan] decoded, valor do QR (truncate em logs)
+
+[tickets] validate result { ticketId, status, deviceId }

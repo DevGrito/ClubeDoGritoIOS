@@ -1,0 +1,225 @@
+PROMPT — “Gestão à Vista (Meta × Realizado) com Controle por Programa/Projeto”
+
+Stack: React + TS + Vite + Tailwind + shadcn/ui (frontend) • Node/Express + Zod (backend) • Postgres + Drizzle ORM • Supabase Auth + RLS.
+Escopo: Programa (sector) → Projeto (project) → Indicador (indicator).
+Entrada operacional: mensal (realizado).
+Metas: monthly | quarterly | semiannual | annual com periodStart (1º dia do mês que inicia o período) e rateio opcional mês a mês.
+
+1) Banco (Drizzle) — criar/ajustar migrations (idempotente)
+
+Enums
+
+agg_method: sum | avg | latest | count
+
+frequency: daily | weekly | monthly | quarterly
+
+target_scope: monthly | quarterly | semiannual | annual
+
+Tabelas
+
+sectors(id, name, slug unique, owner_user_id, created_at, updated_at)
+
+projects(id, sector_id fk, name, slug, created_at, updated_at)
+
+indicators(id, name, slug unique, description, unit("%|unid|R$|score|alunos"), frequency, aggregation(agg_method), higher_is_better bool, green_threshold_pct numeric default 0.90, yellow_threshold_pct numeric default 0.75, created_at, updated_at)
+
+indicator_assignments(id, indicator_id fk, sector_id fk, project_id fk null) unique (indicator_id, sector_id, project_id)
+
+indicator_targets(id, indicator_id fk, sector_id fk, project_id fk null, scope(target_scope), period_start date, target_value numeric, note) unique (indicator_id, sector_id, project_id, scope, period_start)
+
+indicator_values(id, indicator_id fk, sector_id fk, project_id fk null, period date, value numeric, source text default 'form', entered_by uuid, note, created_at) unique (indicator_id, sector_id, project_id, period)
+
+target_allocations (opcional): (indicator_id, sector_id, project_id?, scope, period_start, allocation_m1..allocation_m12, note) — pesos somando 1 no período.
+
+Índices: em sector_id, project_id e (indicator_id, sector_id, project_id).
+
+2) Seeds — Programas, Projetos e Indicadores (com unidade/aggreg/higherIsBetter)
+
+Regra unidades/aggreg:
+avg: Frequência, Evasão*, NPS, Avaliação • latest: Alunos/Seguidores/Empregabilidade/estoques • sum: Eventos/Atendimentos/Visitas/etc.
+* Em Evasão, higherIsBetter=false.
+
+{
+  "sectors": [
+    {"slug":"cultura_esporte","name":"Programa de Cultura e Esporte","projects":[
+      {"slug":"sala_serenata","name":"Sala Serenata","indicators":[
+        {"slug":"frequencia","name":"Frequência","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","name":"Evasão","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"avaliacao_aprendizagem","name":"Avaliação de Aprendizagem","unit":"score","aggregation":"avg","higherIsBetter":true},
+        {"slug":"alunos","name":"Quantidade de Alunos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"nps","name":"NPS","unit":"%","aggregation":"avg","higherIsBetter":true}
+      ]},
+      {"slug":"polo_gloria","name":"Polo Glória","indicators":[
+        {"slug":"frequencia","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"avaliacao_aprendizagem","unit":"score","aggregation":"avg","higherIsBetter":true},
+        {"slug":"alunos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"nps","unit":"%","aggregation":"avg","higherIsBetter":true}
+      ]},
+      {"slug":"casa_sonhar","name":"Casa Sonhar","indicators":[
+        {"slug":"frequencia","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"avaliacao_aprendizagem","unit":"score","aggregation":"avg","higherIsBetter":true},
+        {"slug":"alunos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"nps","unit":"%","aggregation":"avg","higherIsBetter":true}
+      ]}
+    ]},
+    {"slug":"inclusao_produtiva","name":"Programa de Inclusão Produtiva","projects":[
+      {"slug":"lab_vozes_do_futuro","name":"Lab. Vozes do Futuro","indicators":[
+        {"slug":"frequencia","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"avaliacao_aprendizagem","unit":"score","aggregation":"avg","higherIsBetter":true},
+        {"slug":"alunos","name":"Quantidade de Alunos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"nps","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"empregabilidade","unit":"%","aggregation":"latest","higherIsBetter":true}
+      ]},
+      {"slug":"cursos_presencial","name":"Cursos Presencial","indicators":[
+        {"slug":"frequencia","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"avaliacao_aprendizagem","unit":"score","aggregation":"avg","higherIsBetter":true},
+        {"slug":"alunos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"nps","unit":"%","aggregation":"avg","higherIsBetter":true}
+      ]},
+      {"slug":"cursos_ead_cgd","name":"Cursos EAD CGD","indicators":[
+        {"slug":"frequencia","unit":"%","aggregation":"avg","higherIsBetter":true},
+        {"slug":"evasao","unit":"%","aggregation":"avg","higherIsBetter":false},
+        {"slug":"alunos_ativos","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"alunos_formados","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]}
+    ]},
+    {"slug":"psicossocial","name":"Psicossocial","projects":[
+      {"slug":"caravana_o_grito","name":"Caravana O Grito","indicators":[
+        {"slug":"eventos","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"pessoas_presentes","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]},
+      {"slug":"atividade_transversal","name":"Atividade Transversal","indicators":[
+        {"slug":"pesquisa_clima","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"acoes_colaboradores","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"espacos_coletivos","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"visitas","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"atendimentos_individuais","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"intervencoes_metodo_ogrito","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]}
+    ]},
+    {"slug":"marketing","name":"Marketing","projects":[
+      {"slug":"mkt","name":"MKT","indicators":[
+        {"slug":"seguidores","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"doador_recorrente","unit":"unid","aggregation":"latest","higherIsBetter":true}
+      ]}
+    ]},
+    {"slug":"favela3d","name":"Favela 3D","projects":[
+      {"slug":"decolagem","name":"Decolagem","indicators":[
+        {"slug":"familias_ativas","unit":"unid","aggregation":"latest","higherIsBetter":true},
+        {"slug":"visitas_mentores","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"familias_triangulo","unit":"unid","aggregation":"latest","higherIsBetter":true}
+      ]},
+      {"slug":"desenvolvimento_social","name":"Desenvolvimento Social","indicators":[
+        {"slug":"atendimentos_gerais","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"gerando_liderancas","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"roda_conversa","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"grupo_mulheres","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"assembleia_comunitaria","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"mobiliza_d","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]},
+      {"slug":"emprego_renda","name":"Emprego e Renda","indicators":[
+        {"slug":"formandos","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"empregados","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"empreendedores_mapeados","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]},
+      {"slug":"moradia_urbanismo","name":"Moradia e Urbanismo","indicators":[
+        {"slug":"equipamentos","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"melhoria_habitacional","unit":"unid","aggregation":"sum","higherIsBetter":true},
+        {"slug":"articulacao_rede_socioassistencial","unit":"unid","aggregation":"sum","higherIsBetter":true}
+      ]}
+    ]}
+  ]
+}
+
+
+Implementar seed lendo esse JSON: criar setores, projetos, indicadores (deduplicar por slug) e indicator_assignments para cada par indicador↔(setor, projeto).
+
+3) RLS + Trigger (Supabase)
+
+profiles: id, role('admin'|'gestor_setor'|'gestor_projeto'), sector_id, project_id?
+
+Policies (ambas as tabelas indicator_values e indicator_targets)
+
+Admin: full read/write.
+
+gestor_setor: só onde profiles.sector_id = sector_id.
+
+gestor_projeto: só onde profiles.project_id = project_id.
+
+Trigger anti-mistura de projeto
+
+Função assert_project_matches_sector() que rejeita project_id que não pertença ao sector_id informado (aplicar em INSERT/UPDATE de values e targets).
+
+Projects (opcional, leitura mais segura)
+
+RLS que lista somente projetos do sector_id do usuário (ou apenas seu project_id).
+
+4) Views de Apuração
+
+v_indicator_monthly (normaliza mês).
+
+v_indicator_quarterly, v_indicator_semiannual, v_indicator_annual
+
+Agrega por aggregation: sum|avg|latest.
+
+v_target_monthly
+
+Expande metas quarterly/semiannual/annual por mês usando target_allocations (ou rateio igual 1/3, 1/6, 1/12).
+
+Cálculo RAG (Meta × Realizado)
+
+attainment padrão: value / target.
+
+Se higherIsBetter=false (ex.: evasão): usar attainment = target / NULLIF(value,0) e truncar em 1 quando value <= target.
+
+Status: green (≥ green_threshold_pct), yellow (≥ yellow_threshold_pct), senão red. Sem meta: neutral.
+
+5) Backend (Express/TS)
+
+Middleware perfil
+
+Carrega profiles por auth.uid() → injeta role, sector_id_allowed, project_id_allowed.
+
+Ignorar/overrides: para gestor_setor, forçar sector_id e validar/limpar project_id fora do setor; para gestor_projeto, fixar project_id.
+
+Endpoints
+
+Catálogo: GET /api/sectors, GET /api/projects?sector_id, GET /api/indicators?sector_id&project_id
+
+Operação: POST /api/indicator-values, POST /api/indicator-values/bulk?dryRun=true|false
+
+No bulk, rejeitar linhas fora do escopo do perfil (por sector_slug/project_slug).
+
+Metas: POST /api/indicator-targets, POST /api/target-allocations
+
+Painel:
+GET /api/dashboard?scope=monthly|quarterly|semiannual|annual&period=YYYY-MM&sector_id&project_id
+GET /api/meta-realizado?... (inclui gap, attainment, status)
+
+Payload card (exemplo)
+
+{"indicator":"frequencia","label":"Frequência","unit":"%","value":0.86,"target":0.85,"attainment":1.01,"status":"green"}
+
+6) Frontend
+
+/dashboard/gestao: filtros (Escopo, Período base, Programa, Projeto) • cards (RAG) • tabela Meta×Realizado • série histórica.
+
+/admin/indicadores: CRUD • aba Metas (scope, periodStart, targetValue) • aba Rateio (pesos somando 1) • Upload CSV (valores/metas, dry-run).
+
+/setor/lancamentos: formulário mensal; setor preenchido automaticamente pelo perfil; se gestor de projeto, projeto fixo.
+
+7) Testes de aceitação
+
+Seeds criados a partir do JSON (acima).
+
+Importador CSV respeita RLS e acusa linhas fora do escopo.
+
+Dashboard funciona em Mês/Tri/Sem/Ano e calcula RAG corretamente (incluindo evasão com higherIsBetter=false).
+
+Trigger bloqueia project_id que não pertence ao sector_id.
+
+UI responsiva, sem quebrar funcionalidades existentes.

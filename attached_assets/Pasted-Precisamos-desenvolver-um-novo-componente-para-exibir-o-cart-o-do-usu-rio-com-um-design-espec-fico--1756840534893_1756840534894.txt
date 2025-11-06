@@ -1,0 +1,40 @@
+Precisamos desenvolver um novo componente para exibir o cartão do usuário, com um design específico e funcionalidades interativas. Por favor, siga as instruções detalhadas abaixo, baseadas na imagem de referência (image_96d744.png).
+
+1. Design do Cartão (Parte Frontal):
+Degradê de Fundo: O fundo do cartão deve ser um degradê que varia de vermelho (esquerda) para preto (direita). As nuances e transições devem ser suaves, como na imagem.
+
+Padrão Geométrico: Sobre o degradê, deve haver um padrão geométrico sutil de triângulos ou losangos, com uma opacidade baixa para que o degradê de fundo ainda seja visível. Esse padrão adiciona textura e profundidade ao design.
+
+Número do Cartão:
+
+Exibir o número completo do cartão (ex: "1234 5678 9012 3456").
+
+A fonte deve ser legível, com cor clara (branco ou cinza claro) para contraste com o fundo escuro/vermelho.
+
+Posicionamento centralizado horizontalmente e ligeiramente acima da metade do cartão.
+
+Ícone do Chip:
+
+Um ícone de chip de cartão (retângulo dourado ou prateado com contatos) deve ser posicionado na parte inferior esquerda do cartão.
+
+Bandeira do Cartão:
+
+A bandeira (ex: "VISA") deve ser exibida no canto inferior direito.
+
+Importante: Este elemento deve ser dinâmico. A bandeira exibida deve se adaptar automaticamente à bandeira do cartão do usuário (ex: VISA, Mastercard, Elo, Amex, etc.). O desenvolvedor deve ter acesso a um conjunto de ícones/logos das principais bandeiras.
+
+Logo "Eco" (Exemplo): No canto superior direito, há um logo pequeno e discreto (parece ser um "Eco" estilizado na imagem, em branco). Este deve ser um placeholder para um possível logo da sua marca ou aplicativo.
+
+2. Funcionalidades Interativas (Frontal):
+Botão "Olho" (Ocultar/Exibir Número):
+
+Adicionar um ícone de "olho" na lateral superior direita do cartão, abaixo do logo "Eco".
+
+Ao clicar neste ícone, o número do cartão deve ser mascarado (ex: "************3456" ou similar), ocultando os dígitos para privacidade. Ao clicar novamente, o número completo deve ser exibido.
+
+3. Funcionalidade de Virar o Cartão (Flip):
+Animação: Quando o usuário clicar no cartão, ele deve executar uma animação de "flip" (virar), revelando a parte traseira.
+
+Parte Traseira do Cartão:
+
+Embora a imagem não mostre, ao virar o cartão, a parte traseira deve ser exibida. Nesta fase, não é necessário exibir o código CVV/CVC, mas o design da parte traseira deve estar preparado para recebê-lo futuramente. A parte traseira pode manter o mesmo degradê e padrão geométrico, com uma tarja escura para a assinatura e o espaço para o CVV.

@@ -1,0 +1,133 @@
+Prompt Técnico Final — Tela do Desenvolvedor (Funcional e Operacional)
+🎯 Objetivo
+Transformar a Tela do Desenvolvedor do app Clube do Grito em um painel técnico totalmente funcional e conectado com o banco de dados, com rastreabilidade completa das alterações, status e alertas do sistema. Nada deve ser apenas visual ou fictício. Todas as ações e informações exibidas devem refletir dados reais, salvos e monitorados de forma contínua.
+
+📌 REGRAS ESSENCIAIS
+🛑 NÃO DEVE haver nenhum elemento apenas visual (ex: cards fake, simulações visuais, texto fixo).
+
+✅ TUDO que aparece deve vir do banco de dados ou de fontes reais do sistema (ex: logs, status, erros, alterações).
+
+✅ Toda ação (como alterar uma tela, adicionar comentário, receber erro) deve ser registrada e persistida no banco com:
+
+Data/hora
+
+Autor (quando aplicável)
+
+Origem (tela, função ou sistema)
+
+📂 Funcionalidades Obrigatórias e Funcionais
+1. 🔍 Listagem de Telas do Sistema (Real)
+Todas as telas do app devem ser listadas diretamente a partir da base do sistema.
+
+Cada entrada com:
+
+Nome da rota
+
+Status atual (OK, Erro, Em atenção)
+
+Última alteração (data, descrição, autor)
+
+Histórico de erros e alterações (acessível)
+
+2. 🛠️ Registro real de alterações
+Toda vez que uma tela for atualizada (frontend/backend):
+
+Deve ser registrada automaticamente no banco:
+
+Nome da tela
+
+Tipo de modificação (ex: componente, lógica, layout)
+
+Descrição curta
+
+Quem alterou (usuário logado ou sistema)
+
+Data e hora
+
+Exibir isso na interface com botão "Ver histórico"
+
+3. ⚠️ Monitoramento de Erros em Tempo Real
+Toda vez que uma tela gerar erro (404, 500, etc), registrar automaticamente no banco:
+
+Nome da tela
+
+Código e tipo do erro
+
+Mensagem completa (quando disponível)
+
+Data/hora
+
+Tela do dev deve listar os erros com botão “Ver detalhes”
+
+4. 🗂️ Sistema de Comentários Técnicos (Reais)
+Permitir adicionar observações por tela (como anotações técnicas)
+
+Os comentários devem ser salvos no banco, com:
+
+Nome da tela
+
+Texto do comentário
+
+Autor (dev)
+
+Data/hora
+
+Listar e editar/remover os comentários
+
+5. ✅ Atualização de Status Manual
+Permitir ao dev alterar o status da tela (OK, Erro, Em atenção) quando necessário
+
+Esse status deve ser salvo no banco com:
+
+Nome da tela
+
+Novo status
+
+Quem atualizou
+
+Quando
+
+6. 🧪 Botão de Visualizar ou Testar Tela
+Um botão funcional para abrir a tela isoladamente em modo visualização (com dados reais ou mock se for tela nova)
+
+Deve abrir a tela real do app ou um sandbox confiável (sem quebrar navegação)
+
+7. 🔁 Log de Deploys ou Alterações Globais
+Exibir uma lista real de últimas alterações no sistema:
+
+Versão ou nome da feature
+
+Descrição
+
+Data/hora
+
+Responsável
+
+Pode ser alimentado via integração com git, CI/CD ou formulário manual (mínimo viável)
+
+📐 Exemplo de Exibição
+makefile
+Copiar
+Editar
+Tela: /login
+Status: OK 🟢
+Última alteração: 05/08/2025 10:45 - Validação de CPF
+Por: JoãoDev
+Erro recente: nenhum
+Comentários:
+- "Aguardando feedback da UX" — Alice, 04/08
+Botões:
+[Ver histórico] [Ver erros] [Editar status] [Testar tela] [Adicionar comentário]
+🧰 Requisitos Técnicos
+Toda informação deve ser persistida no banco de dados (PostgreSQL ou outro)
+
+A tela deve ler e escrever diretamente nas tabelas relacionadas (logs, telas, status, erros, comentários)
+
+Nenhuma informação mockada ou temporária
+
+Permitir visualização completa mesmo após logout/login
+
+🚧 Importante
+Não alterar nenhuma funcionalidade fora desta tela
+
+Não afetar fluxos de login, pagamento, uso de usuários comuns

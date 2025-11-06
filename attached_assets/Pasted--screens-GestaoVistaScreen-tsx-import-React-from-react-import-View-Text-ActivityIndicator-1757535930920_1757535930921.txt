@@ -1,0 +1,54 @@
+// screens/GestaoVistaScreen.tsx
+import React from 'react';
+import { View, Text, ActivityIndicator, FlatList } from 'react-native';
+import { useGV } from '../hooks/useGV';
+
+function IndicatorRow({ name, value }: { name: string; value: number | null }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+      <Text style={{ fontSize: 14 }}>{name}</Text>
+      <Text style={{ fontWeight: '600' }}>{value ?? '—'}</Text>
+    </View>
+  );
+}
+
+function WorkstreamCard({ slug, indicators }: { slug: string; indicators: any[] }) {
+  return (
+    <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#fff', marginBottom: 12, elevation: 2 }}>
+      <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 8 }}>{slug}</Text>
+      {indicators.map((it, idx) => (
+        <IndicatorRow key={idx} name={it.indicator} value={it.value} />
+      ))}
+    </View>
+  );
+}
+
+export default function GestaoVistaScreen() {
+  const { data, loading, err } = useGV();
+
+  if (loading) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator /></View>;
+  if (err) return <View style={{ padding: 16 }}><Text>Erro: {err}</Text></View>;
+  if (!data) return null;
+
+  return (
+    <FlatList
+      style={{ flex: 1, backgroundColor: '#f2f2f2' }}
+      contentContainerStyle={{ padding: 16 }}
+      data={data.programs}
+      keyExtractor={(p) => p.slug}
+      renderItem={({ item }) => (
+        <View style={{ marginBottom: 20 }}>
+          <Text style={{ fontSize: 20, fontWeight: '800', marginBottom: 8 }}>{item.slug}</Text>
+          {item.workstreams.map((ws) => (
+            <WorkstreamCard key={ws.slug} slug={ws.slug} indicators={ws.indicators} />
+          ))}
+        </View>
+      )}
+      ListHeaderComponent={
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: '#666' }}>Período: {data.period ?? '—'}</Text>
+        </View>
+      }
+    />
+  );
+}

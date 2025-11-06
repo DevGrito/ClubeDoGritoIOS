@@ -1,0 +1,89 @@
+Lógica geral
+
+Conectar ao banco de dados (PostgreSQL, Supabase ou outro que você usa).
+
+Filtrar os dados do usuário “Léo Martins”.
+
+Puxar os campos de meta e realizado de cada programa:
+
+Programa de Cultura e Esporte (PEC): meta_criancas e criancas_atendidas
+
+Inclusão Produtiva: meta_formados e formados
+
+Favela 3D: meta_familias e familias_ativas
+
+Método Grito (Psicossocial): meta_metodo e metodo_realizado
+
+Calcular a porcentagem:
+
+porcentagem = (realizado / meta) * 100
+
+
+Renderizar a barra de progresso com essa porcentagem.
+
+🧩 Estrutura de dados esperada no banco
+
+Cada programa pode ter uma tabela (ou uma view) assim:
+
+programa	meta	realizado	usuario
+PEC	200	180	Léo Martins
+Inclusão Produtiva	100	70	Léo Martins
+Favela 3D	80	52	Léo Martins
+Método Grito	50	22	Léo Martins
+⚙️ Exemplo de código (JavaScript no Replit)
+
+Se o front for em React (ou Next.js):
+
+import { useEffect, useState } from "react";
+
+export default function DashboardLeo() {
+  const [dados, setDados] = useState([]);
+
+  useEffect(() => {
+    fetch("/api/dados-leo") // rota que vai puxar os dados do banco
+      .then(res => res.json())
+      .then(data => setDados(data));
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      {dados.map((item) => (
+        <div key={item.programa}>
+          <h3 className="text-lg font-bold">{item.programa}</h3>
+          <div className="relative bg-gray-200 rounded-full h-3">
+            <div
+              className="absolute top-0 left-0 h-3 rounded-full"
+              style={{
+                width: `${(item.realizado / item.meta) * 100}%`,
+                backgroundColor: item.cor,
+              }}
+            />
+          </div>
+          <p className="text-sm mt-1">{((item.realizado / item.meta) * 100).toFixed(0)}%</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+🛠️ Backend (Node + Express exemplo)
+import express from "express";
+import pkg from "pg";
+const { Pool } = pkg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+const app = express();
+
+app.get("/api/dados-leo", async (req, res) => {
+  const result = await pool.query(`
+    SELECT programa, meta, realizado
+    FROM programas
+    WHERE usuario = 'Léo Martins'
+  `);
+  res.json(result.rows);
+});
+
+app.listen(3000, () => console.log("API rodando 🚀"));

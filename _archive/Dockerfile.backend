@@ -1,0 +1,58 @@
+# Backend Node.js container (glibc)
+FROM node:20-bullseye
+
+WORKDIR /app
+
+# Equivalente do apk no Debian
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl bash postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copie apenas os manifests primeiro (cache melhor)
+COPY package*.json ./
+
+# Instala TUDO (inclui dev) – você roda drizzle-kit no entrypoint
+RUN npm ci --include=dev
+# (opcional) força rebuild de binários nativos se necessário
+RUN npm rebuild rollup && npm rebuild esbuild || true
+
+# Credencial GCS
+COPY gcs-service-account.json /app/gcs-service-account.json
+ENV GOOGLE_APPLICATION_CREDENTIALS=/app/gcs-service-account.json
+
+# Código
+COPY server/ ./server/
+COPY shared/ ./shared/
+COPY tsconfig.json ./
+COPY drizzle.config.ts ./
+COPY client/src/utils ./client/src/utils
+
+# Scripts e permissões
+COPY docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh
+COPY backend-entrypoint.sh /app/backend-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-healthcheck.sh /app/backend-entrypoint.sh
+
+# Build (gera dist/)
+RUN npx esbuild server/index.ts \
+  --platform=node \
+  --packages=external \
+  --bundle \
+  --format=esm \
+  --outdir=dist
+
+# uploads
+RUN mkdir -p /app/uploads
+
+# Usuário não-root
+RUN addgroup --system --gid 1001 nodejs \
+  && adduser  --system --uid 1001 --gid 1001 nodejs
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD /usr/local/bin/docker-healthcheck.sh
+
+ENTRYPOINT ["/app/backend-entrypoint.sh"]

@@ -1,0 +1,109 @@
+Contexto
+Temos um gráfico de colunas agrupadas mostrando “Meta” (azul) e “Realizado” (verde) por programa. Hoje a meta aparece como 100% e o realizado como percentual. Quero transformar em uma visão empresarial clara e comparativa.
+
+Objetivo
+
+Exibir Meta e Realizado lado a lado por programa, com Meta sempre à esquerda e Realizado à direita.
+
+Mostrar valores absolutos de meta e realizado em cada barra.
+
+Calcular e exibir % de atingimento e % que falta para cada programa.
+
+Layout limpo, com rótulos legíveis e fácil leitura executiva.
+
+Requisitos funcionais
+
+Ordem das séries: “Meta” (esquerda, azul) e “Realizado” (direita, verde).
+
+Valores nas barras:
+
+Na barra Meta: mostrar o valor da meta (ex.: “Meta: 1.200”).
+
+Na barra Realizado: mostrar o valor realizado e o % de atingimento (ex.: “Realizado: 940 — 78,3%”).
+
+Indicador adicional (legenda ou tooltip): “Faltam X%” (100% – % atingido) e, se possível, “Faltam R$ / unidades” (Meta – Realizado).
+
+Escala do eixo Y deve se adaptar aos valores absolutos (não a 100%), evitando corte de topo.
+
+Tooltips executivos: ao passar o mouse, mostrar:
+
+Programa
+
+Meta (valor)
+
+Realizado (valor)
+
+% atingido = (Realizado / Meta) * 100
+
+% que falta = 100 – % atingido
+
+Gap absoluto = Meta – Realizado
+
+Legendas: “Meta (esq.)” e “Realizado (dir.)”.
+
+Cores: azul para Meta, verde para Realizado (tons corporativos, contraste alto).
+
+Formatação numérica: usar separador de milhar e, quando for dinheiro, prefixo “R$ ” (ou unidades, conforme dataset).
+
+Estados de borda:
+
+Se Realizado > Meta, destacar com badge “Acima da meta” e mostrar excedente (+valor e +%).
+
+Se Meta = 0, evitar divisão por zero (mostrar “Meta não definida”).
+
+Responsividade: rótulos não devem sobrepor; se necessário, rodar rótulos do eixo X ou reduzir fonte.
+
+Cálculos (por categoria/programa)
+
+percentualAtingido = (realizado / meta) * 100 (1 casa decimal).
+
+percentualFalta = 100 – percentualAtingido (clamp 0 a 100).
+
+gapAbsoluto = meta – realizado (mostre sinal: se negativo, excedeu).
+
+Copy/UX (exemplos)
+
+Barra Meta (label): Meta: {valorFormatado}
+
+Barra Realizado (label): Realizado: {valorFormatado} — {percentualAtingido}%
+
+Tooltip (linha extra): Faltam {percentualFalta}% ({gapAbsolutoFormatado})
+
+Título do gráfico: Nosso Impacto — Acompanhamento de Metas
+
+Subtítulo/descrição (opcional): Comparativo Meta x Realizado por programa
+
+Critérios de aceite
+
+ Em cada programa, aparecem duas barras: Meta (esq.) e Realizado (dir.).
+
+ Cada barra exibe o valor absoluto correspondente.
+
+ A barra Realizado exibe também o % de atingimento.
+
+ Tooltip mostra % que falta e gap absoluto.
+
+ Não há sobreposição de rótulos em desktop e mobile.
+
+ Casos extremos (Meta=0, Realizado>Meta) tratados conforme especificação.
+
+Entregáveis
+
+Implementação no gráfico atual mantendo o estilo do projeto.
+
+Opção de alternar entre unidades e R$ (se aplicável).
+
+Breve nota técnica explicando onde ficaram os cálculos e como alimentar os dados (metas[] e realizados[]).
+
+Dados (exemplo de estrutura esperada)
+
+{
+  "categorias": ["Favela 3D", "Marketing", "Inclusão Produtiva", "Psicossocial"],
+  "metas": [1200, 800, 1000, 600],
+  "realizados": [940, 200, 250, 15],
+  "moeda": true  // true = formatar como R$; false = unidades
+}
+
+
+Observação
+Pode usar a biblioteca já presente no projeto (Chart.js, ApexCharts ou ECharts). O importante é cumprir a ordem das séries, rótulos executivos e cálculos acima.

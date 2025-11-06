@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clube do Grito - Subscription Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            red: '#DC2626',
+                            yellow: '#FCD34D',
+                            black: '#000000',
+                        }
+                    },
+                    fontFamily: {
+                        'inter': ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        };
+    </script>
+    <style>
+        .logo-wave-pattern {
+            background: conic-gradient(from 0deg, #FCD34D 0deg, #FFFFFF 90deg, #FCD34D 180deg, #FFFFFF 270deg);
+            mask: repeating-conic-gradient(from 0deg, transparent 0deg, transparent 5deg, black 5deg, black 10deg);
+            -webkit-mask: repeating-conic-gradient(from 0deg, transparent 0deg, transparent 5deg, black 5deg, black 10deg);
+        }
+        
+        .wave-bg {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23FCD34D' fill-opacity='0.1'%3E%3Cpath d='M0 0h60v60H0z'/%3E%3Cpath d='M6 6c5.523 0 10 4.477 10 10s-4.477 10-10 10S-4 21.523-4 16 .477 6 6 6zm48 0c5.523 0 10 4.477 10 10s-4.477 10-10 10-10-4.477-10-10 4.477-10 10-10zM30 30c5.523 0 10 4.477 10 10s-4.477 10-10 10-10-4.477-10-10 4.477-10 10-10z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
+    </style>
+</head>
+<body class="font-inter bg-white text-black">
+    <!-- @COMPONENT: Header -->
+    <header class="bg-white shadow-sm border-b border-gray-100">
+        <div class="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <!-- Logo using the uploaded brand image -->
+                <div class="w-12 h-12 bg-black rounded-full flex items-center justify-center relative overflow-hidden">
+                    <div class="w-10 h-10 bg-gradient-to-br from-brand-yellow to-brand-red rounded-full flex items-center justify-center">
+                        <span class="text-black font-bold text-xs">GRITO</span>
+                    </div>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-black">Clube do Grito</h1>
+                </div>
+            </div>
+            <button class="text-gray-500 hover:text-black transition-colors">
+                <i class="fas fa-bars text-xl"></i>
+            </button>
+        </div>
+    </header>
+    <!-- @END_COMPONENT: Header -->
+
+    <!-- @COMPONENT: Navigation Pills -->
+    <nav class="bg-white border-b border-gray-100 sticky top-0 z-50">
+        <div class="max-w-md mx-auto px-4 py-3">
+            <div class="flex space-x-1 bg-gray-100 rounded-lg p-1">
+                <button class="flex-1 py-2 px-3 text-sm font-medium rounded-md bg-white text-black shadow-sm transition-all" data-tab="planos">
+                    Planos
+                </button>
+                <button class="flex-1 py-2 px-3 text-sm font-medium rounded-md text-gray-600 hover:text-black transition-all" data-tab="cadastro">
+                    Cadastro
+                </button>
+                <button class="flex-1 py-2 px-3 text-sm font-medium rounded-md text-gray-600 hover:text-black transition-all" data-tab="verificacao">
+                    Verificação
+                </button>
+                <button class="flex-1 py-2 px-3 text-sm font-medium rounded-md text-gray-600 hover:text-black transition-all" data-tab="boas-vindas">
+                    Boas-vindas
+                </button>
+            </div>
+        </div>
+    </nav>
+    <!-- @END_COMPONENT: Navigation Pills -->
+
+    <!-- @COMPONENT: Main Content Container -->
+    <main class="max-w-md mx-auto min-h-screen bg-white">
+        
+        <!-- @COMPONENT: Planos Screen -->
+        <section id="planos" class="tab-content px-4 py-8">
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-bold text-black mb-2">Escolha seu plano</h2>
+                <p class="text-gray-600">Faça parte do Clube do Grito e deixe sua voz ser ouvida</p>
+            </div>
+
+            <!-- @MAP: planos.map(plano => ( -->
+            <div class="space-y-4 mb-8">
+                <!-- Plano Eco -->
+                <div class="bg-white border-2 border-gray-200 rounded-2xl p-6 hover:border-brand-yellow hover:shadow-lg transition-all duration-300 cursor-pointer group" data-mock="true">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center">
+                                <i class="fas fa-leaf text-white text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-black">Eco</h3>
+                                <p class="text-sm text-gray-600">Plano básico</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-black">R$ 9,90</p>
+                            <p class="text-sm text-gray-500">/mês</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-700 mb-4">Seu grito começa a se propagar.</p>
+                    <div class="space-y-2 mb-6">
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Acesso básico à plataforma</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Suporte por email</span>
+                        </div>
+                    </div>
+                    <button class="w-full bg-black text-white py-3 px-4 rounded-xl font-semibold hover:bg-gray-800 transition-colors group-hover:bg-brand-yellow group-hover:text-black" data-event="click:selectPlan" data-implementation="Should redirect to Stripe checkout">
+                        Assinar Eco
+                    </button>
+                </div>
+
+                <!-- Plano Voz -->
+                <div class="bg-white border-2 border-brand-yellow rounded-2xl p-6 hover:border-brand-red hover:shadow-lg transition-all duration-300 cursor-pointer group relative" data-mock="true">
+                    <div class="absolute -top-3 left-4 bg-brand-yellow text-black px-3 py-1 rounded-full text-xs font-bold">
+                        POPULAR
+                    </div>
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-gradient-to-br from-brand-yellow to-yellow-500 rounded-full flex items-center justify-center">
+                                <i class="fas fa-volume-up text-black text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-black">Voz</h3>
+                                <p class="text-sm text-gray-600">Plano intermediário</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-black">R$ 19,90</p>
+                            <p class="text-sm text-gray-500">/mês</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-700 mb-4">Deixe seu grito tomar força.</p>
+                    <div class="space-y-2 mb-6">
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Tudo do plano Eco</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Recursos avançados</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Suporte prioritário</span>
+                        </div>
+                    </div>
+                    <button class="w-full bg-brand-yellow text-black py-3 px-4 rounded-xl font-semibold hover:bg-yellow-400 transition-colors group-hover:bg-brand-red group-hover:text-white" data-event="click:selectPlan" data-implementation="Should redirect to Stripe checkout">
+                        Assinar Voz
+                    </button>
+                </div>
+
+                <!-- Plano O Grito -->
+                <div class="bg-white border-2 border-gray-200 rounded-2xl p-6 hover:border-brand-red hover:shadow-lg transition-all duration-300 cursor-pointer group" data-mock="true">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-gradient-to-br from-brand-red to-red-600 rounded-full flex items-center justify-center">
+                                <i class="fas fa-bullhorn text-white text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-black">O Grito</h3>
+                                <p class="text-sm text-gray-600">Plano premium</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-black">R$ 29,90</p>
+                            <p class="text-sm text-gray-500">/mês</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-700 mb-4">Seu grito ecoa por toda parte.</p>
+                    <div class="space-y-2 mb-6">
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Tudo dos planos anteriores</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Recursos exclusivos</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <i class="fas fa-check text-green-500 text-sm"></i>
+                            <span class="text-sm text-gray-600">Suporte 24/7</span>
+                        </div>
+                    </div>
+                    <button class="w-full bg-black text-white py-3 px-4 rounded-xl font-semibold hover:bg-gray-800 transition-colors group-hover:bg-brand-red" data-event="click:selectPlan" data-implementation="Should redirect to Stripe checkout">
+                        Assinar O Grito
+                    </button>
+                </div>
+            </div>
+            <!-- @END_MAP -->
+
+            <div class="text-center py-6">
+                <p class="text-sm text-gray-500 mb-2">Pagamento seguro via Stripe</p>
+                <div class="flex justify-center space-x-4">
+                    <i class="fab fa-cc-visa text-2xl text-gray-400"></i>
+                    <i class="fab fa-cc-mastercard text-2xl text-gray-400"></i>
+                    <i class="fab fa-cc-amex text-2xl text-gray-400"></i>
+                </div>
+            </div>
+        </section>
+        <!-- @END_COMPONENT: Planos Screen -->
+
+        <!-- @COMPONENT: Cadastro Screen -->
+        <section id="cadastro" class="tab-content px-4 py-8 hidden">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-brand-yellow rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-user-plus text-black text-2xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-black mb-2">Complete seu cadastro</h2>
+                <p class="text-gray-600">Precisamos de algumas informações para criar sua conta</p>
+            </div>
+
+            <form class="space-y-6" data-event="submit:handleRegistration" data-implementation="Should validate form and call backend API">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+                        <input 
+                            type="text" 
+                            name="nome" 
+                            placeholder="Digite seu nome"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-transparent transition-colors"
+                            required
+                            data-bind="form.nome"
+                        >
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Sobrenome</label>
+                        <input 
+                            type="text" 
+                            name="sobrenome" 
+                            placeholder="Digite seu sobrenome"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-transparent transition-colors"
+                            required
+                            data-bind="form.sobrenome"
+                        >
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Telefone</label>
+                        <input 
+                            type="tel" 
+                            name="telefone" 
+                            placeholder="(11) 99999-9999"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-yellow focus:border-transparent transition-colors"
+                            required
+                            data-bind="form.telefone"
+                        >
+                        <p class="text-sm text-gray-500 mt-1">Enviaremos um código de verificação via SMS</p>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <button 
+                        type="submit"
+                        class="w-full bg-black text-white py-3 px-4 rounded-xl font-semibold hover:bg-gray-800 transition-colors disabled:opacity-50"
+                        data-implementation="Should show loading state during submission"
+                    >
+                        Continuar
+                    </button>
+                    
+                    <button 
+                        type="button"
+                        class="w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                        data-event="click:goBack"
+                    >
+                        Voltar aos planos
+                    </button>
+                </div>
+            </form>
+
+            <div class="text-center mt-8">
+                <p class="text-xs text-gray-500">
+                    Ao continuar, você concorda com nossos 
+                    <a href="#" class="text-brand-yellow hover:underline">Termos de Uso</a> e 
+                    <a href="#" class="text-brand-yellow hover:underline">Política de Privacidade</a>
+                </p>
+            </div>
+        </section>
+        <!-- @END_COMPONENT: Cadastro Screen -->
+
+        <!-- @COMPONENT: Verificacao Screen -->
+        <section id="verificacao" class="tab-content px-4 py-8 hidden">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-brand-red rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-sms text-white text-2xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-black mb-2">Verificação por SMS</h2>
+                <p class="text-gray-600">Digite o código enviado para <span class="font-semibold" data-bind="user.telefone" data-mock="true">(11) 99999-9999</span></p>
+            </div>
+
+            <form class="space-y-6" data-event="submit:handleVerification" data-implementation="Should call Twilio verification API">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Código de verificação</label>
+                        <input 
+                            type="text" 
+                            name="codigo" 
+                            placeholder="000000"
+                            maxlength="6"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl text-center text-2xl font-bold tracking-widest focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
+                            required
+                            data-bind="form.codigo"
+                        >
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <button 
+                        type="submit"
+                        class="w-full bg-brand-red text-white py-3 px-4 rounded-xl font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+                        data-implementation="Should show loading state during verification"
+                    >
+                        Verificar código
+                    </button>
+                    
+                    <button 
+                        type="button"
+                        class="w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                        data-event="click:resendCode"
+                        data-implementation="Should call backend to resend SMS"
+                    >
+                        Reenviar código
+                    </button>
+                </div>
+            </form>
+
+            <div class="text-center mt-8">
+                <p class="text-sm text-gray-500">
+                    Não recebeu o código? Verifique sua caixa de spam ou 
+                    <a href="#" class="text-brand-red hover:underline">altere seu número</a>
+                </p>
+            </div>
+        </section>
+        <!-- @END_COMPONENT: Verificacao Screen -->
+
+        <!-- @COMPONENT: Boas-vindas Screen -->
+        <section id="boas-vindas" class="tab-content px-4 py-8 hidden">
+            <div class="text-center min-h-screen flex flex-col justify-center">
+                <div class="mb-8">
+                    <!-- Logo with wave pattern -->
+                    <div class="w-32 h-32 bg-black rounded-full flex items-center justify-center mx-auto mb-6 relative overflow-hidden">
+                        <div class="w-28 h-28 bg-gradient-to-br from-brand-yellow to-brand-red rounded-full flex items-center justify-center">
+                            <span class="text-black font-bold text-lg">GRITO</span>
+                        </div>
+                    </div>
+                    
+                    <h2 class="text-3xl font-bold text-black mb-2">
+                        Fala, <span data-bind="user.nome" data-mock="true">João</span>. 
+                        <span data-bind="timeGreeting" data-mock="true">Bom dia</span>!
+                    </h2>
+                    <p class="text-xl text-gray-600 mb-8">Seja bem-vindo ao Clube do Grito.</p>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-gradient-to-r from-brand-yellow to-brand-red rounded-2xl p-6 text-center">
+                        <h3 class="text-xl font-bold text-black mb-2">Sua assinatura está ativa!</h3>
+                        <p class="text-black">Plano <span data-bind="user.plano" data-mock="true">Voz</span> - R$ <span data-bind="user.preco" data-mock="true">19,90</span>/mês</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                            <i class="fas fa-user-circle text-3xl text-brand-yellow mb-2"></i>
+                            <p class="text-sm font-semibold text-black">Perfil</p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                            <i class="fas fa-cog text-3xl text-gray-400 mb-2"></i>
+                            <p class="text-sm font-semibold text-black">Configurações</p>
+                        </div>
+                    </div>
+
+                    <button 
+                        class="w-full bg-black text-white py-3 px-4 rounded-xl font-semibold hover:bg-gray-800 transition-colors"
+                        data-event="click:startExploring"
+                        data-implementation="Should navigate to main app dashboard"
+                    >
+                        Começar a explorar
+                    </button>
+                </div>
+            </div>
+        </section>
+        <!-- @END_COMPONENT: Boas-vindas Screen -->
+
+    </main>
+    <!-- @END_COMPONENT: Main Content Container -->
+
+    <!-- @COMPONENT: Bottom Navigation -->
+    <nav class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-black rounded-2xl px-6 py-3 shadow-lg z-50">
+        <div class="flex items-center space-x-6">
+            <button class="text-white hover:text-brand-yellow transition-colors" data-event="click:navigate" data-implementation="Should navigate to home">
+                <i class="fas fa-home text-lg"></i>
+            </button>
+            <button class="text-white hover:text-brand-yellow transition-colors" data-event="click:navigate" data-implementation="Should navigate to news">
+                <i class="fas fa-newspaper text-lg"></i>
+            </button>
+            <button class="text-white hover:text-brand-yellow transition-colors" data-event="click:navigate" data-implementation="Should navigate to search">
+                <i class="fas fa-search text-lg"></i>
+            </button>
+            <button class="text-white hover:text-brand-yellow transition-colors" data-event="click:navigate" data-implementation="Should navigate to profile">
+                <i class="fas fa-user text-lg"></i>
+            </button>
+        </div>
+    </nav>
+    <!-- @END_COMPONENT: Bottom Navigation -->
+
+    <!-- @COMPONENT: Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-yellow mx-auto mb-4"></div>
+            <p class="text-gray-600">Processando...</p>
+        </div>
+    </div>
+    <!-- @END_COMPONENT: Loading Overlay -->
+
+    <script>
+        // Tab switching functionality
+        (function() {
+            const tabButtons = document.querySelectorAll('[data-tab]');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetTab = button.dataset.tab;
+                    
+                    // Update button states
+                    tabButtons.forEach(btn => {
+                        btn.classList.remove('bg-white', 'text-black', 'shadow-sm');
+                        btn.classList.add('text-gray-600');
+                    });
+                    button.classList.add('bg-white', 'text-black', 'shadow-sm');
+                    button.classList.remove('text-gray-600');
+                    
+                    // Update content visibility
+                    tabContents.forEach(content => {
+                        content.classList.add('hidden');
+                    });
+                    document.getElementById(targetTab).classList.remove('hidden');
+                });
+            });
+        })();
+
+        // Form validation and interaction
+        (function() {
+            const forms = document.querySelectorAll('form');
+            
+            forms.forEach(form => {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    
+                    // Show loading state
+                    const loadingOverlay = document.getElementById('loading-overlay');
+                    loadingOverlay.classList.remove('hidden');
+                    
+                    // Simulate API call
+                    setTimeout(() => {
+                        loadingOverlay.classList.add('hidden');
+                        
+                        // TODO: Implement actual form submission logic
+                        // This would involve calling backend APIs for:
+                        // - User registration
+                        // - SMS verification with Twilio
+                        // - Stripe payment processing
+                        
+                        console.log('Form submitted:', new FormData(form));
+                    }, 2000);
+                });
+            });
+        })();
+
+        // Plan selection functionality
+        (function() {
+            const planButtons = document.querySelectorAll('[data-event="click:selectPlan"]');
+            
+            planButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const planCard = button.closest('.group');
+                    const planName = planCard.querySelector('h3').textContent;
+                    
+                    // TODO: Implement Stripe checkout session creation
+                    // This would involve calling the backend API to create a Stripe session
+                    // and redirecting to Stripe's hosted checkout page
+                    
+                    console.log('Plan selected:', planName);
+                    
+                    // Simulate navigation to next step
+                    const cadastroTab = document.querySelector('[data-tab="cadastro"]');
+                    cadastroTab.click();
+                });
+            });
+        })();
+
+        // Phone number formatting
+        (function() {
+            const phoneInput = document.querySelector('input[name="telefone"]');
+            if (phoneInput) {
+                phoneInput.addEventListener('input', (e) => {
+                    let value = e.target.value.replace(/\D/g, '');
+                    value = value.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+                    e.target.value = value;
+                });
+            }
+        })();
+
+        // Verification code input
+        (function() {
+            const codeInput = document.querySelector('input[name="codigo"]');
+            if (codeInput) {
+                codeInput.addEventListener('input', (e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    e.target.value = value;
+                    
+                    if (value.length === 6) {
+                        // Auto-submit when code is complete
+                        e.target.form.dispatchEvent(new Event('submit'));
+                    }
+                });
+            }
+        })();
+
+        // Dynamic greeting
+        (function() {
+            const greetingElement = document.querySelector('[data-bind="timeGreeting"]');
+            if (greetingElement) {
+                const hour = new Date().getHours();
+                let greeting;
+                
+                if (hour < 12) {
+                    greeting = 'Bom dia';
+                } else if (hour < 18) {
+                    greeting = 'Boa tarde';
+                } else {
+                    greeting = 'Boa noite';
+                }
+                
+                greetingElement.textContent = greeting;
+            }
+        })();
+    </script>
+</body>
+</html>

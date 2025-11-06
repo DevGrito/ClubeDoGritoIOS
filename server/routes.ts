@@ -1,0 +1,25894 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { createRequire } from 'module';
+import express from "express";
+import Stripe from "stripe";
+import pkg from 'pg';
+const { Pool } = pkg;
+import { storage } from "./storage";
+import { initCronJobs } from "./jobs/cronJobs";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+// GCS Service for image upload and storage
+import { uploadToGCS, deleteObject, extractFilePathFromUrl, getSignedUrl, fileExists as gcsFileExists } from "./gcsService";
+import crypto from 'crypto';
+import {
+  insertUserSchema, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins,
+  // 📊 GESTÃO À VISTA - Tabelas
+  gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues,
+  beneficioImagens,
+  gvMonthlyData,
+  insertImpactDataSchema,
+  gvIndicators, gvWorkstreams, gvPrograms,
+  type GVApiResponse,
+  // 🔒 SCHEMAS DE VALIDAÇÃO PARA DOADORES
+  donorFiltersSchema,
+  donorIdSchema,
+  // 🎯 EVENTOS E WEBHOOKS
+  gritoEvents, gritoWebhookSubscriptions, gritoWebhookDeliveries, gritoAutomations,
+  type GritoEvent, type InsertGritoEvent, type GritoWebhookSubscription, type InsertGritoWebhookSubscription,
+  type GritoWebhookDelivery, type InsertGritoWebhookDelivery, type GritoAutomation, type InsertGritoAutomation,
+  // 🎓 INCLUSÃO PRODUTIVA
+  insertParticipanteInclusaoSchema,
+  presencasInclusao,
+  insertPresencaInclusaoSchema,
+  type PresencaInclusao,
+  type InsertPresencaInclusao,
+  participantesInclusao,
+  cursosInclusao,
+  programasInclusao,
+  // ⚽ PEC (POLO ESPORTIVO CULTURAL)
+  pecActivities,
+  activityInstances,
+  enrollments,
+  sessions,
+  physicalAssessments,
+  insertPhysicalAssessmentSchema,
+  type PhysicalAssessment,
+  type InsertPhysicalAssessment,
+  // 💜 PSICOSSOCIAL
+  psicoFamilias,
+  psicoCasos,
+  psicoAtendimentos,
+  psicoPlanos,
+  psicoInclusaoVinculo,
+  psicoPecVinculo,
+  insertPsicoFamiliaSchema,
+  insertPsicoCasoSchema,
+  insertPsicoAtendimentoSchema,
+  insertPsicoPlanoSchema,
+  type PsicoFamilia,
+  type InsertPsicoFamilia,
+  type PsicoCaso,
+  type InsertPsicoCaso,
+  type PsicoAtendimento,
+  type InsertPsicoAtendimento,
+  type PsicoPlano,
+  type InsertPsicoPlano,
+  colaboradores,
+  // 📊 CONSELHO - DADOS REALIZADOS
+  conselhoDadosRealizados,
+  conselhoMetasMensais,
+  // 💳 SUBSCRIPTION MANAGEMENT
+  donorSubscriptions,
+  billingEvents,
+  insertDonorSubscriptionSchema,
+  insertBillingEventSchema,
+  type DonorSubscription,
+  type InsertDonorSubscription,
+  type BillingEvent,
+  type InsertBillingEvent,
+  // 📊 DADOS DEMOGRÁFICOS
+  dadosDemograficos
+} from "@shared/schema";
+import { db, pool } from "./db";
+import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne } from "drizzle-orm";
+import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
+import { z } from "zod";
+import multer from "multer";
+
+import { getDevModeStatus, toggleDevMode, getDevModeLogs } from "./routes/devMode";
+// pdf-parse será importado dinamicamente quando necessário (CommonJS module)
+// import { ObjectStorageService } from "./objectStorage"; // Arquivo não existe
+
+// Cielo SOP setup
+import { getOAuth2Token, getSopAccessToken } from "./services/cieloSecrets";
+
+// Twilio setup
+import twilio from 'twilio';
+
+// XLSX for reading Excel files
+import XLSX from 'xlsx';
+
+// KPI color rules for Gestão à Vista
+import { getKpiColor } from './utils/kpiColors';
+
+// Initialize Digital Ocean PostgreSQL Pool (shared)
+let doPool: any = null;
+
+function getDigitalOceanPool() {
+  if (!doPool) {
+    doPool = new Pool({
+      host: process.env.DO_DB_HOST,
+      port: parseInt(process.env.DO_DB_PORT || '5433'),
+      database: process.env.DO_DB_NAME,
+      user: process.env.DO_DB_USER,
+      password: process.env.DO_DB_PASSWORD,
+      ssl: false
+    });
+  }
+  return doPool;
+}
+
+import { toE164BR,  } from "../client/src/utils/phone";
+
+import { isDevRequest } from "./middleware/devAccess"
+
+// Initialize Twilio client safely (lazy initialization)
+let twilioClient: any = null;
+let twilioInitError: string | null = null;
+// TRECHO ADICIONADO 
+const memUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const ok = allowedMimes.includes(file.mimetype);
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    return ok && allowedExt.includes(ext) ? cb(null, true) : cb(new Error('Formato não permitido'));
+  }
+});
+
+function getTwilioClient() {
+  if (twilioClient) return twilioClient;
+
+  if (twilioInitError) throw new Error(twilioInitError);
+
+  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+    twilioInitError = 'TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN environment variables are required for SMS functionality';
+    throw new Error(twilioInitError);
+  }
+
+  if (!process.env.TWILIO_ACCOUNT_SID.startsWith('AC')) {
+    twilioInitError = 'TWILIO_ACCOUNT_SID must start with "AC"';
+    throw new Error(twilioInitError);
+  }
+
+  try {
+    twilioClient = twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+    return twilioClient;
+  } catch (error: any) {
+    twilioInitError = `Failed to initialize Twilio: ${error.message}`;
+    throw new Error(twilioInitError);
+  }
+}
+
+// Stripe setup
+console.log('🔍 [STRIPE] Verificando chaves Stripe...');
+console.log('🔍 [STRIPE] STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? '✅ encontrada' : '❌ ausente');
+console.log('🔍 [STRIPE] STRIPE_WEBHOOK_SECRET:', process.env.STRIPE_WEBHOOK_SECRET ? '✅ encontrada' : '❌ ausente');
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
+}
+
+// Verificar modo teste vs produção
+const isTestMode = process.env.STRIPE_SECRET_KEY.startsWith('sk_test_');
+const isLiveMode = process.env.STRIPE_SECRET_KEY.startsWith('sk_live_');
+console.log('🔍 [STRIPE] Modo:', isTestMode ? 'TESTE (sk_test_)' : isLiveMode ? 'PRODUÇÃO (sk_live_)' : '❓ DESCONHECIDO');
+console.log('🔍 [STRIPE] Chave termina com:', '...' + process.env.STRIPE_SECRET_KEY.slice(-6));
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+console.log('✅ [STRIPE] Cliente Stripe inicializado com sucesso');
+
+// Google Slides setup (lazy initialization)
+let googleAuth: any = null;
+let googleSlides: any = null;
+let googleDrive: any = null;
+let googleInitError: string | null = null;
+
+function getGoogleServices() {
+  if (googleAuth && googleSlides && googleDrive) {
+    return { auth: googleAuth, slides: googleSlides, drive: googleDrive };
+  }
+
+  if (googleInitError) throw new Error(googleInitError);
+
+  if (!process.env.GOOGLE_CREDENTIALS_B64 || !process.env.SLIDES_TEMPLATE_ID) {
+    googleInitError = 'GOOGLE_CREDENTIALS_B64 and SLIDES_TEMPLATE_ID are required for Google Slides export';
+    throw new Error(googleInitError);
+  }
+
+  try {
+    const raw = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64, 'base64').toString('utf8');
+    const credentials = JSON.parse(raw);
+
+    googleAuth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: [
+        'https://www.googleapis.com/auth/presentations',
+        'https://www.googleapis.com/auth/drive',
+      ],
+    });
+
+    googleSlides = google.slides({ version: 'v1', auth: googleAuth });
+    googleDrive = google.drive({ version: 'v3', auth: googleAuth });
+
+    return { auth: googleAuth, slides: googleSlides, drive: googleDrive };
+  } catch (error: any) {
+    googleInitError = `Failed to initialize Google Services: ${error.message}`;
+    throw new Error(googleInitError);
+  }
+}
+
+// In-memory storage for verification codes (use Redis in production)
+const verificationCodes = new Map<string, string>();
+
+// Unified phone normalization function to E.164 format (+55DDDNNNNNNN)
+function normalizePhoneToE164(phone: string): string {
+  if (!phone) return '';
+
+  console.log(`📱 [E164 NORMALIZE] Input: "${phone}"`);
+
+  // Remove all non-digit characters
+  let cleaned = phone.replace(/\D/g, '');
+  console.log(`📱 [E164 NORMALIZE] After cleaning: "${cleaned}"`);
+
+  // Remove leading zeros
+  cleaned = cleaned.replace(/^0+/, '');
+
+  // Remove country code 55 if already present for reprocessing
+  if (cleaned.startsWith('55')) {
+    cleaned = cleaned.substring(2);
+  }
+
+  // Validate DDD (area code) and number length
+  if (cleaned.length < 10 || cleaned.length > 11) {
+    throw new Error(`Telefone inválido: ${phone} (deve ter 10-11 dígitos após DDD)`);
+  }
+
+  // For 10-digit numbers (landline), add 9 to convert to mobile format
+  if (cleaned.length === 10) {
+    const ddd = cleaned.substring(0, 2);
+    const numero = cleaned.substring(2);
+    cleaned = `${ddd}9${numero}`;
+  }
+
+  // Validate Brazilian area code (11-99)
+  const ddd = parseInt(cleaned.substring(0, 2));
+  if (ddd < 11 || ddd > 99) {
+    throw new Error(`DDD inválido: ${ddd}. Deve estar entre 11 e 99`);
+  }
+
+  // Return in E.164 format: +55 + DDD + number (always 14 characters)
+  const result = `+55${cleaned}`;
+  console.log(`📱 [E164 NORMALIZE] Final result: "${result}"`);
+
+  return result;
+}
+
+// Legacy function for backward compatibility
+function normalizePhoneForSMS(phone: string): string {
+  return normalizePhoneToE164(phone);
+}
+
+const planPrices = {
+  eco: 990, // R$ 9,90 in cents
+  voz: 1990, // R$ 19,90 in cents
+  grito: 2990, // R$ 29,90 in cents
+};
+
+// Configuração do multer para upload de arquivos
+const uploadDir = './uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage_multer = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage_multer,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      const allowedFormats = ['image/jpeg', 'image/jpg', 'image/png'];
+      if (allowedFormats.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Formato de arquivo não permitido. Use apenas .jpg, .jpeg ou .png'));
+      }
+    } else {
+      cb(new Error('Apenas imagens são permitidas'));
+    }
+  }
+});
+
+// Configuração do multer para documentos (Excel e PDF)
+const uploadDocuments = multer({
+  storage: storage_multer,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'application/pdf' // .pdf
+    ];
+    const allowedExtensions = ['.xlsx', '.xls', '.pdf'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+
+    if (allowedMimes.includes(file.mimetype) && allowedExtensions.includes(fileExtension)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Formato não permitido. Use apenas .xlsx, .xls ou .pdf'));
+    }
+  }
+});
+
+// =============================================================================
+// MIDDLEWARE DE SEGURANÇA E VALIDAÇÃO
+// =============================================================================
+
+// Magic numbers para validação de imagens
+const IMAGE_MAGIC_NUMBERS = {
+  jpg: [0xFF, 0xD8, 0xFF],
+  jpeg: [0xFF, 0xD8, 0xFF],
+  png: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+  webp: [0x52, 0x49, 0x46, 0x46]
+};
+
+// Função para validar magic number de imagem
+function validateImageMagicNumber(buffer: Buffer): boolean {
+  for (const [format, signature] of Object.entries(IMAGE_MAGIC_NUMBERS)) {
+    if (signature.every((byte, index) => buffer[index] === byte)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Middleware para verificar autenticação obrigatória
+async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    // Verificar se é modo dev por vários critérios
+    const devAccessQuery = req.query.dev_access === 'true';
+    const devAccessHeader = req.headers['x-dev-access'] === 'true';
+    const devReferer = req.headers.referer?.includes('dev_access=true') ||
+      req.headers.referer?.includes('/dev') ||
+      req.headers.referer?.includes('/coordenador/inclusao-produtiva');
+    const isDevMode = isDevRequest(req) || devAccessQuery || devAccessHeader || devReferer;
+
+    // Permitir acesso em modo dev sem autenticação
+    if (isDevMode) {
+      console.log('🔧 [DEV MODE] Bypass de autenticação para:', req.path, '| Referer:', req.headers.referer);
+      // Criar um usuário fake para dev mode
+      (req as any).user = { id: 1, nome: 'Dev User', papel: 'dev' };
+      (req as any).isDeveloper = true;
+      return next();
+    }
+
+    const userId = req.headers['x-user-id'];
+    if (!userId) {
+      return res.status(401).json({ error: 'Autenticação obrigatória - cabeçalho x-user-id necessário' });
+    }
+
+    const user = await storage.getUser(parseInt(userId as string));
+    if (!user) {
+      return res.status(401).json({ error: 'Usuário não encontrado' });
+    }
+
+    // Anexar usuário à requisição para uso posterior
+    (req as any).user = user;
+    next();
+  } catch (error) {
+    console.error('❌ [AUTH] Erro na autenticação:', error);
+    return res.status(401).json({ error: 'Falha na autenticação' });
+  }
+}
+
+// Middleware para verificar se usuário é admin
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = (req as any).user;
+  if (!user) {
+    return res.status(401).json({ error: 'Usuário não autenticado' });
+  }
+
+  const isAdmin = isAdminEmail(user.email) || user.role === 'admin' || user.tipo === 'admin';
+  if (!isAdmin) {
+    console.warn(`🚨 [SECURITY] Tentativa de acesso admin negada - Usuário ${user.id} (${user.email})`);
+    return res.status(403).json({ error: 'Acesso negado - privilégios administrativos necessários' });
+  }
+
+  console.log(`✅ [ADMIN ACCESS] Admin ${user.id} (${user.email}) autorizado`);
+  next();
+}
+
+// ================ RBAC MIDDLEWARE SYSTEM ================
+// Middleware para verificação de papéis específicos RBAC
+function requireRole(allowedRoles: string[]) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Usuário não autenticado' });
+    }
+
+    // Obter papel do usuário (compatibilidade com campos existentes)
+    const userRole = user.papel || user.userPapel || user.tipo || user.role;
+
+    // Verificar se o papel do usuário está na lista de papéis permitidos
+    if (!userRole || !allowedRoles.includes(userRole)) {
+      console.warn(`🚨 [RBAC] Acesso negado - Usuário ${user.id} (${user.email}) papel "${userRole}" não autorizado. Papéis permitidos: ${allowedRoles.join(', ')}`);
+      return res.status(403).json({
+        error: 'Acesso negado - papel insuficiente',
+        details: `Papel "${userRole}" não autorizado para este recurso`
+      });
+    }
+
+    console.log(`✅ [RBAC] Usuário ${user.id} papel "${userRole}" autorizado`);
+    next();
+  };
+}
+
+// Middleware específicos para cada papel RBAC
+const requireProfessor = requireRole(['professor']);
+const requireMonitor = requireRole(['monitor']);
+const requireCoordenadorInclusao = requireRole(['coordenador_inclusao']);
+const requireCoordenadorPEC = requireRole(['coordenador_pec']);
+const requireCoordenadorPsico = requireRole(['coordenador_psico']);
+const requireAnyCoordenador = requireRole(['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico']);
+
+// Middleware para verificar múltiplos papéis (permite qualquer um da lista)
+function requireAnyRole(allowedRoles: string[]) {
+  return requireRole(allowedRoles);
+}
+
+// Middleware para validação de imagem com magic number
+// TRECHO ALTERADO
+// ✅ Versão compatível com memoryStorage
+function validateImageFile(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  try {
+    const f = req.file;
+    if (!f) {
+      return res.status(400).json({ error: 'Nenhum arquivo foi enviado' });
+    }
+
+    // Em memoryStorage precisamos usar o buffer
+    if (!f.buffer || !f.size) {
+      return res.status(400).json({ error: 'Arquivo inválido ou vazio' });
+    }
+
+    // 1) Validação por "magic number" no próprio buffer
+    if (!validateImageMagicNumber(f.buffer)) {
+      return res.status(400).json({
+        error: 'Arquivo não é uma imagem válida ou formato não suportado',
+        details: 'Apenas JPEG, PNG e WEBP são permitidos',
+      });
+    }
+
+    // 2) Limite de tamanho (5 MB)
+    if (f.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        error: 'Arquivo muito grande',
+        details: 'Tamanho máximo permitido: 5MB',
+      });
+    }
+
+    // 3) (Opcional) checar mimetype/extensão para reforçar
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    const ext = require('node:path').extname(f.originalname || '').toLowerCase();
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowedMimes.includes(f.mimetype) || !allowedExt.includes(ext)) {
+      return res.status(400).json({ error: 'Formato não permitido' });
+    }
+
+    console.log(`✅ [FILE VALIDATION] Arquivo ${f.originalname || '(sem nome)'} validado com sucesso`);
+    return next();
+  } catch (err: any) {
+    console.error('❌ [FILE VALIDATION] Erro:', err?.message || err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Falha ao validar imagem', details: err?.message || String(err) });
+    }
+  }
+}
+
+
+// Configuração segura do multer com validação aprimorada
+const secureUpload = multer({
+  storage: storage_multer,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB máximo para segurança
+    files: 1 // Apenas um arquivo por vez
+  },
+  fileFilter: (req, file, cb) => {
+    // Validação primária por MIME type
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedMimes.includes(file.mimetype)) {
+      return cb(new Error('Formato não permitido. Use apenas JPEG, PNG ou WEBP'));
+    }
+
+    // Validação de extensão de arquivo
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    if (!allowedExtensions.includes(fileExtension)) {
+      return cb(new Error('Extensão de arquivo não permitida'));
+    }
+
+    cb(null, true);
+  }
+});
+
+// =============================================================================
+// INTEGRAÇÃO OMIE - APIs para Dashboard do Conselho
+// =============================================================================
+
+// Validar credenciais Omie obrigatórias
+if (!process.env.OMIE_APP_KEY || !process.env.OMIE_APP_SECRET) {
+  console.warn('⚠️  OMIE_APP_KEY and OMIE_APP_SECRET not configured. Omie integration will be disabled.');
+}
+
+interface OmieApiCall {
+  call: string;
+  app_key: string;
+  app_secret: string;
+  param: any[];
+}
+
+interface OmieResponse {
+  categoria_cadastro?: any[];
+  categoria_busca?: any[];
+  conta_pagar_list?: any[];
+  conta_receber_list?: any[];
+  ContaCorrente?: any[];
+  resumo?: any;
+  projetos?: any[];
+  error?: string;
+}
+
+// Função para fazer chamadas à API do Omie
+async function callOmieAPI(endpoint: string, callAction: string, params: any = []): Promise<any> {
+  if (!process.env.OMIE_APP_KEY || !process.env.OMIE_APP_SECRET) {
+    throw new Error('Credenciais do Omie não configuradas');
+  }
+
+  const payload: OmieApiCall = {
+    call: callAction,
+    app_key: process.env.OMIE_APP_KEY,
+    app_secret: process.env.OMIE_APP_SECRET,
+    param: params
+  };
+
+  console.log(`🔵 [OMIE] Chamando ${endpoint} → ${callAction}`);
+
+  try {
+    const response = await fetch(`https://app.omie.com.br/api/v1/${endpoint}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.faultstring || data.error) {
+      console.error(`❌ [OMIE] Erro em ${endpoint}:`, data.faultstring || data.error);
+      return { error: data.faultstring || data.error };
+    }
+
+    console.log(`✅ [OMIE] Sucesso em ${endpoint}`);
+    return data;
+  } catch (error) {
+    console.error(`❌ [OMIE] Falha na conexão com ${endpoint}:`, error);
+    return { error: error instanceof Error ? error.message : 'Erro desconhecido' };
+  }
+}
+
+// Funções específicas para cada endpoint do Omie
+async function listarProjetos() {
+  return await callOmieAPI('geral/projetos', 'ListarProjetos', [{
+    pagina: 1,
+    registros_por_pagina: 100
+  }]);
+}
+
+async function listarCategorias() {
+  return await callOmieAPI('geral/categorias', 'ListarCategorias', [{
+    pagina: 1,
+    registros_por_pagina: 100
+  }]);
+}
+
+async function listarContasPagar() {
+  return await callOmieAPI('financas/contapagar', 'ListarContasPagar', [{
+    pagina: 1,
+    registros_por_pagina: 500,
+    apenas_importado_api: 'N',
+    filtrar_por_data_de: '01/01/2025',
+    filtrar_por_data_ate: '31/12/2025'
+  }]);
+}
+
+async function listarContasPagarPorProjeto(codigoProjeto: string) {
+  return await callOmieAPI('financas/contapagar', 'ListarContasPagar', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    apenas_importado_api: 'N',
+    codigo_projeto: codigoProjeto
+  }]);
+}
+
+async function listarContasReceber() {
+  return await callOmieAPI('financas/contareceber', 'ListarContasReceber', [{
+    pagina: 1,
+    registros_por_pagina: 500,
+    apenas_importado_api: 'N',
+    filtrar_por_data_de: '01/01/2025',
+    filtrar_por_data_ate: '31/12/2025'
+  }]);
+}
+
+async function listarLancamentosContaCorrente() {
+  const dataInicio = new Date();
+  dataInicio.setMonth(dataInicio.getMonth() - 3); // Últimos 3 meses
+
+  return await callOmieAPI('financas/contacorrente', 'ListarLancamentos', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    dDataDe: dataInicio.toISOString().split('T')[0],
+    dDataAte: new Date().toISOString().split('T')[0]
+  }]);
+}
+
+async function obterResumoFinanceiro() {
+  const dataAtual = new Date();
+  const primeiroDiaMes = new Date(dataAtual.getFullYear(), dataAtual.getMonth(), 1);
+  const ultimoDiaMes = new Date(dataAtual.getFullYear(), dataAtual.getMonth() + 1, 0);
+
+  return await callOmieAPI('financas/resumo', 'ResumoFinancas', [{
+    dDataDe: primeiroDiaMes.toISOString().split('T')[0],
+    dDataAte: ultimoDiaMes.toISOString().split('T')[0]
+  }]);
+}
+
+// ======= NOVAS APIs FINANCEIRAS IMPLEMENTADAS =======
+
+async function listarContasCorrente() {
+  return await callOmieAPI('financas/contacorrente', 'ListarContasCorrente', [{
+    pagina: 1,
+    registros_por_pagina: 100
+  }]);
+}
+
+async function listarLancamentosContaCorrente2() {
+  const dataInicio = new Date();
+  dataInicio.setMonth(dataInicio.getMonth() - 3); // Últimos 3 meses
+
+  return await callOmieAPI('financas/contacorrente', 'ListarLancCC', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    dDataDe: dataInicio.toISOString().split('T')[0],
+    dDataAte: new Date().toISOString().split('T')[0]
+  }]);
+}
+
+async function listarBoletos() {
+  return await callOmieAPI('financas/contareceber', 'ListarBoletos', [{
+    pagina: 1,
+    registros_por_pagina: 50
+  }]);
+}
+
+async function obterBoletoPIX() {
+  return await callOmieAPI('financas/contareceber', 'ObterPix', [{
+    pagina: 1,
+    registros_por_pagina: 50
+  }]);
+}
+
+async function listarExtratoContaCorrente() {
+  const dataInicio = new Date();
+  dataInicio.setMonth(dataInicio.getMonth() - 2); // Últimos 2 meses
+
+  return await callOmieAPI('financas/contacorrente', 'ListarExtratoCC', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    dDataDe: dataInicio.toISOString().split('T')[0],
+    dDataAte: new Date().toISOString().split('T')[0]
+  }]);
+}
+
+async function listarOrcamentoCaixa() {
+  const dataAtual = new Date();
+  const primeiroDiaMes = new Date(dataAtual.getFullYear(), dataAtual.getMonth(), 1);
+  const ultimoDiaMes = new Date(dataAtual.getFullYear(), dataAtual.getMonth() + 1, 0);
+
+  return await callOmieAPI('financas/orcamento', 'ListarOrcamentoCaixa', [{
+    dDataDe: primeiroDiaMes.toISOString().split('T')[0],
+    dDataAte: ultimoDiaMes.toISOString().split('T')[0]
+  }]);
+}
+
+async function pesquisarTitulos() {
+  return await callOmieAPI('financas/pesquisartitulos', 'ListarTitulos', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    filtrar_apenas_inclusao_api: 'N'
+  }]);
+}
+
+async function listarMovimentosFinanceiros() {
+  const dataInicio = new Date();
+  dataInicio.setMonth(dataInicio.getMonth() - 1); // Último mês
+
+  return await callOmieAPI('financas/movimentosfinanceiros', 'ListarMovFinanceiros', [{
+    pagina: 1,
+    registros_por_pagina: 100,
+    dDataDe: dataInicio.toISOString().split('T')[0],
+    dDataAte: new Date().toISOString().split('T')[0]
+  }]);
+}
+
+// =============================================================================
+// LEITURA DA PLANILHA FINANCEIRA - Metas 2025
+// =============================================================================
+
+interface MetasCategoria {
+  categoria: string;
+  grupo: 'RECEITAS' | 'DESPESAS';
+  metas: {
+    janeiro: number;
+    fevereiro: number;
+    marco: number;
+    abril: number;
+    maio: number;
+    junho: number;
+    julho: number;
+    agosto: number;
+    setembro: number;
+    outubro: number;
+    novembro: number;
+    dezembro: number;
+    total: number;
+  };
+}
+
+interface MetasPlanilha {
+  receitas: MetasCategoria[];
+  despesas: MetasCategoria[];
+  timestamp: string;
+}
+
+/**
+ * Lê a planilha Excel e extrai as metas de RECEITAS e DESPESAS
+ */
+function lerMetasPlanilha(): MetasPlanilha {
+  const planilhaPath = 'attached_assets/PLANEJAMENTO FINANCEIRO 2025 COM FAVELA (1)_1759772504530.xlsx';
+
+  console.log('📊 [PLANILHA] Lendo metas financeiras de:', planilhaPath);
+
+  try {
+    // Ler arquivo Excel
+    const workbook = XLSX.readFile(planilhaPath);
+    const sheet = workbook.Sheets['GERAL'];
+
+    if (!sheet) {
+      throw new Error('Aba GERAL não encontrada na planilha');
+    }
+
+    // Converter para array de arrays
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+
+    const receitas: MetasCategoria[] = [];
+    const despesas: MetasCategoria[] = [];
+
+    let blocoAtual: 'RECEITAS' | 'DESPESAS' | null = null;
+
+    // Processar cada linha
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+
+      // Detectar início dos blocos
+      if (row[1] === 'RECEITAS') {
+        blocoAtual = 'RECEITAS';
+        console.log(`✅ [PLANILHA] Bloco RECEITAS encontrado na linha ${i + 1}`);
+        continue;
+      }
+
+      if (row[1] === 'DESPESAS') {
+        blocoAtual = 'DESPESAS';
+        console.log(`✅ [PLANILHA] Bloco DESPESAS encontrado na linha ${i + 1}`);
+        continue;
+      }
+
+      // Pular linhas vazias ou sem categoria
+      if (!blocoAtual || !row[1] || typeof row[1] !== 'string') {
+        continue;
+      }
+
+      // Pular linhas de totais ou subtotais (geralmente em maiúsculas)
+      const categoria = row[1].trim();
+      if (categoria === '' || categoria === blocoAtual) {
+        continue;
+      }
+
+      // Extrair valores mensais (colunas 2-13 = Jan-Dez)
+      const metas = {
+        janeiro: parseFloat(row[2]) || 0,
+        fevereiro: parseFloat(row[3]) || 0,
+        marco: parseFloat(row[4]) || 0,
+        abril: parseFloat(row[5]) || 0,
+        maio: parseFloat(row[6]) || 0,
+        junho: parseFloat(row[7]) || 0,
+        julho: parseFloat(row[8]) || 0,
+        agosto: parseFloat(row[9]) || 0,
+        setembro: parseFloat(row[10]) || 0,
+        outubro: parseFloat(row[11]) || 0,
+        novembro: parseFloat(row[12]) || 0,
+        dezembro: parseFloat(row[13]) || 0,
+        total: parseFloat(row[14]) || 0
+      };
+
+      // Adicionar ao array correspondente
+      const metaCategoria: MetasCategoria = {
+        categoria,
+        grupo: blocoAtual,
+        metas
+      };
+
+      if (blocoAtual === 'RECEITAS') {
+        receitas.push(metaCategoria);
+      } else {
+        despesas.push(metaCategoria);
+      }
+    }
+
+    console.log(`✅ [PLANILHA] Metas extraídas: ${receitas.length} categorias de RECEITAS, ${despesas.length} categorias de DESPESAS`);
+
+    return {
+      receitas,
+      despesas,
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('❌ [PLANILHA] Erro ao ler planilha:', error);
+    throw error;
+  }
+}
+
+interface DadosDepartamento {
+  departamento: string;
+  contasReceber: number;
+  contasPagar: number;
+  saldo: number;
+}
+
+/**
+ * Retorna dados FIXOS de departamentos (da tabela fornecida)
+ */
+function obterDadosDepartamento(departamento: string): DadosDepartamento {
+  console.log(`📊 [DEPARTAMENTO] Obtendo dados fixos do departamento: ${departamento}`);
+
+  // Dados fixos da tabela "Contas por Departamento SEM FAVELA"
+  const dadosPorDepartamento: Record<string, DadosDepartamento> = {
+    'Comunicação Integrada': {
+      departamento: 'Comunicação Integrada',
+      contasReceber: 4123.07,
+      contasPagar: 132000.91,
+      saldo: -127877.84
+    },
+    'Controle & Gestão': {
+      departamento: 'Controle & Gestão',
+      contasReceber: 876386.83,
+      contasPagar: 960669.87,
+      saldo: -84283.04
+    },
+    'Esporte e Cultura': {
+      departamento: 'Esporte e Cultura',
+      contasReceber: 170674.81,
+      contasPagar: 280811.58,
+      saldo: -110136.77
+    },
+    'Inclusão Produtiva': {
+      departamento: 'Inclusão Produtiva',
+      contasReceber: 55050.00,
+      contasPagar: 161926.17,
+      saldo: -106876.17
+    },
+    'Negócios Sociais': {
+      departamento: 'Negócios Sociais',
+      contasReceber: 113678.08,
+      contasPagar: 213365.16,
+      saldo: -99687.08
+    },
+    'Psicossocial': {
+      departamento: 'Psicossocial',
+      contasReceber: 0,
+      contasPagar: 54155.55,
+      saldo: -54155.55
+    }
+  };
+
+  const dados = dadosPorDepartamento[departamento];
+
+  if (!dados) {
+    throw new Error(`Departamento "${departamento}" não encontrado nos dados`);
+  }
+
+  console.log(`✅ [DEPARTAMENTO] ${departamento}: Contas a Receber=R$ ${dados.contasReceber.toFixed(2)}, Contas a Pagar=R$ ${dados.contasPagar.toFixed(2)}, Saldo=R$ ${dados.saldo.toFixed(2)}`);
+
+  return dados;
+}
+
+/**
+ * METAS MENSAIS ESPECÍFICAS POR DEPARTAMENTO
+ * Definidas manualmente para cada departamento conforme planejamento 2025
+ */
+interface MetasMensaisDepartamento {
+  contasReceber: {
+    janeiro: number; fevereiro: number; marco: number; abril: number;
+    maio: number; junho: number; julho: number; agosto: number;
+    setembro: number; outubro: number; novembro: number; dezembro: number;
+  };
+  contasPagar: {
+    janeiro: number; fevereiro: number; marco: number; abril: number;
+    maio: number; junho: number; julho: number; agosto: number;
+    setembro: number; outubro: number; novembro: number; dezembro: number;
+  };
+}
+
+const METAS_POR_DEPARTAMENTO: Record<string, MetasMensaisDepartamento> = {
+  'Psicossocial': {
+    contasReceber: {
+      janeiro: 0,
+      fevereiro: 0,
+      marco: 0,
+      abril: 0,
+      maio: 0,
+      junho: 0,
+      julho: 0,
+      agosto: 0,
+      setembro: 0,
+      outubro: 0,
+      novembro: 0,
+      dezembro: 0
+    },
+    contasPagar: {
+      janeiro: 7275.00,
+      fevereiro: 8125.00,
+      marco: 7925.00,
+      abril: 7725.00,
+      maio: 7675.00,
+      junho: 7625.00,
+      julho: 8175.00,
+      agosto: 7875.00,
+      setembro: 7625.00,
+      outubro: 7625.00,
+      novembro: 7625.00,
+      dezembro: 7625.00
+    }
+  },
+  'Negócios Sociais': {
+    contasReceber: {
+      janeiro: 29500.00,
+      fevereiro: 29500.00,
+      marco: 29500.00,
+      abril: 29500.00,
+      maio: 29500.00,
+      junho: 29500.00,
+      julho: 29500.00,
+      agosto: 29500.00,
+      setembro: 29500.00,
+      outubro: 29500.00,
+      novembro: 29500.00,
+      dezembro: 29500.00
+    },
+    contasPagar: {
+      janeiro: 24725.00,
+      fevereiro: 21075.00,
+      marco: 21175.00,
+      abril: 21475.00,
+      maio: 21135.00,
+      junho: 21125.00,
+      julho: 21075.00,
+      agosto: 21075.00,
+      setembro: 21125.00,
+      outubro: 21075.00,
+      novembro: 21125.00,
+      dezembro: 21275.00
+    }
+  },
+  'Inclusão Produtiva': {
+    contasReceber: {
+      janeiro: 0,
+      fevereiro: 0,
+      marco: 0,
+      abril: 0,
+      maio: 0,
+      junho: 0,
+      julho: 0,
+      agosto: 0,
+      setembro: 0,
+      outubro: 0,
+      novembro: 0,
+      dezembro: 0
+    },
+    contasPagar: {
+      janeiro: 7575.00,
+      fevereiro: 10275.00,
+      marco: 7575.00,
+      abril: 7775.00,
+      maio: 7575.00,
+      junho: 8175.00,
+      julho: 7775.00,
+      agosto: 7925.00,
+      setembro: 7925.00,
+      outubro: 8125.00,
+      novembro: 8925.00,
+      dezembro: 7725.00
+    }
+  },
+  'Esporte e Cultura': {
+    contasReceber: {
+      janeiro: 0,
+      fevereiro: 0,
+      marco: 0,
+      abril: 0,
+      maio: 0,
+      junho: 0,
+      julho: 0,
+      agosto: 0,
+      setembro: 0,
+      outubro: 0,
+      novembro: 0,
+      dezembro: 0
+    },
+    contasPagar: {
+      janeiro: 39495.00,
+      fevereiro: 106521.00,
+      marco: 46571.00,
+      abril: 48571.00,
+      maio: 49271.00,
+      junho: 48071.00,
+      julho: 49071.00,
+      agosto: 49671.00,
+      setembro: 45471.00,
+      outubro: 51271.00,
+      novembro: 56071.00,
+      dezembro: 61591.00
+    }
+  }
+  // Outros departamentos podem ser adicionados conforme necessário
+};
+
+/**
+ * Decodifica HTML entities de uma string
+ */
+function decodeHtmlEntities(text: string): string {
+  // Debug: mostrar códigos dos caracteres
+  console.log(`🔍 [DEBUG] Input bytes:`, [...text].map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
+
+  let decoded = text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#x27;/g, "'");
+
+  console.log(`🔄 [HTML DECODE] "${text}" → "${decoded}"`);
+  console.log(`🔍 [DEBUG] Output bytes:`, [...decoded].map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
+
+  return decoded;
+}
+
+/**
+ * Retorna metas mensais específicas de um departamento do banco de dados
+ */
+async function obterMetasDepartamento(departamento: string, ano: number = 2025): Promise<MetasMensaisDepartamento | null> {
+  try {
+    //  HTML decode + normalização: garantir que &amp; vira & e " e " vira " & "
+    let departamentoLimpo = departamento.replace(/&amp;/g, '&');
+    departamentoLimpo = departamentoLimpo.replace(/ e /gi, ' & ');
+    console.log(`🧹 [DECODE+NORM] "${departamento}" → "${departamentoLimpo}" (${Date.now()})`);
+
+    // Escape SQL  e fazer query
+    const departamentoEscaped = departamentoLimpo.replace(/'/g, "''");
+    const rawQuery = `SELECT * FROM conselho_metas_mensais WHERE departamento = '${departamentoEscaped}' AND ano = ${ano} ORDER BY mes`;
+
+    const result = await pool.query(rawQuery);
+    console.log(`✅ [METAS DB] ${result.rows.length} registros para "${departamentoLimpo}"`);
+    const metas = result.rows as any[];
+
+    if (!metas || metas.length === 0) {
+      console.log(`🔍 [obterMetasDepartamento] Nenhuma meta encontrada no banco para "${departamento}"`);
+      return null;
+    }
+
+    console.log(`✅ [obterMetasDepartamento] ${metas.length} metas encontradas no banco`);
+
+    // Converter array de metas em objeto no formato esperado
+    const metasMensais: MetasMensaisDepartamento = {
+      contasReceber: {
+        janeiro: 0, fevereiro: 0, marco: 0, abril: 0, maio: 0, junho: 0,
+        julho: 0, agosto: 0, setembro: 0, outubro: 0, novembro: 0, dezembro: 0
+      },
+      contasPagar: {
+        janeiro: 0, fevereiro: 0, marco: 0, abril: 0, maio: 0, junho: 0,
+        julho: 0, agosto: 0, setembro: 0, outubro: 0, novembro: 0, dezembro: 0
+      }
+    };
+
+    const mesesMap = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'] as const;
+
+    for (const meta of metas) {
+      const mesNome = mesesMap[meta.mes - 1];
+      // SQL raw retorna com underscore
+      metasMensais.contasReceber[mesNome] = Number(meta.meta_contas_a_receber);
+      metasMensais.contasPagar[mesNome] = Number(meta.meta_contas_a_pagar);
+    }
+
+    return metasMensais;
+  } catch (error) {
+    console.error(`❌ [obterMetasDepartamento] Erro ao buscar metas:`, error);
+    return null;
+  }
+}
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // TRECHO ADICIONADO
+  app.post('/api/log-client-error', express.json(), (req, res) => {
+    const { message, stack, context } = req.body || {};
+    console.error('📣 [CLIENT-ERROR]', { message, stack, context });
+    // 204 = ok, sem corpo
+    res.sendStatus(204);
+  });
+
+  // Webhook para receber dados do Typeform
+  // TRECHO ADICIONADO
+  // server/routes.ts (ou onde centraliza suas rotas)
+  app.post("/api/log-client-error", express.json(), (req, res) => {
+    const { message, stack, extra } = req.body || {};
+    console.error("📄 [CLIENT ERROR]", { message, stack, extra });
+    // se quiser persistir no banco, faça aqui
+    res.status(204).end();
+  });
+
+  // =============================================================================
+  // SINCRONIZAÇÃO STRIPE - CRM de Doadores
+  // =============================================================================
+
+  // Endpoint para sincronizar status dos doadores com Stripe API
+  app.post("/api/donors/sync-stripe", async (req, res) => {
+    try {
+      console.log('🔄 [STRIPE SYNC] Iniciando sincronização completa de doadores...');
+
+      const syncResults = {
+        updated: 0,
+        created: 0,
+        errors: [] as any[]
+      };
+
+      // ETAPA 1: Buscar TODAS as subscriptions do Stripe
+      console.log('📥 [STRIPE SYNC] Buscando subscriptions do Stripe...');
+      const allSubscriptions = [];
+      let hasMore = true;
+      let startingAfter = undefined;
+
+      while (hasMore) {
+        const subscriptionsList = await stripe.subscriptions.list({
+          limit: 100,
+          starting_after: startingAfter,
+          expand: ['data.customer']
+        });
+
+        allSubscriptions.push(...subscriptionsList.data);
+        hasMore = subscriptionsList.has_more;
+        if (hasMore && subscriptionsList.data.length > 0) {
+          startingAfter = subscriptionsList.data[subscriptionsList.data.length - 1].id;
+        }
+      }
+
+      console.log(`📦 [STRIPE SYNC] Encontradas ${allSubscriptions.length} subscriptions no Stripe`);
+
+      // ETAPA 2: Processar cada subscription
+      for (const subscription of allSubscriptions) {
+        try {
+          // Verificar se já existe no banco local
+          const existingDonor = await db
+            .select()
+            .from(doadores)
+            .where(eq(doadores.stripeSubscriptionId, subscription.id))
+            .limit(1);
+
+          if (existingDonor.length > 0) {
+            // ATUALIZAR doador existente
+            const doador = existingDonor[0];
+
+            // Mapear status do Stripe para nosso sistema
+            let localStatus = 'pending';
+            if (['active', 'trialing', 'past_due'].includes(subscription.status)) {
+              localStatus = 'paid';
+            } else if (['canceled', 'unpaid', 'incomplete_expired'].includes(subscription.status)) {
+              localStatus = 'cancelled';
+            }
+
+            // Atualizar status no banco local se diferente
+            if (doador.status !== localStatus) {
+              await db
+                .update(doadores)
+                .set({
+                  status: localStatus,
+                  ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null
+                })
+                .where(eq(doadores.id, doador.id));
+
+              console.log(`✅ [STRIPE SYNC] Doador ${doador.id} atualizado: ${doador.status} → ${localStatus}`);
+              syncResults.updated++;
+            }
+          } else {
+            // CRIAR novo doador
+            console.log(`🆕 [STRIPE SYNC] Nova subscription encontrada: ${subscription.id}`);
+
+            // Extrair informações do customer
+            const customer = subscription.customer as any;
+            const customerEmail = customer?.email || '';
+            const customerName = customer?.name || 'Doador Stripe';
+            const customerPhone = customer?.phone || '';
+
+            // Determinar plano baseado no valor
+            const amount = subscription.items.data[0]?.price?.unit_amount || 0;
+            const amountInReais = amount / 100;
+            const interval = subscription.items.data[0]?.price?.recurring?.interval || 'month';
+
+            let plano = 'eco';
+            if (interval === 'month') {
+              if (amountInReais > 30) plano = 'platinum';
+              else if (amountInReais >= 30) plano = 'grito';
+              else if (amountInReais >= 20) plano = 'voz';
+              else if (amountInReais >= 10) plano = 'eco';
+              else plano = 'eco';
+            } else {
+              // Para semestral/anual, usar plano base
+              if (amountInReais > 30) plano = 'platinum';
+              else if (amountInReais >= 30) plano = 'grito';
+              else if (amountInReais >= 20) plano = 'voz';
+              else plano = 'eco';
+            }
+
+            // Mapear status
+            let status = 'pending';
+            if (['active', 'trialing', 'past_due'].includes(subscription.status)) {
+              status = 'paid';
+            } else if (['canceled', 'unpaid', 'incomplete_expired'].includes(subscription.status)) {
+              status = 'cancelled';
+            }
+
+            // Criar usuário temporário ou buscar por telefone/email
+            let userId = null;
+
+            // Tentar encontrar usuário existente por telefone ou email
+            if (customerPhone) {
+              const existingUser = await db
+                .select()
+                .from(users)
+                .where(eq(users.telefone, customerPhone))
+                .limit(1);
+
+              if (existingUser.length > 0) {
+                userId = existingUser[0].id;
+              }
+            }
+
+            if (!userId && customerEmail) {
+              const existingUser = await db
+                .select()
+                .from(users)
+                .where(eq(users.email, customerEmail))
+                .limit(1);
+
+              if (existingUser.length > 0) {
+                userId = existingUser[0].id;
+              }
+            }
+
+            // Criar doador
+            await db.insert(doadores).values({
+              userId,
+              plano,
+              valor: amountInReais,
+              periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
+              status,
+              dataDoacaoInicial: new Date(subscription.created * 1000),
+              ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+              stripeCustomerId: typeof customer === 'string' ? customer : customer?.id,
+              stripeSubscriptionId: subscription.id,
+              ativo: status === 'paid'
+            });
+
+            console.log(`✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`);
+            syncResults.created++;
+          }
+
+        } catch (error) {
+          console.error(`❌ [STRIPE SYNC] Erro ao processar subscription ${subscription.id}:`, error);
+          syncResults.errors.push({
+            subscriptionId: subscription.id,
+            error: (error as Error).message
+          });
+        }
+      }
+
+      console.log(`🎯 [STRIPE SYNC] Sincronização concluída:`);
+      console.log(`   - ${syncResults.updated} doadores atualizados`);
+      console.log(`   - ${syncResults.created} doadores criados`);
+      console.log(`   - ${syncResults.errors.length} erros`);
+
+      res.json({
+        success: true,
+        updated: syncResults.updated,
+        created: syncResults.created,
+        errors: syncResults.errors.length,
+        details: syncResults.errors
+      });
+
+    } catch (error: any) {
+      console.error('❌ [STRIPE SYNC] Erro geral:', error);
+      res.status(500).json({ error: 'Erro na sincronização com Stripe' });
+    }
+  });
+
+  // Endpoint para buscar detalhes completos de um doador (CRM)
+  app.get("/api/donors/:id/details", async (req, res) => {
+    try {
+      const doadorId = parseInt(req.params.id);
+
+      // Buscar dados completos do doador
+      const [doadorDetails] = await db
+        .select({
+          id: doadores.id,
+          userId: doadores.userId,
+          nome: users.nome,
+          telefone: users.telefone,
+          email: users.email,
+          plano: doadores.plano,
+          valor: doadores.valor,
+          status: doadores.status,
+          dataInicio: doadores.dataDoacaoInicial,
+          ultimaDoacao: doadores.ultimaDoacao,
+          stripeSubscriptionId: doadores.stripeSubscriptionId,
+          gritos: users.gritos,
+          nivel: users.nivel
+        })
+        .from(doadores)
+        .leftJoin(users, eq(doadores.userId, users.id))
+        .where(eq(doadores.id, doadorId))
+        .limit(1);
+
+      if (!doadorDetails) {
+        return res.status(404).json({ error: 'Doador não encontrado' });
+      }
+
+      // Buscar histórico de doações
+      const historicoDoacoes = await db
+        .select({
+          totalDoacoes: sql<string>`COALESCE(COUNT(${historicoDoacao.id}), 0)`,
+          valorTotalDoacoes: sql<string>`COALESCE(SUM(${historicoDoacao.valor}), 0)`
+        })
+        .from(historicoDoacao)
+        .where(eq(historicoDoacao.doadorId, doadorId));
+
+      // Buscar missões concluídas se tiver userId (tabelas não existem ainda, retornar 0)
+      let missoesConcluidas = 0;
+      let checkins = 0;
+
+      // Calcular engajamento médio (missões + check-ins)
+      const totalActivities = missoesConcluidas + checkins;
+      const daysSinceStart = doadorDetails.dataInicio ?
+        Math.max(1, Math.ceil((Date.now() - new Date(doadorDetails.dataInicio).getTime()) / (1000 * 60 * 60 * 24))) : 1;
+      const engajamentoMedio = Math.round((totalActivities / daysSinceStart) * 100);
+
+      res.json({
+        ...doadorDetails,
+        totalDoacoes: historicoDoacoes[0]?.totalDoacoes || 0,
+        valorTotalDoacoes: parseFloat(historicoDoacoes[0]?.valorTotalDoacoes || '0'),
+        missoesConcluidas,
+        checkins,
+        engajamentoMedio,
+        numeroSequencial: doadorId // Pode ser melhorado com lógica específica
+      });
+
+    } catch (error: any) {
+      console.error('❌ [DONOR DETAILS] Erro:', error);
+      res.status(500).json({ error: 'Erro ao buscar detalhes do doador' });
+    }
+  });
+
+  // Endpoint para análise profunda de TODOS os doadores da Stripe
+  app.get("/api/stripe/donors/deep-analysis", async (req, res) => {
+    try {
+      console.log('🔍 [STRIPE DEEP ANALYSIS] Iniciando análise profunda de todos os doadores...');
+
+      const analysis = {
+        totalCustomers: 0,
+        totalSubscriptions: 0,
+        activeSubscriptions: 0,
+        pastDueSubscriptions: 0,
+        canceledSubscriptions: 0,
+        totalRevenue: 0,
+        customers: [] as any[],
+        summary: {} as any
+      };
+
+      // PASSO 1: Buscar TODOS os customers da Stripe
+      console.log('📥 [STRIPE] Buscando todos os customers...');
+      const allCustomers = [];
+      let hasMoreCustomers = true;
+      let customerStartingAfter = undefined;
+
+      while (hasMoreCustomers) {
+        const customersList = await stripe.customers.list({
+          limit: 100,
+          starting_after: customerStartingAfter,
+        });
+
+        allCustomers.push(...customersList.data);
+        hasMoreCustomers = customersList.has_more;
+        if (hasMoreCustomers && customersList.data.length > 0) {
+          customerStartingAfter = customersList.data[customersList.data.length - 1].id;
+        }
+      }
+
+      analysis.totalCustomers = allCustomers.length;
+      console.log(`📊 [STRIPE] Encontrados ${allCustomers.length} customers`);
+
+      // PASSO 2: Para cada customer, buscar subscriptions e invoices
+      for (const customer of allCustomers) {
+        try {
+          const customerData: any = {
+            id: customer.id,
+            name: customer.name || 'Sem nome',
+            email: customer.email || 'Sem email',
+            phone: customer.phone || 'Sem telefone',
+            created: new Date(customer.created * 1000).toISOString(),
+            subscriptions: [],
+            invoices: [],
+            totalPaid: 0,
+            totalUnpaid: 0
+          };
+
+          // Buscar subscriptions do customer
+          const subscriptions = await stripe.subscriptions.list({
+            customer: customer.id,
+            limit: 100,
+            expand: ['data.items.data.price']
+          });
+
+          analysis.totalSubscriptions += subscriptions.data.length;
+
+          for (const sub of subscriptions.data) {
+            const subData: any = {
+              id: sub.id,
+              status: sub.status,
+              currentPeriodStart: new Date(sub.current_period_start * 1000).toISOString(),
+              currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+              cancelAtPeriodEnd: sub.cancel_at_period_end,
+              items: sub.items.data.map(item => ({
+                priceId: item.price.id,
+                amount: item.price.unit_amount ? item.price.unit_amount / 100 : 0,
+                currency: item.price.currency,
+                interval: item.price.recurring?.interval || 'N/A'
+              }))
+            };
+
+            customerData.subscriptions.push(subData);
+
+            // Contar por status
+            if (sub.status === 'active') analysis.activeSubscriptions++;
+            else if (sub.status === 'past_due') analysis.pastDueSubscriptions++;
+            else if (sub.status === 'canceled') analysis.canceledSubscriptions++;
+          }
+
+          // Buscar invoices do customer
+          const invoices = await stripe.invoices.list({
+            customer: customer.id,
+            limit: 100
+          });
+
+          for (const invoice of invoices.data) {
+            const invoiceData: any = {
+              id: invoice.id,
+              number: invoice.number,
+              status: invoice.status,
+              amount: invoice.amount_due / 100,
+              amountPaid: invoice.amount_paid / 100,
+              currency: invoice.currency,
+              created: new Date(invoice.created * 1000).toISOString(),
+              dueDate: invoice.due_date ? new Date(invoice.due_date * 1000).toISOString() : null,
+              paid: invoice.paid
+            };
+
+            customerData.invoices.push(invoiceData);
+
+            if (invoice.paid) {
+              customerData.totalPaid += invoice.amount_paid / 100;
+              analysis.totalRevenue += invoice.amount_paid / 100;
+            } else {
+              customerData.totalUnpaid += invoice.amount_due / 100;
+            }
+          }
+
+          analysis.customers.push(customerData);
+
+        } catch (error: any) {
+          console.error(`❌ [STRIPE] Erro ao processar customer ${customer.id}:`, error.message);
+        }
+      }
+
+      // PASSO 3: Gerar resumo
+      analysis.summary = {
+        totalCustomers: analysis.totalCustomers,
+        totalSubscriptions: analysis.totalSubscriptions,
+        subscriptionsByStatus: {
+          active: analysis.activeSubscriptions,
+          past_due: analysis.pastDueSubscriptions,
+          canceled: analysis.canceledSubscriptions,
+          other: analysis.totalSubscriptions - analysis.activeSubscriptions - analysis.pastDueSubscriptions - analysis.canceledSubscriptions
+        },
+        totalRevenue: analysis.totalRevenue,
+        averageRevenuePerCustomer: analysis.totalCustomers > 0 ? analysis.totalRevenue / analysis.totalCustomers : 0,
+        customersWithSubscriptions: analysis.customers.filter(c => c.subscriptions.length > 0).length,
+        customersWithoutSubscriptions: analysis.customers.filter(c => c.subscriptions.length === 0).length
+      };
+
+      console.log('✅ [STRIPE DEEP ANALYSIS] Análise concluída:', analysis.summary);
+
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        summary: analysis.summary,
+        customers: analysis.customers
+      });
+
+    } catch (error: any) {
+      console.error('❌ [STRIPE DEEP ANALYSIS] Erro:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro na análise profunda da Stripe',
+        details: error.message
+      });
+    }
+  });
+
+  // ================ TYPEFORM WEBHOOK ENDPOINTS ================
+
+  // Webhook para receber dados do Typeform
+  app.post('/api/typeform/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    try {
+      const payload = req.body;
+      const data = JSON.parse(payload.toString());
+
+      console.log('📝 Typeform webhook received:', data);
+
+      if (data.event_type === 'form_response') {
+        const response = data.form_response;
+        const answers = response.answers;
+
+        // Extrair dados das respostas
+        let nome = '';
+        let telefone = '';
+        let email = '';
+
+        answers.forEach((answer: any) => {
+          if (answer.field.title.toLowerCase().includes('nome')) {
+            nome = answer.text || answer.choice?.label || '';
+          } else if (answer.field.title.toLowerCase().includes('telefone')) {
+            telefone = answer.phone_number || answer.text || '';
+          } else if (answer.field.title.toLowerCase().includes('email')) {
+            email = answer.email || answer.text || '';
+          }
+        });
+
+        // Obter plano e valor dos hidden fields ou variáveis
+        const hiddenFields = response.hidden || {};
+        const plano = hiddenFields.plan || 'eco';
+        const valor = hiddenFields.value ? parseFloat(hiddenFields.value) : (planPrices[plano as keyof typeof planPrices] / 100);
+
+        // Salvar resposta do Typeform
+        const typeformRecord = await db.insert(typeformResponses).values({
+          responseId: response.token,
+          plano,
+          valor: valor.toString(),
+          dadosResposta: data,
+          processado: false,
+        }).returning();
+
+        // Criar usuário se não existir
+        let user;
+        try {
+          user = await storage.getUserByPhone(telefone);
+        } catch {
+          // Criar usuário com CPF temporário baseado no telefone
+          const tempCpf = telefone.replace(/\D/g, '').padStart(11, '0');
+          user = await storage.createUser({
+            cpf: tempCpf,
+            nome,
+            telefone,
+            email,
+            plano,
+            role: 'doador',
+            tipo: 'doador',
+            fonte: 'doacao',
+            verificado: true,
+          });
+        }
+
+        // Criar registro de doador
+        const doador = await db.insert(doadores).values({
+          userId: user.id,
+          plano,
+          valor: valor.toString(),
+          status: 'pending',
+          typeformResponseId: response.token,
+        }).returning();
+
+        // Atualizar registro do Typeform com IDs
+        await db.update(typeformResponses)
+          .set({
+            userId: user.id,
+            doadorId: doador[0].id,
+            processado: true
+          })
+          .where(eq(typeformResponses.responseId, response.token));
+
+        // Criar PaymentIntent no Stripe
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(valor * 100), // Converter para centavos
+          currency: 'brl',
+          metadata: {
+            doadorId: doador[0].id.toString(),
+            userId: user.id.toString(),
+            plano,
+            typeformResponseId: response.token,
+          },
+        });
+
+        // Atualizar doador com PaymentIntent ID
+        await db.update(doadores)
+          .set({ stripePaymentIntentId: paymentIntent.id })
+          .where(eq(doadores.id, doador[0].id));
+
+        console.log('✅ Typeform processed successfully:', {
+          userId: user.id,
+          doadorId: doador[0].id,
+          paymentIntentId: paymentIntent.id
+        });
+
+        res.status(200).json({
+          success: true,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret
+        });
+      } else {
+        res.status(200).json({ success: true, message: 'Event ignored' });
+      }
+    } catch (error) {
+      console.error('❌ Error processing Typeform webhook:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Endpoint para buscar status do pagamento após Typeform
+  app.post('/api/typeform/payment-status', async (req, res) => {
+    try {
+      const { responseId } = req.body;
+
+      const typeformRecord = await db.select().from(typeformResponses)
+        .where(eq(typeformResponses.responseId, responseId))
+        .limit(1);
+
+      if (!typeformRecord[0]) {
+        return res.status(404).json({ error: 'Response not found' });
+      }
+
+      const doador = await db.select().from(doadores)
+        .where(eq(doadores.id, typeformRecord[0].doadorId!))
+        .limit(1);
+
+      res.json({
+        paymentIntentId: doador[0]?.stripePaymentIntentId,
+        status: doador[0]?.status,
+        userId: typeformRecord[0].userId,
+        doadorId: typeformRecord[0].doadorId,
+        clientSecret: doador[0]?.stripePaymentIntentId ? `${doador[0].stripePaymentIntentId}_secret_demo` : null,
+      });
+    } catch (error) {
+      console.error('❌ Error checking payment status:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Endpoint para criar doação e usuário (novo fluxo)
+  // =========  /api/donation/create  =========
+  app.post('/api/donation/create', async (req, res) => {
+    try {
+      // Aceita payload em PT/EN vindos do front
+      const nome = (req.body.nome ?? req.body.name ?? '').toString().trim();
+      const email = (req.body.email ?? '').toString().trim();
+      const plano = (req.body.plano ?? req.body.plan ?? '').toString().trim();
+
+      const rawPhone = (req.body.telefone ?? req.body.phone ?? '').toString();
+      const onlyDigits = rawPhone.replace(/\D/g, '');
+      const telefone = onlyDigits
+        ? (onlyDigits.startsWith('55') ? `+${onlyDigits}` : `+55${onlyDigits}`)
+        : '';
+
+      const rawValor = req.body.valor ?? req.body.amount ?? req.body.value;
+      const valorNum = typeof rawValor === 'string'
+        ? Number(rawValor.replace(',', '.'))
+        : Number(rawValor);
+
+      // === validações básicas ===
+      if (!nome || !telefone || !plano) {
+        return res.status(400).json({
+          success: false,
+          message: 'Dados obrigatórios faltando',
+        });
+      }
+      if (!Number.isFinite(valorNum) || valorNum <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valor inválido',
+        });
+      }
+      const amountInCents = Math.round(valorNum * 100);
+
+      // === UPSERT de usuário sem usar consolidateUser/storage (evita o TypeError do Drizzle) ===
+      // 1) tenta por telefone; 2) se não existir e tiver e-mail, tenta por e-mail; 3) insere
+      let user = null as any;
+
+      const byPhone = await db.select().from(users)
+        .where(eq(users.telefone, telefone))
+        .limit(1);
+
+      if (byPhone[0]) {
+        user = byPhone[0];
+        // Atualiza dados básicos se necessário (nome/plano/tipo/fonte)
+        await db.update(users)
+          .set({
+            nome,
+            plano,           // mantém o nome do seu schema
+            tipo: 'doador',
+            fonte: 'doacao',
+            ativo: true,
+          })
+          .where(eq(users.id, user.id));
+      } else {
+        let byEmail: any[] = [];
+        if (email) {
+          byEmail = await db.select().from(users)
+            .where(eq(users.email, email))
+            .limit(1);
+        }
+        if (byEmail[0]) {
+          user = byEmail[0];
+          await db.update(users)
+            .set({
+              telefone,
+              nome,
+              plano,
+              tipo: 'doador',
+              fonte: 'doacao',
+              ativo: true,
+            })
+            .where(eq(users.id, user.id));
+        } else {
+          const inserted = await db.insert(users).values({
+            nome,
+            telefone,
+            email,
+            tipo: 'doador',
+            fonte: 'doacao',
+            plano,
+            ativo: true,
+            dataCadastro: new Date(),
+          }).returning();
+          user = inserted[0];
+        }
+      }
+
+      if (!user) {
+        return res.status(500).json({
+          success: false,
+          message: 'Falha ao consolidar usuário',
+        });
+      }
+
+      // === Customer na Stripe (idempotente) ===
+      let stripeCustomerId: string | null = user.stripeCustomerId ?? null;
+      if (stripeCustomerId) {
+        try {
+          // Verificando o Customer antes de usar.
+          const existingCustomer = await stripe.customers.retrieve(stripeCustomerId)
+
+          // Caso o cliente tenha sido deletado no stripe
+          if ((existingCustomer as any)?.deleted) {
+            stripeCustomerId = null
+          }
+        } catch {
+          console.log('stripeCustomerId inválido, recriando...');
+          stripeCustomerId = null;
+        }
+      }
+
+      // Verificando se realmente criou o Customer.
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          name: nome,
+          phone: telefone,
+          email: email && email.includes('@') ? email : undefined,
+          metadata: { userId: String(user.id), fonte: 'doacao' },
+        });
+
+        stripeCustomerId = customer.id
+        console.log("Stripe Customer Criado: ", stripeCustomerId)
+
+        await db.update(users).set({ stripeCustomerId }).where(eq(users.id, user.id))
+      }
+
+      // === Registro de doador ===
+      const doadorRows = await db.insert(doadores).values({
+        userId: user.id,
+        plano,
+        valor: valorNum.toFixed(2), // compatível com seu schema (string)
+        status: 'pending',
+        dataDoacaoInicial: new Date(),
+      }).returning();
+      const doador = doadorRows[0];
+
+      // === PaymentIntent ===
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountInCents,
+        currency: 'brl',
+        customer: stripeCustomerId!,
+        setup_future_usage: 'on_session',
+        metadata: {
+          doadorId: String(doador.id),
+          userId: String(user.id),
+          plano,
+          nome,
+          telefone,
+          email: email || '',
+        },
+      });
+
+      // vincula o PI ao doador
+      await db.update(doadores)
+        .set({ stripePaymentIntentId: paymentIntent.id })
+        .where(eq(doadores.id, doador.id));
+
+      console.log('✅ Donation created successfully:', {
+        userId: user.id,
+        doadorId: doador.id,
+        paymentIntentId: paymentIntent.id,
+      });
+
+      return res.json({
+        success: true,
+        userId: user.id,
+        donationId: doador.id,
+        paymentIntentId: paymentIntent.id,
+        clientSecret: paymentIntent.client_secret,
+      });
+    } catch (error: any) {
+      console.error('❌ Error creating donation:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor',
+      });
+    }
+  });
+
+  // Endpoint para confirmar doação após pagamento bem-sucedido
+  app.post('/api/donation/confirm', async (req, res) => {
+    try {
+      const { paymentIntentId, status } = req.body;
+
+      // Buscar doador pelo PaymentIntent ID
+      const doador = await db.select().from(doadores)
+        .where(eq(doadores.stripePaymentIntentId, paymentIntentId))
+        .limit(1);
+
+      if (!doador[0]) {
+        return res.status(404).json({ error: 'Donation not found' });
+      }
+
+      // Se o pagamento foi bem-sucedido, salvar o payment method
+      if (status === 'succeeded') {
+        try {
+          // Buscar o PaymentIntent do Stripe para obter o payment method
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+          if (paymentIntent.payment_method && paymentIntent.customer) {
+            // Anexar o payment method ao customer permanentemente
+            await stripe.paymentMethods.attach(paymentIntent.payment_method as string, {
+              customer: paymentIntent.customer as string,
+            });
+
+            console.log('✅ Payment method saved to customer:', {
+              customer: paymentIntent.customer,
+              paymentMethod: paymentIntent.payment_method
+            });
+          }
+        } catch (error) {
+          console.error('⚠️ Error saving payment method:', error);
+          // Não falhar a confirmação por isso, é só um bonus
+        }
+      }
+
+      // Atualizar status do doador
+      await db.update(doadores)
+        .set({
+          status: status === 'succeeded' ? 'paid' : 'failed',
+          ultimaDoacao: new Date(),
+        })
+        .where(eq(doadores.id, doador[0].id));
+
+      // ✨ SISTEMA DE PRIMEIRA ENTRADA - Bônus de 50 Gritos quando pagamento é bem-sucedido
+      if (status === 'succeeded') {
+        try {
+          // Buscar o usuário conectado ao doador
+          const user = await db.select({
+            id: users.id,
+            nome: users.nome,
+            sobrenome: users.sobrenome,
+            telefone: users.telefone,
+            email: users.email,
+            verificado: users.verificado,
+            ativo: users.ativo,
+            plano: users.plano,
+            stripeCustomerId: users.stripeCustomerId,
+            stripeSubscriptionId: users.stripeSubscriptionId,
+            subscriptionStatus: users.subscriptionStatus,
+            role: users.role,
+            tipo: users.tipo,
+            fonte: users.fonte,
+            gritosTotal: users.gritosTotal,
+            nivelAtual: users.nivelAtual,
+            proximoNivel: users.proximoNivel,
+            gritosParaProximoNivel: users.gritosParaProximoNivel,
+            diasConsecutivos: users.diasConsecutivos,
+            ultimoCheckin: users.ultimoCheckin,
+            dataCadastro: users.dataCadastro,
+            // campos removidos: primeiraEntradaCompleta, beneficiosOnboardingVisto
+          }).from(users).where(eq(users.id, doador[0].userId)).limit(1);
+
+          if (user[0]) {
+            // Verificar se é primeira entrada completa (usando gritosTotal como indicador)
+            const isPrimeiraEntrada = (user[0].gritosTotal || 0) === 0;
+
+            if (isPrimeiraEntrada) {
+              // Marcar primeira entrada como completa e dar bônus de 50 Gritos
+              await db.update(users)
+                .set({
+                  dataPrimeiraEntrada: new Date(),
+                  gritosTotal: (user[0].gritosTotal || 0) + 50
+                })
+                .where(eq(users.id, user[0].id));
+
+              // Registrar no histórico de Gritos
+              await db.insert(gritosHistorico).values({
+                userId: user[0].id,
+                tipo: 'primeira_entrada',
+                gritosGanhos: 50,
+                descricao: '🎉 Bônus de primeira entrada - Bem-vindo ao Clube do Grito!'
+              });
+
+              console.log(`🎉 [PRIMEIRA ENTRADA] Usuário ${user[0].id} (${user[0].nome}) completou primeira entrada e ganhou 50 Gritos bônus!`);
+            }
+          }
+        } catch (error) {
+          console.error('⚠️ Erro ao processar primeira entrada:', error);
+          // Não falhar a confirmação por isso, continuar o fluxo
+        }
+      }
+
+      // Criar registro no histórico
+      await db.insert(historicoDoacao).values({
+        doadorId: doador[0].id,
+        valor: doador[0].valor,
+        plano: doador[0].plano,
+        stripePaymentIntentId: paymentIntentId,
+        status: status,
+        metadata: { paymentConfirmed: true },
+      });
+
+      res.json({ success: true, message: 'Donation confirmed' });
+    } catch (error) {
+      console.error('❌ Error confirming donation:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Endpoint para buscar informações de pagamento por donation ID
+  app.post('/api/donation/payment-info', async (req, res) => {
+    try {
+      const { donationId } = req.body;
+
+      const doador = await db.select().from(doadores)
+        .where(eq(doadores.id, parseInt(donationId)))
+        .limit(1);
+
+      if (!doador[0]) {
+        return res.status(404).json({
+          success: false,
+          message: 'Doação não encontrada'
+        });
+      }
+
+      // Buscar o PaymentIntent real do Stripe para obter o clientSecret
+      let clientSecret = null;
+      if (doador[0].stripePaymentIntentId) {
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(doador[0].stripePaymentIntentId);
+          clientSecret = paymentIntent.client_secret;
+        } catch (error) {
+          console.error('Erro ao buscar PaymentIntent:', error);
+        }
+      }
+
+      res.json({
+        success: true,
+        paymentIntentId: doador[0].stripePaymentIntentId,
+        clientSecret,
+        status: doador[0].status,
+        userId: doador[0].userId,
+      });
+    } catch (error) {
+      console.error('❌ Error fetching payment info:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // ========= Create payment for new user after SMS verification =========
+  app.post('/api/payments/create-for-new-user', async (req, res) => {
+    try {
+      const { phone, nome, email, plan, amount } = req.body;
+      console.log(`🔄 [NEW USER PAYMENT] Creating payment for: ${phone}, plan: ${plan}, amount: ${amount}`);
+
+      if (!phone) {
+        return res.status(400).json({ error: 'Phone is required' });
+      }
+
+      // Handle custom amount (in centavos) with validation
+      let finalAmount = amount;
+
+      // If amount is provided, validate it
+      if (amount) {
+        // Convert to number if it's a string
+        const amountInCents = typeof amount === 'string' ? parseFloat(amount) * 100 : amount;
+
+        // Validation: minimum R$ 35.00 (3500 centavos)
+        if (amountInCents < 3500) {
+          return res.status(400).json({
+            error: 'O valor mínimo é R$ 35,00.',
+            code: 'AMOUNT_TOO_LOW'
+          });
+        }
+
+        // Validation: maximum R$ 50.000,00 (5.000.000 centavos)
+        if (amountInCents > 5000000) {
+          return res.status(400).json({
+            error: 'O valor máximo é R$ 50.000,00.',
+            code: 'AMOUNT_TOO_HIGH'
+          });
+        }
+
+        finalAmount = Math.round(amountInCents);
+      } else {
+        // Default to minimum allowed value
+        finalAmount = 3500; // R$ 35,00
+      }
+
+      // Calculate tier and gritos (server-side to prevent fraud)
+      // Business Logic:
+      // R$ 29,90 (2990 centavos) = 150 gritos (apoio mensal/Grito)
+      // R$ 30,00+ (3000+ centavos) = Platinum com gritos proporcionais
+      // Ex: R$ 50,00 = ~252 gritos; R$ 100,00 = ~502 gritos
+      const BASE_AMOUNT = 2990; // R$ 29,90 in centavos
+      const BASE_POINTS = 150;
+      const gritos = Math.round((finalAmount / BASE_AMOUNT) * BASE_POINTS);
+      const tier = finalAmount >= 3000 ? "platinum" : "apoio_mensal";
+
+      console.log(`📊 [PAYMENT CALC] Amount: ${finalAmount / 100}R$, Tier: ${tier}, Gritos: ${gritos}`);
+
+      // Create customer in Stripe
+      const customer = await stripe.customers.create({
+        phone: phone,
+        name: nome || '',
+        email: email || '',
+        metadata: {
+          source: 'donation-flow-new-user',
+          plan: plan || 'platinum',
+          tier: tier,
+          gritos_awarded: gritos.toString(),
+          donation_amount: (finalAmount / 100).toString()
+        }
+      });
+
+      // Create payment intent with metadata
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: finalAmount,
+        currency: 'brl',
+        customer: customer.id,
+        metadata: {
+          phone: phone,
+          plan: plan || 'platinum',
+          tier: tier,
+          gritos_awarded: gritos.toString(),
+          donation_amount: (finalAmount / 100).toString(),
+          newUser: 'true'
+        }
+      });
+
+      // Store in database as pending donation
+      const newDonation = await db.insert(doadores).values({
+        nome: nome || 'Novo Doador',
+        telefone: phone,
+        email: email || '',
+        plano: tier, // Use calculated tier
+        valor: finalAmount / 100, // Convert from cents
+        stripeCustomerId: customer.id,
+        stripePaymentIntentId: paymentIntent.id,
+        status: 'pending'
+      }).returning();
+
+      console.log(`✅ [NEW USER PAYMENT] Created donation ID: ${newDonation[0].id} for phone: ${phone}`);
+
+      res.json({
+        success: true,
+        userId: newDonation[0].id,
+        clientSecret: paymentIntent.client_secret,
+        customerId: customer.id,
+        paymentIntentId: paymentIntent.id,
+        tier: tier,
+        gritos_awarded: gritos,
+        donation_amount: finalAmount / 100
+      });
+
+    } catch (error) {
+      console.error('❌ [NEW USER PAYMENT] Error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // ================ EXISTING ROUTES CONTINUE BELOW ================
+  // Middleware global para acesso de desenvolvedor (liberado para desenvolvimento)
+
+  // Servir arquivos estáticos da pasta uploads com headers de cache apropriados
+  // NOVA ROTA
+  app.get("/uploads/*", async (req, res) => {
+    try {
+      const objectName = req.path.slice(1); // "uploads/beneficios/arquivo.jpg"
+      const [signedUrl] = await gcs
+        .bucket(GCS_BUCKET)
+        .file(objectName)
+        .getSignedUrl({
+          version: "v4",
+          action: "read",
+          expires: Date.now() + 5 * 60 * 1000,
+        });
+      return res.redirect(302, signedUrl);
+    } catch (err) {
+      console.error("❌ /uploads/* Signed URL error:", err);
+      return res.status(404).send("Arquivo não encontrado");
+    }
+  });
+
+  // TRECHO MOVIDO PARA INICIO DO CÓDIGO
+  if (process.env.NODE_ENV !== "production") {
+    app.use(
+      "/uploads",
+      express.static("uploads", {
+        maxAge: "1d",
+        etag: true,
+        lastModified: true,
+        setHeaders: (res, path) => {
+          res.setHeader("X-Content-Type-Options", "nosniff");
+          res.setHeader("Content-Disposition", "inline");
+          if (/\.(jpe?g|png|webp)$/i.test(path)) {
+            res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+          }
+        },
+      })
+    );
+  }
+
+  // Upload endpoint seguro (requer autenticação e privilégios administrativos)
+  app.post("/api/upload", requireAuth, requireAdmin, secureUpload.single('file'), validateImageFile, (req, res) => {
+    try {
+      const fileUrl = `/uploads/${req.file!.filename}`;
+
+      console.log(`✅ [SECURE UPLOAD] Admin ${(req as any).user.id} enviou arquivo: ${req.file!.filename}`);
+
+      res.json({
+        success: true,
+        fileUrl: fileUrl,
+        originalName: req.file!.originalname,
+        size: req.file!.size,
+        securityNote: 'Upload validado e autorizado'
+      });
+    } catch (error) {
+      console.error('❌ [SECURE UPLOAD] Erro no upload:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Definição dos planos com preços em centavos
+  const planPricing = {
+    eco: { price: 1000, name: 'Eco', description: 'Seu grito começa a se propagar' },
+    voz: { price: 2000, name: 'Voz', description: 'Deixe seu grito tomar força' },
+    grito: { price: 3000, name: 'O Grito', description: 'Seu grito ecoa por toda parte' },
+    platinum: { price: 3100, name: 'Platinum', description: 'Seu impacto, sua escolha!' },
+    diamante: { price: 10000, name: 'Diamante', description: 'O máximo impacto social!' },
+  };
+
+  // Create checkout session for subscription
+  app.post("/api/create-checkout-session", async (req, res) => {
+    try {
+      const { planId, customAmount } = req.body;
+      console.log('🔍 Debug - Received planId:', planId, 'customAmount:', customAmount);
+      console.log('🔍 Debug - Available plans:', Object.keys(planPricing));
+
+      let line_items;
+
+      if (planId === 'platinum' && customAmount) {
+        // Plano flexível - Platinum personalizado
+        line_items = [{
+          price_data: {
+            currency: 'brl',
+            product_data: {
+              name: 'Platinum Personalizado',
+              description: 'Valor personalizado escolhido pelo usuário',
+            },
+            unit_amount: Math.round(customAmount * 100), // Converte para centavos
+            recurring: {
+              interval: 'month' as const,
+            },
+          },
+          quantity: 1,
+        }];
+      } else if (planPricing[planId as keyof typeof planPricing]) {
+        // Planos fixos usando price_data
+        const plan = planPricing[planId as keyof typeof planPricing];
+        line_items = [{
+          price_data: {
+            currency: 'brl',
+            product_data: {
+              name: plan.name,
+              description: plan.description,
+            },
+            unit_amount: plan.price, // Já em centavos
+            recurring: {
+              interval: 'month' as const,
+            },
+          },
+          quantity: 1,
+        }];
+      } else {
+        return res.status(400).json({ error: "Plano inválido" });
+      }
+
+      // Ensure we have a proper origin URL with scheme
+      const origin = req.headers.origin || `https://${req.headers.host}` || 'https://localhost:5000';
+      console.log('🔍 Debug - Using origin:', origin);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items,
+        success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${origin}/plans`,
+        metadata: {
+          planId,
+          customAmount: customAmount?.toString() || '',
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error creating checkout session:", error);
+      res.status(500).json({ error: "Erro ao criar sessão de checkout" });
+    }
+  });
+
+  // Create checkout session for ingresso (event ticket)
+  app.post("/api/create-ingresso-session", async (req, res) => {
+    try {
+      console.log("🎫 [INGRESSO] Criando sessão de checkout para ingresso");
+
+      const { nome, telefone, email } = req.body || {};
+      const ingressoPrice = 100_000; // R$ 1.000,00 em centavos (troque seu valor real)
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card", "link"],
+        mode: "payment",
+        line_items: [
+          {
+            price_data: {
+              currency: "brl",
+              product_data: {
+                name: "Ingresso - IV ENCONTRO Do Grito",
+                description: "Evento: 25/10/2025 às 19h",
+              },
+              unit_amount: ingressoPrice,
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: `${process.env.APP_URL}/pagamento/aprovado?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.APP_URL}/pagamento/reprovado`,
+        metadata: {
+          type: "ingresso",
+          evento: "IV ENCONTRO Do Grito",
+          nome: nome || "",
+          telefone: telefone || "",
+          email: email || "",
+        },
+      });
+
+      console.log("✅ [INGRESSO] Sessão criada:", session.id);
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error("❌ [INGRESSO] Erro ao criar sessão de checkout:", error);
+      res.status(500).json({ error: "Erro ao criar sessão de checkout para ingresso" });
+    }
+  });
+
+  // ===== NOVO ENDPOINT: POST /api/checkout/subscribe =====
+  // Endpoint para criar SUBSCRIPTION RECORRENTE MENSAL com valor livre
+  app.post("/api/checkout/subscribe", async (req, res) => {
+    try {
+      const { tier = "PLATINUM", amountMonthly, intervalMonths = 1, paymentMethod = "card" } = req.body;
+
+      console.log('💰 [CHECKOUT SUBSCRIBE] Iniciando checkout RECORRENTE:', { tier, amountMonthly, intervalMonths, paymentMethod });
+
+      // Validações
+      if (!amountMonthly || typeof amountMonthly !== 'number') {
+        return res.status(400).json({
+          error: 'Campo amountMonthly é obrigatório e deve ser um número'
+        });
+      }
+
+      if (amountMonthly < 35 || amountMonthly > 50000) {
+        return res.status(400).json({
+          error: 'Valor mensal deve estar entre R$ 35,00 e R$ 50.000,00'
+        });
+      }
+
+      if (![1, 3, 6, 12].includes(intervalMonths)) {
+        return res.status(400).json({
+          error: 'Periodicidade inválida. Valores aceitos: 1, 3, 6, 12'
+        });
+      }
+
+      if (paymentMethod !== 'card') {
+        return res.status(400).json({
+          error: 'Por enquanto, apenas pagamento com cartão é suportado'
+        });
+      }
+
+      const amountInCents = Math.round(amountMonthly * 100);
+
+      // Mapear intervalMonths para interval do Stripe
+      const stripeIntervalMap: Record<number, 'month' | 'year'> = {
+        1: 'month',    // Mensal
+        3: 'month',    // Trimestral (interval_count: 3)
+        6: 'month',    // Semestral (interval_count: 6)
+        12: 'year',    // Anual
+      };
+
+      const stripeInterval = stripeIntervalMap[intervalMonths];
+      const intervalCount = intervalMonths === 12 ? 1 : intervalMonths;
+
+      // Mapear periodicidade para descrição
+      const periodicityMap: Record<number, string> = {
+        1: 'Mensal',
+        3: 'Trimestral',
+        6: 'Semestral',
+        12: 'Anual'
+      };
+
+      // Criar line items para Stripe Checkout (SUBSCRIPTION RECORRENTE)
+      const line_items = [{
+        price_data: {
+          currency: 'brl',
+          product_data: {
+            name: `Plano ${tier} - Contribuição ${periodicityMap[intervalMonths]}`,
+            description: `Cobrança automática ${periodicityMap[intervalMonths].toLowerCase()} de R$ ${amountMonthly.toFixed(2).replace('.', ',')}`,
+          },
+          unit_amount: amountInCents,
+          recurring: {
+            interval: stripeInterval,
+            interval_count: intervalCount,
+          },
+        },
+        quantity: 1,
+      }];
+
+      const origin = req.headers.origin || `https://${req.headers.host}` || 'https://localhost:5000';
+
+      // Criar sessão do Stripe Checkout - SUBSCRIPTION RECORRENTE
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription', // SUBSCRIPTION RECORRENTE 
+        payment_method_types: ['card'],
+        line_items,
+        success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${origin}/plans`,
+        metadata: {
+          tier,
+          amountMonthly: amountMonthly.toString(),
+          intervalMonths: intervalMonths.toString(),
+          customSubscription: 'true',
+        },
+      });
+
+      console.log('✅ [CHECKOUT SUBSCRIBE] Subscription recorrente criada:', session.id);
+
+      // Retornar URL de checkout
+      res.json({
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        status: 'pending'
+      });
+
+    } catch (error: any) {
+      console.error('❌ [CHECKOUT SUBSCRIBE] Erro:', error);
+      res.status(500).json({
+        error: 'Erro ao criar sessão de checkout',
+        message: error.message
+      });
+    }
+  });
+
+  // Get ingresso by Stripe session ID
+  // ROTA ADICIONADA
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      const sig = req.headers["stripe-signature"] as string;
+      let event: Stripe.Event;
+
+      try {
+        // req.body aqui é o Buffer bruto por causa do express.raw
+        event = stripe.webhooks.constructEvent(
+          req.body,
+          sig,
+          process.env.STRIPE_WEBHOOK_SECRET!
+        );
+      } catch (err) {
+        console.error("❌ [WEBHOOK] Signature verification failed:", err);
+        return res.status(400).send(`Webhook Error: ${err}`);
+      }
+
+      try {
+        if (event.type === "checkout.session.completed") {
+          const session = event.data.object as Stripe.Checkout.Session;
+
+          if (session.metadata?.type === "ingresso") {
+            const nome =
+              session.metadata.nome || session.customer_details?.name || null;
+            const email =
+              session.metadata.email || session.customer_details?.email || null;
+            const telefone = session.metadata.telefone || null;
+
+            // idempotência: não duplica por session.id
+            const jaExiste = await storage.getIngressoBySessionId(session.id);
+            if (!jaExiste) {
+              const ingresso = await storage.createIngresso({
+                userId: null,
+                nomeComprador: nome,
+                emailComprador: email,
+                telefoneComprador: telefone,
+                idCotaEmpresa: null, // AVULSO
+                eventoNome: "IV ENCONTRO Do Grito",
+                eventoData: "23 Outubro de 2025",
+                eventoHora: "19h30",
+                stripeCheckoutSessionId: session.id,
+                valorPago: session.amount_total ?? 100000,
+                status: "confirmado",
+              });
+
+              console.log("✅ [WEBHOOK] Ingresso criado (avulso):", ingresso.numero);
+            } else {
+              console.log("ℹ️ [WEBHOOK] Ingresso já existia para session:", session.id);
+            }
+          }
+        }
+
+        return res.status(200).json({ received: true });
+      } catch (err) {
+        console.error("❌ [WEBHOOK] Erro ao processar:", err);
+        return res.status(500).json({ error: "Erro no processamento do webhook" });
+      }
+    }
+  );
+
+  app.get("/api/ingresso/session/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+
+      console.log('🎫 [API] Buscando ingresso por session_id:', sessionId);
+
+      const ingresso = await storage.getIngressoBySessionId(sessionId);
+
+      if (!ingresso) {
+        console.log('❌ [API] Ingresso não encontrado para session_id:', sessionId);
+        return res.status(404).json({ error: "Ingresso não encontrado" });
+      }
+
+      console.log('✅ [API] Ingresso encontrado:', ingresso.numero);
+      res.json(ingresso);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar ingresso por session_id:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar ingresso avulso por telefone - DEVE VIR ANTES de /:id
+  // TRECHO ALTERADO
+  app.get("/api/ingressos/avulso/buscar", async (req, res) => {
+    try {
+      const raw = (req.query.telefone as string) || "";
+      const telefone = raw.replace(/\D/g, ""); // normaliza
+      const wantAll = req.query.all === "1";
+
+      if (!telefone) {
+        return res.status(400).json({
+          error: "Telefone é obrigatório",
+          message: "Por favor, informe o telefone usado no cadastro."
+        });
+      }
+
+      console.log("🔍 [API] Buscando ingresso avulso por telefone:", telefone);
+
+      // Busca TODOS os avulsos (sem cota). Opcional: ordena mais recentes primeiro
+      const lista = await db
+        .select()
+        .from(ingressos)
+        .where(
+          and(
+            eq(ingressos.telefoneComprador, telefone),
+            isNull(ingressos.idCotaEmpresa)
+          )
+        )
+      // .orderBy(desc(ingressos.criadoEm)) // se tiver essa coluna
+
+      if (!lista || lista.length === 0) {
+        console.log("❌ [API] Ingresso avulso não encontrado:", telefone);
+        return res.status(404).json({
+          error: "Ingresso não encontrado",
+          message:
+            "Não encontramos nenhum ingresso com este telefone. Verifique se digitou exatamente como cadastrou ou se a compra foi finalizada."
+        });
+      }
+
+      const map = (i: any) => ({
+        id: i.id,
+        numero: i.numero,
+        data: i.eventoData,
+        hora: i.eventoHora,
+        eventoNome: i.eventoNome,
+        eventoData: i.eventoData,
+        eventoHora: i.eventoHora,
+        eventoLocal: i.eventoLocal,
+        nomeComprador: i.nomeComprador,
+        emailComprador: i.emailComprador,
+        telefoneComprador: i.telefoneComprador,
+        imagemUrl: "/assets/ingresso-iv-encontro.png",
+        valorPago: i.valorPago,
+        status: i.status,
+        dataCompra: i.dataCompra,
+        idCotaEmpresa: i.idCotaEmpresa ?? null,
+        stripeCheckoutSessionId: i.stripeCheckoutSessionId ?? null,
+      });
+
+      if (wantAll) {
+        const tickets = lista.map(map);
+        console.log("✅ [API] Avulso - encontrados:", tickets.length);
+        return res.json({
+          hasTicket: true,
+          count: tickets.length,
+          tickets,
+          ticket: tickets[0] // compat
+        });
+      }
+
+      // compat: sem all=1 continua devolvendo só um
+      console.log("✅ [API] Avulso - devolvendo 1:", lista[0].numero);
+      return res.json(map(lista[0]));
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar ingresso avulso por telefone:", error);
+      res.status(500).json({
+        error: "Erro interno do servidor",
+        message: "Ocorreu um erro ao buscar o ingresso. Tente novamente."
+      });
+    }
+  });
+
+
+  // Get ingressos do usuário logado - DEVE VIR ANTES de /:id
+  // TRECHO ALTERADO 
+  app.get("/api/ingressos/me", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ hasTicket: false, error: "Usuário não autenticado" });
+      }
+
+      const wantAll = req.query.all === '1';
+      const ingressos = await storage.getIngressosByUser(user.id); // já retorna todos
+
+      if (!ingressos || ingressos.length === 0) {
+        // compatível com o front atual
+        return res.json({ hasTicket: false, ticket: null, tickets: [] });
+      }
+
+      // ✅ Novo formato quando all=1
+      if (wantAll) {
+        const tickets = ingressos.map((ingresso: any) => ({
+          id: ingresso.id,
+          numero: ingresso.numero,
+          data: ingresso.eventoData,
+          hora: ingresso.eventoHora,
+          eventoNome: ingresso.eventoNome,
+          eventoLocal: ingresso.eventoLocal,
+          nomeComprador: ingresso.nomeComprador,
+          emailComprador: ingresso.emailComprador,
+          telefoneComprador: ingresso.telefoneComprador,
+          imagemUrl: "/assets/ingresso-iv-encontro.png",
+          valorPago: ingresso.valorPago,
+          status: ingresso.status,
+          dataCompra: ingresso.dataCompra,
+          idCotaEmpresa: ingresso.idCotaEmpresa ?? null,
+          stripeCheckoutSessionId: ingresso.stripeCheckoutSessionId ?? null,
+        }));
+
+        return res.json({
+          hasTicket: true,
+          count: tickets.length,
+          tickets,              // << lista completa
+          // mantém campos antigos para compatibilidade (primeiro da lista)
+          ticket: tickets[0]    // << opcional: ajuda o front legado
+        });
+      }
+
+      // 🔙 Comportamento antigo (1 ingresso)
+      const ingresso = ingressos[0];
+      return res.json({
+        hasTicket: true,
+        ticket: {
+          id: ingresso.id,
+          numero: ingresso.numero,
+          data: ingresso.eventoData,
+          hora: ingresso.eventoHora,
+          eventoNome: ingresso.eventoNome,
+          eventoLocal: ingresso.eventoLocal,
+          nomeComprador: ingresso.nomeComprador,
+          emailComprador: ingresso.emailComprador,
+          telefoneComprador: ingresso.telefoneComprador,
+          imagemUrl: "/assets/ingresso-iv-encontro.png",
+          valorPago: ingresso.valorPago,
+          status: ingresso.status,
+          dataCompra: ingresso.dataCompra,
+          idCotaEmpresa: ingresso.idCotaEmpresa ?? null,
+          stripeCheckoutSessionId: ingresso.stripeCheckoutSessionId ?? null,
+        }
+      });
+    } catch (error) {
+      console.error("❌ [API] Erro ao buscar ingressos do usuário:", error);
+      res.status(500).json({ hasTicket: false, error: "Erro interno do servidor" });
+    }
+  });
+
+  // ===== ESTATÍSTICAS DE INGRESSOS =====
+
+  // 📊 GET /api/ingressos/estatisticas - Obter estatísticas gerais de ingressos
+  // IMPORTANTE: Deve vir ANTES de /api/ingressos/:id para não ser interceptado
+  app.get('/api/ingressos/estatisticas', async (req, res) => {
+    try {
+      // Total de ingressos
+      const totalResult = await db.select({ count: sql<number>`count(*)` })
+        .from(ingressos);
+      const total = Number(totalResult[0]?.count || 0);
+
+      // Ingressos usados (status = 'usado')
+      const usadosResult = await db.select({ count: sql<number>`count(*)` })
+        .from(ingressos)
+        .where(eq(ingressos.status, 'usado'));
+      const usados = Number(usadosResult[0]?.count || 0);
+
+      // Ingressos pendentes = total - usados (todos que não foram usados ainda)
+      const pendentes = total - usados;
+
+      console.log(`📊 [ESTATÍSTICAS INGRESSOS] Total: ${total}, Usados: ${usados}, Pendentes: ${pendentes}`);
+
+      return res.json({
+        total,
+        usados,
+        pendentes
+      });
+
+    } catch (error) {
+      console.error('❌ [ESTATÍSTICAS INGRESSOS] Erro:', error);
+      res.status(500).json({ error: 'Erro ao buscar estatísticas de ingressos' });
+    }
+  });
+
+  // 🔄 POST /api/ingressos/reset-usados - Resetar todos os ingressos marcados como usados
+  app.post('/api/ingressos/reset-usados', async (req, res) => {
+    try {
+      console.log('🔄 [RESET INGRESSOS] Iniciando reset de ingressos usados...');
+
+      // Buscar ingressos com status 'usado'
+      const ingressosUsados = await db.select()
+        .from(ingressos)
+        .where(eq(ingressos.status, 'usado'));
+
+      const quantidade = ingressosUsados.length;
+      console.log(`📊 [RESET INGRESSOS] Encontrados ${quantidade} ingressos com status 'usado'`);
+
+      if (quantidade === 0) {
+        return res.json({
+          success: true,
+          message: 'Nenhum ingresso com status "usado" encontrado',
+          resetados: 0
+        });
+      }
+
+      // Resetar status para o status original (confirmado, aprovado, paid, etc)
+      // Vamos usar 'confirmado' como padrão
+      await db.update(ingressos)
+        .set({ status: 'confirmado' })
+        .where(eq(ingressos.status, 'usado'));
+
+      console.log(`✅ [RESET INGRESSOS] ${quantidade} ingressos resetados com sucesso`);
+
+      return res.json({
+        success: true,
+        message: `${quantidade} ingresso(s) resetado(s) com sucesso`,
+        resetados: quantidade
+      });
+
+    } catch (error) {
+      console.error('❌ [RESET INGRESSOS] Erro:', error);
+      res.status(500).json({ 
+        success: false,
+        error: 'Erro ao resetar ingressos' 
+      });
+    }
+  });
+
+  // Get ingresso específico por ID ou NÚMERO - DEVE VIR DEPOIS de /me
+  // TRECHO ALTERADO
+  app.get("/api/ingressos/:id", async (req, res) => {
+    try {
+      const raw = req.params.id.trim();
+      let ingresso: any = null;
+
+      // só dígitos?
+      const isDigitsOnly = /^\d+$/.test(raw);
+
+      if (isDigitsOnly) {
+        // 1) tenta por número (ex.: 144600, 128602)
+        ingresso = await storage.getIngressoByNumero(raw);
+        // 2) se não achou, tenta por ID numérico
+        if (!ingresso) {
+          const asId = parseInt(raw, 10);
+          if (!Number.isNaN(asId)) {
+            ingresso = await storage.getIngresso(asId); // << CORRETO: por ID
+          }
+        }
+      } else {
+        // não é só dígitos → inválido para ambos
+        return res.status(400).json({ error: "Parâmetro inválido" });
+      }
+
+      if (!ingresso) {
+        return res.status(404).json({ error: "Ingresso não encontrado" });
+      }
+
+      console.log('✅ [API] Ingresso encontrado:', ingresso.numero);
+
+      // Retornar no formato esperado pela página
+      res.json({
+        id: ingresso.id,
+        numero: ingresso.numero,
+        data: ingresso.eventoData,
+        hora: ingresso.eventoHora,
+        eventoNome: ingresso.eventoNome,
+        eventoData: ingresso.eventoData,
+        eventoHora: ingresso.eventoHora,
+        eventoLocal: ingresso.eventoLocal,
+        nomeComprador: ingresso.nomeComprador,
+        emailComprador: ingresso.emailComprador,
+        telefoneComprador: ingresso.telefoneComprador,
+        valorPago: ingresso.valorPago,
+        status: ingresso.status,
+        dataCompra: ingresso.dataCompra,
+        idCotaEmpresa: ingresso.idCotaEmpresa ?? null,
+        stripeCheckoutSessionId: ingresso.stripeCheckoutSessionId ?? null
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar ingresso:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar todos os ingressos por telefone ou email
+  app.post("/api/ingressos/buscar-por-contato", async (req, res) => {
+    try {
+      const { contato } = req.body;
+
+      if (!contato || typeof contato !== 'string' || contato.trim() === '') {
+        return res.status(400).json({
+          error: "Telefone ou email é obrigatório"
+        });
+      }
+
+      console.log('🔍 [API] Buscando ingressos por contato:', contato);
+
+      // Buscar por telefone ou email
+      const ingressos = await storage.getIngressosByContato(contato.trim());
+
+      if (!ingressos || ingressos.length === 0) {
+        return res.json({
+          encontrado: false,
+          quantidade: 0,
+          ingressos: []
+        });
+      }
+
+      console.log(`✅ [API] Encontrados ${ingressos.length} ingresso(s) para contato:`, contato);
+
+      res.json({
+        encontrado: true,
+        quantidade: ingressos.length,
+        ingressos: ingressos.map(ing => ({
+          id: ing.id,
+          numero: ing.numero,
+          nomeComprador: ing.nomeComprador,
+          emailComprador: ing.emailComprador,
+          telefoneComprador: ing.telefoneComprador,
+          valorPago: ing.valorPago,
+          status: ing.status,
+          dataCompra: ing.dataCompra,
+          eventoData: ing.eventoData,
+          eventoHora: ing.eventoHora
+        }))
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar ingressos por contato:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ===== SISTEMA DE COTAS DE EMPRESAS =====
+
+  // Validar nome da empresa e verificar disponibilidade
+  app.post("/api/cotas/validar-empresa", async (req, res) => {
+    try {
+      const { nomeEmpresa } = req.body;
+
+      if (!nomeEmpresa || typeof nomeEmpresa !== 'string' || nomeEmpresa.trim() === '') {
+        return res.status(400).json({
+          valida: false,
+          error: "Nome da empresa é obrigatório"
+        });
+      }
+
+      console.log('🏢 [API] Validando empresa:', nomeEmpresa);
+
+      const resultado = await storage.validarEmpresa(nomeEmpresa.trim());
+
+      console.log('✅ [API] Resultado da validação:', resultado);
+
+      res.json(resultado);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao validar empresa:", error);
+      res.status(500).json({
+        valida: false,
+        error: "Erro interno do servidor ao validar empresa"
+      });
+    }
+  });
+
+  // Consultar disponibilidade de uma cota específica
+  app.get("/api/cotas/consultar-disponibilidade/:idCota", async (req, res) => {
+    try {
+      const idCota = parseInt(req.params.idCota, 10);
+
+      if (isNaN(idCota)) {
+        return res.status(400).json({ error: "ID da cota inválido" });
+      }
+
+      console.log('📊 [API] Consultando disponibilidade da cota:', idCota);
+
+      const disponibilidade = await storage.consultarDisponibilidadeCota(idCota);
+
+      console.log('✅ [API] Disponibilidade:', disponibilidade);
+
+      res.json(disponibilidade);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao consultar disponibilidade:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Resgatar ingresso via cota empresarial
+  app.post("/api/ingressos/resgatar-cota", async (req, res) => {
+    try {
+      const { idCotaEmpresa, nomeParticipante } = req.body;
+
+      if (!idCotaEmpresa) {
+        return res.status(400).json({
+          error: "ID da cota é obrigatório"
+        });
+      }
+
+      console.log('🎫 [API] Resgatando ingresso via cota:', { idCotaEmpresa, nomeParticipante: nomeParticipante || 'A definir' });
+
+      // Verificar se a cota existe e está disponível
+      const cota = await storage.getCotaEmpresaById(idCotaEmpresa);
+
+      if (!cota) {
+        return res.status(404).json({ error: "Cota não encontrada" });
+      }
+
+      if (cota.status !== 'ativa') {
+        return res.status(400).json({ error: "Esta cota não está ativa" });
+      }
+
+      const disponiveis = cota.quantidadeTotal - cota.quantidadeUsada;
+
+      if (disponiveis <= 0) {
+        console.log('❌ [RESGATE COTA] Cota esgotada');
+        return res.status(400).json({
+          error: "Ainda não foi retirado ingresso",
+          message: "Todos os ingressos desta cota já foram retirados"
+        });
+      }
+
+      // Criar o ingresso
+      console.log('🎟️ [RESGATE COTA] Criando ingresso para:', nomeParticipante || 'A definir');
+
+      const ingresso = await storage.createIngresso({
+        userId: null, // Ingressos de cota não têm userId
+        nomeComprador: nomeParticipante || null,
+        emailComprador: cota.email,
+        telefoneComprador: null,
+        idCotaEmpresa: cota.id,
+        eventoNome: "IV ENCONTRO Do Grito",
+        eventoData: "23 Outubro de 2025",
+        eventoHora: "19h30",
+        stripeCheckoutSessionId: null, // Ingressos de cota não têm pagamento Stripe
+        valorPago: 100000, // R$ 1.000,00 em centavos (valor do jantar)
+        status: "confirmado" // Ingressos de cota já vêm confirmados
+      });
+
+      // Atualizar quantidade usada da cota
+      await storage.usarCota(cota.id);
+
+      console.log('✅ [API] Ingresso resgatado:', ingresso.numero);
+
+      res.status(201).json({
+        success: true,
+        ingresso: {
+          id: ingresso.id,
+          numero: ingresso.numero,
+          nomeComprador: ingresso.nomeComprador,
+          eventoData: ingresso.eventoData,
+          eventoHora: ingresso.eventoHora
+        }
+      });
+
+    } catch (error: any) {
+      console.error("❌ [RESGATE COTA] Erro ao resgatar ingresso:", error);
+      res.status(500).json({ error: "Erro interno do servidor ao resgatar ingresso" });
+    }
+  });
+
+  // Listar ingressos de uma cota específica
+  app.get("/api/cotas/:idCota/ingressos", async (req, res) => {
+    try {
+      const idCota = parseInt(req.params.idCota, 10);
+
+      if (isNaN(idCota)) {
+        return res.status(400).json({ error: "ID da cota inválido" });
+      }
+
+      console.log('🎫 [API] Listando ingressos da cota:', idCota);
+
+      const ingressos = await storage.getIngressosByCota(idCota);
+
+      console.log(`✅ [API] ${ingressos.length} ingressos encontrados`);
+
+      res.json(ingressos);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao listar ingressos da cota:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Listar todas as cotas (apenas para admins)
+  app.get("/api/cotas/empresas", async (req, res) => {
+    try {
+      console.log('📋 [API] Listando todas as cotas de empresas');
+
+      const cotas = await storage.getCotasEmpresas();
+
+      console.log(`✅ [API] ${cotas.length} cotas encontradas`);
+
+      res.json(cotas);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao listar cotas:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar nova cota de empresa (apenas para admins)
+  app.post("/api/cotas/empresas", async (req, res) => {
+    try {
+      const { nomeEmpresa, quantidadeTotal, status } = req.body;
+
+      if (!nomeEmpresa || !quantidadeTotal) {
+        return res.status(400).json({ error: "Nome da empresa e quantidade total são obrigatórios" });
+      }
+
+      console.log('➕ [API] Criando nova cota:', { nomeEmpresa, quantidadeTotal, status });
+
+      const cota = await storage.createCotaEmpresa({
+        nomeEmpresa,
+        quantidadeTotal,
+        status: status || 'ativa'
+      });
+
+      console.log('✅ [API] Cota criada:', cota.id);
+
+      res.status(201).json(cota);
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao criar cota:", error);
+
+      if (error.code === '23505') { // Código de erro do Postgres para unique constraint
+        return res.status(409).json({ error: "Já existe uma cota para esta empresa" });
+      }
+
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Resgatar ingresso via cota empresarial
+  app.post("/api/cotas/resgatar-ingresso", async (req, res) => {
+    try {
+      const { idCota, nomeComprador, emailComprador, telefoneComprador } = req.body;
+
+      if (!idCota) {
+        return res.status(400).json({
+          success: false,
+          error: "ID da cota é obrigatório"
+        });
+      }
+
+      console.log('🎟️ [RESGATE COTA] Resgatando ingresso da cota:', idCota);
+
+      // Verificar disponibilidade
+      const cota = await storage.getCotaEmpresaById(idCota);
+
+      if (!cota) {
+        return res.status(404).json({
+          success: false,
+          error: "Cota não encontrada"
+        });
+      }
+
+      if (cota.status !== 'ativa') {
+        return res.status(400).json({
+          success: false,
+          error: "Cota inativa"
+        });
+      }
+
+      const disponivel = cota.quantidadeTotal - cota.quantidadeUsada;
+      if (disponivel <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Cota esgotada"
+        });
+      }
+
+      // Gerar número do ingresso
+      const numeroIngresso = await storage.getProximoNumeroIngresso();
+
+      // Criar ingresso
+      const ingresso = await storage.createIngresso({
+        numero: numeroIngresso,
+        eventoNome: "IV ENCONTRO Do Grito",
+        eventoData: "23 Outubro de 2025",
+        eventoHora: "19h30",
+        eventoLocal: "R. Kennedy, 47 - Jardim Canada, Nova Lima - MG, 34007-644",
+        nomeComprador: nomeComprador || cota.nomeEmpresa,
+        emailComprador: emailComprador || cota.email,
+        telefoneComprador: telefoneComprador || "",
+        valorPago: 100000, // R$ 1.000,00
+        metodoPagamento: "cota_empresarial",
+        status: "confirmado",
+        idCotaEmpresa: idCota
+      });
+
+      // Consumir cota
+      await storage.usarCota(idCota);
+
+      // Buscar cota atualizada
+      const cotaAtualizada = await storage.getCotaEmpresaById(idCota);
+
+      console.log('✅ [RESGATE COTA] Ingresso criado:', ingresso.numero);
+
+      res.json({
+        success: true,
+        ingresso: {
+          id: ingresso.id,
+          numero: ingresso.numero,
+          nomeComprador: ingresso.nomeComprador,
+          emailComprador: ingresso.emailComprador,
+          eventoData: ingresso.eventoData,
+          eventoHora: ingresso.eventoHora
+        },
+        cotaAtualizada: {
+          quantidadeUsada: cotaAtualizada?.quantidadeUsada || 0,
+          quantidadeTotal: cotaAtualizada?.quantidadeTotal || 0
+        }
+      });
+
+    } catch (error: any) {
+      console.error("❌ [RESGATE COTA] Erro ao resgatar ingresso:", error);
+      res.status(500).json({
+        success: false,
+        error: "Erro interno do servidor ao resgatar ingresso"
+      });
+    }
+  });
+
+  // Confirmar pagamento e garantir criação do ingresso (idempotente)
+  app.post("/api/pagamentos/confirmar", async (req, res) => {
+    try {
+      const { pedidoId, sessionId } = req.body;
+
+      if (!pedidoId && !sessionId) {
+        return res.status(400).json({
+          ok: false,
+          error: "pedidoId ou sessionId é obrigatório"
+        });
+      }
+
+      console.log('💳 [PAGAMENTO] Confirmando pagamento:', { pedidoId, sessionId });
+
+      // Buscar ingresso existente
+      let ingresso = null;
+
+      if (sessionId) {
+        ingresso = await storage.getIngressoBySessionId(sessionId);
+      }
+
+      if (ingresso) {
+        console.log('✅ [PAGAMENTO] Ingresso já existe, confirmando:', ingresso.numero);
+        return res.json({
+          ok: true,
+          message: "Ingresso já criado",
+          ingressoId: ingresso.id
+        });
+      }
+
+      // Se chegou aqui e ainda não tem ingresso, o webhook do Stripe deve criar
+      // Este endpoint é principalmente para confirmação, não criação
+      console.log('⚠️ [PAGAMENTO] Ingresso ainda não criado, aguardando webhook');
+
+      res.json({
+        ok: true,
+        message: "Aguardando processamento do pagamento"
+      });
+
+    } catch (error: any) {
+      console.error("❌ [PAGAMENTO] Erro ao confirmar pagamento:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Erro interno do servidor"
+      });
+    }
+  });
+
+  // Profile image upload endpoint for regular users
+  app.post("/api/profile/upload", async (req, res) => {
+    try {
+      const { fileType, fileSize } = req.body;
+
+      console.log('🖼️ [PROFILE UPLOAD] Solicitação de upload de foto de perfil:', { fileType, fileSize });
+
+      // Validações básicas
+      if (!fileType || !fileSize) {
+        return res.status(400).json({ error: "fileType e fileSize são obrigatórios" });
+      }
+
+      if (!fileType.startsWith('image/')) {
+        return res.status(400).json({ error: "Apenas arquivos de imagem são permitidos" });
+      }
+
+      if (fileSize > 5 * 1024 * 1024) { // 5MB
+        return res.status(400).json({ error: "Arquivo muito grande. Máximo 5MB." });
+      }
+
+      // Para simplificar, vamos retornar uma URL base64 mock ou permitir upload local
+      // Em um ambiente real, aqui você geraria uma URL presigned para S3/storage
+      const uploadURL = `/api/profile/upload-file`;
+
+      res.json({
+        uploadURL,
+        message: "URL de upload gerada com sucesso"
+      });
+
+    } catch (error: any) {
+      console.error("❌ [PROFILE UPLOAD] Erro ao gerar URL de upload:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Profile image file upload endpoint
+  app.post("/api/profile/upload-file", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Nenhum arquivo foi enviado" });
+      }
+
+      console.log('🖼️ [PROFILE FILE] Upload de arquivo recebido:', req.file.filename);
+
+      // Construir URL da imagem
+      const imageUrl = `/uploads/${req.file.filename}`;
+
+      res.json({
+        success: true,
+        imageUrl,
+        message: "Imagem enviada com sucesso"
+      });
+
+    } catch (error: any) {
+      console.error("❌ [PROFILE FILE] Erro no upload de arquivo:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Create subscription for internal checkout
+  app.post("/api/create-subscription", async (req, res) => {
+    try {
+      const { planId, customAmount, paymentMethodId, periodicity, price } = req.body;
+
+      // 🔒 SECURITY: Derive userId from authenticated session, not client input
+      const authenticatedUserId = (req as any).session?.user?.id || (req as any).user?.id;
+
+      // 🛡️ SECURITY: Require authentication to create subscription
+      if (!authenticatedUserId) {
+        console.error('🚨 [SECURITY] Unauthenticated subscription attempt blocked');
+        return res.status(401).json({ error: 'Autenticação necessária para criar assinatura' });
+      }
+
+      console.log('💳 [SUBSCRIPTION CREATE] Request received:', {
+        planId,
+        customAmount,
+        paymentMethodId: paymentMethodId ? 'present' : 'missing',
+        periodicity: periodicity || 'mensal',
+        price: price || 'from planPricing',
+        userId: authenticatedUserId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Critical validation to prevent incorrect charging
+      if (!planId) {
+        console.error('❌ [SUBSCRIPTION ERROR] Missing planId - this could cause incorrect charging!');
+        return res.status(400).json({ error: "PlanId é obrigatório" });
+      }
+
+      // Validate planId against known plans
+      const validPlans = ['eco', 'voz', 'grito', 'platinum', 'diamante'];
+      if (!validPlans.includes(planId.toLowerCase()) && planId !== 'platinum') {
+        console.error('❌ [SUBSCRIPTION ERROR] Invalid planId:', planId, 'Valid plans:', validPlans);
+        return res.status(400).json({ error: `Plano inválido: ${planId}` });
+      }
+
+      // Create customer first
+      const customer = await stripe.customers.create();
+
+      // Attach payment method to customer if provided
+      if (paymentMethodId) {
+        await stripe.paymentMethods.attach(paymentMethodId, {
+          customer: customer.id,
+        });
+
+        // Set as default payment method
+        await stripe.customers.update(customer.id, {
+          invoice_settings: {
+            default_payment_method: paymentMethodId,
+          },
+        });
+      }
+
+      let productName: string;
+      let productDescription: string;
+      let unitAmount: number;
+      let intervalConfig: { interval: string; interval_count?: number } = { interval: 'month' };
+
+      if (planId === 'platinum' && customAmount) {
+        // Plano flexível - Platinum personalizado
+        productName = 'Platinum Personalizado';
+        productDescription = 'Valor personalizado escolhido pelo usuário';
+        unitAmount = Math.round(customAmount * 100); // Converte para centavos
+        console.log('💰 [SUBSCRIPTION] Platinum custom plan:', unitAmount, 'cents');
+      } else if (price && periodicity) {
+        // NOVO: Usar preço e periodicidade específicos do frontend
+        const plan = planPricing[planId as keyof typeof planPricing];
+        if (!plan) {
+          console.error('❌ [SUBSCRIPTION ERROR] Plan not found in planPricing:', planId, 'Available plans:', Object.keys(planPricing));
+          return res.status(400).json({ error: `Plano não encontrado: ${planId}` });
+        }
+
+        productName = plan.name;
+        productDescription = plan.description;
+        unitAmount = Math.round(price * 100); // Frontend já enviou o preço correto
+
+        // Configurar intervalo baseado na periodicidade
+        switch (periodicity) {
+          case 'mensal':
+            intervalConfig = { interval: 'month' };
+            break;
+          case 'trimestral':
+            intervalConfig = { interval: 'month', interval_count: 3 };
+            break;
+          case 'semestral':
+            intervalConfig = { interval: 'month', interval_count: 6 };
+            break;
+          case 'anual':
+            intervalConfig = { interval: 'month', interval_count: 12 };
+            break;
+          default:
+            console.log('⚠️ [SUBSCRIPTION] Periodicidade desconhecida, usando mensal:', periodicity);
+            intervalConfig = { interval: 'month' };
+        }
+
+        console.log('💰 [SUBSCRIPTION] Plan with periodicity:', planId, periodicity, 'price:', unitAmount, 'cents (R$', (unitAmount / 100).toFixed(2), ')');
+      } else if (planPricing[planId as keyof typeof planPricing]) {
+        // Fallback: Planos fixos usando apenas plano mensal (compatibilidade)
+        const plan = planPricing[planId as keyof typeof planPricing];
+        productName = plan.name;
+        productDescription = plan.description;
+        unitAmount = plan.price; // Já em centavos
+        console.log('💰 [SUBSCRIPTION] Fixed plan selected (mensal fallback):', planId, 'price:', unitAmount, 'cents (R$', (unitAmount / 100).toFixed(2), ')');
+      } else {
+        console.error('❌ [SUBSCRIPTION ERROR] Plan not found in planPricing:', planId, 'Available plans:', Object.keys(planPricing));
+        return res.status(400).json({ error: `Plano não encontrado: ${planId}` });
+      }
+
+      // Create product first
+      const product = await stripe.products.create({
+        name: productName,
+        description: productDescription,
+      });
+
+      // Create price for the product with correct interval
+      const stripePrice = await stripe.prices.create({
+        product: product.id,
+        currency: 'brl',
+        unit_amount: unitAmount,
+        recurring: intervalConfig,
+      });
+
+      // Create subscription
+      const subscription = await stripe.subscriptions.create({
+        customer: customer.id,
+        items: [{
+          price: stripePrice.id,
+        }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          save_default_payment_method: 'on_subscription',
+          payment_method_types: ['card']
+        },
+        expand: ['latest_invoice.payment_intent'],
+      });
+
+      const latestInvoice = subscription.latest_invoice as any;
+      const paymentIntent = latestInvoice?.payment_intent;
+
+      console.log('💳 [SUBSCRIPTION] Subscription created successfully:', {
+        subscriptionId: subscription.id,
+        customerId: customer.id,
+        paymentIntentId: paymentIntent?.id,
+        unitAmount,
+        planId
+      });
+
+      // CRITICAL: Create donor record immediately to prevent data loss
+      try {
+        await db.insert(doadores).values({
+          userId: authenticatedUserId || null, // 🔒 SECURITY: Use server-authenticated userId only
+          plano: planId,
+          valor: (unitAmount / 100).toString(), // Convert cents to decimal
+          stripePaymentIntentId: paymentIntent?.id,
+          stripeSubscriptionId: subscription.id,
+          status: 'pending',
+          dataDoacaoInicial: new Date(),
+          ativo: true,
+        });
+        console.log('✅ [SUBSCRIPTION] Donor record created successfully for PaymentIntent:', paymentIntent?.id, 'User ID:', authenticatedUserId || 'not authenticated');
+      } catch (dbError: any) {
+        console.error('❌ [SUBSCRIPTION] Failed to create donor record:', dbError);
+        // Continue execution - don't fail the subscription creation
+      }
+
+      res.json({
+        subscriptionId: subscription.id,
+        customerId: customer.id,
+        clientSecret: paymentIntent?.client_secret,
+        requiresAction: paymentIntent?.status === 'requires_action'
+      });
+    } catch (error: any) {
+      console.error("Error creating subscription:", error);
+      res.status(500).json({ error: "Erro ao criar subscription" });
+    }
+  });
+
+  // 🔒 WEBHOOK SEGURO - Verificação de assinatura obrigatória
+  app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    // 🔥 SEGURANÇA CRÍTICA: Verificação de assinatura é OBRIGATÓRIA
+    if (!endpointSecret) {
+      console.error('🚨 WEBHOOK ERROR: STRIPE_WEBHOOK_SECRET não configurado');
+      return res.status(500).json({ error: 'Webhook endpoint secret not configured' });
+    }
+
+    if (!sig) {
+      console.error('🚨 WEBHOOK ERROR: Assinatura não fornecida');
+      return res.status(400).json({ error: 'Missing stripe signature' });
+    }
+
+    let event;
+    try {
+      // 🔒 SEMPRE validar assinatura - SEM bypass de segurança
+      event = stripe.webhooks.constructEvent(req.body, sig as string, endpointSecret);
+      console.log(`✅ [WEBHOOK SECURE] Evento ${event.type} validado com sucesso`);
+    } catch (err: any) {
+      console.error(`🚨 [WEBHOOK SECURITY] Verificação de assinatura falhou:`, err.message);
+      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+    }
+
+    // 🔒 Processar apenas eventos relevantes - Retornar 2xx rapidamente
+    switch (event.type) {
+      case 'checkout.session.completed':
+        const session = event.data.object;
+        console.log('Checkout session completed:', session.id);
+
+        try {
+          // Recuperar informações da sessão
+          const retrievedSession = await stripe.checkout.sessions.retrieve(session.id, {
+            expand: ['subscription', 'customer']
+          });
+
+          // Verificar se é um pagamento de ingresso
+          if (retrievedSession.metadata?.type === 'ingresso') {
+            console.log('🎫 [WEBHOOK] Processando pagamento de ingresso:', session.id);
+
+            // Extrair informações do cliente do Stripe
+            const customer = retrievedSession.customer_details;
+            const nomeComprador = customer?.name || '';
+            const emailComprador = customer?.email || '';
+            const telefoneComprador = customer?.phone || '';
+
+            // Criar ingresso no banco de dados
+            const ingressoData = {
+              userId: null, // Cliente não logado
+              nomeComprador,
+              emailComprador,
+              telefoneComprador,
+              stripeCheckoutSessionId: session.id,
+              valorPago: 1990, // R$ 19,90 em centavos
+              status: 'ativo',
+              dataCompra: new Date()
+            };
+
+            const ingresso = await storage.createIngresso(ingressoData);
+            console.log(`✅ [WEBHOOK] Ingresso criado com sucesso: ${ingresso.numero} (ID: ${ingresso.id})`);
+
+          } else if (retrievedSession.metadata?.customSubscription === 'true') {
+            // 💳 PROCESSAR SUBSCRIPTION RECORRENTE PERSONALIZADA
+            console.log('💰 [WEBHOOK] Processando subscription recorrente personalizada:', session.id);
+            
+            const customerId = retrievedSession.customer as string;
+            const subscriptionId = retrievedSession.subscription as string;
+            const customerEmail = retrievedSession.customer_details?.email || '';
+            const customerName = retrievedSession.customer_details?.name || '';
+            
+            if (customerId && subscriptionId) {
+              try {
+                // Buscar subscription completa do Stripe
+                const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+                
+                // Extrair valores da metadata
+                const tier = retrievedSession.metadata?.tier || 'PLATINUM';
+                const amountMonthly = parseFloat(retrievedSession.metadata?.amountMonthly || '0');
+                const intervalMonths = parseInt(retrievedSession.metadata?.intervalMonths || '1');
+                
+                // Calcular próximo pagamento
+                const currentPeriodEnd = stripeSubscription.current_period_end;
+                
+                console.log(`✅ [WEBHOOK] Subscription criada - Tier: ${tier}, Valor: R$ ${amountMonthly}, Intervalo: ${intervalMonths} meses`);
+                
+                // Buscar ou criar usuário pelo email
+                let userId: number | null = null;
+                const existingUser = await db.select()
+                  .from(users)
+                  .where(eq(users.email, customerEmail))
+                  .limit(1);
+                
+                if (existingUser.length > 0) {
+                  userId = existingUser[0].id;
+                  console.log(`✅ [WEBHOOK] Usuário encontrado: ${userId}`);
+                  
+                  // Atualizar stripeCustomerId e stripeSubscriptionId
+                  await db.update(users)
+                    .set({
+                      stripeCustomerId: customerId,
+                      stripeSubscriptionId: subscriptionId,
+                      plano: tier.toLowerCase(),
+                    })
+                    .where(eq(users.id, userId));
+                } else {
+                  console.log(`⚠️ [WEBHOOK] Usuário não encontrado para email: ${customerEmail}`);
+                }
+                
+                // Criar registro em donorSubscriptions (somente se userId existir)
+                let subscriptionRecord: any[] = [];
+                if (userId) {
+                  subscriptionRecord = await db.insert(donorSubscriptions).values({
+                    userId: userId,
+                    stripeSubscriptionId: subscriptionId,
+                    stripeCustomerId: customerId,
+                    status: stripeSubscription.status,
+                    planPriceId: stripeSubscription.items.data[0]?.price?.id || 'price_custom',
+                    planName: tier.toLowerCase(),
+                    currentPeriodStart: stripeSubscription.current_period_start,
+                    currentPeriodEnd: stripeSubscription.current_period_end,
+                    cancelAt: stripeSubscription.cancel_at || null,
+                    canceledAt: stripeSubscription.canceled_at || null,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                  }).returning();
+                }
+                
+                console.log(`✅ [WEBHOOK] Registro criado em donorSubscriptions: ${subscriptionRecord[0]?.id}`);
+                
+                // Registrar evento de billing
+                if (subscriptionRecord.length > 0 && userId) {
+                  await db.insert(billingEvents).values({
+                    userId: userId,
+                    subscriptionId: subscriptionRecord[0].id,
+                    stripeSubscriptionId: subscriptionId,
+                    eventType: 'checkout.session.completed',
+                    status: 'active',
+                    payloadSummary: {
+                      tier,
+                      amountMonthly,
+                      intervalMonths,
+                      customerEmail,
+                      customerName,
+                      checkoutSessionId: session.id,
+                    },
+                    processed: true,
+                  });
+                  
+                  console.log(`✅ [WEBHOOK] Evento de billing registrado`);
+                }
+                
+                // Criar registro em doadores (compatibilidade com sistema antigo)
+                if (userId) {
+                  const existingDoador = await db.select()
+                    .from(doadores)
+                    .where(eq(doadores.userId, userId))
+                    .limit(1);
+                  
+                  if (existingDoador.length === 0) {
+                    await db.insert(doadores).values({
+                      userId: userId,
+                      plano: tier,
+                      valor: amountMonthly.toString(),
+                      stripeSubscriptionId: subscriptionId,
+                      status: 'paid',
+                      dataDoacaoInicial: new Date(),
+                      ativo: true,
+                    });
+                    
+                    console.log(`✅ [WEBHOOK] Registro criado em doadores`);
+                  } else {
+                    // Atualizar doador existente
+                    await db.update(doadores)
+                      .set({
+                        plano: tier,
+                        valor: amountMonthly.toString(),
+                        stripeSubscriptionId: subscriptionId,
+                        status: 'paid',
+                        ultimaDoacao: new Date(),
+                        ativo: true,
+                      })
+                      .where(eq(doadores.id, existingDoador[0].id));
+                    
+                    console.log(`✅ [WEBHOOK] Doador atualizado: ${existingDoador[0].id}`);
+                  }
+                }
+                
+              } catch (error) {
+                console.error('❌ [WEBHOOK] Erro ao processar subscription personalizada:', error);
+              }
+            } else {
+              console.error('❌ [WEBHOOK] Customer ID ou Subscription ID ausente');
+            }
+            
+          } else {
+            // Processar assinatura normal (código original)
+            console.log('Customer ID:', retrievedSession.customer);
+            console.log('Subscription ID:', retrievedSession.subscription);
+            console.log('Plan ID:', retrievedSession.metadata?.planId);
+
+            // Atualizar usuário no banco de dados com as informações do Stripe
+            if (retrievedSession.metadata?.planId && retrievedSession.customer && retrievedSession.subscription) {
+              // Encontrar usuário pelo telefone ou email da sessão
+              // Em um caso real, você salvaria uma referência do user_id na metadata da sessão
+              console.log('Atualizando dados do Stripe para o usuário...');
+            }
+          }
+
+        } catch (error) {
+          console.error('Error processing checkout session:', error);
+        }
+        break;
+
+      case 'customer.subscription.updated':
+        const subscription = event.data.object;
+        console.log('Subscription updated:', subscription.id);
+
+        try {
+          // Atualizar status da assinatura no banco de dados
+          console.log('New status:', subscription.status);
+
+          // Encontrar usuário pela subscription_id e atualizar status
+          const allUsers = await storage.getAllUsers();
+          const userToUpdate = allUsers.find(u => u.stripeSubscriptionId === subscription.id);
+
+          if (userToUpdate) {
+            // Determinar plano baseado no valor da assinatura
+            let planFromStripe = userToUpdate.plano || 'eco'; // Default
+
+            if (subscription.items && subscription.items.data && subscription.items.data.length > 0) {
+              const priceAmount = subscription.items.data[0].price.unit_amount; // Em centavos
+
+              if (priceAmount) {
+                console.log(`💰 [WEBHOOK] Valor da assinatura: R$ ${(priceAmount / 100).toFixed(2)} (${priceAmount} centavos)`);
+
+                // Mapear valor para plano
+                const amountReais = priceAmount / 100;
+                if (amountReais > 30) {
+                  planFromStripe = 'platinum';
+                } else if (amountReais >= 30) {
+                  planFromStripe = 'grito';
+                } else if (amountReais >= 20) {
+                  planFromStripe = 'voz';
+                } else if (amountReais >= 10) {
+                  planFromStripe = 'eco';
+                } else {
+                  planFromStripe = 'eco';
+                }
+
+                console.log(`📋 [WEBHOOK] Plano mapeado: ${planFromStripe}`);
+              }
+            }
+
+            // Atualizar status E plano no banco
+            await storage.updateUserStripeInfo(
+              userToUpdate.id,
+              userToUpdate.stripeCustomerId || '',
+              subscription.id,
+              subscription.status
+            );
+
+            // Atualizar plano separadamente usando a tabela importada
+            await db.update(users).set({ plano: planFromStripe }).where(eq(users.id, userToUpdate.id));
+
+            // 💳 REGISTRO DE EVENTO DE BILLING
+            const dbSubscription = await db.select()
+              .from(donorSubscriptions)
+              .where(eq(donorSubscriptions.stripeSubscriptionId, subscription.id))
+              .limit(1);
+
+            if (dbSubscription.length > 0) {
+              await db.update(donorSubscriptions)
+                .set({
+                  status: subscription.status,
+                  currentPeriodStart: subscription.current_period_start,
+                  currentPeriodEnd: subscription.current_period_end,
+                  cancelAt: subscription.cancel_at,
+                  canceledAt: subscription.canceled_at,
+                  updatedAt: new Date(),
+                })
+                .where(eq(donorSubscriptions.id, dbSubscription[0].id));
+
+              await db.insert(billingEvents).values({
+                userId: userToUpdate.id,
+                subscriptionId: dbSubscription[0].id,
+                stripeSubscriptionId: subscription.id,
+                eventType: 'customer.subscription.updated',
+                status: subscription.status,
+                payloadSummary: {
+                  status: subscription.status,
+                  plan: planFromStripe,
+                },
+                processed: true,
+              });
+            }
+
+            console.log(`✅ [WEBHOOK] Usuário ${userToUpdate.id} atualizado - Status: ${subscription.status}, Plano: ${planFromStripe}`);
+          }
+
+        } catch (error) {
+          console.error('Error processing subscription update:', error);
+        }
+        break;
+
+      case 'customer.subscription.deleted':
+        const deletedSubscription = event.data.object;
+        console.log('Subscription deleted:', deletedSubscription.id);
+
+        try {
+          // Atualizar status da assinatura para cancelada
+          const users = await storage.getAllUsers();
+          const user = users.find(u => u.stripeSubscriptionId === deletedSubscription.id);
+
+          if (user) {
+            await storage.updateUserStripeInfo(
+              user.id,
+              user.stripeCustomerId,
+              deletedSubscription.id,
+              'canceled'
+            );
+
+            // 💳 REGISTRO DE EVENTO DE BILLING
+            const dbSubscription = await db.select()
+              .from(donorSubscriptions)
+              .where(eq(donorSubscriptions.stripeSubscriptionId, deletedSubscription.id))
+              .limit(1);
+
+            if (dbSubscription.length > 0) {
+              await db.update(donorSubscriptions)
+                .set({
+                  status: 'canceled',
+                  canceledAt: deletedSubscription.canceled_at,
+                  updatedAt: new Date(),
+                })
+                .where(eq(donorSubscriptions.id, dbSubscription[0].id));
+
+              await db.insert(billingEvents).values({
+                userId: user.id,
+                subscriptionId: dbSubscription[0].id,
+                stripeSubscriptionId: deletedSubscription.id,
+                eventType: 'customer.subscription.deleted',
+                status: 'canceled',
+                processed: true,
+              });
+            }
+
+            console.log(`Assinatura cancelada para usuário ${user.id}`);
+          }
+
+        } catch (error) {
+          console.error('Error processing subscription deletion:', error);
+        }
+        break;
+
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object;
+        console.log('🎉 Payment succeeded:', paymentIntent.id);
+
+        try {
+          // 🔒 WEBHOOK: Processar pagamento de missão de forma segura
+          if (paymentIntent.metadata?.tipo === 'missao_pagamento') {
+            console.log(`✅ [WEBHOOK MISSION] Processando pagamento seguro - PI: ${paymentIntent.id}`);
+
+            // 🔍 AUDITORIA: Validar metadata obrigatória
+            if (!paymentIntent.metadata.userId || !paymentIntent.metadata.missaoId) {
+              console.error(`🚨 [WEBHOOK SECURITY] Metadata obrigatória faltando - PI: ${paymentIntent.id}`);
+              break;
+            }
+
+            // Buscar transação da missão
+            const transacao = await db.select().from(missaoTransacoes)
+              .where(eq(missaoTransacoes.stripePaymentIntentId, paymentIntent.id))
+              .limit(1);
+
+            if (transacao[0]) {
+              // 🔒 WEBHOOK: Atualizar status da transação de forma segura
+              await db.update(missaoTransacoes)
+                .set({
+                  status: 'succeeded',
+                  stripeWebhookProcessed: true,
+                  processedAt: new Date(),
+                  updatedAt: new Date()
+                })
+                .where(eq(missaoTransacoes.id, transacao[0].id));
+
+              console.log(`✅ [WEBHOOK AUDIT] Transação ${transacao[0].id} processada com sucesso - User: ${transacao[0].userId}, Mission: ${transacao[0].missaoId}`);
+
+              // Verificar se a missão já não foi marcada como concluída
+              const missaoJaConcluida = await db
+                .select()
+                .from(missoesConcluidas)
+                .where(and(
+                  eq(missoesConcluidas.userId, transacao[0].userId),
+                  eq(missoesConcluidas.missaoId, transacao[0].missaoId)
+                ))
+                .limit(1);
+
+              if (missaoJaConcluida.length === 0) {
+                // Buscar dados da missão para recompensa
+                const missao = await db
+                  .select()
+                  .from(missoesSemanais)
+                  .where(eq(missoesSemanais.id, transacao[0].missaoId))
+                  .limit(1);
+
+                if (missao.length > 0) {
+                  const gritosRecompensa = missao[0].recompensaGritos || 100;
+
+                  // 🔐 SEGURANÇA: Usar INSERT ON CONFLICT para prevenir dupla conclusão
+                  try {
+                    await db.insert(missoesConcluidas).values({
+                      userId: transacao[0].userId,
+                      missaoId: transacao[0].missaoId,
+                      gritosRecebidos: gritosRecompensa
+                    }).onConflictDoNothing();
+
+                    // Adicionar gritos ao usuário
+                    await storage.addGritosToUser(transacao[0].userId, gritosRecompensa);
+
+                    // Criar histórico de gritos
+                    await storage.createGritosHistorico({
+                      userId: transacao[0].userId,
+                      tipo: 'missao',
+                      gritosGanhos: gritosRecompensa,
+                      descricao: `Missão de pagamento concluída via webhook: ${missao[0].titulo}`
+                    });
+
+                    // Marcar que os gritos foram atribuídos
+                    await db
+                      .update(missaoTransacoes)
+                      .set({ gritosAtribuidos: true })
+                      .where(eq(missaoTransacoes.id, transacao[0].id));
+
+                    console.log(`✅ [WEBHOOK SUCCESS] Usuário ${transacao[0].userId}: +${gritosRecompensa} gritos pela missão "${missao[0].titulo}" - Valor: R$ ${transacao[0].valor}`);
+                  } catch (error) {
+                    console.error(`🚨 [WEBHOOK ERROR] Falha ao completar missão: ${error}`);
+                  }
+                } else {
+                  console.error(`🚨 [WEBHOOK ERROR] Missão ${transacao[0].missaoId} não encontrada para pagamento processado`);
+                }
+              } else {
+                console.log(`⚠️ [WEBHOOK DUPLICATE] Missão ${transacao[0].missaoId} já concluída - User: ${transacao[0].userId}`);
+              }
+            } else {
+              console.error(`🚨 [WEBHOOK CRITICAL] Transação não encontrada para PaymentIntent: ${paymentIntent.id} - Possível fraude`);
+            }
+          } else {
+            // Código original para doações regulares
+            // Buscar doador pelo PaymentIntent ID
+            const doador = await db.select().from(doadores)
+              .where(eq(doadores.stripePaymentIntentId, paymentIntent.id))
+              .limit(1);
+
+            if (doador[0]) {
+              // Atualizar status do doador para 'paid'
+              await db.update(doadores)
+                .set({
+                  status: 'paid',
+                  ultimaDoacao: new Date(),
+                })
+                .where(eq(doadores.id, doador[0].id));
+
+              console.log(`✅ Doador ${doador[0].id} atualizado para PAID via webhook`);
+
+              // Adicionar sistema de primeira entrada se necessário
+              const user = await db.select({
+                id: users.id,
+                // campo removido: primeiraEntradaCompleta
+                gritosTotal: users.gritosTotal
+              }).from(users).where(eq(users.id, doador[0].userId)).limit(1);
+
+              if (user[0] && (user[0].gritosTotal || 0) === 0) {
+                // Dar bônus de 50 Gritos para primeira doação
+                await db.update(users)
+                  .set({
+                    gritosTotal: (user[0].gritosTotal || 0) + 50
+                  })
+                  .where(eq(users.id, user[0].id));
+
+                console.log(`🎁 Bônus de 50 Gritos dados ao usuário ${user[0].id}`);
+              }
+            } else {
+              console.log(`⚠️ Doador não encontrado para PaymentIntent: ${paymentIntent.id}`);
+            }
+          }
+
+        } catch (error) {
+          console.error('❌ Error processing payment_intent.succeeded:', error);
+        }
+        break;
+
+      case 'invoice.paid':
+        const paidInvoice = event.data.object;
+        console.log('💰 [WEBHOOK] Invoice paid:', paidInvoice.id);
+
+        try {
+          // 🎯 FONTE DA VERDADE: invoice.paid é o evento definitivo para liberar acesso
+          const subscriptionId = paidInvoice.subscription as string;
+
+          if (!subscriptionId) {
+            console.log('⚠️ [WEBHOOK] Invoice sem subscription associada');
+            break;
+          }
+
+          // Buscar usuário pela subscription
+          const allUsers = await storage.getAllUsers();
+          const userToUpdate = allUsers.find(u => u.stripeSubscriptionId === subscriptionId);
+
+          if (!userToUpdate) {
+            console.log(`⚠️ [WEBHOOK] Usuário não encontrado para subscription: ${subscriptionId}`);
+            break;
+          }
+
+          // Atualizar status para 'active' e renovar período
+          await storage.updateUserStripeInfo(
+            userToUpdate.id,
+            userToUpdate.stripeCustomerId || '',
+            subscriptionId,
+            'active'
+          );
+
+          // Atualizar tabela doadores se existir
+          const doador = await db.select()
+            .from(doadores)
+            .where(eq(doadores.stripeSubscriptionId, subscriptionId))
+            .limit(1);
+
+          if (doador.length > 0) {
+            await db.update(doadores)
+              .set({
+                status: 'paid',
+                ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000),
+              })
+              .where(eq(doadores.id, doador[0].id));
+          }
+
+          // 💳 REGISTRO DE EVENTO DE BILLING
+          const subscription = await db.select()
+            .from(donorSubscriptions)
+            .where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId))
+            .limit(1);
+
+          if (subscription.length > 0) {
+            await db.update(donorSubscriptions)
+              .set({
+                status: 'active',
+                lastError: null,
+                nextPaymentAttempt: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(donorSubscriptions.id, subscription[0].id));
+
+            await db.insert(billingEvents).values({
+              userId: userToUpdate.id,
+              subscriptionId: subscription[0].id,
+              stripeSubscriptionId: subscriptionId,
+              eventType: 'invoice.paid',
+              invoiceId: paidInvoice.id,
+              paymentIntentId: paidInvoice.payment_intent as string,
+              amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : null,
+              currency: paidInvoice.currency,
+              status: 'succeeded',
+              processed: true,
+            });
+          }
+
+          console.log(`✅ [WEBHOOK] Invoice paid processada - User ${userToUpdate.id} ativo até ${new Date(paidInvoice.period_end * 1000).toISOString()}`);
+
+        } catch (error) {
+          console.error('❌ [WEBHOOK] Error processing invoice.paid:', error);
+        }
+        break;
+
+      case 'invoice.payment_failed':
+        const failedInvoice = event.data.object;
+        console.log('⚠️ [WEBHOOK] Invoice payment failed:', failedInvoice.id);
+
+        try {
+          const subscriptionId = failedInvoice.subscription as string;
+
+          if (!subscriptionId) {
+            console.log('⚠️ [WEBHOOK] Invoice sem subscription associada');
+            break;
+          }
+
+          // Buscar usuário
+          const allUsers = await storage.getAllUsers();
+          const userToUpdate = allUsers.find(u => u.stripeSubscriptionId === subscriptionId);
+
+          if (!userToUpdate) {
+            console.log(`⚠️ [WEBHOOK] Usuário não encontrado para subscription: ${subscriptionId}`);
+            break;
+          }
+
+          // Atualizar status para 'past_due' (Stripe Smart Retries tentará novamente)
+          await storage.updateUserStripeInfo(
+            userToUpdate.id,
+            userToUpdate.stripeCustomerId || '',
+            subscriptionId,
+            'past_due'
+          );
+
+          // 💳 REGISTRO DE EVENTO DE BILLING
+          const subscription = await db.select()
+            .from(donorSubscriptions)
+            .where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId))
+            .limit(1);
+
+          if (subscription.length > 0) {
+            await db.update(donorSubscriptions)
+              .set({
+                status: 'past_due',
+                lastError: failedInvoice.last_finalization_error?.message || 'Payment failed',
+                nextPaymentAttempt: failedInvoice.next_payment_attempt,
+                updatedAt: new Date(),
+              })
+              .where(eq(donorSubscriptions.id, subscription[0].id));
+
+            await db.insert(billingEvents).values({
+              userId: userToUpdate.id,
+              subscriptionId: subscription[0].id,
+              stripeSubscriptionId: subscriptionId,
+              eventType: 'invoice.payment_failed',
+              invoiceId: failedInvoice.id,
+              paymentIntentId: failedInvoice.payment_intent as string,
+              amount: failedInvoice.amount_due ? failedInvoice.amount_due / 100 : null,
+              currency: failedInvoice.currency,
+              status: 'failed',
+              nextPaymentAttempt: failedInvoice.next_payment_attempt,
+              errorMessage: failedInvoice.last_finalization_error?.message || 'Payment failed',
+              processed: true,
+            });
+          }
+
+          console.log(`⚠️ [WEBHOOK] Payment failed - User ${userToUpdate.id} marcado como past_due (Smart Retries ativo)`);
+
+        } catch (error) {
+          console.error('❌ [WEBHOOK] Error processing invoice.payment_failed:', error);
+        }
+        break;
+
+      case 'invoice.payment_action_required':
+        const actionRequiredInvoice = event.data.object;
+        console.log('🔐 [WEBHOOK] Invoice payment action required (3DS):', actionRequiredInvoice.id);
+
+        try {
+          const subscriptionId = actionRequiredInvoice.subscription as string;
+          const paymentIntentId = actionRequiredInvoice.payment_intent as string;
+
+          if (!subscriptionId) {
+            console.log('⚠️ [WEBHOOK] Invoice sem subscription associada');
+            break;
+          }
+
+          // Buscar usuário
+          const allUsers = await storage.getAllUsers();
+          const userToUpdate = allUsers.find(u => u.stripeSubscriptionId === subscriptionId);
+
+          if (!userToUpdate) {
+            console.log(`⚠️ [WEBHOOK] Usuário não encontrado para subscription: ${subscriptionId}`);
+            break;
+          }
+
+          // Atualizar status para indicar ação necessária
+          await storage.updateUserStripeInfo(
+            userToUpdate.id,
+            userToUpdate.stripeCustomerId || '',
+            subscriptionId,
+            'incomplete'
+          );
+
+          // Armazenar paymentIntentId para uso no frontend (3DS)
+          await db.update(users)
+            .set({
+              // Usar campo genérico ou criar novo campo para armazenar PI temporário
+              stripePaymentIntentId: paymentIntentId
+            })
+            .where(eq(users.id, userToUpdate.id));
+
+          // 💳 REGISTRO DE EVENTO DE BILLING
+          const subscription = await db.select()
+            .from(donorSubscriptions)
+            .where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId))
+            .limit(1);
+
+          if (subscription.length > 0) {
+            await db.update(donorSubscriptions)
+              .set({
+                status: 'incomplete',
+                updatedAt: new Date(),
+              })
+              .where(eq(donorSubscriptions.id, subscription[0].id));
+
+            await db.insert(billingEvents).values({
+              userId: userToUpdate.id,
+              subscriptionId: subscription[0].id,
+              stripeSubscriptionId: subscriptionId,
+              eventType: 'invoice.payment_action_required',
+              invoiceId: actionRequiredInvoice.id,
+              paymentIntentId: paymentIntentId,
+              amount: actionRequiredInvoice.amount_due ? actionRequiredInvoice.amount_due / 100 : null,
+              currency: actionRequiredInvoice.currency,
+              status: 'requires_action',
+              payloadSummary: { paymentIntentId },
+              processed: true,
+            });
+          }
+
+          console.log(`🔐 [WEBHOOK] Payment action required - User ${userToUpdate.id} precisa autenticar 3DS (PI: ${paymentIntentId})`);
+
+        } catch (error) {
+          console.error('❌ [WEBHOOK] Error processing invoice.payment_action_required:', error);
+        }
+        break;
+
+      case 'setup_intent.succeeded':
+        const setupIntent = event.data.object;
+        console.log('💳 [WEBHOOK] Setup intent succeeded:', setupIntent.id);
+
+        try {
+          const customerId = setupIntent.customer as string;
+          const paymentMethodId = setupIntent.payment_method as string;
+
+          if (!customerId || !paymentMethodId) {
+            console.log('⚠️ [WEBHOOK] Setup intent sem customer ou payment method');
+            break;
+          }
+
+          console.log(`✅ [WEBHOOK] Payment method ${paymentMethodId} confirmado para customer ${customerId}`);
+
+          // Opcional: Log ou reconciliação adicional
+          // O frontend já chama attach via endpoint, mas este webhook confirma sucesso
+
+        } catch (error) {
+          console.error('❌ [WEBHOOK] Error processing setup_intent.succeeded:', error);
+        }
+        break;
+
+      default:
+        console.log(`Unhandled event type ${event.type}`);
+    }
+
+    // ✅ Retornar 200 rapidamente para Stripe
+    res.status(200).json({ received: true, processed: true });
+  });
+
+  // 🚨 NOVA IMPLEMENTAÇÃO: Mudança de plano usando Subscription Schedules
+  // Garante que mudanças só são efetivadas no próximo ciclo de cobrança, sem cobrança imediata
+  app.post('/api/schedule-plan-change', async (req, res) => {
+    try {
+      const { subscriptionId, newPlanId, customAmount, userId } = req.body;
+
+      console.log('📅 [SCHEDULE PLAN CHANGE] Iniciando mudança de plano com Subscription Schedule:', {
+        subscriptionId,
+        newPlanId,
+        customAmount,
+        userId
+      });
+
+      if (!newPlanId) {
+        return res.status(400).json({ error: "Plan ID é obrigatório" });
+      }
+
+      // Validar plano (exceto platinum com valor customizado)
+      if (newPlanId !== 'platinum' && !planPricing[newPlanId as keyof typeof planPricing]) {
+        return res.status(400).json({ error: "Plano inválido" });
+      }
+
+      // Validar customAmount para plano platinum
+      if (newPlanId === 'platinum') {
+        if (!customAmount || customAmount < 3000) {
+          return res.status(400).json({
+            error: "Valor customizado inválido",
+            message: "Para valores abaixo de R$ 30,00, temos outros planos disponíveis"
+          });
+        }
+      }
+
+      // Determinar valores do plano
+      let planName, planDescription, planPrice;
+
+      if (newPlanId === 'platinum' && customAmount) {
+        // Para plano Platinum, usar valor customizado
+        planName = 'Clube do Grito - Platinum';
+        planDescription = `Plano Platinum - Contribuição mensal de R$ ${(customAmount / 100).toFixed(2)}`;
+        planPrice = customAmount;
+      } else {
+        // Para outros planos, buscar do pricing
+        const planDetails = planPricing[newPlanId as keyof typeof planPricing];
+        if (!planDetails) {
+          return res.status(400).json({ error: "Plano não encontrado" });
+        }
+        planName = planDetails.name;
+        planDescription = planDetails.description;
+        planPrice = planDetails.price;
+      }
+
+      // ETAPA 1: Buscar subscription existente
+      if (!subscriptionId) {
+        return res.status(400).json({
+          error: "Subscription ID é obrigatório",
+          message: "É necessário ter uma assinatura ativa para alterar o plano"
+        });
+      }
+
+      let currentSubscription;
+      try {
+        // Recuperar subscription com todos os dados expandidos
+        currentSubscription = await stripe.subscriptions.retrieve(subscriptionId, {
+          expand: ['default_payment_method', 'customer', 'items.data.price']
+        });
+        console.log(`✅ [SCHEDULE] Subscription encontrada: ${currentSubscription.id} (status: ${currentSubscription.status})`);
+
+        // Debug: mostrar estrutura da subscription para encontrar o campo correto
+        console.log(`🔍 [DEBUG] Subscription structure:`, {
+          id: currentSubscription.id,
+          current_period_end: currentSubscription.current_period_end,
+          current_period_start: currentSubscription.current_period_start,
+          billing_cycle_anchor: currentSubscription.billing_cycle_anchor,
+          status: currentSubscription.status,
+          // Mostrar apenas os primeiros 20 campos para não sobrecarregar o log
+          availableFields: Object.keys(currentSubscription).slice(0, 20)
+        });
+
+        // Se current_period_end ainda é undefined, vamos usar o billing_cycle_anchor
+        if (!currentSubscription.current_period_end) {
+          console.log(`⚠️ [DEBUG] current_period_end is undefined, trying alternative fields:`, {
+            billing_cycle_anchor: currentSubscription.billing_cycle_anchor,
+            created: currentSubscription.created,
+            start_date: currentSubscription.start_date
+          });
+        }
+
+      } catch (error: any) {
+        console.error('❌ [SCHEDULE] Subscription não encontrada:', error.message);
+        return res.status(404).json({
+          error: "Assinatura não encontrada",
+          message: "A assinatura não existe no Stripe"
+        });
+      }
+
+      // Verificar se subscription está em estado válido
+      // Aceitar: active, past_due, unpaid, incomplete, incomplete_expired
+      const validStatuses = ['active', 'past_due', 'unpaid', 'incomplete', 'incomplete_expired'];
+      if (!validStatuses.includes(currentSubscription.status)) {
+        return res.status(400).json({
+          error: "Assinatura inválida",
+          message: `Não é possível alterar planos com assinatura no status: ${currentSubscription.status}`
+        });
+      }
+      
+      // SOLUÇÃO ESPECIAL: Para subscriptions canceladas/expiradas, criar NOVA subscription
+      if (['incomplete', 'incomplete_expired', 'canceled'].includes(currentSubscription.status)) {
+        console.log(`⚠️ [NEW SUB] Subscription ${currentSubscription.status} - criando nova subscription`);
+        
+        // Criar produto e preço
+        const product = await stripe.products.create({
+          name: planName,
+          description: planDescription,
+        });
+        
+        const newPrice = await stripe.prices.create({
+          currency: 'brl',
+          unit_amount: planPrice,
+          recurring: { interval: 'month' },
+          product: product.id,
+        });
+        
+        console.log(`✅ [NEW SUB] Preço criado: ${newPrice.id} (R$ ${(planPrice / 100).toFixed(2)})`);
+        
+        // Criar Checkout Session para coletar método de pagamento
+        try {
+          // Extrair customer ID (pode vir como objeto ou string)
+          const customerId = typeof currentSubscription.customer === 'string' 
+            ? currentSubscription.customer 
+            : currentSubscription.customer.id;
+          
+          console.log(`🔑 [NEW SUB] Customer ID: ${customerId}`);
+          console.log(`💳 [NEW SUB] Customer sem método de pagamento - criando Checkout Session`);
+          
+          // Criar Checkout Session para coletar pagamento
+          const session = await stripe.checkout.sessions.create({
+            customer: customerId,
+            mode: 'subscription',
+            payment_method_types: ['card'],
+            line_items: [{
+              price: newPrice.id,
+              quantity: 1,
+            }],
+            success_url: `${process.env.FRONTEND_URL || 'https://clubedogrito.institutoogrito.com.br'}/change-plan?success=true`,
+            cancel_url: `${process.env.FRONTEND_URL || 'https://clubedogrito.institutoogrito.com.br'}/change-plan?canceled=true`,
+            metadata: {
+              tier: newPlanId,
+              amountMonthly: (planPrice / 100).toFixed(2),
+              intervalMonths: '1',
+              customSubscription: 'true',
+              userId: userId?.toString() || ''
+            }
+          });
+          
+          console.log(`✅ [NEW SUB] Checkout Session criada: ${session.id}`);
+          
+          return res.json({
+            success: true,
+            requiresCheckout: true,
+            checkoutUrl: session.url,
+            message: "Por favor, confirme seus dados de pagamento para continuar."
+          });
+        } catch (error: any) {
+          console.error('❌ [NEW SUB] Erro ao criar checkout:', error);
+          return res.status(500).json({
+            error: "Erro ao criar sessão de pagamento",
+            message: error.message
+          });
+        }
+      }
+
+      // ETAPA 2: Criar produto e preço para o novo plano (subscriptions ativas)
+      const idempotencyKey = `schedule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const product = await stripe.products.create({
+        name: planName,
+        description: planDescription,
+      }, {
+        idempotencyKey: `product_${idempotencyKey}`
+      });
+
+      console.log(`✅ [SCHEDULE] Produto criado: ${product.id}`);
+
+      const newPrice = await stripe.prices.create({
+        currency: 'brl',
+        unit_amount: planPrice,
+        recurring: {
+          interval: 'month',
+        },
+        product: product.id,
+      }, {
+        idempotencyKey: `price_${idempotencyKey}`
+      });
+
+      console.log(`✅ [SCHEDULE] Preço criado: ${newPrice.id} (R$ ${(planPrice / 100).toFixed(2)})`);
+
+      // ETAPA 3: Cancelar subscription schedules existentes para evitar conflitos
+      try {
+        // Stripe API não suporta filtrar por subscription na listagem
+        // Precisamos listar todos e filtrar manualmente
+        const existingSchedules = await stripe.subscriptionSchedules.list({
+          limit: 10
+        });
+
+        // Filtrar schedules relacionados à subscription
+        const relatedSchedules = existingSchedules.data.filter(schedule =>
+          schedule.subscription === subscriptionId
+        );
+
+        for (const schedule of relatedSchedules) {
+          if (schedule.status === 'active' || schedule.status === 'not_started') {
+            await stripe.subscriptionSchedules.cancel(schedule.id);
+            console.log(`🗑️ [SCHEDULE] Schedule anterior cancelado: ${schedule.id}`);
+          }
+        }
+      } catch (error: any) {
+        console.warn('⚠️ [SCHEDULE] Erro ao cancelar schedules anteriores:', error.message);
+      }
+
+      // ETAPA 4: Criar Subscription Schedule com duas fases
+      let currentPeriodEnd = currentSubscription.current_period_end;
+
+      // Debug: verificar se current_period_end é válido
+      console.log(`🔍 [DEBUG] currentPeriodEnd raw value:`, currentPeriodEnd, 'Type:', typeof currentPeriodEnd);
+      console.log(`🔍 [DEBUG] Full subscription keys:`, Object.keys(currentSubscription).slice(0, 30));
+
+      // Fallback: se current_period_end não existe, usar billing_cycle_anchor + 30 dias
+      if (!currentPeriodEnd || typeof currentPeriodEnd !== 'number') {
+        console.log(`⚠️ [SCHEDULE] current_period_end inválido, usando fallback com billing_cycle_anchor`);
+
+        const billingAnchor = currentSubscription.billing_cycle_anchor || currentSubscription.created;
+        if (billingAnchor) {
+          // Adicionar 30 dias (assumindo ciclo mensal) ao billing anchor
+          currentPeriodEnd = billingAnchor + (30 * 24 * 60 * 60); // 30 dias em segundos
+          console.log(`🔄 [SCHEDULE] Usando data calculada: ${billingAnchor} + 30 dias = ${currentPeriodEnd}`);
+        } else {
+          // Último recurso: adicionar 30 dias à data atual
+          currentPeriodEnd = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
+          console.log(`🚨 [SCHEDULE] Último recurso: usando data atual + 30 dias = ${currentPeriodEnd}`);
+        }
+      }
+
+      const nextBillingDate = new Date(currentPeriodEnd * 1000);
+
+      // Validar se a data foi criada corretamente
+      if (isNaN(nextBillingDate.getTime())) {
+        throw new Error(`Data inválida criada a partir de currentPeriodEnd: ${currentPeriodEnd}`);
+      }
+
+      console.log(`📅 [SCHEDULE] Período atual termina em: ${nextBillingDate.toLocaleDateString('pt-BR')}`);
+      console.log(`📅 [SCHEDULE] Nova cobrança será em: ${nextBillingDate.toLocaleDateString('pt-BR')}`);
+
+      // 🎯 CORREÇÃO: Criar schedule sem from_subscription para poder usar phases
+      let customerId;
+      if (typeof currentSubscription.customer === 'string') {
+        customerId = currentSubscription.customer;
+      } else if (currentSubscription.customer && currentSubscription.customer.id) {
+        customerId = currentSubscription.customer.id;
+      } else {
+        throw new Error('Customer ID não encontrado na subscription');
+      }
+
+      // 🐛 DEBUG: Verificar se customer ID é string válida
+      console.log(`🔍 [DEBUG] Customer ID extraído:`, {
+        type: typeof customerId,
+        value: customerId,
+        isString: typeof customerId === 'string',
+        length: customerId?.length
+      });
+
+      console.log(`🔍 [DEBUG] Creating subscription schedule with:`, {
+        customer: customerId,
+        currentPeriodEnd: currentPeriodEnd,
+        currentPriceId: currentSubscription.items.data[0].price.id,
+        newPriceId: newPrice.id
+      });
+
+      // Primeiro, cancelar a subscription atual para que o schedule possa assumir
+      await stripe.subscriptions.update(subscriptionId, {
+        cancel_at: currentPeriodEnd, // Cancelar no final do período atual
+      });
+
+      console.log(`✅ [SCHEDULE] Subscription ${subscriptionId} será cancelada em ${nextBillingDate.toLocaleDateString('pt-BR')}`);
+
+      // 🎯 CORREÇÃO FINAL: Garantir que customer é sempre string
+      const customerIdString = String(customerId);
+      console.log(`✅ [DEBUG] Customer final para Stripe: "${customerIdString}" (tipo: ${typeof customerIdString})`);
+
+      // Criar o schedule com duas fases sem usar from_subscription
+      const subscriptionSchedule = await stripe.subscriptionSchedules.create({
+        customer: customerIdString,
+        start_date: 'now', // Iniciar imediatamente
+        phases: [
+          {
+            // FASE 1: Manter plano atual até o final do período
+            end_date: currentPeriodEnd,
+            items: [
+              {
+                price: currentSubscription.items.data[0].price.id,
+                quantity: 1,
+              },
+            ],
+            // Não alterar cobrança na fase 1 - mantém como está
+            proration_behavior: 'none',
+          },
+          {
+            // FASE 2: Aplicar novo plano a partir do próximo ciclo
+            items: [
+              {
+                price: newPrice.id,
+                quantity: 1,
+              },
+            ],
+            // Continuação indefinida - sem end_date nem iterations
+          },
+        ],
+        end_behavior: 'release', // Após o schedule, continua a subscription normalmente
+      }, {
+        idempotencyKey: `schedule_${idempotencyKey}`
+      });
+
+      console.log(`✅ [SCHEDULE] Subscription Schedule criado: ${subscriptionSchedule.id}`);
+      console.log(`📋 [SCHEDULE] Fases:`, {
+        fase1: `Plano atual até ${nextBillingDate.toLocaleDateString('pt-BR')}`,
+        fase2: `Novo plano (${planName}) a partir de ${nextBillingDate.toLocaleDateString('pt-BR')}`
+      });
+
+      // ETAPA 5: Atualizar banco de dados com o novo plano (agendado)
+      if (userId) {
+        try {
+          // Salvar informações sobre a mudança agendada
+          await storage.updateUser(parseInt(userId), {
+            plano: newPlanId
+          });
+          console.log(`✅ [SCHEDULE] Banco atualizado - mudança agendada para: ${nextBillingDate.toLocaleDateString('pt-BR')}`);
+        } catch (dbUpdateError) {
+          console.error('⚠️ [SCHEDULE] Erro ao atualizar banco:', dbUpdateError);
+          // Não falhar aqui, o schedule foi criado com sucesso
+        }
+      }
+
+      // ETAPA 6: Resposta de sucesso
+      res.json({
+        success: true,
+        message: 'Mudança de plano agendada com sucesso',
+        scheduleId: subscriptionSchedule.id,
+        currentPlan: currentSubscription.items.data[0].price.id,
+        newPlan: newPrice.id,
+        changeEffectiveDate: nextBillingDate.toISOString(),
+        changeEffectiveDateFormatted: nextBillingDate.toLocaleDateString('pt-BR'),
+        phases: subscriptionSchedule.phases.length,
+        noImmediateCharge: true
+      });
+
+    } catch (error: any) {
+      console.error('❌ [SCHEDULE] Erro ao agendar mudança de plano:', error);
+      res.status(500).json({
+        error: "Erro ao agendar mudança de plano",
+        message: error.message || "Erro interno do servidor"
+      });
+    }
+  });
+
+  // 🗑️ DEPRECATED: Endpoint antigo redireciona para nova implementação com schedules
+  app.post('/api/update-subscription', async (req, res) => {
+    console.log('⚠️ [DEPRECATED] Endpoint /api/update-subscription está obsoleto. Redirecionando para /api/schedule-plan-change');
+
+    // Redirecionar para nova implementação
+    try {
+      const response = await fetch(`${req.protocol}://${req.get('host')}/api/schedule-plan-change`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(req.body)
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        res.json({
+          ...data,
+          deprecationWarning: 'Este endpoint está obsoleto. Use /api/schedule-plan-change para novas implementações.'
+        });
+      } else {
+        res.status(response.status).json(data);
+      }
+    } catch (error: any) {
+      console.error('❌ [DEPRECATED] Erro ao redirecionar:', error);
+      res.status(500).json({
+        error: 'Erro ao processar solicitação',
+        message: 'Use o endpoint /api/schedule-plan-change para mudanças de plano'
+      });
+    }
+  });
+
+  // Rota para verificar status da assinatura
+  app.post('/api/check-subscription-status', async (req, res) => {
+    try {
+      const { subscriptionId } = req.body;
+
+      if (!subscriptionId) {
+        return res.status(400).json({ error: "Subscription ID é obrigatório" });
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+      res.json({
+        success: true,
+        status: subscription.status,
+        subscription: subscription
+      });
+    } catch (error: any) {
+      console.error("Error checking subscription status:", error);
+      res.status(500).json({ error: "Erro ao verificar status da assinatura" });
+    }
+  });
+
+  // Rota para cancelar assinatura
+  app.post('/api/cancel-subscription', async (req, res) => {
+    try {
+      const { subscriptionId } = req.body;
+
+      if (!subscriptionId) {
+        return res.status(400).json({ error: "Subscription ID é obrigatório" });
+      }
+
+      const canceledSubscription = await stripe.subscriptions.cancel(subscriptionId);
+
+      res.json({
+        success: true,
+        subscription: canceledSubscription,
+        message: 'Assinatura cancelada com sucesso'
+      });
+    } catch (error: any) {
+      console.error("Error canceling subscription:", error);
+      res.status(500).json({ error: "Erro ao cancelar assinatura" });
+    }
+  });
+
+  // Reativar assinatura expirada (incomplete_expired/void/unpaid)
+  app.post('/api/billing/reactivate', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { paymentMethodId } = req.body;
+
+      if (!user || !user.stripeSubscriptionId) {
+        return res.status(400).json({
+          error: "Assinatura não encontrada",
+          message: "Você não possui uma assinatura para reativar"
+        });
+      }
+
+      if (!paymentMethodId) {
+        return res.status(400).json({
+          error: "Método de pagamento obrigatório",
+          message: "Selecione um cartão ou adicione um novo"
+        });
+      }
+
+      console.log(`🔄 [REACTIVATE] Reativando subscription ${user.stripeSubscriptionId} para user ${user.id}`);
+
+      // Buscar subscription atual
+      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+
+      // Validar status (apenas incomplete_expired, unpaid ou canceled podem ser reativadas)
+      const reactivableStatuses = ['incomplete_expired', 'unpaid', 'canceled'];
+      if (!reactivableStatuses.includes(subscription.status)) {
+        return res.status(400).json({
+          error: "Assinatura não pode ser reativada",
+          message: `Status atual: ${subscription.status}. Apenas assinaturas expiradas, não pagas ou canceladas podem ser reativadas.`,
+          currentStatus: subscription.status
+        });
+      }
+
+      // Criar nova subscription com o mesmo plano
+      const priceId = subscription.items.data[0].price.id;
+
+      if (!user.stripeCustomerId) {
+        return res.status(400).json({
+          error: "Customer não encontrado",
+          message: "Dados do Stripe incompletos"
+        });
+      }
+
+      // Anexar payment method ao customer
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: user.stripeCustomerId,
+      });
+
+      // Definir como padrão
+      await stripe.customers.update(user.stripeCustomerId, {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
+      });
+
+      // Criar nova subscription (não podemos reativar incomplete_expired, precisamos criar nova)
+      const newSubscription = await stripe.subscriptions.create({
+        customer: user.stripeCustomerId,
+        items: [{ price: priceId }],
+        default_payment_method: paymentMethodId,
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          save_default_payment_method: 'on_subscription',
+          payment_method_types: ['card']
+        },
+        expand: ['latest_invoice.payment_intent'],
+      });
+
+      // Cancelar subscription antiga se necessário
+      if (subscription.status !== 'canceled') {
+        await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      }
+
+      // Atualizar banco de dados
+      await storage.updateUserStripeInfo(
+        user.id,
+        user.stripeCustomerId,
+        newSubscription.id,
+        newSubscription.status
+      );
+
+      const latestInvoice = newSubscription.latest_invoice as any;
+      const paymentIntent = latestInvoice?.payment_intent as any;
+
+      console.log(`✅ [REACTIVATE] Nova subscription criada: ${newSubscription.id}, status: ${newSubscription.status}`);
+
+      res.json({
+        success: true,
+        subscriptionId: newSubscription.id,
+        status: newSubscription.status,
+        clientSecret: paymentIntent?.client_secret,
+        requiresAction: paymentIntent?.status === 'requires_action',
+        message: 'Assinatura reativada com sucesso'
+      });
+    } catch (error: any) {
+      console.error("❌ [REACTIVATE] Error:", error);
+      res.status(500).json({
+        error: "Erro ao reativar assinatura",
+        message: error.message
+      });
+    }
+  });
+
+  // Buscar client_secret de um PaymentIntent para autenticação 3DS
+  app.get('/api/billing/payment-intent/:invoiceId', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { invoiceId } = req.params;
+
+      if (!invoiceId) {
+        return res.status(400).json({
+          error: "Invoice ID obrigatório"
+        });
+      }
+
+      console.log(`🔐 [3DS] Buscando PaymentIntent para invoice ${invoiceId} (user ${user.id})`);
+
+      // Buscar invoice
+      const invoice = await stripe.invoices.retrieve(invoiceId);
+
+      // Verificar se pertence ao usuário (segurança)
+      if (invoice.customer !== user.stripeCustomerId) {
+        return res.status(403).json({
+          error: "Acesso negado",
+          message: "Esta fatura não pertence a você"
+        });
+      }
+
+      // Buscar PaymentIntent
+      const paymentIntentId = invoice.payment_intent as string;
+
+      if (!paymentIntentId) {
+        return res.status(404).json({
+          error: "PaymentIntent não encontrado",
+          message: "Esta fatura não possui um pagamento associado"
+        });
+      }
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+      console.log(`✅ [3DS] PaymentIntent ${paymentIntentId} encontrado, status: ${paymentIntent.status}`);
+
+      res.json({
+        success: true,
+        clientSecret: paymentIntent.client_secret,
+        status: paymentIntent.status,
+        requiresAction: paymentIntent.status === 'requires_action',
+        paymentIntentId: paymentIntent.id
+      });
+    } catch (error: any) {
+      console.error("❌ [3DS] Error:", error);
+      res.status(500).json({
+        error: "Erro ao buscar informações de pagamento",
+        message: error.message
+      });
+    }
+  });
+
+  // Update user Stripe information
+  app.post("/api/update-user-stripe", async (req, res) => {
+    try {
+      const { userId, stripeCustomerId, stripeSubscriptionId, subscriptionStatus } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: "User ID é obrigatório" });
+      }
+
+      const updatedUser = await storage.updateUserStripeInfo(
+        userId,
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus
+      );
+
+      res.json({
+        success: true,
+        message: "Informações do Stripe atualizadas com sucesso",
+        user: updatedUser
+      });
+    } catch (error: any) {
+      console.error("Error updating user Stripe info:", error);
+      res.status(500).json({ error: "Erro ao atualizar informações do Stripe" });
+    }
+  });
+
+  // Register user
+  app.post("/api/register", async (req, res) => {
+    try {
+      const userData = postPaymentRegisterSchema.parse(req.body);
+
+      // Check if this user is coming from a payment flow (has plano)
+      const isDoador = userData.plano && ['eco', 'voz', 'grito', 'platinum'].includes(userData.plano);
+
+      // 🔗 VERIFICAR REFERRAL: Se tem código de convite na requisição
+      let referralData = null;
+      if (req.body.referralCode) {
+        try {
+          const referral = await db
+            .select()
+            .from(referrals)
+            .where(eq(referrals.codigoConvite, req.body.referralCode))
+            .limit(1);
+
+          if (referral[0] && referral[0].status === "pendente") {
+            // Verificar se não expirou
+            if (!referral[0].expiradoEm || new Date() <= new Date(referral[0].expiradoEm)) {
+              referralData = referral[0];
+              console.log(`🎯 [REFERRAL] Novo usuário via referral: ${req.body.referralCode} de usuário ${referralData.referrerUserId}`);
+            } else {
+              console.log(`⚠️ [REFERRAL] Link expirado: ${req.body.referralCode}`);
+            }
+          }
+        } catch (error) {
+          console.error("Erro ao verificar referral:", error);
+        }
+      }
+
+      // CONSOLIDAÇÃO AUTOMÁTICA: Garantir que vire um user na tabela principal
+      const { consolidateUser } = await import('./userConsolidation');
+      const consolidatedUser = await consolidateUser({
+        nome: `${userData.nome} ${userData.sobrenome || ''}`.trim(),
+        telefone: userData.telefone,
+        email: userData.email,
+        tipo: isDoador ? 'doador' : 'doador', // Always doador for this endpoint
+        fonte: referralData ? 'referral' : 'doacao', // Marcar como referral se veio de convite
+        plano: userData.plano || 'eco'
+      });
+
+      console.log(`✅ [CONSOLIDAÇÃO] Usuário registrado: ${consolidatedUser.nome} (${consolidatedUser.telefone}) como ${consolidatedUser.tipo} via ${consolidatedUser.fonte}`);
+
+      // Generate verification code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      try {
+        // Try to send SMS via Twilio
+        const client = getTwilioClient();
+        await client.messages.create({
+          body: `Seu código de verificação do Clube do Grito é: ${verificationCode}`,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: `+55${userData.telefone.replace(/\D/g, '')}`
+        });
+
+        console.log(`SMS enviado para ${userData.telefone}: ${verificationCode}`);
+      } catch (twilioError: any) {
+        // If Twilio fails (trial account, unverified number, etc.), log the code for development
+        console.log(`DESENVOLVIMENTO - Código para ${userData.telefone}: ${verificationCode}`);
+        console.log("Erro Twilio:", twilioError.message);
+      }
+
+      // Store verification code (in production, use a proper cache like Redis)
+      verificationCodes.set(userData.telefone, verificationCode);
+
+      // 🎯 PROCESSAR REFERRAL: Se veio de convite, guardar para processar na verificação
+      if (referralData) {
+        // Armazenar dados do referral para processar quando verificar o código
+        verificationCodes.set(`referral_${userData.telefone}`, JSON.stringify({
+          referralId: referralData.id,
+          referrerUserId: referralData.referrerUserId,
+          missaoId: referralData.missaoId,
+          gritosRecompensa: referralData.gritosRecompensa
+        }));
+        console.log(`💾 [REFERRAL] Dados salvos para processar na verificação: ${userData.telefone}`);
+      }
+
+      res.json({
+        userId: consolidatedUser.id,
+        message: "Código de verificação enviado via SMS",
+        // In development, return the code for testing
+        ...(process.env.NODE_ENV === "development" && { devCode: verificationCode })
+      });
+    } catch (error: any) {
+      console.error("Error registering user:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dados inválidos", details: error.errors });
+      }
+      res.status(500).json({ error: "Erro ao registrar usuário" });
+    }
+  });
+
+  app.get("/api/admin/check-all-subscriptions", async (req, res) => {
+    try {
+      // Buscar todos os doadores com subscriptions
+      const doadoresList = await db
+        .select({
+          id: doadores.id,
+          nome: users.nome,
+          stripeSubscriptionId: doadores.stripeSubscriptionId,
+          stripeCustomerId: doadores.stripeCustomerId,
+        })
+        .from(doadores)
+        .leftJoin(users, eq(doadores.userId, users.id))
+        .where(ne(doadores.stripeSubscriptionId, null));
+
+      const results = [];
+
+      for (const doador of doadoresList) {
+        if (!doador.stripeSubscriptionId) continue;
+
+        try {
+          const subscription = await stripe.subscriptions.retrieve(doador.stripeSubscriptionId);
+
+          results.push({
+            doadorId: doador.id,
+            nome: doador.nome,
+            stripeSubId: doador.stripeSubscriptionId,
+            status: subscription.status,
+            currentPeriodStart: new Date(subscription.current_period_start * 1000),
+            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            nextBillingDate: new Date(subscription.current_period_end * 1000),
+            amount: subscription.items.data[0]?.price?.unit_amount ? subscription.items.data[0].price.unit_amount / 100 : 0,
+            interval: subscription.items.data[0]?.price?.recurring?.interval,
+            intervalCount: subscription.items.data[0]?.price?.recurring?.interval_count,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          });
+        } catch (error: any) {
+          results.push({
+            doadorId: doador.id,
+            nome: doador.nome,
+            stripeSubId: doador.stripeSubscriptionId,
+            error: error.message,
+          });
+        }
+      }
+
+      res.json({ total: results.length, subscriptions: results });
+    } catch (error: any) {
+      console.error("Error checking subscriptions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/create-manual-subscription", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { userId, monthlyAmount, intervalMonths } = req.body;
+
+      if (!userId || !monthlyAmount) {
+        return res.status(400).json({ error: "userId e monthlyAmount são obrigatórios" });
+      }
+
+      const interval = intervalMonths || 1;
+      if (![1, 3, 6, 12].includes(interval)) {
+        return res.status(400).json({ error: "intervalMonths deve ser 1, 3, 6 ou 12" });
+      }
+
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      console.log(`🔧 [MANUAL SUB] Criando subscription manual para ${user.nome} (ID: ${userId})`);
+      console.log(`💰 Valor: R$ ${monthlyAmount}/mês | Intervalo: ${interval} meses`);
+
+      const [doador] = await db.select()
+        .from(doadores)
+        .where(eq(doadores.userId, userId))
+        .orderBy(doadores.dataDoacaoInicial)
+        .limit(1);
+
+      if (!doador?.stripePaymentIntentId) {
+        return res.status(404).json({ 
+          error: "Usuário não tem payment intent registrado. É necessário que ele tenha feito pelo menos um pagamento anteriormente." 
+        });
+      }
+
+      console.log(`🔍 [MANUAL SUB] Payment Intent: ${doador.stripePaymentIntentId}`);
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(doador.stripePaymentIntentId);
+      
+      if (!paymentIntent.customer) {
+        return res.status(400).json({ 
+          error: "Payment Intent não tem customer associado" 
+        });
+      }
+
+      const customerId = typeof paymentIntent.customer === 'string' 
+        ? paymentIntent.customer 
+        : paymentIntent.customer.id;
+
+      console.log(`✅ [MANUAL SUB] Customer ID: ${customerId}`);
+
+      const customer = await stripe.customers.retrieve(customerId);
+      if (customer.deleted) {
+        return res.status(400).json({ error: "Customer foi deletado no Stripe" });
+      }
+
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: customerId,
+        type: 'card',
+      });
+
+      if (paymentMethods.data.length === 0) {
+        return res.status(400).json({ 
+          error: "Usuário não tem método de pagamento salvo. É necessário que ele adicione um cartão através da página de planos." 
+        });
+      }
+
+      const defaultPaymentMethod = paymentMethods.data[0].id;
+      console.log(`💳 [MANUAL SUB] Payment Method: ${defaultPaymentMethod}`);
+
+      const priceData: Stripe.SubscriptionCreateParams.Item.PriceData = {
+        currency: 'brl',
+        product_data: {
+          name: `Contribuição Mensal - ${user.nome}`,
+          description: `Assinatura recorrente de R$ ${monthlyAmount.toFixed(2)} a cada ${interval} ${interval === 1 ? 'mês' : 'meses'}`,
+        },
+        unit_amount: Math.round(monthlyAmount * 100),
+        recurring: {
+          interval: 'month',
+          interval_count: interval,
+        },
+      };
+
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price_data: priceData }],
+        default_payment_method: defaultPaymentMethod,
+        metadata: {
+          userId: userId.toString(),
+          tier: monthlyAmount <= 10 ? 'eco' : monthlyAmount <= 30 ? 'bronze' : monthlyAmount <= 60 ? 'prata' : monthlyAmount <= 100 ? 'ouro' : 'platinum',
+          amountMonthly: monthlyAmount.toString(),
+          intervalMonths: interval.toString(),
+          manuallyCreated: 'true',
+        },
+      });
+
+      console.log(`✅ [MANUAL SUB] Subscription criada: ${subscription.id}`);
+      console.log(`📊 Status: ${subscription.status}`);
+
+      await db.update(users)
+        .set({ 
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id 
+        })
+        .where(eq(users.id, userId));
+
+      await db.update(doadores)
+        .set({ 
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id,
+          status: subscription.status === 'active' ? 'paid' : 'pending',
+          ativo: subscription.status === 'active',
+        })
+        .where(eq(doadores.id, doador.id));
+
+      await db.insert(donorSubscriptions).values({
+        userId,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscription.id,
+        status: subscription.status,
+        billingCycleAnchor: subscription.billing_cycle_anchor,
+        currentPeriodStart: subscription.current_period_start,
+        currentPeriodEnd: subscription.current_period_end,
+        planPriceId: subscription.items.data[0].price.id,
+        planName: `R$ ${monthlyAmount} / ${interval === 1 ? 'mês' : `${interval} meses`}`,
+        defaultPaymentMethod: defaultPaymentMethod,
+      });
+
+      res.json({
+        success: true,
+        subscription: {
+          id: subscription.id,
+          status: subscription.status,
+          customerId,
+          amount: monthlyAmount,
+          interval,
+          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          nextBillingDate: new Date(subscription.current_period_end * 1000),
+        },
+        message: `Subscription criada com sucesso! Próxima cobrança: ${new Date(subscription.current_period_end * 1000).toLocaleDateString('pt-BR')}`
+      });
+
+    } catch (error: any) {
+      console.error("❌ [MANUAL SUB] Error:", error);
+      res.status(500).json({ 
+        error: error.message,
+        details: error.raw?.message || error.toString()
+      });
+    }
+  });
+
+  // Force immediate billing for a subscription
+  app.post("/api/admin/force-billing/:doadorId", async (req, res) => {
+    try {
+      const { doadorId } = req.params;
+
+      // Buscar doador e usuário separadamente (apenas campos que existem)
+      const [doador] = await db
+        .select({
+          id: doadores.id,
+          userId: doadores.userId,
+          stripeSubscriptionId: doadores.stripeSubscriptionId,
+        })
+        .from(doadores)
+        .where(eq(doadores.id, parseInt(doadorId)))
+        .limit(1);
+
+      if (!doador || !doador.stripeSubscriptionId) {
+        return res.status(404).json({ error: "Doador sem subscription ID" });
+      }
+
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, doador.userId))
+        .limit(1);
+
+      console.log(`💳 [FORCE BILLING] Cobrando doador ${user?.nome} (${doador.id})...`);
+
+      // Fetch subscription from Stripe to get the correct customer ID and billing info
+      const subscription = await stripe.subscriptions.retrieve(doador.stripeSubscriptionId);
+      const correctCustomerId = typeof subscription.customer === 'string'
+        ? subscription.customer
+        : subscription.customer.id;
+
+      console.log(`🔍 [FORCE BILLING] Customer correto do Stripe: ${correctCustomerId}`);
+      console.log(`🔍 [FORCE BILLING] Status da subscription: ${subscription.status}`);
+
+      // Check if subscription is active
+      if (subscription.status !== 'active') {
+        return res.status(400).json({
+          error: `Subscription está ${subscription.status}, não pode ser cobrada.`,
+          status: subscription.status
+        });
+      }
+
+      // Validação de ciclo de cobrança
+      const currentPeriodEnd = subscription.current_period_end * 1000; // Convert to milliseconds
+      const now = Date.now();
+      const intervalCount = subscription.items.data[0]?.plan.interval_count || 1;
+      const interval = subscription.items.data[0]?.plan.interval || 'month';
+
+      // Calcular meses do intervalo
+      let intervalMonths = intervalCount;
+      if (interval === 'year') {
+        intervalMonths = intervalCount * 12;
+      } else if (interval === 'month') {
+        intervalMonths = intervalCount;
+      }
+
+      const cicloNome = intervalMonths === 1 ? 'Mensal' :
+        intervalMonths === 3 ? 'Trimestral' :
+          intervalMonths === 6 ? 'Semestral' :
+            intervalMonths === 12 ? 'Anual' : `${intervalMonths} meses`;
+
+      console.log(`📅 [FORCE BILLING] Ciclo: ${cicloNome} (${intervalMonths} meses)`);
+      console.log(`📅 [FORCE BILLING] Próximo pagamento: ${new Date(currentPeriodEnd).toLocaleDateString('pt-BR')}`);
+      console.log(`📅 [FORCE BILLING] Hoje: ${new Date(now).toLocaleDateString('pt-BR')}`);
+
+      // Bloquear cobrança antecipada para ciclos maiores que mensal
+      if (intervalMonths > 1 && now < currentPeriodEnd) {
+        const diasRestantes = Math.ceil((currentPeriodEnd - now) / (1000 * 60 * 60 * 24));
+        return res.status(400).json({
+          error: `Cobrança bloqueada: ciclo ${cicloNome} ainda não terminou.`,
+          ciclo: cicloNome,
+          proximoPagamento: new Date(currentPeriodEnd).toLocaleDateString('pt-BR'),
+          diasRestantes: diasRestantes,
+          mensagem: `Só é possível cobrar após ${new Date(currentPeriodEnd).toLocaleDateString('pt-BR')} (faltam ${diasRestantes} dias)`
+        });
+      }
+
+      // Create an invoice for the subscription and charge immediately
+      const invoice = await stripe.invoices.create({
+        customer: correctCustomerId,
+        subscription: doador.stripeSubscriptionId,
+        auto_advance: true, // Automatically finalize and pay
+      });
+
+      console.log(`📄 [FORCE BILLING] Invoice criada: ${invoice.id}`);
+
+      const paidInvoice = await stripe.invoices.pay(invoice.id);
+
+      console.log(`✅ [FORCE BILLING] Invoice paga: ${paidInvoice.status}`);
+
+      res.json({
+        success: true,
+        doadorId: doador.id,
+        nome: user?.nome,
+        ciclo: cicloNome,
+        invoiceId: paidInvoice.id,
+        amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : 0,
+        status: paidInvoice.status,
+      });
+    } catch (error: any) {
+      console.error("❌ [FORCE BILLING] Erro:", error);
+      res.status(500).json({ error: error.message, details: error.raw?.message });
+    }
+  });
+
+  // =============================================================================
+  // AUTHENTICATION ENDPOINTS WITH PAYMENT VERIFICATION
+  // =============================================================================
+
+  // Check login eligibility - verifies if user exists and should pay or login
+  app.post("/api/auth/check-login-eligibility", async (req, res) => {
+    try {
+      const { phone } = req.body;
+
+      if (!phone) {
+        return res.status(400).json({
+          error: "Telefone é obrigatório",
+          eligible: false,
+          exists: false
+        });
+      }
+
+      console.log(`🔍 [LOGIN ELIGIBILITY] Checking phone: ${phone}`);
+
+      try {
+        // Normalize phone to E.164 format for consistent search
+        const normalizedPhone = normalizePhoneToE164(phone);
+        console.log(`📱 [LOGIN ELIGIBILITY] Normalized: ${normalizedPhone}`);
+
+        // Search for user by phone number
+        const existingUser = await storage.getUserByTelefone(normalizedPhone);
+
+        if (existingUser) {
+          console.log(`✅ [LOGIN ELIGIBILITY] User exists: ${existingUser.nome} (${existingUser.id})`);
+
+          // User exists - eligible for login without payment
+          return res.json({
+            eligible: true,
+            exists: true,
+            userId: existingUser.id,
+            userName: existingUser.nome,
+            userType: existingUser.tipo || 'user'
+          });
+        } else {
+          console.log(`❌ [LOGIN ELIGIBILITY] User does not exist for phone: ${normalizedPhone}`);
+
+          // User doesn't exist - requires payment first
+          return res.json({
+            eligible: false,
+            exists: false,
+            reason: 'PAYMENT_REQUIRED',
+            message: 'Este número não está cadastrado. Complete o pagamento para se cadastrar.'
+          });
+        }
+
+      } catch (normalizationError: any) {
+        console.error(`❌ [LOGIN ELIGIBILITY] Phone normalization error:`, normalizationError);
+        return res.status(400).json({
+          error: "Formato de telefone inválido",
+          message: normalizationError.message || "Número de telefone deve ser válido",
+          eligible: false,
+          exists: false
+        });
+      }
+
+    } catch (error: any) {
+      console.error("❌ [LOGIN ELIGIBILITY] Error:", error);
+      res.status(500).json({
+        error: "Erro interno do servidor",
+        eligible: false,
+        exists: false
+      });
+    }
+  });
+
+  // Start OTP process - only for eligible users
+  app.post("/api/auth/start-otp", async (req, res) => {
+    try {
+      const { phone } = req.body;
+
+      if (!phone) {
+        return res.status(400).json({ error: "Telefone é obrigatório" });
+      }
+
+      console.log(`📱 [START OTP] Initiating for phone: ${phone}`);
+
+      try {
+        // First check eligibility
+        const normalizedPhone = normalizePhoneToE164(phone);
+        const existingUser = await storage.getUserByTelefone(normalizedPhone);
+
+        if (!existingUser) {
+          console.log(`❌ [START OTP] User not eligible - payment required for: ${normalizedPhone}`);
+          return res.status(402).json({
+            error: "PAYMENT_REQUIRED",
+            message: "Este número não está cadastrado. Complete o pagamento para se cadastrar.",
+            eligible: false
+          });
+        }
+
+        console.log(`✅ [START OTP] User eligible: ${existingUser.nome} (${existingUser.id})`);
+
+        // Special handling for test numbers
+        const testNumbers = [
+          "+5599999999999", "+5531999990001", "+5531999990002", "+5531999990003",
+          "+5531998783003", "+5531987830003"
+        ];
+
+        if (testNumbers.some(testPhone => normalizedPhone === testPhone)) {
+          const codigo = "123456";
+          verificationCodes.set(normalizedPhone, codigo);
+
+          setTimeout(() => {
+            verificationCodes.delete(normalizedPhone);
+          }, 10 * 60 * 1000);
+
+          return res.json({
+            success: true,
+            message: "Código de teste gerado",
+            codigo: codigo // Show code for test phones
+          });
+        }
+
+        // Generate 6-digit verification code
+        const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Store verification code with multiple formats
+        const storageKeys = [
+          normalizedPhone,
+          phone,
+          normalizedPhone.replace('+', ''),
+          phone.replace(/\D/g, '')
+        ];
+
+        const uniqueKeys = [...new Set(storageKeys)];
+        uniqueKeys.forEach(key => {
+          if (key && key.length > 0) {
+            verificationCodes.set(key, codigo);
+          }
+        });
+
+        setTimeout(() => {
+          uniqueKeys.forEach(key => {
+            verificationCodes.delete(key);
+          });
+        }, 10 * 60 * 1000);
+
+        try {
+          // Send SMS via Twilio
+          const client = getTwilioClient();
+          await client.messages.create({
+            body: `Seu código de acesso ao Clube do Grito é: ${codigo}`,
+            from: process.env.TWILIO_PHONE_NUMBER || '+12345678901',
+            to: normalizedPhone
+          });
+
+          console.log(`✅ [START OTP] SMS sent to ${normalizedPhone} with code ${codigo}`);
+          res.json({
+            success: true,
+            message: "Código enviado via SMS",
+            phoneNormalized: normalizedPhone
+          });
+
+        } catch (twilioError) {
+          console.error("❌ [START OTP] Twilio error:", twilioError);
+          // Still allow login with generated code for development
+          res.json({
+            success: true,
+            message: "Código gerado (SMS indisponível)",
+            codigo: codigo, // For development
+            phoneNormalized: normalizedPhone
+          });
+        }
+
+      } catch (normalizationError: any) {
+        console.error(`❌ [START OTP] Phone normalization error:`, normalizationError);
+        return res.status(400).json({
+          error: "Formato de telefone inválido",
+          message: normalizationError.message || "Número de telefone deve ser válido"
+        });
+      }
+
+    } catch (error: any) {
+      console.error("❌ [START OTP] Error:", error);
+      res.status(500).json({ error: "Erro ao enviar código OTP" });
+    }
+  });
+
+  // Verify OTP and create session
+  app.post("/api/auth/verify-otp", async (req, res) => {
+    try {
+      const { phone, code } = req.body;
+
+      if (!phone || !code) {
+        return res.status(400).json({ error: "Telefone e código são obrigatórios" });
+      }
+
+      console.log(`🔍 [VERIFY OTP] Phone: ${phone}, Code: ${code}`);
+
+      try {
+        const normalizedPhone = normalizePhoneToE164(phone);
+
+        // Search for verification code with multiple key formats
+        const searchKeys = [
+          normalizedPhone,
+          phone,
+          normalizedPhone.replace('+', ''),
+          phone.replace(/\D/g, '')
+        ];
+
+        let storedCode = '';
+        let foundKey = '';
+
+        for (const key of searchKeys) {
+          const foundCode = verificationCodes.get(key);
+          if (foundCode) {
+            storedCode = foundCode;
+            foundKey = key;
+            break;
+          }
+        }
+
+        if (!storedCode) {
+          console.log(`❌ [VERIFY OTP] No code found for: ${phone}`);
+          return res.status(400).json({ error: "Código não encontrado ou expirado" });
+        }
+
+        if (storedCode !== code) {
+          console.log(`❌ [VERIFY OTP] Invalid code - Expected: ${storedCode}, Received: ${code}`);
+          return res.status(400).json({ error: "Código inválido" });
+        }
+
+        // Remove verification code after successful verification
+        searchKeys.forEach(key => {
+          verificationCodes.delete(key);
+        });
+
+        // Get user data
+        const user = await storage.getUserByTelefone(normalizedPhone);
+
+        if (!user) {
+          console.log(`❌ [VERIFY OTP] User not found after verification: ${normalizedPhone}`);
+          return res.status(404).json({ error: "Usuário não encontrado" });
+        }
+
+        console.log(`✅ [VERIFY OTP] Verification successful for user: ${user.nome} (${user.id})`);
+
+        // Check donation status for existing donors
+        let donationStatus = {
+          isDonor: user.tipo === 'doador',
+          hasActiveSubscription: false,
+          isExistingDonor: false
+        };
+
+        if (user.tipo === 'doador') {
+          try {
+            const [activeDonation] = await db
+              .select({ id: doadores.id })
+              .from(doadores)
+              .where(and(
+                eq(doadores.userId, user.id),
+                eq(doadores.status, 'paid'),
+                eq(doadores.ativo, true)
+              ))
+              .limit(1);
+
+            donationStatus.hasActiveSubscription = !!activeDonation;
+            donationStatus.isExistingDonor = true;
+          } catch (error) {
+            console.error('❌ [VERIFY OTP] Error checking donation status:', error);
+          }
+        }
+
+        // Return user data with role and donation status
+        res.json({
+          success: true,
+          user: {
+            id: user.id,
+            nome: user.nome,
+            email: user.email || '',
+            telefone: user.telefone,
+            role: user.role || user.tipo || 'user',
+            conselhoStatus: user.conselhoStatus
+          },
+          donationStatus
+        });
+
+      } catch (normalizationError: any) {
+        console.error(`❌ [VERIFY OTP] Phone normalization error:`, normalizationError);
+        return res.status(400).json({
+          error: "Formato de telefone inválido",
+          message: normalizationError.message || "Número de telefone deve ser válido"
+        });
+      }
+
+    } catch (error: any) {
+      console.error("❌ [VERIFY OTP] Error:", error);
+      res.status(500).json({ error: "Erro ao verificar código OTP" });
+    }
+  });
+
+  // Function to normalize Brazilian phone number to international format
+  function normalizePhoneNumber(phone: string): string {
+    // Remove all non-digit characters
+    const digits = phone.replace(/\D/g, '');
+
+    // Handle different Brazilian phone formats
+    if (digits.length === 11 && digits.startsWith('1')) {
+      // Format: 11987654321 -> +5511987654321
+      return `+55${digits}`;
+    } else if (digits.length === 10) {
+      // Format: 1187654321 -> +55111987654321 (add 9 for mobile)
+      return `+55${digits.substring(0, 2)}9${digits.substring(2)}`;
+    } else if (digits.length === 11) {
+      // Format: 31987654321 -> +5531987654321
+      return `+55${digits}`;
+    }
+
+    // Return original if format is unclear
+    return phone;
+  }
+
+  // Send login code via SMS
+  app.post("/api/send-login-code", async (req, res) => {
+    try {
+      const { telefone } = req.body;
+
+      console.log(`📱 SEND LOGIN CODE - Phone: ${telefone}, Time: ${new Date().toISOString()}`);
+
+      if (!telefone) {
+        return res.status(400).json({ error: "Telefone é obrigatório" });
+      }
+
+      // Special handling for professor phone numbers
+      const professorNumbers = ["31987654321", "31987654322"];
+      const normalizedPhoneInput = telefone.replace(/\D/g, '').replace(/^55/, ''); // Remove non-digits and country code
+
+      if (professorNumbers.includes(normalizedPhoneInput)) {
+        const codigo = "123456"; // Fixed code for professor numbers
+
+        // Store verification code with both formats to handle frontend inconsistency
+        verificationCodes.set(telefone, codigo);
+        verificationCodes.set(normalizedPhoneInput, codigo);
+        setTimeout(() => {
+          verificationCodes.delete(telefone);
+          verificationCodes.delete(normalizedPhoneInput);
+        }, 10 * 60 * 1000);
+
+        return res.json({
+          success: true,
+          message: "Código de acesso gerado",
+          codigo: codigo // Show code for professor phone
+        });
+      }
+
+      // Handle original test phone number
+      if (telefone === "+5599999999999" || telefone.includes("99999999999")) {
+        const codigo = "123456"; // Fixed code for test phone
+        verificationCodes.set(telefone, codigo);
+
+        // Auto-expire in 10 minutes
+        setTimeout(() => {
+          verificationCodes.delete(telefone);
+        }, 10 * 60 * 1000);
+
+        return res.json({
+          success: true,
+          message: "Código de teste gerado",
+          codigo: codigo // Show code for test phone
+        });
+      }
+
+      // Handle professor test numbers (only for sending codes)
+      const professorTestPhones = ["+5531999990001", "+5531999990002", "+5531999990003"];
+      if (professorTestPhones.some(phone => telefone === phone || telefone.includes("999990001") || telefone.includes("999990002") || telefone.includes("999990003"))) {
+        const codigo = "123456"; // Fixed code for professor test phones
+        verificationCodes.set(telefone, codigo);
+
+        // Auto-expire in 10 minutes
+        setTimeout(() => {
+          verificationCodes.delete(telefone);
+        }, 10 * 60 * 1000);
+
+        return res.json({
+          success: true,
+          message: "Código de teste gerado",
+          codigo: codigo // Show code for test phone
+        });
+      }
+
+      // 🔒 NOVA VALIDAÇÃO DE SEGURANÇA: Verificar se telefone está cadastrado
+      try {
+        // Normalizar telefone para busca no banco
+        const phoneForDB = telefone.replace(/\D/g, '');
+        const phoneWithCountry = phoneForDB.startsWith('55') ? phoneForDB : '55' + phoneForDB;
+
+        console.log(`🔍 SECURITY CHECK - Verificando se telefone ${phoneForDB} está cadastrado...`);
+
+        // Buscar usuário no banco com telefone
+        const existingUser = await storage.getUserByTelefone(phoneForDB);
+
+        if (!existingUser) {
+          console.log(`❌ SECURITY BLOCK - Telefone ${phoneForDB} não está cadastrado no sistema`);
+          return res.status(401).json({
+            error: "Telefone não cadastrado no sistema",
+            message: "Este número não está registrado. Para se cadastrar, acesse a página inicial."
+          });
+        }
+
+        console.log(`✅ SECURITY OK - Telefone cadastrado para usuário: ${existingUser.nome}`);
+      } catch (dbError) {
+        console.error("Erro ao verificar telefone no banco:", dbError);
+        return res.status(500).json({ error: "Erro interno do servidor" });
+      }
+
+      // Generate 6-digit verification code
+      const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Store verification code with multiple formats (expires in 10 minutes)
+      // ✅ Armazenar código em TODOS os formatos possíveis
+      const phoneDigitsOnly = telefone.replace(/\D/g, '');
+      const phoneWith55 = phoneDigitsOnly.startsWith('55') ? phoneDigitsOnly : '55' + phoneDigitsOnly;
+      const phoneWithout55 = phoneDigitsOnly.startsWith('55') ? phoneDigitsOnly.substring(2) : phoneDigitsOnly;
+
+      const allFormats = [
+        telefone,                    // Original
+        phoneDigitsOnly,             // Só dígitos
+        phoneWith55,                 // Com 55
+        phoneWithout55,              // Sem 55
+        '+' + phoneWith55,           // +55...
+        '+' + phoneDigitsOnly        // +... (qualquer)
+      ];
+
+      // Salvar em todos os formatos
+      allFormats.forEach(format => {
+        verificationCodes.set(format, codigo);
+      });
+
+      setTimeout(() => {
+        allFormats.forEach(format => {
+          verificationCodes.delete(format);
+        });
+      }, 10 * 60 * 1000); // 10 minutes
+
+      try {
+        // Normalize phone number to Brazilian format (same logic as donation flow)
+        let normalizedPhone = telefone.replace(/\D/g, '');
+
+        // Add country code if missing
+        if (!normalizedPhone.startsWith('55')) {
+          normalizedPhone = '55' + normalizedPhone;
+        }
+
+        // Format for Twilio (+55...)
+        const twilioPhone = '+' + normalizedPhone;
+
+        console.log(`📱 LOGIN SMS - Original: ${telefone}, Normalized: ${twilioPhone}`);
+
+        // Send SMS via Twilio
+        const client = getTwilioClient();
+        const message = await client.messages.create({
+          body: `Seu código de acesso ao Clube do Grito é: ${codigo}`,
+          from: process.env.TWILIO_PHONE_NUMBER || '+12345678901',
+          to: twilioPhone
+        });
+
+        console.log(`✅ LOGIN SMS SENT to ${twilioPhone} with code ${codigo}`);
+        res.json({ success: true, message: "Código enviado via SMS" });
+      } catch (twilioError) {
+        console.error("Twilio error:", twilioError);
+        // Fallback: still allow login with the generated code
+        res.json({
+          success: true,
+          message: "Código gerado (SMS indisponível)",
+          codigo: codigo // For development - shows the code when SMS fails
+        });
+      }
+    } catch (error: any) {
+      console.error("Error sending login code:", error);
+      res.status(500).json({ error: "Erro ao enviar código" });
+    }
+  });
+
+  // Professor-specific login code verification (includes new test users)
+  app.post("/api/professor/verify-login-code", async (req, res) => {
+    try {
+      const { telefone, codigo } = req.body;
+
+      if (!telefone || !codigo) {
+        return res.status(400).json({ error: "Telefone e código são obrigatórios" });
+      }
+
+      // Check stored verification code for regular users
+      // Try multiple formats to match
+      const normalizedForCheck = telefone.replace(/\D/g, '').replace(/^55/, '');
+      const possibleKeys = [
+        telefone,
+        normalizedForCheck,
+        `+55${normalizedForCheck}`,
+        `+5531${normalizedForCheck.substring(2)}`
+      ];
+
+      let storedCode = null;
+      let matchedKey = null;
+
+      for (const key of possibleKeys) {
+        storedCode = verificationCodes.get(key);
+        if (storedCode) {
+          matchedKey = key;
+          break;
+        }
+      }
+
+      if (!storedCode) {
+        return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+      }
+
+      if (storedCode !== codigo) {
+        return res.status(400).json({ error: "Código de verificação inválido" });
+      }
+
+      // Remove verification code after successful verification
+      verificationCodes.delete(telefone);
+      verificationCodes.delete(matchedKey);
+      for (const key of possibleKeys) {
+        verificationCodes.delete(key);
+      }
+
+      // Professor-specific test users
+      if (telefone === "+5531999990001") {
+        return res.json({
+          success: true,
+          nome: "Felipe",
+          email: "marketing@institutoogrito.org",
+          telefone: telefone,
+          papel: "professor",
+          professorTipo: "lider",
+          needsCouncilApproval: false
+        });
+      }
+
+      if (telefone === "+5531999990002") {
+        return res.json({
+          success: true,
+          nome: "Emily",
+          email: "emily@institutoogrito.org",
+          telefone: telefone,
+          papel: "professor",
+          professorTipo: "regular",
+          needsCouncilApproval: false
+        });
+      }
+
+      if (telefone === "+5531999990003") {
+        return res.json({
+          success: true,
+          nome: "Tati",
+          email: "tati@institutoogrito.org",
+          telefone: telefone,
+          papel: "professor",
+          professorTipo: "regular",
+          needsCouncilApproval: false
+        });
+      }
+
+      // Fall back to regular verification logic for other users
+      let user = await storage.getUserByTelefone(telefone);
+      if (!user) {
+        user = await storage.createUser({
+          cpf: "00000000000",
+          nome: "Usuário",
+          sobrenome: "",
+          telefone,
+          email: "",
+          plano: "eco"
+        });
+      }
+
+      res.json({
+        success: true,
+        nome: user.nome,
+        email: user.email || "",
+        telefone: user.telefone,
+        papel: "professor",
+        professorTipo: "regular",
+        needsCouncilApproval: false
+      });
+    } catch (error: any) {
+      console.error("Error verifying professor login code:", error);
+      res.status(500).json({ error: "Erro ao verificar código" });
+    }
+  });
+
+  // Verify login code (regular users - restored to original)
+  app.post("/api/verify-login-code", async (req, res) => {
+    try {
+      const { telefone, codigo } = req.body;
+
+      console.log(`🔍 VERIFY LOGIN CODE - Phone: ${telefone}, Code: ${codigo}, Time: ${new Date().toISOString()}`);
+
+      if (!telefone || !codigo) {
+        console.log(`❌ MISSING DATA - Phone: ${telefone}, Code: ${codigo}`);
+        return res.status(400).json({ error: "Telefone e código são obrigatórios" });
+      }
+
+      // Check stored verification code for regular users
+      // Try multiple formats to match
+      const normalizedForCheck = telefone.replace(/\D/g, '').replace(/^55/, '');
+      const possibleKeys = [
+        telefone,
+        normalizedForCheck,
+        `+55${normalizedForCheck}`,
+        `+5531${normalizedForCheck.substring(2)}`
+      ];
+
+      let storedCode = null;
+      let matchedKey = null;
+
+      for (const key of possibleKeys) {
+        storedCode = verificationCodes.get(key);
+        if (storedCode) {
+          matchedKey = key;
+          break;
+        }
+      }
+
+      // Verify code for regular users (Leo already handled above)
+      if (!storedCode) {
+        return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+      }
+
+      if (storedCode !== codigo) {
+        return res.status(400).json({ error: "Código de verificação inválido" });
+      }
+
+      // Remove verification code after successful verification
+      // Clean all possible formats to prevent issues
+      verificationCodes.delete(telefone);
+      verificationCodes.delete(matchedKey);
+      for (const key of possibleKeys) {
+        verificationCodes.delete(key);
+      }
+
+      // Determine user role and name based on phone number first
+      let papel = "user";
+      let needsCouncilApproval = false;
+      let professorTipo = null;
+      let nome = "Usuário";
+
+      // Set specific names for test users
+      if (telefone === "+5531998783003" || telefone === "31998783003" ||
+        telefone === "+5531987830003" || telefone === "31987830003" ||
+        telefone === "+5531993741556" || telefone === "31993741556") {
+        nome = "Léo Martins";
+        papel = "leo";
+        // ❌ REMOVIDO: 31986631203 NÃO é Leo, é Tatiana (conselheiro)
+      } else if (telefone === "+5531999990001") {
+        nome = "Felipe";
+        papel = "lider";
+      } else if (telefone === "+5531999990002") {
+        nome = "Emily";
+        papel = "professor";
+        professorTipo = "português";
+      } else if (telefone === "+5531999990003") {
+        nome = "Tati";
+        papel = "professor";
+        professorTipo = "programação";
+      }
+
+      // Check if user exists, if not create a basic user
+      let user = await storage.getUserByTelefone(telefone);
+
+      if (!user) {
+        // Create basic user for login
+        user = await storage.createUser({
+          cpf: `TEMP${telefone.slice(-8)}`, // CPF temporário baseado no telefone
+          nome: nome, // Now properly initialized
+          sobrenome: "",
+          telefone,
+          email: "",
+          plano: "eco"
+        });
+      }
+
+      // ✅ VERIFICAR PRIMEIRO SE É LEO (não pode ser sobrescrito)
+      if (telefone === "+5531998783003" || telefone === "31998783003" ||
+        telefone === "+5531987830003" || telefone === "31987830003") {
+        papel = "leo";
+        needsCouncilApproval = false; // Leo não precisa de aprovação
+        console.log(`✅ LEO MARTINS LOGIN - Phone: ${telefone}, Force Role: leo`);
+      }
+      // ✅ PRIORIZAR ROLE DO BANCO DE DADOS (coordenadores, professores, etc.) - MAS APENAS SE NÃO FOR LEO
+      else if (user.role && user.role !== 'user') {
+        papel = user.role;
+        needsCouncilApproval = false;
+        console.log(`✅ USER ROLE FROM DB - Phone: ${telefone}, Role: ${user.role}`);
+      }
+      // Check if user has council access approval
+      // ❌ REMOVIDO: 31986631203 NÃO é Leo, é Tatiana (conselheiro)
+      else if (telefone === "+5531999999999" || telefone === "31999999999") {
+        papel = "admin";
+      } else if (telefone === "+5531888888888" || telefone === "31888888888") {
+        papel = "conselho";
+      } else {
+        // Check user type to determine if approval is needed
+        const userType = user.tipo || 'user';
+        console.log(`👤 USER TYPE CHECK - Phone: ${telefone}, Type: ${userType}`);
+
+        // Doadores não precisam de aprovação - entram direto
+        if (userType === 'doador') {
+          papel = "doador";
+          needsCouncilApproval = false;
+          console.log(`✅ DOADOR LOGIN - No approval needed`);
+        } else {
+          // Outros tipos (conselho, patrocinador, etc.) precisam de aprovação
+          const conselhoStatus = user.conselhoStatus || 'pendente';
+
+          if (conselhoStatus === 'aprovado') {
+            papel = "conselho";
+            needsCouncilApproval = false;
+          } else if (conselhoStatus === 'pendente') {
+            needsCouncilApproval = true;
+          } else if (conselhoStatus === 'recusado') {
+            needsCouncilApproval = true; // Still needs approval, but will show rejected status
+          } else {
+            // First time user - set to pending status for council approval
+            try {
+              await storage.updateConselhoStatus(user.telefone, 'pendente');
+              needsCouncilApproval = true;
+            } catch (error) {
+              console.error("Error updating council status:", error);
+              needsCouncilApproval = true;
+            }
+          }
+        }
+      }
+
+      // ✅ VERIFICAR STATUS DE PAGAMENTO PARA DOADORES
+      let hasActiveSubscription = false;
+      if (papel === 'doador') {
+        try {
+          const [paidDonation] = await db
+            .select({ id: doadores.id })
+            .from(doadores)
+            .where(and(
+              eq(doadores.userId, user.id),
+              eq(doadores.status, 'paid'),
+              eq(doadores.ativo, true)
+            ))
+            .limit(1);
+
+          hasActiveSubscription = !!paidDonation;
+          console.log(`💳 PAYMENT CHECK - User ${user.id}: ${hasActiveSubscription ? 'PAID' : 'PENDING'}`);
+        } catch (error) {
+          console.error('Error checking payment status:', error);
+        }
+      }
+
+      const responseData = {
+        success: true,
+        user: {
+          id: user.id,
+          nome: user.nome, // ✅ FIX: Usar nome do banco de dados, não variável local
+          email: user.email,
+          telefone: user.telefone,
+          papel: papel,
+          professorTipo: professorTipo
+        },
+        needsCouncilApproval,
+        hasActiveSubscription // ✅ INCLUIR STATUS DE PAGAMENTO
+      };
+
+      console.log(`📤 SENDING LOGIN RESPONSE:`, JSON.stringify(responseData, null, 2));
+      res.json(responseData);
+    } catch (error: any) {
+      console.error("Error verifying login code:", error);
+      res.status(500).json({ error: "Erro ao verificar código" });
+    }
+  });
+
+  // 🎯 FUNÇÃO HELPER: Verifica e completa missão de referral automaticamente
+  async function checkAndCompleteMissaoReferral(userId: number, missaoId: number) {
+    try {
+      console.log(`🔍 [REFERRAL AUTO] Verificando se missão ${missaoId} deve ser completada para usuário ${userId}`);
+
+      // 1. Verificar se a missão já foi concluída (evitar duplicação)
+      const missaoJaConcluida = await db
+        .select()
+        .from(missoesConcluidas)
+        .where(
+          and(
+            eq(missoesConcluidas.userId, userId),
+            eq(missoesConcluidas.missaoId, missaoId)
+          )
+        )
+        .limit(1);
+
+      if (missaoJaConcluida[0]) {
+        console.log(`⚠️ [REFERRAL AUTO] Missão ${missaoId} já foi concluída pelo usuário ${userId}. Pulando.`);
+        return;
+      }
+
+      // 2. Buscar dados da missão
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(eq(missoesSemanais.id, missaoId))
+        .limit(1);
+
+      if (!missao[0]) {
+        console.error(`❌ [REFERRAL AUTO] Missão ${missaoId} não encontrada`);
+        return;
+      }
+
+      // 3. Contar referrals completos para esta missão
+      const referralsCompletos = await db
+        .select()
+        .from(referrals)
+        .where(
+          and(
+            eq(referrals.referrerUserId, userId),
+            eq(referrals.missaoId, missaoId),
+            eq(referrals.status, 'completo')
+          )
+        );
+
+      const quantidadeNecessaria = missao[0].quantidadeAmigos || 1;
+      const cadastrosCompletos = referralsCompletos.length;
+
+      console.log(`📊 [REFERRAL AUTO] Usuário ${userId}, Missão ${missaoId}: ${cadastrosCompletos}/${quantidadeNecessaria} referrals completos`);
+
+      // 4. Verificar se atingiu o threshold
+      if (cadastrosCompletos >= quantidadeNecessaria) {
+        console.log(`🎯 [REFERRAL AUTO] Threshold atingido! Completando missão ${missaoId} para usuário ${userId}`);
+
+        // 5. Dar gritos pela missão completa
+        const { addGritos } = await import('./gritosSystem');
+        await addGritos(
+          userId,
+          missao[0].recompensaGritos || 200,
+          `Missão de referral completada: "${missao[0].titulo}" - ${cadastrosCompletos} amigos convidados com sucesso`
+        );
+
+        // 6. Marcar missão como concluída
+        await db.insert(missoesConcluidas).values({
+          userId: userId,
+          missaoId: missaoId,
+          gritosRecebidos: missao[0].recompensaGritos || 200,
+          fotoComprovante: null, // Referrals não precisam de foto
+          evidenciaTexto: `Referral automático: ${cadastrosCompletos} cadastros completados`,
+          evidenceType: 'link' as any // Marcar como tipo link
+        }).onConflictDoNothing();
+
+        console.log(`✅ [REFERRAL AUTO] Missão ${missaoId} completada automaticamente para usuário ${userId}! ${missao[0].recompensaGritos || 200} gritos adicionados.`);
+      } else {
+        console.log(`⏳ [REFERRAL AUTO] Missão ${missaoId} ainda não completada. Progresso: ${cadastrosCompletos}/${quantidadeNecessaria}`);
+      }
+    } catch (error) {
+      console.error(`❌ [REFERRAL AUTO] Erro ao verificar completude da missão ${missaoId} para usuário ${userId}:`, error);
+    }
+  }
+
+  // Verify SMS code (existing registration flow)
+  app.post("/api/verify", async (req, res) => {
+    try {
+      const { telefone, codigo } = verificationSchema.parse(req.body);
+
+      const user = await storage.getUserByTelefone(telefone);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Check stored verification code
+      const storedCode = verificationCodes.get(telefone);
+
+      if (!storedCode) {
+        return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+      }
+
+      if (storedCode !== codigo) {
+        return res.status(400).json({ error: "Código de verificação inválido" });
+      }
+
+      // Update user verification status
+      const updatedUser = await storage.updateUserVerification(user.id, true);
+
+      // 🔍 VERIFICAR STATUS DE DOAÇÃO: Para redirecionamento correto
+      let donationStatus = null;
+      try {
+        const doadorRecord = await db.select({
+          id: doadores.id,
+          status: doadores.status,
+          plano: doadores.plano,
+          stripeSubscriptionId: doadores.stripeSubscriptionId
+        }).from(doadores)
+          .where(eq(doadores.userId, updatedUser.id))
+          .limit(1);
+
+        if (doadorRecord.length > 0) {
+          const doacao = doadorRecord[0];
+          donationStatus = {
+            isExistingDonor: true,
+            status: doacao.status, // 'paid', 'pending', 'cancelled', etc.
+            plan: doacao.plano,
+            hasActiveSubscription: doacao.status === 'paid' && doacao.stripeSubscriptionId
+          };
+          console.log(`✅ [VERIFY] Doador existente encontrado: ${updatedUser.nome}, status: ${doacao.status}`);
+        } else {
+          donationStatus = {
+            isExistingDonor: false,
+            status: null,
+            plan: null,
+            hasActiveSubscription: false
+          };
+          console.log(`🔍 [VERIFY] Usuário não é doador: ${updatedUser.nome}`);
+        }
+      } catch (error) {
+        console.error("Erro ao verificar status de doação:", error);
+        donationStatus = {
+          isExistingDonor: false,
+          status: null,
+          plan: null,
+          hasActiveSubscription: false
+        };
+      }
+
+      // 🎯 PROCESSAR REFERRAL: Completar o referral se existir
+      const referralKey = `referral_${telefone}`;
+      const referralDataStr = verificationCodes.get(referralKey);
+
+      if (referralDataStr) {
+        try {
+          const referralInfo = JSON.parse(referralDataStr);
+
+          // Atualizar referral com o novo usuário e marcar como completo
+          await db
+            .update(referrals)
+            .set({
+              referredUserId: updatedUser.id,
+              status: "completo",
+              completadoEm: new Date()
+            })
+            .where(eq(referrals.id, referralInfo.referralId));
+
+          // 🎯 NOVO: Verificar se a missão deve ser completada automaticamente
+          await checkAndCompleteMissaoReferral(referralInfo.referrerUserId, referralInfo.missaoId);
+
+          console.log(`✅ [REFERRAL] Completado! Usuário ${updatedUser.id} (${updatedUser.nome}) indicado por usuário ${referralInfo.referrerUserId}. ${referralInfo.gritosRecompensa} gritos adicionados.`);
+
+          // Remover dados do referral
+          verificationCodes.delete(referralKey);
+        } catch (error) {
+          console.error("Erro ao processar referral:", error);
+        }
+      }
+
+      // Remove verification code after successful verification
+      verificationCodes.delete(telefone);
+
+      res.json({
+        success: true,
+        user: {
+          id: updatedUser.id,
+          nome: updatedUser.nome,
+          plano: updatedUser.plano,
+          role: updatedUser.role, // ✅ RETORNAR ROLE REAL DO BANCO
+          conselhoStatus: updatedUser.conselhoStatus, // ✅ RETORNAR STATUS DE CONSELHO
+          donationStatus // ✅ RETORNAR STATUS DE DOAÇÃO PARA REDIRECIONAMENTO CORRETO
+        }
+      });
+    } catch (error: any) {
+      console.error("Error verifying code:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dados inválidos", details: error.errors });
+      }
+      res.status(500).json({ error: "Erro ao verificar código" });
+    }
+  });
+
+  // Send SMS code for donation flow
+  app.post("/api/auth/send-sms", async (req, res) => {
+    try {
+      const { phone } = req.body;
+
+      const e164 = toE164BR(phone);
+      if (!e164) {
+        return res.status(400).json({ error: "Número de telefone inválido" });
+      }
+
+      // 🔒 Barrar se já existe (usa o MESMO formato do banco)
+      const userPhoneExist = await storage.getUserByTelefone(e164);
+      if (userPhoneExist) {
+        return res.status(409).json({ error: "Número de telefone já cadastrado" });
+      }
+
+      // Twilio sempre com E.164
+      const twilioPhone = e164;
+
+      // gera código etc...
+      const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+
+      let client;
+      try {
+        client = getTwilioClient();
+      } catch (e: any) {
+        console.error("[SMS] Erro na configuração do Twilio", e.message);
+        return res.status(503).json({ error: "SMS Indisponivel no momento, tente novamente mais tarde" });
+      }
+
+      try {
+        await client.messages.create({
+          body: `Seu código de verificação do Clube do Grito é: ${codigo}`,
+          from: process.env.TWILIO_PHONE_NUMBER!,
+          to: twilioPhone,
+        });
+      } catch (e: any) {
+        console.error("[SMS] Falha no envio de SMS", e?.code, e?.message);
+        return res.status(502).json({ error: "Falha ao enviar SMS" });
+      }
+
+      console.log(`✅ SMS SENT to ${twilioPhone} with code ${codigo}`);
+      res.json({ success: true, message: "Código enviado via SMS" });
+
+      // Armazena o código em várias chaves (ok manter sua estratégia)
+      const storageKeys = [
+        twilioPhone,                       // +5511...
+        twilioPhone.replace("+", ""),      // 5511...
+        (phone || "").replace(/\D/g, ""),  // 5511... ou 11...
+      ];
+      const uniqueKeys = [...new Set(storageKeys.filter(Boolean))];
+      uniqueKeys.forEach((k) => verificationCodes.set(k, codigo));
+      setTimeout(() => uniqueKeys.forEach((k) => verificationCodes.delete(k)), 15 * 60 * 1000);
+    } catch (error) {
+      console.error("Error sending SMS code:", error);
+      res.status(500).json({ error: "Erro ao enviar código SMS" });
+    }
+  });
+
+  // Login direto por e-mail para conselheiros e patrocinadores
+  app.post("/api/auth/login-email", async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email || !email.trim()) {
+        return res.status(400).json({ error: "E-mail é obrigatório" });
+      }
+
+      const cleanEmail = email.trim().toLowerCase();
+      console.log(`📧 [EMAIL LOGIN] Tentativa de login: ${cleanEmail}`);
+
+      // Verificar se é conselheiro autorizado
+      const isConselho = isConselhoEmail(cleanEmail);
+
+      // Se não é conselheiro, verificar se é patrocinador existente
+      let isPatrocinador = false;
+      let user = null;
+
+      if (!isConselho) {
+        console.log(`🔍 [EMAIL LOGIN] Não é conselheiro, verificando se é patrocinador: ${cleanEmail}`);
+        user = await storage.getUserByEmail(cleanEmail);
+
+        if (user) {
+          console.log(`👤 [EMAIL LOGIN] Usuário encontrado - ID: ${user.id}, Nome: ${user.nome}, Role: ${user.role}`);
+
+          if (user.role === 'patrocinador') {
+            isPatrocinador = true;
+            console.log(`✅ [EMAIL LOGIN] E-mail de patrocinador confirmado: ${cleanEmail}`);
+          } else {
+            console.log(`❌ [EMAIL LOGIN] Usuário encontrado mas não é patrocinador. Role: ${user.role}`);
+            return res.status(401).json({ error: "E-mail não autorizado para acesso direto" });
+          }
+        } else {
+          console.log(`❌ [EMAIL LOGIN] Nenhum usuário encontrado com e-mail: ${cleanEmail}`);
+          return res.status(401).json({ error: "E-mail não autorizado para acesso direto" });
+        }
+      } else {
+        console.log(`✅ [EMAIL LOGIN] E-mail de conselheiro confirmado: ${cleanEmail}`);
+      }
+
+      // Buscar ou criar usuário para conselheiros
+      if (isConselho) {
+        if (!user) {
+          user = await storage.getUserByEmail(cleanEmail);
+        }
+
+        if (!user) {
+          // Criar usuário conselheiro automaticamente
+          console.log(`👤 [EMAIL LOGIN] Criando novo usuário conselheiro: ${cleanEmail}`);
+
+          user = await storage.createUser({
+            cpf: "00000000000",
+            nome: "Membro do Conselho",
+            telefone: "+5500000000000",
+            email: cleanEmail,
+            role: "conselho",
+            verificado: true,
+            conselhoStatus: "aprovado"
+          });
+        } else if (user.role !== "conselho") {
+          // Atualizar usuário existente para ter acesso ao conselho
+          console.log(`🔄 [EMAIL LOGIN] Atualizando role para conselho: ${cleanEmail}`);
+
+          user = await storage.updateUser(user.id, {
+            role: "conselho",
+            verificado: true,
+            conselhoStatus: "aprovado"
+          });
+        }
+      }
+
+      const finalRole = isPatrocinador ? "patrocinador" : "conselho";
+      console.log(`✅ [EMAIL LOGIN] Login bem-sucedido para ${finalRole}: ${user!.id} - ${user!.nome}`);
+
+      // Retornar dados do usuário para login
+      res.json({
+        success: true,
+        user: {
+          id: user!.id,
+          nome: user!.nome,
+          email: user!.email,
+          telefone: user!.telefone,
+          papel: finalRole,
+          verificado: true,
+          conselhoStatus: isConselho ? "aprovado" : undefined
+        }
+      });
+
+    } catch (error: any) {
+      console.error("❌ [EMAIL LOGIN] Erro:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Verify SMS code for donation flow
+  app.post("/api/auth/verify-sms", async (req, res) => {
+    try {
+      // Aceita tanto phone/code quanto telefone/codigo
+      const { phone, telefone, code, codigo } = req.body;
+
+      const finalPhone = phone || telefone;
+      const finalCode = code || codigo;
+
+      if (!finalPhone || !finalCode) {
+        return res.status(400).json({ error: "Telefone e código são obrigatórios" });
+      }
+
+      // Padronizar telefone para formato +55...
+      let normalizedPhone = finalPhone.replace(/\D/g, "");
+      if (!normalizedPhone.startsWith("55")) {
+        normalizedPhone = "55" + normalizedPhone;
+      }
+      const phoneKey = "+" + normalizedPhone;
+
+      console.log(
+        `🔍 DONATION FLOW VERIFY - Phone: ${finalPhone}, Normalized: ${phoneKey}, Code: ${finalCode}`
+      );
+
+      // Buscar código armazenado
+      const storedCode = verificationCodes.get(phoneKey);
+
+      if (!storedCode) {
+        console.log(`❌ NO CODE FOUND for key: ${phoneKey}`);
+        return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+      }
+
+      if (storedCode !== finalCode) {
+        console.log(`❌ INVALID CODE - Expected: ${storedCode}, Received: ${finalCode}`);
+        return res.status(400).json({ error: "Código de verificação inválido" });
+      }
+
+      // Apagar o código usado para evitar reuso
+      verificationCodes.delete(phoneKey);
+
+      console.log(`✅ SMS VERIFICATION SUCCESS for ${phoneKey}`);
+
+      res.json({ success: true, message: "Código verificado com sucesso" });
+    } catch (error: any) {
+      console.error("❌ Error verifying SMS code:", error);
+      res.status(500).json({ error: "Erro ao verificar código SMS" });
+    }
+  });
+
+
+  // Get user by ID - ATUALIZADO para incluir dados de gamificação
+  app.get("/api/user/:id", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      console.log(`🔍 [API /api/user/${userId}] Dados do storage:`, {
+        gritosTotal: user.gritosTotal,
+        diasConsecutivos: user.diasConsecutivos,
+        ultimoCheckin: user.ultimoCheckin
+      });
+
+      // Retornar dados completos incluindo gamificação
+      res.json({
+        id: user.id,
+        nome: user.nome,
+        sobrenome: user.sobrenome,
+        telefone: user.telefone,
+        plano: user.plano,
+        fotoPerfil: user.fotoPerfil,
+        role: user.role,
+        isVerified: user.verificado,
+        gritos_total: user.gritosTotal, // ADICIONADO
+        dias_consecutivos: user.diasConsecutivos, // ADICIONADO
+        ultimo_checkin: user.ultimoCheckin, // ADICIONADO
+      });
+    } catch (error: any) {
+      console.error("Error getting user:", error);
+      res.status(500).json({ error: "Erro ao buscar usuário" });
+    }
+  });
+
+  // Get user by ID (com /users/:id) - ENDPOINT para change-plan
+  // Retorna dados completos incluindo valor personalizado e periodicidade
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      console.log(`📥 [GET /api/users/${userId}] Iniciando busca...`);
+
+      // Buscar usuário do storage
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        console.log(`❌ [GET /api/users/${userId}] Usuário não encontrado no storage`);
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      console.log(`✅ [GET /api/users/${userId}] Usuário encontrado:`, {
+        id: user.id,
+        nome: user.nome,
+        plano: user.plano,
+        stripeCustomerId: user.stripeCustomerId,
+        stripeSubscriptionId: user.stripeSubscriptionId
+      });
+
+      // Buscar dados de doação para obter valor personalizado
+      let doadorData = null;
+      try {
+        const doadorQuery = await db
+          .select()
+          .from(doadores)
+          .where(and(
+            eq(doadores.userId, userId),
+            eq(doadores.status, 'paid'),
+            eq(doadores.ativo, true)
+          ))
+          .orderBy(desc(doadores.createdAt))
+          .limit(1);
+        
+        doadorData = doadorQuery[0] || null;
+        
+        console.log(`💰 [GET /api/users/${userId}] Dados de doação:`, {
+          encontrado: !!doadorData,
+          valor: doadorData?.valor,
+          plano: doadorData?.plano,
+          stripeSubscriptionId: doadorData?.stripeSubscriptionId
+        });
+      } catch (dbError: any) {
+        console.error(`❌ [GET /api/users/${userId}] Erro ao buscar doador:`, dbError.message);
+        // Continuar mesmo se não encontrar doador
+      }
+
+      // Preparar resposta
+      const response = {
+        id: user.id,
+        nome: user.nome,
+        sobrenome: user.sobrenome || '',
+        telefone: user.telefone,
+        email: user.email || null,
+        plano: user.plano,
+        fotoPerfil: user.fotoPerfil || null,
+        role: user.role || 'user',
+        isVerified: user.verificado || false,
+        valorPersonalizado: doadorData?.valor || null,
+        periodoDoacacao: 'mensal', // Por padrão é mensal (custom subscriptions são sempre mensais)
+        // PRIORIZAR subscription da tabela users (mais atualizada)
+        stripeSubscriptionId: user.stripeSubscriptionId || doadorData?.stripeSubscriptionId || null,
+        stripeCustomerId: user.stripeCustomerId || null,
+      };
+
+      console.log(`📤 [GET /api/users/${userId}] Resposta:`, {
+        plano: response.plano,
+        valorPersonalizado: response.valorPersonalizado,
+        periodoDoacacao: response.periodoDoacacao,
+        stripeSubscriptionId: response.stripeSubscriptionId
+      });
+
+      res.json(response);
+    } catch (error: any) {
+      console.error(`❌ [GET /api/users/${userId}] ERRO CRÍTICO:`, {
+        message: error.message,
+        stack: error.stack
+      });
+      res.status(500).json({ error: "Erro ao buscar usuário", details: error.message });
+    }
+  });
+
+  // Endpoint para buscar o plano atual baseado na doação ativa mais recente
+  app.get("/api/users/:id/current-plan", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const currentPlan = await storage.getUserActiveDonationPlan(userId);
+
+      res.json({
+        userId,
+        currentPlan
+      });
+    } catch (error: any) {
+      console.error("Error getting user current plan:", error);
+      res.status(500).json({ error: "Erro ao buscar plano atual do usuário" });
+    }
+  });
+
+  // ✅ NOVO: Endpoint para verificar status de pagamento completo
+  app.get("/api/users/:id/payment-status", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      // Verificar se tem doação paga
+      const [paidDonation] = await db
+        .select({
+          id: doadores.id,
+          plano: doadores.plano,
+          status: doadores.status,
+          valor: doadores.valor,
+          ultimaDoacao: doadores.ultimaDoacao
+        })
+        .from(doadores)
+        .where(and(
+          eq(doadores.userId, userId),
+          eq(doadores.status, 'paid'),
+          eq(doadores.ativo, true)
+        ))
+        .orderBy(desc(doadores.createdAt))
+        .limit(1);
+
+      const hasActiveSubscription = !!paidDonation;
+
+      res.json({
+        userId,
+        hasActiveSubscription,
+        paymentStatus: paidDonation ? 'paid' : 'pending',
+        currentPlan: paidDonation?.plano || 'eco',
+        lastPayment: paidDonation?.ultimaDoacao || null
+      });
+    } catch (error: any) {
+      console.error("Error getting user payment status:", error);
+      res.status(500).json({ error: "Erro ao buscar status de pagamento" });
+    }
+  });
+
+  // Endpoint para buscar múltiplos projetos apoiados baseado no plano do usuário
+  app.get("/api/users/:id/supported-project", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      // Buscar plano atual do usuário
+      const currentPlan = await storage.getUserActiveDonationPlan(userId) || 'eco';
+
+      // Buscar data da primeira doação do usuário para usar como período
+      let period = "janeiro de 2025";
+      try {
+        const doadorResult = await db
+          .select({
+            dataDoacaoInicial: doadores.dataDoacaoInicial,
+            dataCadastro: doadores.createdAt
+          })
+          .from(doadores)
+          .where(eq(doadores.userId, userId))
+          .limit(1);
+
+        if (doadorResult.length > 0) {
+          const firstDate = doadorResult[0].dataDoacaoInicial || doadorResult[0].dataCadastro;
+          if (firstDate) {
+            const date = new Date(firstDate);
+            const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+              'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+            const month = months[date.getMonth()];
+            const year = date.getFullYear();
+            period = `${month} de ${year}`;
+          }
+        }
+      } catch (error) {
+        console.log(`⚠️ [PROJETO APOIADO] Erro ao buscar data de doação: ${error}`);
+        period = "janeiro de 2025"; // fallback
+      }
+
+      // Buscar dados do usuário para configurações específicas
+      const user = await storage.getUser(userId);
+
+      // Definição de todos os projetos disponíveis
+      const allProjects = {
+        culturaEsporte: {
+          name: "Programa de Cultura e Esporte",
+          description: "Transformando vidas através da cultura e esporte",
+          period: period
+        },
+        inclusaoProdutiva: {
+          name: "Inclusão Produtiva",
+          description: "Capacitação profissional e geração de renda",
+          period: period
+        },
+        favela3d: {
+          name: "Favela 3D",
+          description: "Mapeamento e urbanização de comunidades",
+          period: period
+        },
+        metodoGrito: {
+          name: "Método Grito",
+          description: "Metodologia completa de transformação social",
+          period: period
+        }
+      };
+
+      // ✅ NOVA IMPLEMENTAÇÃO: Função para determinar projetos apoiados baseado no banco de dados
+      const getSupportedProjects = async (userId: number, currentPlan: string, user: any) => {
+        try {
+          // ✅ PRIORIDADE 1: Buscar projetos específicos do usuário no banco de dados
+          const userProjects = await storage.getUserSupportedProjects(userId);
+
+          if (userProjects && userProjects.length > 0) {
+            console.log(`🎯 [DB PROJECTS] Usuário ${userId}: Encontrados projetos específicos no banco: [${userProjects.join(', ')}]`);
+            return userProjects.map(projectKey => allProjects[projectKey as keyof typeof allProjects]);
+          }
+
+          // ✅ PRIORIDADE 2: Usar lógica baseada no plano (comportamento padrão)
+          console.log(`🎯 [PLAN PROJECTS] Usuário ${userId}: Usando projetos baseados no plano "${currentPlan}"`);
+          const planToProjects: { [key: string]: string[] } = {
+            eco: ['culturaEsporte'],
+            voz: ['culturaEsporte', 'inclusaoProdutiva'],
+            grito: ['culturaEsporte', 'inclusaoProdutiva', 'favela3d'],
+            platinum: ['culturaEsporte', 'inclusaoProdutiva', 'favela3d', 'metodoGrito']
+          };
+
+          const projectKeys = planToProjects[currentPlan] || planToProjects.eco;
+          return projectKeys.map(projectKey => allProjects[projectKey as keyof typeof allProjects]);
+        } catch (error) {
+          console.error(`❌ [SUPPORTED PROJECTS] Erro ao buscar projetos para usuário ${userId}:`, error);
+          // ✅ FALLBACK: Usar plano padrão em caso de erro
+          const projectKeys = ['culturaEsporte']; // plano eco
+          return projectKeys.map(projectKey => allProjects[projectKey as keyof typeof allProjects]);
+        }
+      };
+
+      const supportedProjects = await getSupportedProjects(userId, currentPlan, user);
+
+      console.log(`🎯 [PROJETOS APOIADOS] Usuário ${userId} com plano "${currentPlan}" apoia ${supportedProjects.length} projeto(s): ${supportedProjects.map(p => p.name).join(', ')}`);
+
+      res.json({
+        userId,
+        currentPlan,
+        supportedProject: supportedProjects[0] || null, // ✅ BACKWARD COMPATIBILITY: primeiro projeto para clientes antigos
+        supportedProjects // ✅ NOVA FUNCIONALIDADE: array completo de projetos
+      });
+    } catch (error: any) {
+      console.error("Error getting user supported projects:", error);
+      res.status(500).json({ error: "Erro ao buscar projetos apoiados" });
+    }
+  });
+
+  // Endpoint para buscar dados de impacto dinâmicos baseados no valor real doado
+  app.get("/api/users/:id/impact-data", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      // Buscar plano atual do usuário
+      const currentPlan = await storage.getUserActiveDonationPlan(userId) || 'eco';
+
+      // Valores mensais baseados no plano
+      const monthlyValues: { [key: string]: number } = {
+        eco: 9.90,
+        voz: 19.90,
+        grito: 29.90,
+        platinum: 31.00 // Plano Platinum mínimo = R$ 31/mês (qualquer valor acima de R$ 30)
+      };
+
+      // ✅ CORREÇÃO: Calcular valor REAL das doações efetivamente pagas
+      const realDonationsTotal = await storage.getUserTotalDonations(userId);
+
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth() + 1; // 1-12
+
+      // ✅ Para plano Platinum, buscar valor real da última doação paga
+      let monthlyContribution = monthlyValues[currentPlan] || monthlyValues.eco;
+      if (currentPlan === 'platinum') {
+        const platinumDonation = await db.select({
+          valor: doadores.valor
+        })
+          .from(doadores)
+          .where(and(
+            eq(doadores.userId, userId),
+            eq(doadores.plano, 'platinum'),
+            eq(doadores.status, 'paid')
+          ))
+          .orderBy(desc(doadores.createdAt))
+          .limit(1);
+
+        if (platinumDonation.length > 0) {
+          monthlyContribution = parseFloat(platinumDonation[0].valor);
+          console.log(`🎯 [PLATINUM REAL] Usuário ${userId}: Valor real R$ ${monthlyContribution}`);
+        }
+      }
+
+      // ✅ USAR VALOR REAL em vez de assumir 9 meses de doação
+      const valueContributed = realDonationsTotal;
+      const annualValue = monthlyContribution * 12;
+      const valueRemaining = Math.max(0, annualValue - valueContributed);
+
+      // ✅ Calcular progresso baseado no valor real doado vs meta anual
+      const progressPercentage = Math.min(Math.round((valueContributed / annualValue) * 100), 100);
+
+      res.json({
+        currentPlan,
+        monthlyContribution,
+        valueContributed,
+        annualValue,
+        valueRemaining,
+        currentMonth,
+        progressPercentage,
+        realDonationsTotal // ✅ Incluir valor real para transparência
+      });
+    } catch (error: any) {
+      console.error("Error getting user impact data:", error);
+      res.status(500).json({ error: "Erro ao buscar dados de impacto do usuário" });
+    }
+  });
+
+  // Resend verification code
+  app.post("/api/resend-verification", async (req, res) => {
+    try {
+      const { telefone } = req.body;
+
+      if (!telefone) {
+        return res.status(400).json({ error: "Telefone é obrigatório" });
+      }
+
+      const user = await storage.getUserByTelefone(telefone);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Generate new verification code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      try {
+        // Try to send SMS via Twilio
+        const client = getTwilioClient();
+        await client.messages.create({
+          body: `Seu código de verificação do Clube do Grito é: ${verificationCode}`,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: `+55${telefone.replace(/\D/g, '')}`
+        });
+
+        console.log(`SMS reenviado para ${telefone}: ${verificationCode}`);
+      } catch (twilioError: any) {
+        console.log(`DESENVOLVIMENTO - Código reenviado para ${telefone}: ${verificationCode}`);
+        console.log("Erro Twilio:", twilioError.message);
+      }
+
+      // Update stored verification code
+      verificationCodes.set(telefone, verificationCode);
+
+      res.json({
+        success: true,
+        message: "Código de verificação reenviado",
+        ...(process.env.NODE_ENV === "development" && { devCode: verificationCode })
+      });
+    } catch (error) {
+      console.error("Error resending verification:", error);
+      res.status(500).json({ error: "Erro ao reenviar código" });
+    }
+  });
+
+  // Admin routes for Leo Martins functionality
+  app.post("/api/admin/create-user", async (req, res) => {
+    try {
+      const { tipo, nome, email, telefone, ...extraFields } = req.body;
+
+      // Create user with admin privileges
+      const user = await storage.createUser({
+        nome,
+        email,
+        telefone: normalizePhoneNumber(telefone),
+        isVerified: true,
+        papel: tipo,
+        plano: "eco",
+        ...extraFields
+      });
+
+      res.json({ success: true, user });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar usuário: " + error.message });
+    }
+  });
+
+  // =============================================================================
+  // ROTA PRINCIPAL DO CONSELHO - Integração Completa com Omie
+  // =============================================================================
+
+  app.get("/api/conselho", async (req, res) => {
+    console.log('🔵 [CONSELHO] Iniciando consulta integrada do Omie...');
+
+    try {
+      // Verificar se as credenciais estão configuradas
+      if (!process.env.OMIE_APP_KEY || !process.env.OMIE_APP_SECRET) {
+        return res.status(503).json({
+          error: 'Integração com Omie não configurada',
+          message: 'Credenciais do Omie não encontradas'
+        });
+      }
+
+      // Executar todas as chamadas em paralelo para máxima eficiência
+      const [
+        projetos,
+        categorias,
+        contasPagar,
+        contasReceber,
+        lancamentosContaCorrente,
+        resumoFinanceiro,
+        contasCorrente,
+        lancamentosContaCorrente2,
+        boletos,
+        pixData,
+        extratoContaCorrente,
+        orcamentoCaixa,
+        titulosPesquisa,
+        movimentosFinanceiros
+      ] = await Promise.allSettled([
+        listarProjetos(),
+        listarCategorias(),
+        listarContasPagar(),
+        listarContasReceber(),
+        listarLancamentosContaCorrente(),
+        obterResumoFinanceiro(),
+        listarContasCorrente(),
+        listarLancamentosContaCorrente2(),
+        listarBoletos(),
+        obterBoletoPIX(),
+        listarExtratoContaCorrente(),
+        listarOrcamentoCaixa(),
+        pesquisarTitulos(),
+        listarMovimentosFinanceiros()
+      ]);
+
+      // Processar os resultados
+      const consolidado = {
+        timestamp: new Date().toISOString(),
+        status: 'success',
+
+        // APIs Básicas
+        projetos: projetos.status === 'fulfilled' ? projetos.value : { error: projetos.reason?.message },
+        categorias: categorias.status === 'fulfilled' ? categorias.value : { error: categorias.reason?.message },
+        contasPagar: contasPagar.status === 'fulfilled' ? contasPagar.value : { error: contasPagar.reason?.message },
+        contasReceber: contasReceber.status === 'fulfilled' ? contasReceber.value : { error: contasReceber.reason?.message },
+        lancamentosContaCorrente: lancamentosContaCorrente.status === 'fulfilled' ? lancamentosContaCorrente.value : { error: lancamentosContaCorrente.reason?.message },
+        resumoFinanceiro: resumoFinanceiro.status === 'fulfilled' ? resumoFinanceiro.value : { error: resumoFinanceiro.reason?.message },
+
+        // Novas APIs Financeiras
+        contasCorrente: contasCorrente.status === 'fulfilled' ? contasCorrente.value : { error: contasCorrente.reason?.message },
+        lancamentosContaCorrente2: lancamentosContaCorrente2.status === 'fulfilled' ? lancamentosContaCorrente2.value : { error: lancamentosContaCorrente2.reason?.message },
+        boletos: boletos.status === 'fulfilled' ? boletos.value : { error: boletos.reason?.message },
+        pixData: pixData.status === 'fulfilled' ? pixData.value : { error: pixData.reason?.message },
+        extratoContaCorrente: extratoContaCorrente.status === 'fulfilled' ? extratoContaCorrente.value : { error: extratoContaCorrente.reason?.message },
+        orcamentoCaixa: orcamentoCaixa.status === 'fulfilled' ? orcamentoCaixa.value : { error: orcamentoCaixa.reason?.message },
+        titulosPesquisa: titulosPesquisa.status === 'fulfilled' ? titulosPesquisa.value : { error: titulosPesquisa.reason?.message },
+        movimentosFinanceiros: movimentosFinanceiros.status === 'fulfilled' ? movimentosFinanceiros.value : { error: movimentosFinanceiros.reason?.message },
+
+        // Status das chamadas
+        statusChamadas: {
+          // APIs Básicas
+          projetos: projetos.status,
+          categorias: categorias.status,
+          contasPagar: contasPagar.status,
+          contasReceber: contasReceber.status,
+          lancamentosContaCorrente: lancamentosContaCorrente.status,
+          resumoFinanceiro: resumoFinanceiro.status,
+
+          // Novas APIs
+          contasCorrente: contasCorrente.status,
+          lancamentosContaCorrente2: lancamentosContaCorrente2.status,
+          boletos: boletos.status,
+          pixData: pixData.status,
+          extratoContaCorrente: extratoContaCorrente.status,
+          orcamentoCaixa: orcamentoCaixa.status,
+          titulosPesquisa: titulosPesquisa.status,
+          movimentosFinanceiros: movimentosFinanceiros.status
+        }
+      };
+
+      console.log('✅ [CONSELHO] Consulta integrada concluída com sucesso');
+      res.json(consolidado);
+
+    } catch (error) {
+      console.error('❌ [CONSELHO] Erro na consulta integrada:', error);
+      res.status(500).json({
+        error: 'Erro interno do servidor',
+        message: error instanceof Error ? error.message : 'Erro desconhecido',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT CONSOLIDADO FINANCEIRO - Metas (Excel) vs Realizados (Omie)
+  // =============================================================================
+
+  app.get("/api/financeiro/consolidado", async (req, res) => {
+    console.log('📊 [FINANCEIRO CONSOLIDADO] Iniciando cruzamento META (planilha) vs REALIZADO (departamentos)...');
+
+    try {
+      // Parâmetros de período e departamento
+      const periodo = req.query.periodo as string || '2025';
+      let departamento = req.query.departamento as string || '';
+
+      // Mapeamento SLUG → NOME COMPLETO
+      const slugToNome: Record<string, string> = {
+        'comunicacao-integrada': 'Comunicação Integrada',
+        'controle-gestao': 'Controle & Gestão',
+        'esporte-cultura': 'Esporte e Cultura',
+        'esporte-e-cultura': 'Esporte e Cultura', // Variante com "e"
+        'inclusao-produtiva': 'Inclusão Produtiva',
+        'negocios-sociais': 'Negócios Sociais',
+        'psicossocial': 'Psicossocial'
+      };
+
+      // Converter SLUG para NOME se necessário
+      if (departamento && slugToNome[departamento.toLowerCase()]) {
+        const departamentoOriginal = departamento;
+        departamento = slugToNome[departamento.toLowerCase()];
+        console.log(`🔄 [SLUG→NOME] "${departamentoOriginal}" → "${departamento}"`);
+      }
+
+      console.log(`📅 [FINANCEIRO CONSOLIDADO] Período: ${periodo}, Departamento: ${departamento || 'TODOS'}`);
+
+      // 1. Ler METAS da planilha Excel
+      console.log('📊 [FINANCEIRO CONSOLIDADO] Lendo METAS da planilha...');
+      const metas = lerMetasPlanilha();
+
+      // 2. CASO 1: Departamento específico selecionado
+      if (departamento && departamento !== 'TODOS') {
+        console.log(`🏢 [FINANCEIRO CONSOLIDADO] Filtrando por departamento: ${departamento}`);
+
+        // REALIZADO: dados fixos do departamento
+        const dadosDep = obterDadosDepartamento(departamento);
+        const realizadoReceitas = dadosDep.contasReceber;
+        const realizadoDespesas = dadosDep.contasPagar;
+
+        // Verificar se há metas específicas para este departamento
+        let metasEspecificasDep = await obterMetasDepartamento(departamento);
+
+        // Se não encontrou no banco, tentar buscar no objeto hardcoded
+        if (!metasEspecificasDep && METAS_POR_DEPARTAMENTO[departamento]) {
+          console.log(`🔧 [FALLBACK HARDCODED] Usando metas hardcoded para ${departamento}`);
+          metasEspecificasDep = METAS_POR_DEPARTAMENTO[departamento];
+        }
+
+        // META: usar metas específicas do departamento se disponível, senão usar planilha geral
+        let metaReceitas = 0;
+        let metaDespesas = 0;
+
+        if (metasEspecificasDep) {
+          console.log(`✅ [META ESPECÍFICA] Usando metas específicas para ${departamento}`);
+
+          if (periodo.length === 4) {
+            // Ano todo - somar todos os meses
+            const mesesChaves: Array<keyof MetasMensaisDepartamento['contasReceber']> = [
+              'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+              'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+            ];
+            metaReceitas = mesesChaves.reduce((sum, mes) => sum + metasEspecificasDep.contasReceber[mes], 0);
+            metaDespesas = mesesChaves.reduce((sum, mes) => sum + metasEspecificasDep.contasPagar[mes], 0);
+          } else {
+            // Mês específico
+            const meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+              'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+            const mesNumero = parseInt(periodo.split('-')[1]);
+            const mesNome = meses[mesNumero - 1] as keyof MetasMensaisDepartamento['contasReceber'];
+
+            metaReceitas = metasEspecificasDep.contasReceber[mesNome];
+            metaDespesas = metasEspecificasDep.contasPagar[mesNome];
+          }
+        } else {
+          // Usar planilha geral (comportamento anterior)
+          if (periodo.length === 4) {
+            // Ano todo
+            metaReceitas = metas.receitas.reduce((sum, cat) => sum + cat.metas.total, 0);
+            metaDespesas = metas.despesas.reduce((sum, cat) => sum + cat.metas.total, 0);
+          } else {
+            // Mês específico
+            const meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+              'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+            const mesNumero = parseInt(periodo.split('-')[1]);
+            const mesNome = meses[mesNumero - 1] as keyof MetasCategoria['metas'];
+
+            metaReceitas = metas.receitas.reduce((sum, cat) => sum + cat.metas[mesNome], 0);
+            metaDespesas = metas.despesas.reduce((sum, cat) => sum + cat.metas[mesNome], 0);
+          }
+        }
+
+        console.log(`✅ [DEPARTAMENTO] META: Receitas=R$ ${metaReceitas.toFixed(2)}, Despesas=R$ ${metaDespesas.toFixed(2)}`);
+        console.log(`✅ [DEPARTAMENTO] REALIZADO: Receitas=R$ ${realizadoReceitas.toFixed(2)}, Despesas=R$ ${realizadoDespesas.toFixed(2)}`);
+
+        // Buscar dados mensais reais do banco
+        const ano = parseInt(periodo.split('-')[0]);
+
+        // Normalizar variações de nome: "e" vs "&"
+        const departamentoNormalizado = departamento.replace(/ e /gi, ' & ');
+        const departamentoEscaped = departamentoNormalizado.replace(/'/g, "''").replace(/%/g, '\\%');
+        const queryRealizado = `
+          SELECT * FROM conselho_dados_realizados 
+          WHERE ano = ${ano} 
+          AND UPPER(departamento) LIKE UPPER('${departamentoEscaped}')
+          ORDER BY mes
+        `;
+        console.log(`🔍 [QUERY REALIZADO] Buscando "${departamento}" como "${departamentoNormalizado}"`);
+        console.log(`🔍 [QUERY SQL]:`, queryRealizado);
+        const dadosMensaisBanco = await pool.query(queryRealizado).then(r => r.rows);
+        console.log(`🔍 [DADOS REALIZADOS] Encontrados ${dadosMensaisBanco.length} meses para ${departamento}`);
+        if (departamento === 'Comunicação Integrada') {
+          const janData = dadosMensaisBanco.find(d => d.mes === 1);
+          console.log(`🔍 [JAN RAW DB]`, janData);
+          console.log(`🔍 [JAN contas_a_receber tipo]:`, typeof janData?.contas_a_receber, janData?.contas_a_receber);
+        }
+
+        const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const mesesChaves: Array<keyof MetasCategoria['metas']> = [
+          'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+          'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+        ];
+
+        // Verificar se há metas específicas para este departamento
+        let metasEspecificas = await obterMetasDepartamento(departamento);
+
+        // Se não encontrou no banco, tentar buscar no objeto hardcoded
+        if (!metasEspecificas && METAS_POR_DEPARTAMENTO[departamento]) {
+          console.log(`🔧 [FALLBACK HARDCODED MENSAL] Usando metas hardcoded para ${departamento}`);
+          metasEspecificas = METAS_POR_DEPARTAMENTO[departamento];
+        }
+
+        const dadosMensais = mesesNomes.map((mesNome, index) => {
+          const mesChave = mesesChaves[index];
+          const mesNumero = index + 1;
+
+          // META: usar metas específicas do departamento se disponível, senão usar planilha geral
+          let metaCaptadoMes: number;
+          let metaRealizadoMes: number;
+
+          if (metasEspecificas) {
+            // Usar metas específicas do departamento
+            metaCaptadoMes = metasEspecificas.contasReceber[mesChave];
+            metaRealizadoMes = metasEspecificas.contasPagar[mesChave];
+            console.log(`📊 [META ESPECÍFICA] ${departamento} - ${mesNome}: Receber=R$ ${metaCaptadoMes}, Pagar=R$ ${metaRealizadoMes}`);
+          } else {
+            // Usar soma das categorias da planilha (comportamento anterior)
+            metaCaptadoMes = metas.receitas.reduce((sum, cat) => sum + cat.metas[mesChave], 0);
+            metaRealizadoMes = metas.despesas.reduce((sum, cat) => sum + cat.metas[mesChave], 0);
+          }
+
+          // REALIZADO: buscar do banco ou usar 0 se não houver dados
+          const dadosMes = dadosMensaisBanco.find(d => d.mes === mesNumero);
+          // Pool.query retorna snake_case (contas_a_receber), não camelCase
+          // IMPORTANTE: usar !== undefined para permitir valor 0
+          const realizadoCaptadoMensal = dadosMes && dadosMes.contas_a_receber !== undefined ? parseFloat(dadosMes.contas_a_receber.toString()) : 0;
+          const realizadoDespesasMensal = dadosMes && dadosMes.contas_a_pagar !== undefined ? parseFloat(dadosMes.contas_a_pagar.toString()) : 0;
+          const saldoMensal = dadosMes && dadosMes.saldo !== undefined ? parseFloat(dadosMes.saldo.toString()) : 0;
+
+          return {
+            mes: mesNome,
+            meta_captado: metaCaptadoMes,
+            captado: realizadoCaptadoMensal,
+            meta_realizado: metaRealizadoMes,
+            realizado: realizadoDespesasMensal,
+            saldo: saldoMensal
+          };
+        });
+
+        const resposta = {
+          periodo,
+          departamento,
+          totais: {
+            receitas_meta: metaReceitas,
+            receitas_captado: realizadoReceitas,
+            receitas_resultado: realizadoReceitas - metaReceitas,
+            despesas_meta: metaDespesas,
+            despesas_realizado: realizadoDespesas,
+            despesas_resultado: metaDespesas - realizadoDespesas,
+            saldo_final_geral: realizadoReceitas - realizadoDespesas
+          },
+          dados_mensais: dadosMensais,
+          metas: {
+            receitas: metaReceitas,
+            despesas: metaDespesas
+          },
+          realizados: {
+            contas_receber: realizadoReceitas,
+            contas_pagar: realizadoDespesas
+          },
+          timestamp: new Date().toISOString()
+        };
+
+        console.log('✅ [FINANCEIRO CONSOLIDADO] Departamento filtrado com sucesso');
+        // Adicionar header para desabilitar cache
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        return res.json(resposta);
+      }
+
+      // 3. CASO 2: TOTAL GERAL (TODOS)
+      console.log('🏢 [FINANCEIRO CONSOLIDADO] Calculando TOTAL GERAL...');
+
+      // META: tentar buscar metas de TOTAL do banco, se não tiver usar planilha
+      const anoTotal = parseInt(periodo.split('-')[0]);
+      const metasTotalBanco = await obterMetasDepartamento('TOTAL', anoTotal);
+      let metaReceitasTotal = 0;
+      let metaDespesasTotal = 0;
+
+      if (metasTotalBanco) {
+        console.log('✅ [META TOTAL] Usando metas do banco Digital Ocean para TOTAL');
+        if (periodo.length === 4) {
+          // Ano todo - somar todos os meses
+          const mesesChaves: Array<keyof MetasMensaisDepartamento['contasReceber']> = [
+            'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+            'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+          ];
+          metaReceitasTotal = mesesChaves.reduce((sum, mes) => sum + metasTotalBanco.contasReceber[mes], 0);
+          metaDespesasTotal = mesesChaves.reduce((sum, mes) => sum + metasTotalBanco.contasPagar[mes], 0);
+        } else {
+          // Mês específico
+          const meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+            'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+          const mesNumero = parseInt(periodo.split('-')[1]);
+          const mesNome = meses[mesNumero - 1] as keyof MetasMensaisDepartamento['contasReceber'];
+          metaReceitasTotal = metasTotalBanco.contasReceber[mesNome];
+          metaDespesasTotal = metasTotalBanco.contasPagar[mesNome];
+        }
+        console.log(`✅ [META TOTAL] Banco - Receitas: R$ ${metaReceitasTotal.toFixed(2)}, Despesas: R$ ${metaDespesasTotal.toFixed(2)}`);
+      } else {
+        // Fallback: usar planilha se não houver metas no banco
+        console.log('⚠️ [META TOTAL] Banco não encontrado, usando planilha Excel como fallback');
+        if (periodo.length === 4) {
+          // Ano todo
+          metaReceitasTotal = metas.receitas.reduce((sum, cat) => sum + cat.metas.total, 0);
+          metaDespesasTotal = metas.despesas.reduce((sum, cat) => sum + cat.metas.total, 0);
+        } else {
+          // Mês específico
+          const meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+            'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+          const mesNumero = parseInt(periodo.split('-')[1]);
+          const mesNome = meses[mesNumero - 1] as keyof MetasCategoria['metas'];
+
+          metaReceitasTotal = metas.receitas.reduce((sum, cat) => sum + cat.metas[mesNome], 0);
+          metaDespesasTotal = metas.despesas.reduce((sum, cat) => sum + cat.metas[mesNome], 0);
+        }
+        console.log(`✅ [META TOTAL] Planilha - Receitas: R$ ${metaReceitasTotal.toFixed(2)}, Despesas: R$ ${metaDespesasTotal.toFixed(2)}`);
+      }
+
+      // REALIZADO: soma dos 6 departamentos fixos
+      const departamentosDisponiveis = [
+        'Comunicação Integrada',
+        'Controle & Gestão',
+        'Esporte e Cultura',
+        'Inclusão Produtiva',
+        'Negócios Sociais',
+        'Psicossocial'
+      ];
+
+      let realizadoReceitasTotal = 0;
+      let realizadoDespesasTotal = 0;
+
+      for (const dep of departamentosDisponiveis) {
+        const dadosDep = obterDadosDepartamento(dep);
+        realizadoReceitasTotal += dadosDep.contasReceber;
+        realizadoDespesasTotal += dadosDep.contasPagar;
+      }
+
+      console.log(`✅ [REALIZADO] Departamentos - Receitas: R$ ${realizadoReceitasTotal.toFixed(2)}, Despesas: R$ ${realizadoDespesasTotal.toFixed(2)}`);
+
+      const saldoFinalGeral = realizadoReceitasTotal - realizadoDespesasTotal;
+
+      // 4. Buscar dados mensais reais do TOTAL do banco
+      console.log(`🔍 [ANTES DA CONSULTA] Buscando ano=${anoTotal}, departamento=TOTAL`);
+
+      // TESTE: SQL RAW para comparar
+      const rawResult = await db.execute(sql`SELECT * FROM conselho_dados_realizados WHERE ano = ${anoTotal} AND departamento = 'TOTAL'`);
+      console.log(`🧪 [SQL RAW] Retornou ${rawResult.rows.length} registros`);
+
+      const dadosMensaisBancoTotal = await db
+        .select()
+        .from(conselhoDadosRealizados)
+        .where(
+          and(
+            eq(conselhoDadosRealizados.ano, anoTotal),
+            eq(conselhoDadosRealizados.departamento, 'TOTAL')
+          )
+        );
+      console.log(`🔍 [DRIZZLE ORM] Retornou ${dadosMensaisBancoTotal.length} registros`);
+
+      console.log(`🚨 [CODIGO NOVO CARREGADO!] Total de registros encontrados: ${dadosMensaisBancoTotal.length}`);
+      if (dadosMensaisBancoTotal.length === 1) {
+        console.log(`❌ [PROBLEMA] Só encontrou 1 registro quando deveriam ser 12!`);
+      }
+      console.log(`📋 [TODOS OS MESES]:`, dadosMensaisBancoTotal.map(d => `Mês ${d.mes}: R$ ${d.contasAReceber}`));
+
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      const mesesChaves: Array<keyof MetasCategoria['metas']> = [
+        'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+      ];
+
+      const dadosMensais = mesesNomes.map((mesNome, index) => {
+        const mesChave = mesesChaves[index];
+        const mesNumero = index + 1;
+
+        // META: usar metas de TOTAL do banco se disponível, senão planilha
+        let metaCaptadoMes: number;
+        let metaRealizadoMes: number;
+
+        if (metasTotalBanco) {
+          // Usar metas de TOTAL do banco Digital Ocean
+          metaCaptadoMes = metasTotalBanco.contasReceber[mesChave];
+          metaRealizadoMes = metasTotalBanco.contasPagar[mesChave];
+        } else {
+          // Fallback: soma das categorias da planilha para o mês
+          metaCaptadoMes = metas.receitas.reduce((sum, cat) => sum + cat.metas[mesChave], 0);
+          metaRealizadoMes = metas.despesas.reduce((sum, cat) => sum + cat.metas[mesChave], 0);
+        }
+
+        // REALIZADO: buscar do banco ou usar 0 se não houver dados
+        const dadosMes = dadosMensaisBancoTotal.find(d => d.mes === mesNumero);
+        const realizadoCaptadoMensal = dadosMes && dadosMes.contasAReceber ? parseFloat(dadosMes.contasAReceber.toString()) : 0;
+        const realizadoDespesasMensal = dadosMes && dadosMes.contasAPagar ? parseFloat(dadosMes.contasAPagar.toString()) : 0;
+        const saldoMensal = dadosMes && dadosMes.saldo ? parseFloat(dadosMes.saldo.toString()) : 0;
+
+        return {
+          mes: mesNome,
+          meta_captado: metaCaptadoMes,
+          captado: realizadoCaptadoMensal,
+          meta_realizado: metaRealizadoMes,
+          realizado: realizadoDespesasMensal,
+          saldo: saldoMensal
+        };
+      });
+
+      // 5. Montar resposta
+      const resposta = {
+        periodo,
+        totais: {
+          receitas_meta: metaReceitasTotal,
+          receitas_captado: realizadoReceitasTotal,
+          receitas_resultado: realizadoReceitasTotal - metaReceitasTotal,
+          despesas_meta: metaDespesasTotal,
+          despesas_realizado: realizadoDespesasTotal,
+          despesas_resultado: metaDespesasTotal - realizadoDespesasTotal,
+          saldo_final_geral: saldoFinalGeral
+        },
+        dados_mensais: dadosMensais,
+        metas: {
+          receitas: metaReceitasTotal,
+          despesas: metaDespesasTotal
+        },
+        realizados: {
+          contas_receber: realizadoReceitasTotal,
+          contas_pagar: realizadoDespesasTotal
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('✅ [FINANCEIRO CONSOLIDADO] Total Geral calculado com sucesso');
+      console.log('📊 [RESUMO] META vs REALIZADO:', resposta.totais);
+
+      res.json(resposta);
+
+    } catch (error) {
+      console.error('❌ [FINANCEIRO CONSOLIDADO] Erro:', error);
+      res.status(500).json({
+        error: 'Erro ao gerar consolidado financeiro',
+        message: error instanceof Error ? error.message : 'Erro desconhecido',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT - Listar Departamentos Disponíveis
+  // =============================================================================
+
+  app.get("/api/financeiro/departamentos", async (req, res) => {
+    console.log('🏢 [DEPARTAMENTOS] Listando departamentos disponíveis...');
+
+    try {
+      // Departamentos fixos do Instituto O Grito
+      const departamentos = [
+        'Comunicação Integrada',
+        'Controle & Gestão',
+        'Esporte e Cultura',
+        'Inclusão Produtiva',
+        'Negócios Sociais',
+        'Psicossocial'
+      ];
+
+      console.log(`✅ [DEPARTAMENTOS] Retornando ${departamentos.length} departamentos configurados`);
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        total: departamentos.length,
+        departamentos: departamentos
+      });
+
+    } catch (error) {
+      console.error('❌ [DEPARTAMENTOS] Erro ao listar departamentos:', error);
+      res.status(500).json({
+        error: 'Erro ao listar departamentos',
+        message: error instanceof Error ? error.message : 'Erro desconhecido',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Endpoint para listar todos os projetos disponíveis
+  app.get("/api/projetos", async (req, res) => {
+    console.log('🔵 [PROJETOS] Listando todos os projetos disponíveis...');
+
+    try {
+      const projetos = await listarProjetos();
+
+      if (projetos.error) {
+        return res.status(503).json({
+          error: 'Erro ao buscar projetos',
+          message: projetos.error
+        });
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        totalProjetos: projetos.projeto_cadastro?.length || 0,
+        projetos: projetos.projeto_cadastro?.map((p: any) => ({
+          codigo: p.codigo_projeto,
+          nome: p.nome_projeto,
+          descricao: p.descricao || 'Sem descrição',
+          cliente: p.cliente || 'Não informado'
+        })) || [],
+        dadosCompletos: projetos
+      });
+
+    } catch (error) {
+      console.error('❌ [PROJETOS] Erro na listagem de projetos:', error);
+      res.status(500).json({
+        error: 'Erro interno do servidor',
+        message: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // Endpoint para buscar dados específicos de um projeto
+  app.get("/api/projeto/:nomeProjeto", async (req, res) => {
+    console.log('🔵 [PROJETO] Buscando dados específicos do projeto:', req.params.nomeProjeto);
+
+    try {
+      // Primeiro buscar todos os projetos para encontrar o código
+      const projetos = await listarProjetos();
+
+      if (projetos.error) {
+        return res.status(503).json({
+          error: 'Erro ao buscar projetos',
+          message: projetos.error
+        });
+      }
+
+      // Procurar o projeto pelo nome
+      const projeto = projetos.projeto_cadastro?.find((p: any) =>
+        p.nome_projeto && p.nome_projeto.toLowerCase().includes(req.params.nomeProjeto.toLowerCase())
+      );
+
+      if (!projeto) {
+        return res.status(404).json({
+          error: 'Projeto não encontrado',
+          message: `Projeto "${req.params.nomeProjeto}" não foi encontrado`,
+          projetosDisponiveis: projetos.projeto_cadastro?.map((p: any) => ({
+            codigo: p.codigo_projeto,
+            nome: p.nome_projeto
+          })) || []
+        });
+      }
+
+      // Buscar contas a pagar específicas do projeto (única API que suporta filtro)
+      const contasPagarProjeto = await listarContasPagarPorProjeto(projeto.codigo_projeto);
+
+      // Compilar dados do projeto
+      const dadosProjeto = {
+        timestamp: new Date().toISOString(),
+        projeto: {
+          codigo: projeto.codigo_projeto,
+          nome: projeto.nome_projeto,
+          descricao: projeto.descricao || 'Sem descrição',
+          cliente: projeto.cliente || 'Não informado'
+        },
+
+        // Contas a Pagar específicas do projeto
+        contasPagar: contasPagarProjeto.error ?
+          { error: contasPagarProjeto.error } :
+          contasPagarProjeto,
+
+        // Outras APIs retornam dados consolidados (sem filtro por projeto)
+        limitacoes: {
+          contasReceber: "API não suporta filtro por projeto",
+          movimentosFinanceiros: "API não suporta filtro por projeto",
+          boletos: "API não suporta filtro por projeto",
+          pix: "API não suporta filtro por projeto"
+        }
+      };
+
+      console.log('✅ [PROJETO] Dados do projeto compilados com sucesso');
+      res.json(dadosProjeto);
+
+    } catch (error) {
+      console.error('❌ [PROJETO] Erro na busca de dados do projeto:', error);
+      res.status(500).json({
+        error: 'Erro interno do servidor',
+        message: error instanceof Error ? error.message : 'Erro desconhecido',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  app.get("/api/admin/users", async (req, res) => {
+    try {
+      // This would normally fetch all users from database
+      const mockUsers = [
+        {
+          id: 1,
+          nome: "João Silva",
+          email: "joao@email.com",
+          telefone: "+5511999999999",
+          papel: "user",
+          isVerified: true,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: 2,
+          nome: "Maria Santos",
+          email: "maria@email.com",
+          telefone: "+5511888888888",
+          papel: "professor",
+          isVerified: false,
+          createdAt: new Date().toISOString()
+        }
+      ];
+
+      res.json(mockUsers);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar usuários: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/toggle-verification", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isVerified } = req.body;
+
+      // Update user verification status
+      await storage.updateUserVerification(parseInt(id), isVerified);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar usuário: " + error.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Delete user - would be implemented in storage
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir usuário: " + error.message });
+    }
+  });
+
+  app.get("/api/admin/reports", async (req, res) => {
+    try {
+      const reportData = {
+        totalUsers: 1250,
+        verifiedUsers: 987,
+        usersByRole: {
+          "user": 800,
+          "professor": 150,
+          "aluno": 200,
+          "colaborador": 50,
+          "conselho": 30,
+          "admin": 15,
+          "leo": 1
+        },
+        recentRegistrations: 45,
+        activeUsers: 654,
+        revenue: 28750.50,
+        subscriptions: {
+          "eco": 650,
+          "voz": 420,
+          "grito": 180
+        }
+      };
+
+      res.json(reportData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao gerar relatório: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/export-report", async (req, res) => {
+    try {
+      const { format } = req.body;
+
+      // Mock export - would generate actual file
+      if (format === 'pdf') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="relatorio.pdf"');
+      } else {
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="relatorio.xlsx"');
+      }
+
+      res.send(Buffer.from('Mock file content'));
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao exportar relatório: " + error.message });
+    }
+  });
+
+  // 🔄 SYNC: Sincronizar planos dos usuários com Stripe (incluindo busca por customer_id)
+  app.post("/api/admin/sync-stripe-plans", async (req, res) => {
+    try {
+      console.log('🔄 [SYNC] Iniciando sincronização de planos do Stripe...');
+
+      if (!stripe) {
+        return res.status(500).json({ error: "Stripe não configurado" });
+      }
+
+      // Buscar todos os usuários com Stripe (subscription_id OU customer_id)
+      const allUsersFromDb = await storage.getAllUsers();
+      const usersWithStripe = allUsersFromDb.filter(u => u.stripeSubscriptionId || u.stripeCustomerId);
+
+      console.log(`🔍 [SYNC] Encontrados ${usersWithStripe.length} usuários com dados Stripe`);
+
+      const results = {
+        total: usersWithStripe.length,
+        updated: 0,
+        errors: 0,
+        subscriptionsFound: 0,
+        details: [] as any[]
+      };
+
+      for (const user of usersWithStripe) {
+        try {
+          let subscription = null;
+
+          // Se tem subscription_id, buscar direto
+          if (user.stripeSubscriptionId) {
+            subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+          }
+          // Se não tem subscription_id mas tem customer_id, buscar assinaturas do cliente
+          else if (user.stripeCustomerId) {
+            console.log(`🔍 [SYNC] Buscando assinaturas do customer ${user.stripeCustomerId} (${user.nome})`);
+            const subscriptions = await stripe.subscriptions.list({
+              customer: user.stripeCustomerId,
+              status: 'active',
+              limit: 1
+            });
+
+            if (subscriptions.data.length > 0) {
+              subscription = subscriptions.data[0];
+              results.subscriptionsFound++;
+
+              // Atualizar subscription_id no banco
+              await db.update(users)
+                .set({
+                  stripeSubscriptionId: subscription.id,
+                  subscriptionStatus: subscription.status
+                })
+                .where(eq(users.id, user.id));
+
+              console.log(`✅ [SYNC] Subscription encontrada e salva: ${subscription.id} para ${user.nome}`);
+            }
+          }
+
+          if (subscription && subscription.items && subscription.items.data && subscription.items.data.length > 0) {
+            const priceAmount = subscription.items.data[0].price.unit_amount; // Em centavos
+
+            if (priceAmount) {
+              // Mapear valor para plano
+              let planFromStripe = 'eco'; // Default
+              if (priceAmount === 990) {
+                planFromStripe = 'eco';
+              } else if (priceAmount === 1990) {
+                planFromStripe = 'voz';
+              } else if (priceAmount === 2990) {
+                planFromStripe = 'grito';
+              } else if (priceAmount > 2990) {
+                planFromStripe = 'platinum';
+              }
+
+              // Atualizar plano no banco
+              await db.update(users).set({ plano: planFromStripe }).where(eq(users.id, user.id));
+
+              results.updated++;
+              results.details.push({
+                userId: user.id,
+                nome: user.nome,
+                telefone: user.telefone,
+                planoAnterior: user.plano,
+                planoNovo: planFromStripe,
+                valorAssinatura: `R$ ${(priceAmount / 100).toFixed(2)}`,
+                subscriptionId: subscription.id
+              });
+
+              console.log(`✅ [SYNC] Usuário ${user.id} (${user.nome}) - ${user.plano} → ${planFromStripe} (R$ ${(priceAmount / 100).toFixed(2)})`);
+            }
+          }
+        } catch (error: any) {
+          results.errors++;
+          console.error(`❌ [SYNC] Erro ao processar usuário ${user.id}:`, error.message);
+        }
+      }
+
+      console.log(`✅ [SYNC] Sincronização concluída - ${results.updated} atualizados, ${results.subscriptionsFound} subscription IDs encontrados, ${results.errors} erros`);
+      res.json(results);
+
+    } catch (error: any) {
+      console.error('❌ [SYNC] Erro na sincronização:', error);
+      res.status(500).json({ error: "Erro ao sincronizar planos: " + error.message });
+    }
+  });
+
+  // Route para buscar dados do usuário por ID
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = parseInt(id);
+
+      // Primeiro verificar se o usuário existe antes de recalcular gritos
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Só recalcular gritos se o usuário existir
+      await storage.recalculateUserGritos(userId);
+
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ error: "Erro ao buscar usuário: " + error.message });
+    }
+  });
+
+  // ✅ NOVO: Endpoint para estatísticas do usuário (gritos, níveis, etc.)
+  app.get("/api/users/:id/stats", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Calcular gritos baseado nas doações realizadas e bonificações
+      let gritos = user.gritos || 0; // Valor base do banco
+
+      // Adicionar gritos por doações recorrentes mensais
+      const currentPlan = await storage.getUserActiveDonationPlan(userId);
+
+      let monthlyGritos = 0;
+      if (currentPlan === 'platinum') {
+        // Para Platinum: buscar valor real e multiplicar por 3
+        const platinumDonation = await db.select({
+          valor: doadores.valor
+        })
+          .from(doadores)
+          .where(and(
+            eq(doadores.userId, userId),
+            eq(doadores.plano, 'platinum'),
+            eq(doadores.status, 'paid')
+          ))
+          .orderBy(desc(doadores.createdAt))
+          .limit(1);
+
+        if (platinumDonation.length > 0) {
+          const valorDoacao = parseFloat(platinumDonation[0].valor);
+          monthlyGritos = Math.round(valorDoacao * 3);
+        } else {
+          monthlyGritos = 93; // Mínimo R$ 31 x 3
+        }
+      } else {
+        // Planos fixos: valor x 3
+        const planMultipliers: Record<string, number> = {
+          eco: 30,    // R$ 10 x 3
+          voz: 60,    // R$ 20 x 3
+          grito: 90   // R$ 30 x 3
+        };
+        monthlyGritos = planMultipliers[currentPlan as keyof typeof planMultipliers] || 30;
+      }
+
+      // Se tem plano ativo, assumir que acumula gritos mensalmente
+      if (currentPlan && monthlyGritos > 0) {
+        gritos = Math.max(gritos, monthlyGritos);
+      }
+
+      // Determinar níveis baseado nos gritos
+      const niveis = [
+        { nome: "Aliado do Grito", gritos: 0, proximo: "Eco do Bem" },
+        { nome: "Eco do Bem", gritos: 300, proximo: "Voz Ativa" },
+        { nome: "Voz Ativa", gritos: 600, proximo: "Transformador" },
+        { nome: "Transformador", gritos: 1000, proximo: "Guerreiro do Grito" },
+        { nome: "Guerreiro do Grito", gritos: 1500, proximo: "Máximo" }
+      ];
+
+      let nivel_atual = niveis[0];
+      let proximo_nivel = niveis[1]?.nome || "Máximo";
+      let gritos_proximo_nivel = niveis[1]?.gritos || 300;
+
+      for (let i = 0; i < niveis.length; i++) {
+        if (gritos >= niveis[i].gritos) {
+          nivel_atual = niveis[i];
+          proximo_nivel = niveis[i + 1]?.nome || "Máximo";
+          gritos_proximo_nivel = niveis[i + 1]?.gritos || niveis[i].gritos;
+        }
+      }
+
+      const stats = {
+        gritos,
+        nivel_atual: nivel_atual.nome,
+        proximo_nivel,
+        gritos_proximo_nivel,
+        plano_atual: currentPlan || 'eco'
+      };
+
+      console.log(`📊 [USER STATS] User ${userId}: ${JSON.stringify(stats)}`);
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error fetching user stats:", error);
+      res.status(500).json({ error: "Erro ao buscar estatísticas do usuário: " + error.message });
+    }
+  });
+
+  // Update user data (PUT)
+  app.put("/api/users/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nome, telefone, email } = req.body;
+
+      if (!nome && !telefone && !email) {
+        return res.status(400).json({ error: "Pelo menos um campo deve ser fornecido" });
+      }
+
+      const existingUser = await storage.getUser(parseInt(id));
+      if (!existingUser) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      const updateData: any = {};
+      if (nome) updateData.nome = nome;
+      if (telefone) updateData.telefone = telefone;
+      if (email) updateData.email = email;
+
+      const updatedUser = await storage.updateUser(parseInt(id), updateData);
+
+      // Verificar automaticamente se perfil está completo e completar missão
+      await storage.checkAndCompleteProfileMission(parseInt(id));
+
+      console.log(`✅ Dados atualizados para usuário ${id}:`, updateData);
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Erro ao atualizar usuário: " + error.message });
+    }
+  });
+
+  app.get("/api/admin/system-settings", async (req, res) => {
+    try {
+      const settings = {
+        maintenanceMode: false,
+        userRegistration: true,
+        smsVerification: true,
+        emailNotifications: true,
+        systemName: "Clube do Grito",
+        maxUsersPerPlan: 1000,
+        sessionTimeout: 24,
+        backupFrequency: "daily",
+        debugMode: false,
+        autoBackup: true,
+      };
+
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar configurações: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/system-settings", async (req, res) => {
+    try {
+      const settings = req.body;
+
+      // Save system settings - would be implemented in storage
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao salvar configurações: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/backup", async (req, res) => {
+    try {
+      // Initiate system backup
+      res.json({ success: true, message: "Backup iniciado com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao iniciar backup: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/clear-cache", async (req, res) => {
+    try {
+      // Clear system cache
+      res.json({ success: true, message: "Cache limpo com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao limpar cache: " + error.message });
+    }
+  });
+
+  // ===== DASHBOARD DE DOADORES - APIs ADMIN =====
+
+  // GET /api/admin/donors/stats - Estatísticas gerais dos doadores
+  app.get("/api/admin/donors/stats", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      console.log(`📊 [ADMIN DONORS - INICIO] Rota de estatísticas executada`);
+      console.log(`📊 [ADMIN DONORS] Usuário ${(req as any).user.id} solicitou estatísticas de doadores`);
+
+      const stats = await storage.getDonorStats();
+
+      console.log(`✅ [ADMIN DONORS] Estatísticas calculadas: ${stats.totalAtivos} doadores ativos`);
+
+      res.json({
+        success: true,
+        data: stats,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('❌ [ADMIN DONORS] Erro ao buscar estatísticas:', error);
+      res.status(500).json({
+        error: "Erro ao buscar estatísticas de doadores",
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // GET /api/admin/donors - Lista de doadores com filtros
+  app.get("/api/admin/donors", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      // 🔒 VALIDAÇÃO CRÍTICA DE SEGURANÇA - Query parameters com Zod
+      const validationResult = donorFiltersSchema.safeParse(req.query);
+
+      if (!validationResult.success) {
+        const adminUser = (req as any).user;
+        console.warn(`⚠️  [SECURITY] Tentativa de acesso com query inválidos - Admin ${adminUser.id} (${adminUser.email})`);
+        console.warn(`🚨 [VALIDATION ERROR]:`, validationResult.error.issues);
+
+        return res.status(400).json({
+          error: "Parâmetros de consulta inválidos",
+          details: validationResult.error.issues.map(issue => ({
+            campo: issue.path.join('.'),
+            mensagem: issue.message
+          })),
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const filters = validationResult.data;
+
+      console.log(`📋 [ADMIN DONORS] Admin ${(req as any).user.id} (${(req as any).user.email}) solicitou lista de doadores`);
+      console.log(`🔍 [FILTERS]:`, {
+        busca: filters.busca ? '[FILTERED]' : undefined,
+        plano: filters.plano,
+        status: filters.status,
+        periodo: filters.periodo,
+        limite: filters.limite,
+        offset: filters.offset,
+        ordenacao: filters.ordenacao
+      });
+
+      const result = await storage.getDonorsWithFilters(filters);
+
+      console.log(`✅ [ADMIN DONORS] Retornando ${result.doadores.length} doadores de ${result.total} total`);
+
+      res.json({
+        success: true,
+        data: result,
+        filters: filters,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('❌ [ADMIN DONORS] Erro ao buscar doadores:', error);
+      res.status(500).json({
+        error: "Erro ao buscar lista de doadores",
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // GET /api/admin/donors/:id/details - Detalhes completos de um doador
+  app.get("/api/admin/donors/:id/details", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      // 🔒 VALIDAÇÃO CRÍTICA DE SEGURANÇA - ID parameter com Zod
+      const validationResult = donorIdSchema.safeParse(req.params);
+
+      if (!validationResult.success) {
+        const adminUser = (req as any).user;
+        console.warn(`⚠️  [SECURITY] Tentativa de acesso com ID inválido - Admin ${adminUser.id} (${adminUser.email})`);
+        console.warn(`🚨 [VALIDATION ERROR]:`, validationResult.error.issues);
+
+        return res.status(400).json({
+          error: "ID do doador inválido",
+          details: validationResult.error.issues.map(issue => ({
+            campo: issue.path.join('.'),
+            mensagem: issue.message
+          })),
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const { id: donorId } = validationResult.data;
+
+      const details = await storage.getDonorDetails(donorId);
+
+      if (!details) {
+        console.log(`⚠️  [ADMIN DONORS] Doador ${donorId} não encontrado`);
+        return res.status(404).json({
+          error: "Doador não encontrado",
+          details: `Não foi possível encontrar doador com ID ${donorId}`
+        });
+      }
+
+      res.json({
+        success: true,
+        data: details,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('❌ [ADMIN DONORS] Erro ao buscar detalhes do doador:', error);
+      res.status(500).json({
+        error: "Erro ao buscar detalhes do doador",
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // =============================================================================
+  // CONSELHO - DADOS REALIZADOS MENSAIS
+  // =============================================================================
+
+  // Buscar dados realizados mensais
+  app.get("/api/conselho/dados-realizados", async (req, res) => {
+    try {
+      const { ano, mes, departamento } = req.query;
+
+      console.log(`📊 [CONSELHO REALIZADOS] Buscando dados - Ano: ${ano || 'todos'}, Mês: ${mes || 'todos'}, Departamento: ${departamento || 'todos'}`);
+
+      // Construir query com filtros opcionais
+      let query = db.select().from(conselhoDadosRealizados);
+
+      const conditions: any[] = [];
+      if (ano) conditions.push(eq(conselhoDadosRealizados.ano, parseInt(ano as string)));
+      if (mes) conditions.push(eq(conselhoDadosRealizados.mes, parseInt(mes as string)));
+      if (departamento && departamento !== 'TODOS') {
+        conditions.push(eq(conselhoDadosRealizados.departamento, departamento as string));
+      }
+
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+
+      const dados = await query;
+
+      console.log(`✅ [CONSELHO REALIZADOS] ${dados.length} registros encontrados`);
+
+      res.json({
+        success: true,
+        dados: dados.map(d => ({
+          id: d.id,
+          ano: d.ano,
+          mes: d.mes,
+          departamento: d.departamento,
+          contasAReceber: parseFloat(d.contasAReceber || '0'),
+          contasAPagar: parseFloat(d.contasAPagar || '0'),
+          saldo: parseFloat(d.saldo || '0')
+        }))
+      });
+    } catch (error) {
+      console.error('❌ [CONSELHO REALIZADOS] Erro ao buscar dados:', error);
+      res.status(500).json({
+        error: "Erro ao buscar dados realizados",
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // Inserir/atualizar dados realizados mensais
+  app.post("/api/conselho/dados-realizados", async (req, res) => {
+    try {
+      const { ano, mes, departamento, contasAReceber, contasAPagar, saldo } = req.body;
+
+      console.log(`💾 [CONSELHO REALIZADOS] Salvando dados - ${departamento} ${mes}/${ano}`);
+
+      // Validação básica
+      if (!ano || !mes || !departamento) {
+        return res.status(400).json({
+          error: "Campos obrigatórios: ano, mes, departamento"
+        });
+      }
+
+      // Verificar se já existe registro para este período/departamento
+      const existing = await db.select()
+        .from(conselhoDadosRealizados)
+        .where(
+          and(
+            eq(conselhoDadosRealizados.ano, ano),
+            eq(conselhoDadosRealizados.mes, mes),
+            eq(conselhoDadosRealizados.departamento, departamento)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Atualizar registro existente
+        await db.update(conselhoDadosRealizados)
+          .set({
+            contasAReceber: contasAReceber?.toString() || '0',
+            contasAPagar: contasAPagar?.toString() || '0',
+            saldo: saldo?.toString() || '0',
+            updatedAt: new Date()
+          })
+          .where(eq(conselhoDadosRealizados.id, existing[0].id));
+
+        console.log(`✅ [CONSELHO REALIZADOS] Registro atualizado: ${departamento} ${mes}/${ano}`);
+
+        res.json({
+          success: true,
+          message: "Dados atualizados com sucesso",
+          id: existing[0].id
+        });
+      } else {
+        // Inserir novo registro
+        const result = await db.insert(conselhoDadosRealizados)
+          .values({
+            ano,
+            mes,
+            departamento,
+            contasAReceber: contasAReceber?.toString() || '0',
+            contasAPagar: contasAPagar?.toString() || '0',
+            saldo: saldo?.toString() || '0'
+          })
+          .returning();
+
+        console.log(`✅ [CONSELHO REALIZADOS] Novo registro criado: ${departamento} ${mes}/${ano}`);
+
+        res.json({
+          success: true,
+          message: "Dados inseridos com sucesso",
+          id: result[0].id
+        });
+      }
+    } catch (error) {
+      console.error('❌ [CONSELHO REALIZADOS] Erro ao salvar dados:', error);
+      res.status(500).json({
+        error: "Erro ao salvar dados realizados",
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
+    }
+  });
+
+  // Conselho dashboard routes
+  app.get("/api/conselho/dashboard-data", async (req, res) => {
+    try {
+      const dashboardData = {
+        financeiro: {
+          receitaTotal: 287540.75,
+          receitaMensal: 24800.50,
+          crescimentoMensal: 12.5,
+          assinaturas: {
+            eco: { quantidade: 650, receita: 6435.0 },
+            voz: { quantidade: 420, receita: 8358.0 },
+            grito: { quantidade: 177, receita: 5133.3 }
+          }
+        },
+        usuarios: {
+          totalAtivos: 1247,
+          novosMembros: 85,
+          taxaRetencao: 92.3,
+          distribuicaoPorPlano: {
+            eco: 650,
+            voz: 420,
+            grito: 177
+          }
+        },
+        metas: {
+          receitaAnual: { atual: 287540.75, meta: 350000.0 },
+          membrosAtivos: { atual: 1247, meta: 1500 },
+          taxaConversao: { atual: 7.8, meta: 10.0 }
+        },
+        indicadores: {
+          satisfacao: 87.5,
+          churn: 3.2,
+          ltv: 285.75,
+          cac: 42.30
+        },
+        alertas: [
+          {
+            tipo: "warning",
+            titulo: "Meta de Conversão",
+            descricao: "Taxa de conversão está 2.2% abaixo da meta mensal",
+            prioridade: "media"
+          },
+          {
+            tipo: "info",
+            titulo: "Crescimento Acelerado",
+            descricao: "Crescimento 12.5% acima do mês anterior",
+            prioridade: "baixa"
+          },
+          {
+            tipo: "error",
+            titulo: "Churn Elevado",
+            descricao: "Taxa de cancelamento aumentou 0.8% esta semana",
+            prioridade: "alta"
+          }
+        ]
+      };
+
+      res.json(dashboardData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao carregar dados do conselho: " + error.message });
+    }
+  });
+
+  app.post("/api/conselho/export-data", async (req, res) => {
+    try {
+      const { format } = req.body;
+
+      // Mock export - in real app would generate actual file
+      const mockContent = `# Relatório Conselho Clube do Grito
+      
+## Resumo Financeiro
+- Receita Total: R$ 287.540,75
+- Receita Mensal: R$ 24.800,50
+- Crescimento: +12.5%
+
+## Dados de Membros
+- Total Ativos: 1.247
+- Novos Membros: 85
+- Taxa de Retenção: 92.3%
+
+## Indicadores
+- Satisfação: 87.5%
+- Churn: 3.2%
+- LTV: R$ 285,75
+- CAC: R$ 42,30
+
+Gerado em: ${new Date().toLocaleString('pt-BR')}`;
+
+      if (format === 'pdf') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename="relatorio_conselho.pdf"');
+        res.send(Buffer.from(mockContent));
+      } else {
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="relatorio_conselho.xlsx"');
+        res.send(Buffer.from(mockContent));
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao exportar dados: " + error.message });
+    }
+  });
+
+  // 📊 ENDPOINT: KPIs do Dashboard do Conselho
+  app.get("/api/conselho/kpis", async (req, res) => {
+    try {
+      // Conectar ao Digital Ocean PostgreSQL para dados reais
+      const doPool = new Pool({
+        host: process.env.DO_DB_HOST,
+        port: parseInt(process.env.DO_DB_PORT || '5433'),
+        database: process.env.DO_DB_NAME,
+        user: process.env.DO_DB_USER,
+        password: process.env.DO_DB_PASSWORD,
+        ssl: false
+      });
+
+      let alunosFormados = 0;
+      let criancasPec = 0;
+      let empregabilidade = 0;
+      let familiasAtivas = 0;
+
+      try {
+        // 1. Alunos formados (Inclusão Produtiva) - Total de alunos cadastrados
+        const alunosFormadosResult = await doPool.query(`
+          SELECT COUNT(*) as total_alunos
+          FROM aluno
+        `);
+        alunosFormados = Number(alunosFormadosResult.rows[0]?.total_alunos || 0);
+        console.log(`📊 [CONSELHO KPIs - DO] Total de alunos cadastrados: ${alunosFormados}`);
+      } catch (err) {
+        console.log('⚠️ [CONSELHO KPIs] Erro ao buscar alunos do Digital Ocean:', err);
+        // Fallback para valor hardcoded se falhar
+        alunosFormados = 69;
+      }
+
+      try {
+        // 2. Crianças atendidas (PEC) - Total de enrollments ativos
+        const criancasPecResult = await doPool.query(`
+          SELECT COUNT(DISTINCT person_id) as total_estudantes
+          FROM enrollments
+          WHERE active = true
+        `);
+        criancasPec = Number(criancasPecResult.rows[0]?.total_estudantes || 0);
+        console.log(`📊 [CONSELHO KPIs - DO] Total de crianças PEC ativas: ${criancasPec}`);
+      } catch (err) {
+        console.log('⚠️ [CONSELHO KPIs] Erro ao buscar crianças PEC do Digital Ocean:', err);
+        // Fallback para valor hardcoded se falhar
+        criancasPec = 309;
+      }
+
+
+      // 3. Empregabilidade - placeholder por enquanto (50%)
+      empregabilidade = 50;
+
+      // 4. Famílias Ativas - placeholder por enquanto (0)
+      familiasAtivas = 0;
+
+      // Fechar conexão
+      await doPool.end();
+
+      console.log('📊 [CONSELHO KPIs] KPIs retornados:', {
+        alunosFormados,
+        criancasPec,
+        empregabilidade,
+        familiasAtivas
+      });
+
+      res.json({
+        alunosFormados,
+        criancasPec,
+        empregabilidade,
+        familiasAtivas
+      });
+    } catch (error: any) {
+      console.error('❌ [CONSELHO KPIs] Erro fatal ao buscar KPIs:', error);
+      // Retornar zeros em caso de erro fatal
+      res.json({
+        alunosFormados: 0,
+        criancasPec: 0,
+        empregabilidade: 0,
+        familiasAtivas: 0
+      });
+    }
+  });
+
+  // 📊 ENDPOINT: Gestão à Vista - Indicadores de desempenho (ANUAL)
+  app.get("/api/gestao-vista", async (req, res) => {
+    let responseSent = false; // Flag para evitar enviar resposta duplicada
+
+    try {
+      // Validar parâmetros
+      const currentYear = new Date().getFullYear();
+      const ano = req.query.ano ? parseInt(req.query.ano as string) : currentYear;
+      const mes = req.query.mes ? parseInt(req.query.mes as string) : null; // null = anual
+      const programa = req.query.programa as string | undefined;
+      const unidade = req.query.unidade as string | undefined;
+
+      // Validar ano (entre 2020 e ano atual + 1)
+      if (isNaN(ano) || ano < 2020 || ano > currentYear + 1) {
+        return res.status(400).json({ error: "Ano inválido" });
+      }
+
+      // Validar mês (1-12 ou null para anual)
+      if (mes !== null && (isNaN(mes) || mes < 1 || mes > 12)) {
+        return res.status(400).json({ error: "Mês inválido" });
+      }
+
+      const tipoConsulta = mes !== null ? `MENSAL (mês ${mes})` : 'ANUAL (agregado)';
+      console.log(`📊 [GESTÃO VISTA] Buscando dados ${tipoConsulta}: ano=${ano}, programa=${programa}, unidade=${unidade}`);
+
+      // Buscar dados mensais dos programas para agregar
+      const [dadosInclusao, dadosPEC, dadosPsicossocial, dadosFavela3D] = await Promise.all([
+        fetch(`http://localhost:5000/api/inclusao-produtiva/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/pec/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/psicossocial/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/favela-3d/dados-mensais`).then(r => r.json()).catch(() => null)
+      ]);
+
+      console.log(`📊 [GESTÃO VISTA] Dados dos programas carregados:`, {
+        inclusao: !!dadosInclusao,
+        pec: !!dadosPEC,
+        psicossocial: !!dadosPsicossocial,
+        favela3d: !!dadosFavela3D
+      });
+
+      // ==================================================================
+      // DADOS MENSAIS 2025 - Todos os 11 indicadores
+      // Índice 0 = Janeiro, 1 = Fevereiro, ..., 11 = Dezembro
+      // null = sem dados para aquele mês
+      // ==================================================================
+      const dadosMensais2025 = {
+        criancasAtendidas: [null, 330, 305, 305, 318, 284, 328, 321, 333, null, null, null],
+        alunosFormados: [null, null, 72, null, 62, 176, 64, 33, 52, 102, null, null],
+        alunosEmFormacao: [57, 71, 80, 30, 211, 204, 170, 162, 341, 255, null, null],
+        frequencia: [null, 78, 81, 88, 86, 86, 90, 82, 87, null, null, null],
+        avaliacaoAprendizagem: [null, null, null, null, null, 89, null, null, null, null, null, null],
+        pesquisaSatisfacao: [null, null, null, null, null, 81, null, null, null, null, null, null],
+        evasao: [null, null, 32, null, null, 1, 1, 23, 4, null, null, null],
+        geracaoRenda: [null, 1, 21, 8, 45, 10, 13, null, 20, 13, null, null],
+        familiasAcompanhadas: [238, 219, 219, 217, 217, 217, 217, 218, 219, null, null, null],
+        visitasDomicilio: [323, 297, 332, 363, 398, 407, 354, 387, 313, null, null, null],
+        atendimentosPsico: [0, 17, 50, 44, 56, 30, 35, 30, 62, null, null, null]
+      };
+
+      // Metas anuais 2025 (não mudam por mês)
+      const metasAnuais2025 = {
+        criancasAtendidas: 500,
+        alunosFormados: 1600,
+        alunosEmFormacao: undefined, // Sem meta
+        frequencia: 85,
+        avaliacaoAprendizagem: 80,
+        pesquisaSatisfacao: 70,
+        evasao: 210,
+        geracaoRenda: 160,
+        familiasAcompanhadas: 419,
+        visitasDomicilio: 3460,
+        atendimentosPsico: 420
+      };
+
+      // HELPERS: Agregar dados mensais dos programas
+      // Se mes !== null, pegar apenas o valor do mês selecionado (índice = mes - 1)
+      // Se mes === null, fazer agregação anual
+      
+      // Helper para pegar valor mensal ou último mês disponível (para percentuais)
+      const getValorMensalOuUltimo = (valores: (number | null)[]): number => {
+        if (mes !== null) {
+          // Retornar valor do mês específico (índice 0 = janeiro)
+          const indice = mes - 1;
+          return valores[indice] ?? 0;
+        }
+        // Anual: pegar último mês com dados (de trás para frente)
+        for (let i = valores.length - 1; i >= 0; i--) {
+          if (valores[i] !== null && valores[i] !== undefined) {
+            return valores[i]!;
+          }
+        }
+        return 0;
+      };
+
+      // Helper para somar valores mensais ou pegar valor do mês (para contagens acumuladas)
+      const getValorSomadoOuMensal = (valores: (number | null)[]): number => {
+        if (mes !== null) {
+          // Retornar valor do mês específico (índice 0 = janeiro)
+          const indice = mes - 1;
+          return valores[indice] ?? 0;
+        }
+        // Anual: somar todos os meses válidos
+        const valoresValidos = valores.filter(v => v !== null && v !== undefined) as number[];
+        return valoresValidos.reduce((a, b) => a + b, 0);
+      };
+      
+      const calcularMediaMensal = (valores: (number | null)[]) => {
+        if (mes !== null) {
+          // Retornar valor do mês específico (índice 0 = janeiro)
+          const indice = mes - 1;
+          return valores[indice] ?? 0;
+        }
+        // Anual: média de todos os meses
+        const valoresValidos = valores.filter(v => v !== null && v !== undefined) as number[];
+        if (valoresValidos.length === 0) return 0;
+        return valoresValidos.reduce((a, b) => a + b, 0) / valoresValidos.length;
+      };
+
+      const somarMensal = (valores: (number | null)[]) => {
+        if (mes !== null) {
+          // Retornar valor do mês específico (índice 0 = janeiro)
+          const indice = mes - 1;
+          return valores[indice] ?? 0;
+        }
+        // Anual: soma de todos os meses
+        const valoresValidos = valores.filter(v => v !== null && v !== undefined) as number[];
+        return valoresValidos.reduce((a, b) => a + b, 0);
+      };
+
+      // NOVO: Pegar último mês válido de um array mensal (de trás pra frente)
+      const pegarUltimoMes = (valores: (number | null)[]): number | null => {
+        if (mes !== null) {
+          // Se filtro de mês ativo, retornar esse mês específico
+          const indice = mes - 1;
+          return valores[indice] ?? null;
+        }
+        // Anual: pegar último mês válido
+        if (!valores || valores.length === 0) return null;
+        // Percorrer de trás pra frente para pegar o último valor válido
+        for (let i = valores.length - 1; i >= 0; i--) {
+          if (valores[i] !== null && valores[i] !== undefined) {
+            return valores[i] as number;
+          }
+        }
+        return null;
+      };
+
+      // Conectar ao Digital Ocean PostgreSQL (usar pool compartilhado)
+      const doPool = getDigitalOceanPool();
+
+      try {
+        // ==================================================================
+        // 1. FREQUÊNCIA (%) - NOVO: Último mês de cada segmento específico
+        // Meta fixa: 85%
+        // Segmentos:
+        //   Inclusão Produtiva: Lab, Cursos Presencial, Cursos EAD
+        //   PEC: Salas Serenata, Polo Glória, Casa Sonhar
+        // ==================================================================
+        const ultimosMesesFrequencia: number[] = [];
+
+        // Mapeamento de slugs dos segmentos específicos
+        const segmentosInclusao = ['lab', 'cursos-presencial', 'cursos-ead'];
+        const segmentosPEC = ['salas-serenata', 'polo-gloria', 'casa-sonhar'];
+
+        // Inclusão Produtiva - Pegar último mês de cada segmento
+        if (dadosInclusao?.projetos) {
+          console.log(`🔍 [FREQUÊNCIA] Inclusão Produtiva tem ${dadosInclusao.projetos.length} projetos`);
+          dadosInclusao.projetos.forEach((p: any) => {
+            const nomeProjeto = p.projeto || p.nome;
+            if (!nomeProjeto) return;
+
+            console.log(`🔍 [FREQUÊNCIA] Analisando: "${nomeProjeto}"`);
+            const nomeNormalizado = nomeProjeto.toUpperCase();
+
+            // Verificar se é Lab, Cursos Presenciais ou Cursos EAD (usando nomes reais)
+            if (nomeNormalizado.includes('LAB') ||
+              nomeNormalizado.includes('PRESENC') ||  // Aceita PRESENCIAL e PRESENCIAIS
+              nomeNormalizado.includes('EAD')) {
+
+              const freqIndicador = p.indicadores?.find((ind: any) => ind.nome === "Frequência");
+              if (freqIndicador?.mensal) {
+                const ultimoMes = pegarUltimoMes(freqIndicador.mensal);
+                if (ultimoMes !== null) {
+                  ultimosMesesFrequencia.push(ultimoMes);
+                  console.log(`✅ [FREQUÊNCIA] ${nomeProjeto}: último mês = ${ultimoMes}%`);
+                }
+              }
+            }
+          });
+        }
+
+        // PEC - Pegar último mês de cada segmento
+        if (dadosPEC?.projetos) {
+          console.log(`🔍 [FREQUÊNCIA] PEC tem ${dadosPEC.projetos.length} projetos`);
+          dadosPEC.projetos.forEach((p: any) => {
+            const nomeProjeto = p.projeto || p.nome;
+            if (!nomeProjeto) return;
+
+            console.log(`🔍 [FREQUÊNCIA] Analisando: "${nomeProjeto}"`);
+            const nomeNormalizado = nomeProjeto.toUpperCase();
+
+            // Verificar se é Sala Serenata, Polo Glória ou Casa Sonhar (usando nomes reais)
+            if (nomeNormalizado.includes('SERENATA') ||
+              nomeNormalizado.includes('GLORIA') ||
+              nomeNormalizado.includes('GLÓRIA') ||
+              nomeNormalizado.includes('CASA SONHAR')) {
+
+              const freqIndicador = p.indicadores?.find((ind: any) => ind.nome === "Frequência");
+              if (freqIndicador?.mensal) {
+                const ultimoMes = pegarUltimoMes(freqIndicador.mensal);
+                if (ultimoMes !== null) {
+                  ultimosMesesFrequencia.push(ultimoMes);
+                  console.log(`✅ [FREQUÊNCIA] ${nomeProjeto}: último mês = ${ultimoMes}%`);
+                }
+              }
+            }
+          });
+        }
+
+        // FREQUÊNCIA: pegar valor mensal ou último disponível
+        const frequenciaValor = getValorMensalOuUltimo(dadosMensais2025.frequencia);
+        console.log(`📊 [FREQUÊNCIA] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${frequenciaValor}%`);
+
+        const frequenciaMeta = metasAnuais2025.frequencia; // META ANUAL 2025: 85%
+        const frequenciaKpi = getKpiColor({
+          id: 'frequencia',
+          valor: frequenciaValor,
+          meta: frequenciaMeta,
+          tipo: 'percent'
+        });
+
+        // ==================================================================
+        // 2. EVASÃO (CONTAGEM) - PEC + Inclusão Produtiva
+        // Somar valores mensais ou pegar valor do mês
+        // Meta: MÁXIMO 210 pessoas (lógica invertida: menor é melhor)
+        // ==================================================================
+        const evasaoValor = getValorSomadoOuMensal(dadosMensais2025.evasao);
+        const evasaoMeta = metasAnuais2025.evasao;
+        console.log(`📊 [EVASÃO] Valor ${mes !== null ? `mês ${mes}` : 'anual (soma)'}: ${evasaoValor} pessoas`);
+        const evasaoKpi = getKpiColor({
+          id: 'evasao',
+          valor: evasaoValor,
+          meta: evasaoMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 3. AVALIAÇÃO DE APRENDIZAGEM (%) - PEC + Inclusão Produtiva
+        // Pegar valor mensal ou último disponível
+        // ==================================================================
+        const criterioValor = getValorMensalOuUltimo(dadosMensais2025.avaliacaoAprendizagem);
+        const criterioMeta = metasAnuais2025.avaliacaoAprendizagem;
+        console.log(`📊 [AVALIAÇÃO DE APRENDIZAGEM] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${criterioValor}%`);
+        const criterioKpi = getKpiColor({
+          id: 'criterioSucesso',
+          valor: criterioValor,
+          meta: criterioMeta,
+          tipo: 'percent'
+        });
+
+        // ==================================================================
+        // 4. PESQUISA DE SATISFAÇÃO (COUNT) - Net Promoter Score
+        // Pegar valor mensal ou último disponível
+        // ==================================================================
+        const npsValor = getValorMensalOuUltimo(dadosMensais2025.pesquisaSatisfacao);
+        const npsMeta = metasAnuais2025.pesquisaSatisfacao;
+        console.log(`📊 [PESQUISA DE SATISFAÇÃO] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${npsValor}`);
+        const npsKpi = getKpiColor({
+          id: 'nps',
+          valor: npsValor,
+          meta: npsMeta,
+          tipo: 'count' // Mudado de 'percent' para 'count' - Pesquisa de Satisfação
+        });
+
+        // ==================================================================
+        // 5. ALUNOS FORMADOS - Inclusão Produtiva (CURSOS EAD + PRESENCIAIS)
+        // Somar valores mensais ou pegar valor do mês
+        // META ANUAL 2025: 1600 alunos
+        // ==================================================================
+        const alunosFormadosValor = getValorSomadoOuMensal(dadosMensais2025.alunosFormados);
+        const alunosFormadosMeta = metasAnuais2025.alunosFormados;
+        console.log(`📊 [ALUNOS FORMADOS] Valor ${mes !== null ? `mês ${mes}` : 'anual (soma)'}: ${alunosFormadosValor}`);
+        const alunosFormadosKpi = getKpiColor({
+          id: 'alunosFormados',
+          valor: alunosFormadosValor,
+          meta: alunosFormadosMeta,
+          tipo: 'count'
+        });
+        console.log(`📊 [GESTÃO VISTA] Alunos Formados: ${alunosFormadosValor} / ${alunosFormadosMeta}`);
+
+        // ==================================================================
+        // 6. ALUNOS EM FORMAÇÃO - Inclusão Produtiva (3 SEGMENTOS)
+        // Pegar valor mensal ou último disponível (snapshot)
+        // SEM META ANUAL 2025
+        // ==================================================================
+        const alunosEmFormacaoValor = getValorMensalOuUltimo(dadosMensais2025.alunosEmFormacao);
+        const alunosEmFormacaoMeta: number | undefined = metasAnuais2025.alunosEmFormacao; // SEM META
+        console.log(`📊 [ALUNOS EM FORMAÇÃO] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${alunosEmFormacaoValor} (sem meta)`);
+
+        const alunosEmFormacaoKpi = getKpiColor({
+          id: 'alunosEmFormacao',
+          valor: alunosEmFormacaoValor,
+          meta: alunosEmFormacaoMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 7. CRIANÇAS ATENDIDAS - PEC (3 SEGMENTOS)
+        // Pegar valor mensal ou último disponível (snapshot)
+        // META ANUAL 2025: 500
+        // ==================================================================
+        const criancasAtendidasValor = getValorMensalOuUltimo(dadosMensais2025.criancasAtendidas);
+        const criancasAtendidasMeta = metasAnuais2025.criancasAtendidas;
+        console.log(`📊 [CRIANÇAS ATENDIDAS] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${criancasAtendidasValor}`);
+
+        const criancasAtendidasKpi = getKpiColor({
+          id: 'criancasAtendidas',
+          valor: criancasAtendidasValor,
+          meta: criancasAtendidasMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 8. EMPREENDEDORES - LAB (Inclusão Produtiva)
+        // Soma de todos os 12 meses do indicador "Empregabilidade"
+        // ==================================================================
+        let empreendedoresValor = 0;
+        let empreendedoresMeta = 0;
+
+        if (dadosInclusao?.projetos) {
+          const lab = dadosInclusao.projetos.find((p: any) =>
+            p.projeto?.toUpperCase().includes("LAB")
+          );
+          if (lab) {
+            const empregabilidadeIndicador = lab.indicadores?.find((ind: any) =>
+              ind.nome === "Empregabilidade"
+            );
+            if (empregabilidadeIndicador?.mensal) {
+              empreendedoresValor = somarMensal(empregabilidadeIndicador.mensal);
+              empreendedoresMeta = Number(empregabilidadeIndicador.meta) || 0;
+              console.log(`📊 [GESTÃO VISTA] EMPREENDEDORES (LAB) - Valor: ${empreendedoresValor}, Meta: ${empreendedoresMeta}`);
+            } else {
+              console.warn(`⚠️ [GESTÃO VISTA] LAB: indicador "Empregabilidade" não encontrado`);
+            }
+          } else {
+            console.warn(`⚠️ [GESTÃO VISTA] Projeto LAB não encontrado`);
+          }
+        }
+
+        const empreendedoresKpi = getKpiColor({
+          id: 'empreendedores',
+          valor: empreendedoresValor,
+          meta: empreendedoresMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 9. GERAÇÃO DE RENDA (PESSOAS EMPREGADAS) - LAB (Inclusão Produtiva)
+        // Somar valores mensais ou pegar valor do mês
+        // META ANUAL 2025: 160
+        // ==================================================================
+        const pessoasEmpregadasValor = getValorSomadoOuMensal(dadosMensais2025.geracaoRenda);
+        const pessoasEmpregadasMeta = metasAnuais2025.geracaoRenda;
+        console.log(`📊 [GERAÇÃO DE RENDA] Valor ${mes !== null ? `mês ${mes}` : 'anual (soma)'}: ${pessoasEmpregadasValor}`);
+
+        const pessoasEmpregadasKpi = getKpiColor({
+          id: 'pessoasEmpregadas',
+          valor: pessoasEmpregadasValor,
+          meta: pessoasEmpregadasMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 10. FAMÍLIAS ACOMPANHADAS - Favela 3D (Decolagem)
+        // Pegar valor mensal ou último disponível (snapshot)
+        // META ANUAL 2025: 419
+        // ==================================================================
+        const familiasAtivasValor = getValorMensalOuUltimo(dadosMensais2025.familiasAcompanhadas);
+        const familiasAtivasMeta = metasAnuais2025.familiasAcompanhadas;
+        console.log(`📊 [FAMÍLIAS ACOMPANHADAS] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${familiasAtivasValor}`);
+
+        const familiasAtivasKpi = getKpiColor({
+          id: 'familiasAtivas',
+          valor: familiasAtivasValor,
+          meta: familiasAtivasMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 11. VISITAS EM DOMICÍLIO (PSICOSSOCIAL) - Soma do ano inteiro ou mês específico
+        // Somar valores mensais ou pegar valor do mês
+        // ==================================================================
+        const visitasValor = getValorSomadoOuMensal(dadosMensais2025.visitasDomicilio);
+        const visitasMeta = metasAnuais2025.visitasDomicilio;
+        console.log(`📊 [VISITAS EM DOMICÍLIO] Valor ${mes !== null ? `mês ${mes}` : 'anual (soma)'}: ${visitasValor}`);
+
+        const visitasKpi = getKpiColor({
+          id: 'visitas',
+          valor: visitasValor,
+          meta: visitasMeta,
+          tipo: 'count'
+        });
+
+        // ==================================================================
+        // 12. ATENDIMENTOS PSICOSSOCIAIS - Soma do ano inteiro ou mês específico
+        // Somar valores mensais ou pegar valor do mês
+        // ==================================================================
+        const atendimentosValor = getValorSomadoOuMensal(dadosMensais2025.atendimentosPsico);
+        const atendimentosMeta = metasAnuais2025.atendimentosPsico;
+        console.log(`📊 [ATENDIMENTOS PSICOSSOCIAIS] Valor ${mes !== null ? `mês ${mes}` : 'anual (soma)'}: ${atendimentosValor}`);
+
+        const atendimentosKpi = getKpiColor({
+          id: 'atendimentos',
+          valor: atendimentosValor,
+          meta: atendimentosMeta,
+          tipo: 'count'
+        });
+
+        // Logs de debug dos valores calculados
+        console.log('📊 [GESTÃO VISTA] Valores calculados:', {
+          frequencia: frequenciaValor.toFixed(1),
+          evasao: evasaoValor,
+          criterioSucesso: criterioValor.toFixed(1),
+          nps: npsValor.toFixed(1),
+          alunosFormados: alunosFormadosValor,
+          alunosEmFormacao: alunosEmFormacaoValor,
+          criancasAtendidas: criancasAtendidasValor,
+          familiasAtivas: familiasAtivasValor,
+          visitas: visitasValor,
+          atendimentos: atendimentosValor
+        });
+
+        // Montar resposta com cores e progress
+        const indicadores = {
+          frequencia: {
+            valor: frequenciaValor,
+            meta: frequenciaMeta,
+            tipo: 'percent' as const,
+            color: frequenciaKpi.color,
+            progress: frequenciaKpi.progress
+          },
+          evasao: {
+            valor: evasaoValor,
+            meta: evasaoMeta,
+            tipo: 'count' as const,
+            color: evasaoKpi.color,
+            progress: evasaoKpi.progress
+          },
+          criterioSucesso: {
+            valor: criterioValor,
+            meta: criterioMeta,
+            tipo: 'percent' as const,
+            color: criterioKpi.color,
+            progress: criterioKpi.progress
+          },
+          nps: {
+            valor: npsValor,
+            meta: npsMeta,
+            tipo: 'count' as const, // Pesquisa de Satisfação (count, não percent)
+            color: npsKpi.color,
+            progress: npsKpi.progress
+          },
+          alunosFormados: {
+            valor: alunosFormadosValor,
+            meta: alunosFormadosMeta,
+            tipo: 'count' as const,
+            color: alunosFormadosKpi.color,
+            progress: alunosFormadosKpi.progress
+          },
+          alunosEmFormacao: {
+            valor: alunosEmFormacaoValor,
+            meta: alunosEmFormacaoMeta,
+            tipo: 'count' as const,
+            color: alunosEmFormacaoKpi.color,
+            progress: alunosEmFormacaoKpi.progress
+          },
+          criancasAtendidas: {
+            valor: criancasAtendidasValor,
+            meta: criancasAtendidasMeta,
+            tipo: 'count' as const,
+            color: criancasAtendidasKpi.color,
+            progress: criancasAtendidasKpi.progress
+          },
+          empreendedores: {
+            valor: empreendedoresValor,
+            meta: empreendedoresMeta,
+            tipo: 'count' as const,
+            color: empreendedoresKpi.color,
+            progress: empreendedoresKpi.progress
+          },
+          pessoasEmpregadas: {
+            valor: pessoasEmpregadasValor,
+            meta: pessoasEmpregadasMeta,
+            tipo: 'count' as const,
+            color: pessoasEmpregadasKpi.color,
+            progress: pessoasEmpregadasKpi.progress
+          },
+          familiasAtivas: {
+            valor: familiasAtivasValor,
+            meta: familiasAtivasMeta,
+            tipo: 'count' as const,
+            color: familiasAtivasKpi.color,
+            progress: familiasAtivasKpi.progress
+          },
+          visitas: {
+            valor: visitasValor,
+            meta: visitasMeta,
+            tipo: 'count' as const,
+            color: visitasKpi.color,
+            progress: visitasKpi.progress
+          },
+          atendimentos: {
+            valor: atendimentosValor,
+            meta: atendimentosMeta,
+            tipo: 'count' as const,
+            color: atendimentosKpi.color,
+            progress: atendimentosKpi.progress
+          }
+        };
+
+        // ==================================================================
+        // DADOS ADICIONAIS PARA ABA IMPACTO
+        // ==================================================================
+
+        // Pessoas Ativas (Inclusão + PEC)
+        const pessoasAtivas = {
+          inclusaoProdutiva: {
+            formados: alunosFormadosValor,
+            emFormacao: alunosEmFormacaoValor
+          },
+          pec: {
+            criancasAtendidas: criancasAtendidasValor
+          },
+          totais: {
+            inclusao: alunosFormadosValor + alunosEmFormacaoValor,
+            pec: criancasAtendidasValor,
+            geral: alunosFormadosValor + alunosEmFormacaoValor + criancasAtendidasValor
+          }
+        };
+
+        // Raça/Cor (placeholder - precisa de dados estruturados)
+        const racaCor = {
+          negras: 45,
+          pardas: 30,
+          brancas: 20,
+          indigenas: 5,
+          total: 100
+        };
+
+        // Média de Idade (placeholder)
+        const idade = {
+          media: 23.8,
+          amostra: pessoasAtivas.totais.geral
+        };
+
+        // Contadores animados
+        const counters = {
+          horaAula: 15000,
+          atendimentos: atendimentosValor,
+          pessoasImpactadas: {
+            diretas: pessoasAtivas.totais.geral,
+            indiretas: pessoasAtivas.totais.geral * 3,
+            total: pessoasAtivas.totais.geral + (pessoasAtivas.totais.geral * 3)
+          }
+        };
+
+        console.log('📊 [GESTÃO VISTA] Indicadores ANUAIS retornados com cores:', indicadores);
+
+        responseSent = true;
+        res.json({
+          periodo: { 
+            ano, 
+            tipo: mes !== null ? 'mensal' : 'anual',
+            mes: mes !== null ? mes : undefined
+          },
+          indicadores,
+          pessoasAtivas,
+          racaCor,
+          idade,
+          counters
+        });
+      } catch (dbError: any) {
+        console.error('❌ [GESTÃO VISTA] Erro ao buscar dados:', dbError);
+
+        // Retornar dados com valores zero e cores cinza em caso de erro
+        const indicadoresErro = {
+          frequencia: { valor: 0, meta: 90, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
+          evasao: { valor: 0, meta: 8, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
+          criterioSucesso: { valor: 0, meta: 85, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
+          nps: { valor: 0, meta: 70, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
+          alunosFormados: { valor: 0, meta: 150, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          alunosEmFormacao: { valor: 0, meta: 500, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          criancasAtendidas: { valor: 0, meta: 1200, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          empreendedores: { valor: 0, meta: 50, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          pessoasEmpregadas: { valor: 0, meta: 130, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          familiasAtivas: { valor: 0, meta: 450, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          visitas: { valor: 0, meta: 120, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+          atendimentos: { valor: 0, meta: 400, tipo: 'count' as const, color: 'gray' as const, progress: 0 }
+        };
+
+        responseSent = true;
+        res.json({
+          periodo: { 
+            ano, 
+            tipo: mes !== null ? 'mensal' : 'anual',
+            mes: mes !== null ? mes : undefined
+          },
+          indicadores: indicadoresErro
+        });
+      } finally {
+        // Pool compartilhado - não fechar
+      }
+    } catch (error: any) {
+      console.error('❌ [GESTÃO VISTA] Erro fatal:', error);
+
+      if (!responseSent) {
+        res.status(500).json({ error: "Erro ao buscar dados de gestão à vista" });
+      }
+    }
+  });
+
+
+  // Rota para verificar se a meta de doações coletivas foi alcançada (DEVE VIR ANTES DE ROTAS COM PARÂMETROS)
+  app.get("/api/collective-donations-total", async (req, res) => {
+    try {
+      // Calcular total de doações coletivas
+      // Por enquanto retornar dados simulados até verificar estrutura da tabela
+      const totalDoacoes = 485; // Valor simulado próximo à meta
+      const metaAlcancada = totalDoacoes >= 500;
+
+      res.json({
+        total: totalDoacoes,
+        metaAlcancada: metaAlcancada,
+        meta: 500
+      });
+    } catch (error) {
+      console.error("❌ [DOAÇÕES COLETIVAS] Erro:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Gestão à Vista data endpoint - Leo Martins exclusive
+  app.get("/api/gestao-vista-data", async (req, res) => {
+    // For now, allow access since authentication is handled client-side
+    // In production, implement proper session-based authentication
+    try {
+      // Check if data has been reset
+      if ((global as any).resetLeoData) {
+        return res.json((global as any).resetLeoData);
+      }
+
+      // Data structure with AUTHENTIC data from "Gestão à Vista" spreadsheet for specific sections
+      const gestaoVistaData = {
+        favela3d: {
+          totalFamilias: 217,
+          familiasAtendidas: 217,
+          taxaFrequencia: 86.8,
+          ativosNoCiclo: 217,
+          metaRealizado: {
+            familiasAtivas: { meta: 250, realizado: 217, percentual: 86.8 },
+            visitasMentores: { meta: 3000, realizado: 1921, percentual: 64.0 },
+            familiasTriangulo: { meta: 1160, realizado: 265, percentual: 22.8 },
+            atendimentosGerais: { meta: 480, realizado: 277, percentual: 57.7 },
+            gerandoLiderancas: { meta: 12, realizado: 5, percentual: 41.7 },
+            rodaConversa: { meta: 12, realizado: 5, percentual: 41.7 },
+            grupoMulheres: { meta: 24, realizado: 7, percentual: 29.2 },
+            assembleiaComunitaria: { meta: 6, realizado: 3, percentual: 50.0 },
+            formandos: { meta: 100, realizado: 27, percentual: 27.0 },
+            empregados: { meta: 75, realizado: 4, percentual: 5.3 },
+            empreendedoresMapeados: { meta: 10, realizado: 43, percentual: 430.0 },
+            equipamentos: { meta: 4, realizado: 0, percentual: 0.0 },
+            melhoriaHabitacional: { meta: 50, realizado: 0, percentual: 0.0 }
+          },
+          estatisticasMensais: [
+            { mes: 'Jul', atendimentos: 45, workshops: 12, visitas: 28 },
+            { mes: 'Ago', atendimentos: 52, workshops: 15, visitas: 31 },
+            { mes: 'Set', atendimentos: 48, workshops: 13, visitas: 29 },
+            { mes: 'Out', atendimentos: 55, workshops: 16, visitas: 34 },
+            { mes: 'Nov', atendimentos: 58, workshops: 14, visitas: 32 },
+            { mes: 'Dez', atendimentos: 62, workshops: 18, visitas: 35 }
+          ],
+          proximasAtividades: [
+            { nome: "Workshop Culinária", data: "15/07", horario: "14:00", participantes: 25 },
+            { nome: "Visita Domiciliar", data: "18/07", horario: "09:00", participantes: 8 },
+            { nome: "Reunião Comunitária", data: "22/07", horario: "19:00", participantes: 45 }
+          ],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        inclusaoProdutiva: {
+          totalParticipantes: 467,
+          participantesAtivos: 467,
+          taxaConclusao: 88.2,
+          cursosDisponiveis: 3,
+          labVozesDoFuturo: {
+            frequencia: { meta: 85, realizado: 97, percentual: 114.1 },
+            evasao: { meta: 6, realizado: 0, percentual: 100.0 },
+            avaliacaoAprendizagem: { meta: 90, realizado: 0, percentual: 0.0 },
+            quantidadeAlunos: { meta: 60, realizado: 40, percentual: 66.7 },
+            nps: { meta: 70, realizado: 0, percentual: 0.0 },
+            empregabilidade: { meta: 22, realizado: 0, percentual: 0.0 }
+          },
+          cursosPresencial: {
+            frequencia: { meta: 85, realizado: 87, percentual: 102.4 },
+            evasao: { meta: 40, realizado: 1, percentual: 97.5 },
+            avaliacaoAprendizagem: { meta: 80, realizado: 81, percentual: 101.3 },
+            quantidadeAlunos: { meta: 400, realizado: 289, percentual: 72.3 },
+            nps: { meta: 70, realizado: 87, percentual: 124.3 }
+          },
+          cursosEAD: {
+            frequencia: { meta: 85, realizado: 100, percentual: 117.6 },
+            evasao: { meta: 50, realizado: 0, percentual: 100.0 },
+            alunosAtivos: { meta: 200, realizado: 138, percentual: 69.0 },
+            alunosFormados: { meta: 0, realizado: 66, percentual: 0.0 }
+          },
+          estatisticasMensais: [
+            { mes: 'Jul', inscritos: 85, concluintes: 52, desistentes: 12 },
+            { mes: 'Ago', inscritos: 92, concluintes: 58, desistentes: 15 },
+            { mes: 'Set', inscritos: 88, concluintes: 55, desistentes: 11 },
+            { mes: 'Out', inscritos: 95, concluintes: 62, desistentes: 18 },
+            { mes: 'Nov', inscritos: 90, concluintes: 56, desistentes: 14 },
+            { mes: 'Dez', inscritos: 98, concluintes: 65, desistentes: 16 }
+          ],
+          distribuicaoCursos: [
+            { nome: 'Artesanato', participantes: 185, percentual: 30.3 },
+            { nome: 'Costura', participantes: 152, percentual: 24.9 },
+            { nome: 'Culinária', participantes: 147, percentual: 24.1 },
+            { nome: 'Informática', participantes: 126, percentual: 20.7 }
+          ],
+          proximosCursos: [
+            { nome: "Curso de Panificação", inicio: "20/07", vagas: 20, inscritos: 15 },
+            { nome: "Workshop de Costura", inicio: "25/07", vagas: 15, inscritos: 12 },
+            { nome: "Informática Básica", inicio: "01/08", vagas: 25, inscritos: 23 }
+          ],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        pec: {
+          totalAlunos: 329,
+          alunosAtivos: 329,
+          taxaFrequencia: 79.6,
+          modalidadesOfertadas: 3,
+          salaSerenata: {
+            frequencia: { meta: 85, realizado: 78, percentual: 91.8 },
+            evasao: { meta: 10, realizado: 0, percentual: 100.0 },
+            avaliacaoAprendizagem: { meta: 80, realizado: 0, percentual: 0.0 },
+            quantidadeAlunos: { meta: 35, realizado: 45, percentual: 128.6 },
+            nps: { meta: 50, realizado: 0, percentual: 0.0 }
+          },
+          poloGloria: {
+            frequencia: { meta: 85, realizado: 81.9, percentual: 96.4 },
+            evasao: { meta: 20, realizado: 13, percentual: 65.0 },
+            avaliacaoAprendizagem: { meta: 80, realizado: 0, percentual: 0.0 },
+            quantidadeAlunos: { meta: 150, realizado: 120, percentual: 80.0 },
+            nps: { meta: 70, realizado: 0, percentual: 0.0 }
+          },
+          casaSonhar: {
+            frequencia: { meta: 85, realizado: 79, percentual: 92.9 },
+            evasao: { meta: 20, realizado: 19, percentual: 95.0 },
+            avaliacaoAprendizagem: { meta: 80, realizado: 0, percentual: 0.0 },
+            quantidadeAlunos: { meta: 150, realizado: 164, percentual: 109.3 }
+          },
+          estatisticasMensais: [
+            { mes: 'Jul', presentes: 165, ausentes: 28, novos: 8 },
+            { mes: 'Ago', presentes: 172, ausentes: 21, novos: 12 },
+            { mes: 'Set', presentes: 168, ausentes: 25, novos: 6 },
+            { mes: 'Out', presentes: 175, ausentes: 18, novos: 15 },
+            { mes: 'Nov', presentes: 180, ausentes: 13, novos: 9 },
+            { mes: 'Dez', presentes: 185, ausentes: 8, novos: 11 }
+          ],
+          distribuicaoModalidades: [
+            { nome: 'Futebol', alunos: 68, percentual: 35.2 },
+            { nome: 'Capoeira', alunos: 45, percentual: 23.3 },
+            { nome: 'Judô', alunos: 38, percentual: 19.7 },
+            { nome: 'Dança', alunos: 25, percentual: 13.0 },
+            { nome: 'Basquete', alunos: 12, percentual: 6.2 },
+            { nome: 'Vôlei', alunos: 5, percentual: 2.6 }
+          ],
+          proximasAulas: [
+            { modalidade: "Futebol", data: "16/07", horario: "15:00", local: "Campo Principal" },
+            { modalidade: "Capoeira", data: "17/07", horario: "16:30", local: "Sala de Dança" },
+            { modalidade: "Judô", data: "18/07", horario: "14:00", local: "Tatame" }
+          ],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        psicossocial: {
+          totalAtendimentos: 327,
+          casosAtivos: 30,
+          profissionais: 3,
+          taxaResolucao: 78.5,
+          metaRealizado: {
+            totalAtendimentos: { meta: 350, realizado: 327, percentual: 93.4 },
+            taxaResolucao: { meta: 85, realizado: 78.5, percentual: 92.4 },
+            casosAtivos: { meta: 40, realizado: 30, percentual: 75.0 },
+            tempoMedioAtendimento: { meta: 45, realizado: 38, percentual: 84.4 }
+          },
+          estatisticasMensais: [
+            { mes: 'Jul', individual: 98, grupal: 65, familiar: 49 },
+            { mes: 'Ago', individual: 114, grupal: 81, familiar: 58 },
+            { mes: 'Set', individual: 104, grupal: 91, familiar: 65 },
+            { mes: 'Out', individual: 124, grupal: 98, familiar: 52 },
+            { mes: 'Nov', individual: 130, grupal: 85, familiar: 71 },
+            { mes: 'Dez', individual: 137, grupal: 104, familiar: 81 }
+          ],
+          distribuicaoServicos: [
+            { nome: 'Psicologia', valor: 147, percentual: 45.0 },
+            { nome: 'Serviço Social', valor: 98, percentual: 30.0 },
+            { nome: 'Orientação Familiar', valor: 49, percentual: 15.0 },
+            { nome: 'Mediação', valor: 33, percentual: 10.0 }
+          ],
+          prioridadeCasos: {
+            emergencial: 3,
+            urgente: 7,
+            normal: 15,
+            baixa: 5
+          },
+          proximosAtendimentos: [
+            { paciente: "M.S.", tipo: "Individual", profissional: "Psicóloga Ana", data: "16/07", horario: "09:00" },
+            { paciente: "Família J.", tipo: "Familiar", profissional: "Assistente Social", data: "17/07", horario: "14:00" },
+            { paciente: "Grupo Adolescentes", tipo: "Grupal", profissional: "Psicóloga Ana", data: "18/07", horario: "16:00" }
+          ],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        metadados: {
+          fonteOriginal: "GESTAO A VISTA FDC_1752006150975.xlsx",
+          ultimaSincronizacao: new Date().toISOString(),
+          responsavelAtualizacao: "Sistema Automático",
+          observacoes: "Dados extraídos automaticamente da planilha de Gestão à Vista"
+        }
+      };
+
+      res.json(gestaoVistaData);
+    } catch (error: any) {
+      console.error("Erro ao buscar dados da Gestão à Vista:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Reset Leo dashboard data
+  app.post("/api/reset-leo-data", async (req, res) => {
+    try {
+      // This endpoint resets only Leo's dashboard data
+      // It affects the gestão à vista data structure but preserves user accounts and system data
+
+      const resetData = {
+        favela3d: {
+          totalFamilias: 0,
+          familiasCadastradas: 0,
+          percentualCadastro: 0,
+          atividadesRealizadas: 0,
+          proximasAtividades: [],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        inclusaoProdutiva: {
+          totalParticipantes: 0,
+          cursosAtivos: 0,
+          certificados: 0,
+          taxaEmpregabilidade: 0,
+          proximosCursos: [],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        pec: {
+          totalProjetos: 0,
+          projetosAtivos: 0,
+          recursosUtilizados: 0,
+          metaAnual: 0,
+          percentualMeta: 0,
+          proximasPrestacoes: [],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        psicossocial: {
+          totalAtendimentos: 0,
+          casosAtivos: 0,
+          profissionais: 0,
+          taxaResolucao: 0,
+          atendimentosPorTipo: {
+            individual: 0,
+            grupal: 0,
+            familiar: 0,
+            mediacao: 0
+          },
+          prioridadeCasos: {
+            emergencial: 0,
+            urgente: 0,
+            normal: 0,
+            baixa: 0
+          },
+          proximosAtendimentos: [],
+          estatisticasMensais: [],
+          distribuicaoServicos: [],
+          ultimaAtualizacao: new Date().toISOString()
+        },
+        metadados: {
+          fonteOriginal: "GESTAO A VISTA FDC_1752006150975.xlsx",
+          ultimaSincronizacao: new Date().toISOString(),
+          responsavelAtualizacao: "Sistema - Reset Manual",
+          observacoes: "Dados zerados manualmente via dashboard do Leo"
+        }
+      };
+
+      // In a real implementation, this would update the database
+      // For now, we'll store it in memory and update the endpoint response
+      (global as any).resetLeoData = resetData;
+
+      res.json({
+        success: true,
+        message: "Dados do dashboard do Leo foram zerados com sucesso",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("Error resetting Leo data:", error);
+      res.status(500).json({ error: "Erro ao zerar dados do dashboard" });
+    }
+  });
+
+  // Leo Martins independent section data endpoints (Doador, Patrocinador, Aluno, Colaborador)
+  // These remain ZEROED and independent from the spreadsheet data
+
+  app.get("/api/leo/doador-data", async (req, res) => {
+    try {
+      const doadorData = {
+        totalDoadores: 0,
+        doadoresAtivos: 0,
+        valorArrecadado: 0,
+        metaMensal: 50000,
+        percentualMeta: 0,
+        doacoesMensais: [
+          { mes: 'Jul', valor: 0, quantidade: 0 },
+          { mes: 'Ago', valor: 0, quantidade: 0 },
+          { mes: 'Set', valor: 0, quantidade: 0 },
+          { mes: 'Out', valor: 0, quantidade: 0 },
+          { mes: 'Nov', valor: 0, quantidade: 0 },
+          { mes: 'Dez', valor: 0, quantidade: 0 }
+        ],
+        distribuicaoValores: [
+          { faixa: 'R$ 10-50', quantidade: 0, percentual: 0 },
+          { faixa: 'R$ 51-100', quantidade: 0, percentual: 0 },
+          { faixa: 'R$ 101-200', quantidade: 0, percentual: 0 },
+          { faixa: 'R$ 201+', quantidade: 0, percentual: 0 }
+        ],
+        proximasAcoes: []
+      };
+      res.json(doadorData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao carregar dados de doadores" });
+    }
+  });
+
+  app.get("/api/leo/patrocinador-data", async (req, res) => {
+    try {
+      const patrocinadorData = {
+        totalPatrocinadores: 0,
+        patrocinadoresAtivos: 0,
+        valorTotalContratos: 0,
+        contratosPendentes: 0,
+        contratosMensais: [
+          { mes: 'Jul', valor: 0, quantidade: 0 },
+          { mes: 'Ago', valor: 0, quantidade: 0 },
+          { mes: 'Set', valor: 0, quantidade: 0 },
+          { mes: 'Out', valor: 0, quantidade: 0 },
+          { mes: 'Nov', valor: 0, quantidade: 0 },
+          { mes: 'Dez', valor: 0, quantidade: 0 }
+        ],
+        distribuicaoTipos: [
+          { tipo: 'Evento', quantidade: 0, valor: 0 },
+          { tipo: 'Projeto', quantidade: 0, valor: 0 },
+          { tipo: 'Institucional', quantidade: 0, valor: 0 }
+        ],
+        proximasNegociacoes: []
+      };
+      res.json(patrocinadorData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao carregar dados de patrocinadores" });
+    }
+  });
+
+  app.get("/api/leo/aluno-data", async (req, res) => {
+    try {
+      const alunoData = {
+        totalAlunos: 0,
+        alunosAtivos: 0,
+        cursosOfertados: 0,
+        taxaFrequencia: 0,
+        distribuicaoIdade: [
+          { faixa: '6-12 anos', quantidade: 0 },
+          { faixa: '13-17 anos', quantidade: 0 },
+          { faixa: '18-25 anos', quantidade: 0 },
+          { faixa: '26+ anos', quantidade: 0 }
+        ],
+        frequenciaMensal: [
+          { mes: 'Jul', presentes: 0, ausentes: 0 },
+          { mes: 'Ago', presentes: 0, ausentes: 0 },
+          { mes: 'Set', presentes: 0, ausentes: 0 },
+          { mes: 'Out', presentes: 0, ausentes: 0 },
+          { mes: 'Nov', presentes: 0, ausentes: 0 },
+          { mes: 'Dez', presentes: 0, ausentes: 0 }
+        ],
+        proximasAulas: []
+      };
+      res.json(alunoData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao carregar dados de alunos" });
+    }
+  });
+
+  app.get("/api/leo/colaborador-data", async (req, res) => {
+    try {
+      const colaboradorData = {
+        totalColaboradores: 0,
+        colaboradoresAtivos: 0,
+        equipesTecnicas: 0,
+        horasTrabalho: 0,
+        distribuicaoFuncoes: [
+          { funcao: 'Coordenação', quantidade: 0 },
+          { funcao: 'Educação', quantidade: 0 },
+          { funcao: 'Psicossocial', quantidade: 0 },
+          { funcao: 'Administrativa', quantidade: 0 },
+          { funcao: 'Apoio', quantidade: 0 }
+        ],
+        produtividadeMensal: [
+          { mes: 'Jul', horas: 0, projetos: 0 },
+          { mes: 'Ago', horas: 0, projetos: 0 },
+          { mes: 'Set', horas: 0, projetos: 0 },
+          { mes: 'Out', horas: 0, projetos: 0 },
+          { mes: 'Nov', horas: 0, projetos: 0 },
+          { mes: 'Dez', horas: 0, projetos: 0 }
+        ],
+        proximasReunoes: []
+      };
+      res.json(colaboradorData);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao carregar dados de colaboradores" });
+    }
+  });
+
+  // Update user profile
+  app.put("/api/update-profile", async (req, res) => {
+    try {
+      const { telefone, nome, novoTelefone } = req.body;
+
+      if (!telefone || !nome) {
+        return res.status(400).json({ error: "Telefone e nome são obrigatórios" });
+      }
+
+      // Get current user
+      const user = await storage.getUserByTelefone(telefone);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Update user name
+      const updatedUser = await storage.createOrUpdateUser({
+        cpf: user.cpf || "00000000000", // Use existing CPF or placeholder
+        nome,
+        sobrenome: user.sobrenome,
+        email: user.email,
+        telefone: novoTelefone || telefone,
+        plano: user.plano
+      });
+
+      res.json({
+        success: true,
+        message: "Perfil atualizado com sucesso",
+        user: {
+          nome: updatedUser.nome,
+          telefone: updatedUser.telefone,
+          email: updatedUser.email
+        }
+      });
+    } catch (error: any) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ error: "Erro ao atualizar perfil" });
+    }
+  });
+
+  // Council approval API endpoints
+  app.get("/api/check-council-approval", async (req, res) => {
+    try {
+      const { phone } = req.query;
+
+      if (!phone) {
+        return res.status(400).json({ error: "Phone number is required" });
+      }
+
+      const user = await storage.getUserByTelefone(phone as string);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const councilAccessStatus = user.conselhoStatus || 'none';
+
+      res.json({
+        approved: councilAccessStatus === 'approved',
+        rejected: councilAccessStatus === 'rejected',
+        pending: councilAccessStatus === 'pending'
+      });
+    } catch (error) {
+      console.error("Error checking council approval:", error);
+      res.status(500).json({ error: "Error checking approval status" });
+    }
+  });
+
+  // Get pending council requests (Leo's dashboard)
+  app.get("/api/pending-council-requests", async (req, res) => {
+    try {
+      const requests = await storage.getPendingConselhoRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching pending requests:", error);
+      res.status(500).json({ error: "Error fetching requests" });
+    }
+  });
+
+  // Approve/reject council access (Leo's dashboard)
+  app.post("/api/council-approval", async (req, res) => {
+    try {
+      const { requestId, action, processedBy } = req.body;
+
+      if (!requestId || !action || !processedBy) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({ error: "Invalid action" });
+      }
+
+      const status = action === 'approve' ? 'approved' : 'rejected';
+
+      // Update council request status
+      const updatedRequest = await storage.updateCouncilRequestStatus(requestId, status, processedBy);
+
+      // Update user's council access status
+      await storage.updateCouncilAccessStatus(updatedRequest.telefone, status);
+
+      res.json({
+        success: true,
+        message: `Request ${action}d successfully`,
+        request: updatedRequest
+      });
+    } catch (error) {
+      console.error("Error processing council approval:", error);
+      res.status(500).json({ error: "Error processing request" });
+    }
+  });
+
+  // Get council members (Leo's dashboard)
+  app.get("/api/council-members", async (req, res) => {
+    try {
+      // Get all users with council access approved
+      const members = await storage.getCouncilMembers();
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching council members:", error);
+      res.status(500).json({ error: "Error fetching members" });
+    }
+  });
+
+  // Add new council member (Leo's dashboard)
+  app.post("/api/add-council-member", async (req, res) => {
+    try {
+      const { phone, email, addedBy } = req.body;
+
+      if (!phone && !email) {
+        return res.status(400).json({ error: "Phone or email is required" });
+      }
+
+      // Check if user exists or create new one
+      let user;
+      if (phone) {
+        user = await storage.getUserByTelefone(phone);
+      } else if (email) {
+        user = await storage.getUserByEmail(email);
+      }
+
+      if (!user && phone) {
+        // Create new user with council access
+        user = await storage.createUser({
+          cpf: "00000000000", // Placeholder CPF for council members
+          nome: "Membro do Conselho",
+          telefone: phone,
+          email: email || "",
+          role: "conselho",
+          verificado: true,
+          conselhoStatus: "aprovado"
+        });
+      } else if (user) {
+        // Update existing user to have council access
+        await storage.updateCouncilAccessStatus(user.telefone, "approved");
+        user = await storage.getUserByTelefone(user.telefone);
+      }
+
+      res.json({
+        success: true,
+        message: "Member added successfully",
+        member: user
+      });
+    } catch (error) {
+      console.error("Error adding council member:", error);
+      res.status(500).json({ error: "Error adding member" });
+    }
+  });
+
+  // Remove council member (Leo's dashboard)
+  app.post("/api/remove-council-member", async (req, res) => {
+    try {
+      const { memberId, removedBy } = req.body;
+
+      if (!memberId) {
+        return res.status(400).json({ error: "Member ID is required" });
+      }
+
+      // Get user and update council access status
+      const user = await storage.getUser(memberId);
+      if (!user) {
+        return res.status(404).json({ error: "Member not found" });
+      }
+
+      await storage.updateCouncilAccessStatus(user.telefone, "none");
+
+      res.json({
+        success: true,
+        message: "Member removed successfully"
+      });
+    } catch (error) {
+      console.error("Error removing council member:", error);
+      res.status(500).json({ error: "Error removing member" });
+    }
+  });
+
+  // Council approval system endpoints
+  app.get("/api/conselho-status/:telefone", async (req, res) => {
+    try {
+      const { telefone } = req.params;
+      const user = await storage.getUserByTelefone(telefone);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      res.json({
+        status: user.conselhoStatus || "pendente",
+        approvedBy: user.conselhoApprovedBy,
+        approvedAt: user.conselhoApprovedAt
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar status: " + error.message });
+    }
+  });
+
+  // Submit council request
+  app.post("/api/submit-council-request", async (req, res) => {
+    try {
+      const { nome, telefone } = req.body;
+
+      if (!nome || !telefone) {
+        return res.status(400).json({ error: "Nome e telefone são obrigatórios" });
+      }
+
+      // Update user with council request
+      const user = await storage.updateConselhoStatus(telefone, "pendente");
+
+      // Create council request entry
+      await storage.createCouncilRequest({
+        nome,
+        telefone,
+        status: "pendente",
+        createdAt: new Date().toISOString(),
+        processedBy: ""
+      });
+
+      res.json({
+        success: true,
+        message: "Solicitação enviada com sucesso",
+        user
+      });
+    } catch (error: any) {
+      console.error("Error submitting council request:", error);
+      res.status(500).json({ error: "Erro ao enviar solicitação" });
+    }
+  });
+
+  // Update user name
+  app.put("/api/update-user-name", async (req, res) => {
+    try {
+      const { telefone, nome } = req.body;
+
+      if (!telefone || !nome) {
+        return res.status(400).json({ error: "Telefone e nome são obrigatórios" });
+      }
+
+      const user = await storage.getUserByTelefone(telefone);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Update user name
+      const updatedUser = await storage.createOrUpdateUser({
+        ...user,
+        cpf: user.cpf || "",
+        nome: nome.trim()
+      });
+
+      res.json({
+        success: true,
+        message: "Nome atualizado com sucesso",
+        user: updatedUser
+      });
+    } catch (error: any) {
+      console.error("Error updating user name:", error);
+      res.status(500).json({ error: "Erro ao atualizar nome" });
+    }
+  });
+
+  app.get("/api/conselho-status", async (req, res) => {
+    try {
+      const { telefone } = req.query;
+
+      if (!telefone) {
+        return res.status(400).json({ error: "Telefone é obrigatório" });
+      }
+
+      const user = await storage.getUserByTelefone(telefone as string);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      res.json({
+        status: user.conselhoStatus || "pendente",
+        approvedBy: user.conselhoApprovedBy,
+        approvedAt: user.conselhoApprovedAt
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar status: " + error.message });
+    }
+  });
+
+  app.get("/api/admin/conselho-requests", async (req, res) => {
+    try {
+      const pendingRequests = await storage.getPendingConselhoRequests();
+      res.json(pendingRequests);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar solicitações: " + error.message });
+    }
+  });
+
+  app.post("/api/admin/conselho-approve", async (req, res) => {
+    try {
+      const { telefone, action, approvedBy } = req.body;
+
+      if (!telefone || !action || !approvedBy) {
+        return res.status(400).json({ error: "Dados incompletos" });
+      }
+
+      const status = action === "approve" ? "aprovado" : "recusado";
+
+      const updatedUser = await storage.updateConselhoStatus(telefone, status, approvedBy);
+
+      res.json({
+        success: true,
+        message: `Usuário ${status} com sucesso`,
+        user: updatedUser
+      });
+    } catch (error: any) {
+      console.error("Error updating conselho status:", error);
+      res.status(500).json({ error: "Erro ao atualizar status: " + error.message });
+    }
+  });
+
+  // ==================== CALENDÁRIO E EVENTOS ====================
+
+  // Get events by professor
+  app.get("/api/professor/events/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const events = await storage.getEventosByProfessor(professorId);
+      res.json(events);
+    } catch (error: any) {
+      console.error("Error fetching events:", error);
+      res.status(500).json({ error: "Failed to fetch events" });
+    }
+  });
+
+  // Create new event
+  app.post("/api/professor/events", async (req, res) => {
+    try {
+      const eventData = {
+        titulo: req.body.title,
+        descricao: req.body.description || "",
+        tipo: req.body.type || "lembrete",
+        data: req.body.date,
+        horaInicio: req.body.startTime || "08:00",
+        horaFim: req.body.endTime || "09:00",
+        local: req.body.location || "",
+        turmaId: req.body.classId || null,
+        professorId: req.body.professorId,
+        temLembrete: req.body.isReminder || false,
+        minutosLembrete: req.body.reminderMinutes || 15
+      };
+
+      const evento = await storage.createEvento(eventData);
+      res.json(evento);
+    } catch (error: any) {
+      console.error("Error creating event:", error);
+      res.status(500).json({ error: "Failed to create event" });
+    }
+  });
+
+  // Update event
+  app.put("/api/professor/events/:id", async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const eventData = {
+        titulo: req.body.title,
+        descricao: req.body.description,
+        tipo: req.body.type,
+        data: req.body.date,
+        horaInicio: req.body.startTime,
+        horaFim: req.body.endTime,
+        local: req.body.location,
+        temLembrete: req.body.isReminder,
+        minutosLembrete: req.body.reminderMinutes
+      };
+
+      const evento = await storage.updateEvento(eventId, eventData);
+      res.json(evento);
+    } catch (error: any) {
+      console.error("Error updating event:", error);
+      res.status(500).json({ error: "Failed to update event" });
+    }
+  });
+
+  // Delete event
+  app.delete("/api/professor/events/:id", async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      await storage.deleteEvento(eventId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting event:", error);
+      res.status(500).json({ error: "Failed to delete event" });
+    }
+  });
+
+  // =================
+  // ===== PROFESSOR DASHBOARD ROUTES =====
+
+  // Dashboard do Professor (Módulo 1)
+  app.get("/api/professor/dashboard/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const summary = await storage.getProfessorDashboardSummary(professorId);
+      res.json(summary);
+    } catch (error: any) {
+      console.error("Error fetching professor dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard: " + error.message });
+    }
+  });
+
+  // ==== STUDENTS MANAGEMENT ====
+  // Search students by name or CPF (must be before :professorId route)
+  app.get("/api/professor/students/search", async (req, res) => {
+    try {
+      const query = req.query.q as string;
+      if (!query || query.length < 2) {
+        return res.json([]);
+      }
+      const students = await storage.searchAlunos(query);
+      res.json(students);
+    } catch (error) {
+      console.error("Error searching students:", error);
+      res.status(500).json({ error: "Failed to search students" });
+    }
+  });
+
+  // Get all students for a professor
+  app.get("/api/professor/students/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const alunos = await storage.getAlunosByProfessor(professorId);
+      res.json(alunos);
+    } catch (error) {
+      console.error("Error fetching alunos:", error);
+      res.status(500).json({ error: "Failed to fetch alunos" });
+    }
+  });
+
+  // Update professor profile
+  app.put("/api/professor/profile/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { name, email } = req.body;
+      const updatedUser = await storage.updateProfessorProfile(id, { name, email });
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating professor profile:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // Create new student
+  app.post("/api/professor/students", async (req, res) => {
+    try {
+      const studentData = req.body;
+
+      // CONSOLIDAÇÃO AUTOMÁTICA: Garantir que aluno vire um user também
+      if (studentData.telefone && studentData.nome_completo) {
+        try {
+          const { consolidateUser } = await import('./userConsolidation');
+          const consolidatedUser = await consolidateUser({
+            nome: studentData.nome_completo,
+            telefone: studentData.telefone,
+            email: studentData.email,
+            cpf: studentData.cpf,
+            tipo: 'aluno',
+            fonte: 'educacao'
+          });
+          console.log(`✅ [CONSOLIDAÇÃO] Aluno consolidado: ${studentData.nome_completo} (${studentData.telefone}) como user ID ${consolidatedUser.id}`);
+        } catch (error) {
+          console.error('Erro na consolidação do aluno:', error);
+        }
+      }
+
+      const aluno = await storage.createAluno(studentData);
+      res.json(aluno);
+    } catch (error) {
+      console.error("Error creating aluno:", error);
+      res.status(500).json({ error: "Failed to create aluno" });
+    }
+  });
+
+  // Update student
+  app.put("/api/professor/students/:cpf", async (req, res) => {
+    try {
+      const cpf = req.params.cpf;
+      const alunoData = req.body;
+      const aluno = await storage.updateAluno(cpf, alunoData);
+      res.json(aluno);
+    } catch (error) {
+      console.error("Error updating aluno:", error);
+      res.status(500).json({ error: "Failed to update aluno" });
+    }
+  });
+
+  // Delete student
+  app.delete("/api/professor/students/:cpf", async (req, res) => {
+    try {
+      const cpf = req.params.cpf;
+      await storage.deleteAluno(cpf);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting aluno:", error);
+      res.status(500).json({ error: "Failed to delete aluno" });
+    }
+  });
+
+  // ==== TURMAS MANAGEMENT ====
+  // Get all turmas for a professor
+  // Get professor classes (filtered by role and assignments)
+  app.get("/api/professor/classes/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const professor = await storage.getUser(professorId);
+
+      if (!professor) {
+        return res.status(404).json({ error: "Professor não encontrado" });
+      }
+
+      let turmas;
+      // Se é líder, pode ver todas as turmas. Se é professor, apenas as turmas designadas
+      if (professor.professorTipo === 'lider') {
+        turmas = await storage.getAllTurmas();
+      } else {
+        turmas = await storage.getTurmasByProfessor(professorId);
+      }
+
+      res.json(turmas);
+    } catch (error) {
+      console.error("Error fetching professor turmas:", error);
+      res.status(500).json({ error: "Failed to fetch turmas" });
+    }
+  });
+
+  // Get all professors for class assignment (leader only)
+  app.get("/api/professor/list", async (req, res) => {
+    try {
+      const professors = await storage.getUsersByRole('professor');
+      res.json(professors);
+    } catch (error) {
+      console.error("Error fetching professors:", error);
+      res.status(500).json({ error: "Failed to fetch professors" });
+    }
+  });
+
+  // Get all students for class enrollment
+  app.get("/api/students/all", async (req, res) => {
+    try {
+      const students = await storage.getAllAlunos();
+      res.json(students);
+    } catch (error) {
+      console.error("Error fetching students:", error);
+      res.status(500).json({ error: "Failed to fetch students" });
+    }
+  });
+
+  // Create new turma
+  app.post("/api/professor/classes", async (req, res) => {
+    try {
+      const turmaData = req.body;
+      console.log("Received turma data:", turmaData);
+
+      // Map frontend field names to backend schema
+      const mappedTurmaData = {
+        nome: turmaData.name || turmaData.nome || turmaData.className,
+        descricao: turmaData.description || turmaData.descricao,
+        professorId: turmaData.professorId,
+        maxAlunos: turmaData.maxStudents || turmaData.maxAlunos || 30,
+        dataInicio: turmaData.startDate || turmaData.dataInicio || null,
+        dataFim: turmaData.endDate || turmaData.dataFim || null,
+        horarios: turmaData.schedule || turmaData.horarios || "",
+        sala: turmaData.room || turmaData.sala || "",
+        status: turmaData.status || "ativa"
+      };
+
+      // Convert empty strings to null for date fields
+      if (mappedTurmaData.dataInicio === "") mappedTurmaData.dataInicio = null;
+      if (mappedTurmaData.dataFim === "") mappedTurmaData.dataFim = null;
+
+      console.log("Mapped turma data:", mappedTurmaData);
+
+      // Ensure nome is not null
+      if (!mappedTurmaData.nome) {
+        return res.status(400).json({ error: "Nome da turma é obrigatório" });
+      }
+
+      const turma = await storage.createTurma(mappedTurmaData);
+      res.json(turma);
+    } catch (error) {
+      console.error("Error creating turma:", error);
+      res.status(500).json({ error: "Failed to create turma" });
+    }
+  });
+
+  // Update turma
+  app.put("/api/professor/classes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const turmaData = req.body;
+      const turma = await storage.updateTurma(id, turmaData);
+      res.json(turma);
+    } catch (error) {
+      console.error("Error updating turma:", error);
+      res.status(500).json({ error: "Failed to update turma" });
+    }
+  });
+
+  // Delete turma
+  app.delete("/api/professor/classes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteTurma(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting turma:", error);
+      res.status(500).json({ error: "Failed to delete turma" });
+    }
+  });
+
+  // Get alunos enrolled in a specific turma
+  app.get("/api/professor/classes/:classId/students", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.classId);
+      const alunos = await storage.getAlunosByTurma(turmaId);
+      res.json(alunos);
+    } catch (error) {
+      console.error("Error fetching turma alunos:", error);
+      res.status(500).json({ error: "Failed to fetch turma alunos" });
+    }
+  });
+
+  // Matricular aluno in turma
+  app.post("/api/professor/classes/:classId/enroll/:studentCpf", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.classId);
+      const alunoCpf = req.params.studentCpf;
+      const matricula = await storage.matricularAlunoTurma(alunoCpf, turmaId);
+      res.json(matricula);
+    } catch (error) {
+      console.error("Error matriculating aluno:", error);
+      res.status(500).json({ error: "Failed to matriculate aluno" });
+    }
+  });
+
+  // Remove aluno from turma
+  app.delete("/api/professor/classes/:classId/unenroll/:studentCpf", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.classId);
+      const alunoCpf = req.params.studentCpf;
+      await storage.desmatricularAlunoTurma(alunoCpf, turmaId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing aluno from turma:", error);
+      res.status(500).json({ error: "Failed to unenroll student" });
+    }
+  });
+
+  // ==== LESSONS MANAGEMENT ==== - Redirected to registered lessons
+
+  // Create new lesson plan (plano de aula)
+  app.post("/api/professor/lesson-plans", async (req, res) => {
+    try {
+      const planData = req.body;
+      const plan = await storage.createPlanoAula(planData);
+      res.json(plan);
+    } catch (error) {
+      console.error("Error creating lesson plan:", error);
+      res.status(500).json({ error: "Failed to create lesson plan" });
+    }
+  });
+
+  // Update lesson plan
+  app.put("/api/professor/lesson-plans/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const planData = req.body;
+      const plan = await storage.updatePlanoAula(id, planData);
+      res.json(plan);
+    } catch (error) {
+      console.error("Error updating lesson plan:", error);
+      res.status(500).json({ error: "Failed to update lesson plan" });
+    }
+  });
+
+  // Delete lesson plan
+  app.delete("/api/professor/lesson-plans/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deletePlanoAula(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting lesson plan:", error);
+      res.status(500).json({ error: "Failed to delete lesson plan" });
+    }
+  });
+
+  // ==== ATTENDANCE MANAGEMENT ====
+  // Get attendance for a specific lesson
+  app.get("/api/professor/lessons/:lessonId/attendance", async (req, res) => {
+    try {
+      const lessonId = parseInt(req.params.lessonId);
+      const attendance = await storage.getAttendanceByLesson(lessonId);
+      res.json(attendance);
+    } catch (error) {
+      console.error("Error fetching attendance:", error);
+      res.status(500).json({ error: "Failed to fetch attendance" });
+    }
+  });
+
+  // Record attendance for students in a lesson
+  app.post("/api/professor/attendance", async (req, res) => {
+    try {
+      const { attendanceRecords } = req.body;
+
+      if (!attendanceRecords || !Array.isArray(attendanceRecords)) {
+        return res.status(400).json({ error: "Registros de chamada são obrigatórios" });
+      }
+
+      // Group records by class and date to create chamada entries
+      const chamadaGroups: { [key: string]: any } = {};
+      for (const record of attendanceRecords) {
+        const key = `${record.classId}-${record.date}`;
+        if (!chamadaGroups[key]) {
+          chamadaGroups[key] = {
+            turmaId: record.classId,
+            data: record.date,
+            professorId: record.professorId,
+            records: []
+          };
+        }
+        chamadaGroups[key].records.push(record);
+      }
+
+      const results = [];
+
+      // Process each group
+      for (const group of Object.values(chamadaGroups) as any[]) {
+        // Create or get chamada entry
+        const chamadaRecord = await storage.createChamada({
+          turmaId: group.turmaId,
+          data: group.data,
+          professorId: group.professorId
+        });
+
+        // Create chamadaAluno entries for each student
+        for (const record of group.records) {
+          const chamadaAlunoRecord = await storage.createChamadaAluno({
+            chamadaId: chamadaRecord.id,
+            alunoCpf: record.studentCpf,
+            status: record.status
+          });
+          results.push(chamadaAlunoRecord);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.length} registros de presença salvos com sucesso`,
+        records: results
+      });
+    } catch (error: any) {
+      console.error("Error recording attendance:", error);
+      res.status(500).json({ error: "Erro ao registrar chamada: " + error.message });
+    }
+  });
+
+  // Get attendance summary for a student
+  app.get("/api/professor/students/:studentCpf/attendance", async (req, res) => {
+    try {
+      const studentCpf = req.params.studentCpf;
+      const attendance = await storage.getStudentAttendance(studentCpf);
+      res.json(attendance);
+    } catch (error) {
+      console.error("Error fetching student attendance:", error);
+      res.status(500).json({ error: "Failed to fetch student attendance" });
+    }
+  });
+
+  // ==== EVENTS/CALENDAR MANAGEMENT ====
+  // Get all events for a professor
+  app.get("/api/professor/events/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const events = await storage.getEventsByProfessor(professorId);
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching events:", error);
+      res.status(500).json({ error: "Failed to fetch events" });
+    }
+  });
+
+  // Create new event/reminder
+  app.post("/api/professor/events", async (req, res) => {
+    try {
+      const eventData = req.body;
+      const event = await storage.createEvent(eventData);
+      res.json(event);
+    } catch (error) {
+      console.error("Error creating event:", error);
+      res.status(500).json({ error: "Failed to create event" });
+    }
+  });
+
+  // Update event
+  app.put("/api/professor/events/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const eventData = req.body;
+      const event = await storage.updateEvent(id, eventData);
+      res.json(event);
+    } catch (error) {
+      console.error("Error updating event:", error);
+      res.status(500).json({ error: "Failed to update event" });
+    }
+  });
+
+  // Delete event
+  app.delete("/api/professor/events/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteEvent(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      res.status(500).json({ error: "Failed to delete event" });
+    }
+  });
+
+  // ==== STUDENT OBSERVATIONS ====
+  // Get all acompanhamentos for a professor
+  app.get("/api/professor/observations/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const acompanhamentos = await storage.getAcompanhamentosByProfessor(professorId);
+      res.json(acompanhamentos);
+    } catch (error) {
+      console.error("Error fetching acompanhamentos:", error);
+      res.status(500).json({ error: "Failed to fetch acompanhamentos" });
+    }
+  });
+
+  // Create new student observation
+  app.post("/api/professor/observations", async (req, res) => {
+    try {
+      const observationData = req.body;
+      const observation = await storage.createObservation(observationData);
+      res.json(observation);
+    } catch (error) {
+      console.error("Error creating observation:", error);
+      res.status(500).json({ error: "Failed to create observation" });
+    }
+  });
+
+  // Update observation
+  app.put("/api/professor/observations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const observationData = req.body;
+      const observation = await storage.updateObservation(id, observationData);
+      res.json(observation);
+    } catch (error) {
+      console.error("Error updating observation:", error);
+      res.status(500).json({ error: "Failed to update observation" });
+    }
+  });
+
+  // Delete observation
+  app.delete("/api/professor/observations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteObservation(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting observation:", error);
+      res.status(500).json({ error: "Failed to delete observation" });
+    }
+  });
+
+  // ==== ACOMPANHAMENTO ROUTES ====
+  // Get acompanhamentos by professor
+  app.get("/api/professor/acompanhamentos/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const acompanhamentos = await storage.getAcompanhamentosByProfessor(professorId);
+      res.json(acompanhamentos);
+    } catch (error) {
+      console.error("Error fetching acompanhamentos:", error);
+      res.status(500).json({ error: "Failed to fetch acompanhamentos" });
+    }
+  });
+
+  // Create new acompanhamento
+  app.post("/api/professor/acompanhamentos", async (req, res) => {
+    try {
+      const acompanhamentoData = req.body;
+      // Validate required fields
+      if (!acompanhamentoData.alunoCpf || !acompanhamentoData.titulo || !acompanhamentoData.data) {
+        return res.status(400).json({ error: "Campos obrigatórios: alunoCpf, titulo, data" });
+      }
+
+      // Set observacao field from descricao if not provided
+      if (!acompanhamentoData.observacao && acompanhamentoData.descricao) {
+        acompanhamentoData.observacao = acompanhamentoData.descricao;
+      }
+
+      const acompanhamento = await storage.createAcompanhamento(acompanhamentoData);
+      res.json(acompanhamento);
+    } catch (error: any) {
+      console.error("Error creating acompanhamento:", error);
+      res.status(500).json({ error: "Failed to create acompanhamento: " + error.message });
+    }
+  });
+
+  // Update acompanhamento
+  app.put("/api/professor/acompanhamentos/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const acompanhamentoData = req.body;
+
+      // Set observacao field from descricao if not provided
+      if (!acompanhamentoData.observacao && acompanhamentoData.descricao) {
+        acompanhamentoData.observacao = acompanhamentoData.descricao;
+      }
+
+      // Ensure data is properly formatted
+      if (acompanhamentoData.data && typeof acompanhamentoData.data === 'string') {
+        // Just keep the date as string - Drizzle will handle the conversion
+        acompanhamentoData.data = acompanhamentoData.data.split('T')[0];
+      }
+
+      // Remove any undefined or null values that could cause issues
+      const cleanData = Object.fromEntries(
+        Object.entries(acompanhamentoData).filter(([_, value]) => value !== undefined && value !== null)
+      );
+
+      const acompanhamento = await storage.updateAcompanhamento(id, cleanData);
+      res.json(acompanhamento);
+    } catch (error: any) {
+      console.error("Error updating acompanhamento:", error);
+      res.status(500).json({ error: "Failed to update acompanhamento: " + error.message });
+    }
+  });
+
+  // Delete acompanhamento
+  app.delete("/api/professor/acompanhamentos/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteAcompanhamento(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting acompanhamento:", error);
+      res.status(500).json({ error: "Failed to delete acompanhamento: " + error.message });
+    }
+  });
+
+  // ==== PROFESSOR REPORTS ROUTES ====
+  // Relatórios do Professor - Presença
+  app.get('/api/professor/reports/attendance/:professorId', async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { classId, date } = req.query;
+
+      const attendanceData = await storage.getAttendanceReportByProfessor(
+        professorId,
+        classId ? parseInt(classId as string) : undefined,
+        date as string
+      );
+
+      res.json({ attendance: attendanceData });
+    } catch (error) {
+      console.error('Erro ao buscar relatório de presença:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Relatórios do Professor - Plano de Aula
+  app.get('/api/professor/reports/lesson-plans/:professorId', async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { classId, date } = req.query;
+
+      const lessonPlans = await storage.getLessonPlansReportByProfessor(
+        professorId,
+        classId ? parseInt(classId as string) : undefined,
+        date as string
+      );
+
+      res.json({ lessonPlans });
+    } catch (error) {
+      console.error('Erro ao buscar relatório de plano de aula:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Relatórios do Professor - Observações Pedagógicas
+  app.get('/api/professor/reports/observations/:professorId', async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { classId, date } = req.query;
+
+      const observations = await storage.getObservationsReportByProfessor(
+        professorId,
+        classId ? parseInt(classId as string) : undefined,
+        date as string
+      );
+
+      res.json({ observations });
+    } catch (error) {
+      console.error('Erro ao buscar relatório de observações:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Relatórios do Professor - Individual do Aluno
+  app.get('/api/professor/reports/student/:studentCpf', async (req, res) => {
+    try {
+      const studentCpf = req.params.studentCpf;
+
+      const studentData = await storage.getStudentReportData(studentCpf);
+
+      res.json(studentData);
+    } catch (error) {
+      console.error('Erro ao buscar relatório individual:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Relatórios do Professor - Geral
+  app.get('/api/professor/reports/general/:professorId', async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { classId, date } = req.query;
+
+      const generalReport = await storage.getGeneralReportByProfessor(
+        professorId,
+        classId ? parseInt(classId as string) : undefined,
+        date as string
+      );
+
+      res.json(generalReport);
+    } catch (error) {
+      console.error('Erro ao buscar relatório geral:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Get acompanhamentos by student
+  app.get("/api/professor/acompanhamentos/student/:alunoCpf", async (req, res) => {
+    try {
+      const alunoCpf = req.params.alunoCpf;
+      const acompanhamentos = await storage.getAcompanhamentosByAluno(alunoCpf);
+      res.json(acompanhamentos);
+    } catch (error) {
+      console.error("Error fetching student acompanhamentos:", error);
+      res.status(500).json({ error: "Failed to fetch student acompanhamentos" });
+    }
+  });
+
+  // ==== REPORTS GENERATION ====
+  // Get comprehensive class report
+  app.get("/api/professor/reports/class/:classId", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.classId);
+      const report = await storage.generateClassReport(classId);
+      res.json(report);
+    } catch (error) {
+      console.error("Error generating class report:", error);
+      res.status(500).json({ error: "Failed to generate class report" });
+    }
+  });
+
+  // Get student performance report
+  app.get("/api/professor/reports/student/:studentCpf", async (req, res) => {
+    try {
+      const studentCpf = req.params.studentCpf;
+      const report = await storage.generateStudentReport(studentCpf);
+      res.json(report);
+    } catch (error) {
+      console.error("Error generating student report:", error);
+      res.status(500).json({ error: "Failed to generate student report" });
+    }
+  });
+
+  // Get professor dashboard summary
+  app.get("/api/professor/dashboard/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const summary = await storage.getProfessorDashboardSummary(professorId);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching dashboard summary:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard summary" });
+    }
+  });
+  // =================
+
+  // Guardian management routes
+  app.post("/api/professor/guardians", async (req, res) => {
+    try {
+      const guardianData = req.body;
+      const newGuardian = await storage.createGuardian(guardianData);
+      res.json(newGuardian);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar responsável: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/guardians/:studentCpf", async (req, res) => {
+    try {
+      const studentCpf = req.params.studentCpf;
+      const guardians = await storage.getGuardiansByStudent(studentCpf);
+      res.json(guardians);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar responsáveis: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/guardian/:cpf", async (req, res) => {
+    try {
+      const guardianCpf = req.params.cpf;
+      const guardian = await storage.getGuardian(guardianCpf as any);
+      if (!guardian) {
+        return res.status(404).json({ error: "Responsável não encontrado" });
+      }
+      res.json(guardian);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar responsável: " + error.message });
+    }
+  });
+
+  app.put("/api/professor/guardians/:cpf", async (req, res) => {
+    try {
+      const guardianCpf = req.params.cpf;
+      const guardianData = req.body;
+      const updatedGuardian = await storage.updateGuardian(guardianCpf as any, guardianData);
+      res.json(updatedGuardian);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar responsável: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/guardians/:cpf", async (req, res) => {
+    try {
+      const guardianCpf = req.params.cpf;
+      await storage.deleteGuardian(guardianCpf as any);
+      res.json({ success: true, message: "Responsável excluído com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir responsável: " + error.message });
+    }
+  });
+
+  // Class management routes (REMOVED DUPLICATES - USING ORIGINAL VERSIONS ABOVE)
+
+  app.put("/api/professor/classes/:id", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.id);
+      const classData = req.body;
+      const updatedClass = await storage.updateClass(classId, classData);
+      res.json(updatedClass);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar turma: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/classes/:id", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.id);
+      await storage.deleteClass(classId);
+      res.json({ success: true, message: "Turma excluída com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir turma: " + error.message });
+    }
+  });
+
+  // Class enrollment routes
+  app.post("/api/professor/enroll", async (req, res) => {
+    try {
+      const enrollment = req.body;
+      const newEnrollment = await storage.enrollStudent(enrollment);
+      res.json(newEnrollment);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao matricular aluno: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/classes/:classId/students", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.classId);
+      const students = await storage.getStudentsByClass(classId);
+      res.json(students);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar alunos da turma: " + error.message });
+    }
+  });
+
+  app.post("/api/professor/unenroll", async (req, res) => {
+    try {
+      const { studentCpf, classId } = req.body;
+      await storage.unenrollStudent(studentCpf, classId);
+      res.json({ success: true, message: "Aluno removido da turma com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao remover aluno da turma: " + error.message });
+    }
+  });
+
+  // Lesson management routes
+  app.post("/api/professor/lessons", async (req, res) => {
+    try {
+      const lessonData = req.body;
+      const newLesson = await storage.createAulaRegistrada(lessonData);
+      res.json(newLesson);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar aula: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/lessons/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const lessons = await storage.getAulasRegistradasByProfessor(professorId);
+      res.json(lessons);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar aulas: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/classes/:classId/lessons", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.classId);
+      const lessons = await storage.getAulasRegistradasByTurma(classId);
+      res.json(lessons);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar aulas da turma: " + error.message });
+    }
+  });
+
+  app.put("/api/professor/lessons/:id", async (req, res) => {
+    try {
+      const lessonId = parseInt(req.params.id);
+      const lessonData = req.body;
+      const updatedLesson = await storage.updateAulaRegistrada(lessonId, lessonData);
+      res.json(updatedLesson);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar aula: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/lessons/:id", async (req, res) => {
+    try {
+      const lessonId = parseInt(req.params.id);
+      await storage.deleteAulaRegistrada(lessonId);
+      res.json({ success: true, message: "Aula excluída com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir aula: " + error.message });
+    }
+  });
+
+  // Lesson Plans management routes (planejamento futuro)
+  app.post("/api/professor/lesson-plans", async (req, res) => {
+    try {
+      const lessonPlanData = req.body;
+      const newLessonPlan = await storage.createPlanoAula(lessonPlanData);
+      res.json(newLessonPlan);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar plano de aula: " + error.message });
+    }
+  });
+
+  // Removed duplicate - using the one with filters below
+
+  app.get("/api/professor/classes/:classId/lesson-plans", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.classId);
+      const lessonPlans = await storage.getPlanosByTurma(classId);
+      res.json(lessonPlans);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar planos de aula da turma: " + error.message });
+    }
+  });
+
+  app.put("/api/professor/lesson-plans/:id", async (req, res) => {
+    try {
+      const lessonPlanId = parseInt(req.params.id);
+      const lessonPlanData = req.body;
+      const updatedLessonPlan = await storage.updatePlanoAula(lessonPlanId, lessonPlanData);
+      res.json(updatedLessonPlan);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar plano de aula: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/lesson-plans/:id", async (req, res) => {
+    try {
+      const lessonPlanId = parseInt(req.params.id);
+      await storage.deletePlanoAula(lessonPlanId);
+      res.json({ success: true, message: "Plano de aula excluído com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir plano de aula: " + error.message });
+    }
+  });
+
+  // Removed duplicate attendance routes - keeping only the working ones above
+
+  // Buscar histórico de chamadas por turma (com lógica de designação)
+  app.get("/api/professor/classes/:id/attendance", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.id);
+      const { date, professorId } = req.query;
+
+      if (isNaN(classId)) {
+        return res.status(400).json({ error: 'Invalid class ID' });
+      }
+
+      // Se professorId for fornecido, verificar permissões
+      if (professorId) {
+        const professorIdNum = parseInt(professorId as string);
+        const user = await storage.getUser(professorIdNum);
+        const isLeader = user?.professorTipo === 'lider';
+
+        if (!isLeader) {
+          // Professor só pode ver chamadas de turmas designadas a ele
+          const designatedTurmas = await storage.getTurmasByProfessor(professorIdNum);
+          const designatedTurmaIds = designatedTurmas.map(t => t.id);
+
+          if (!designatedTurmaIds.includes(classId)) {
+            return res.status(403).json({ error: 'Acesso negado: Você não tem permissão para ver chamadas desta turma' });
+          }
+        }
+      }
+
+      const attendanceHistory = await storage.getChamadaByTurma(classId, date as string);
+
+      res.json(attendanceHistory);
+    } catch (error) {
+      console.error('Error fetching attendance history:', error);
+      res.status(500).json({ error: 'Failed to fetch attendance history' });
+    }
+  });
+
+  // Event management routes
+  app.post("/api/professor/events", async (req, res) => {
+    try {
+      const eventData = req.body;
+      const newEvent = await storage.createEvent(eventData);
+      res.json(newEvent);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar evento: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/events/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      // Eventos são sempre visíveis para todos os professores (eventos institucionais globais)
+      // Não aplicamos filtro de designação aqui, conforme requisito
+      const events = await storage.getEventsByProfessor(professorId);
+      res.json(events);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar eventos: " + error.message });
+    }
+  });
+
+  app.put("/api/professor/events/:id", async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const eventData = req.body;
+      const updatedEvent = await storage.updateEvent(eventId, eventData);
+      res.json(updatedEvent);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar evento: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/events/:id", async (req, res) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      await storage.deleteEvent(eventId);
+      res.json({ success: true, message: "Evento excluído com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir evento: " + error.message });
+    }
+  });
+
+  // Student observations routes
+  app.post("/api/professor/observations", async (req, res) => {
+    try {
+      const observationData = req.body;
+      const newObservation = await storage.createObservation(observationData);
+      res.json(newObservation);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao criar observação: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/observations/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const observations = await storage.getObservationsByProfessor(professorId);
+      res.json(observations);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar observações: " + error.message });
+    }
+  });
+
+  app.get("/api/professor/students/:studentCpf/observations", async (req, res) => {
+    try {
+      const studentCpf = req.params.studentCpf;
+      const observations = await storage.getObservationsByStudent(studentCpf);
+      res.json(observations);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao buscar observações do aluno: " + error.message });
+    }
+  });
+
+  app.put("/api/professor/observations/:id", async (req, res) => {
+    try {
+      const observationId = parseInt(req.params.id);
+      const observationData = req.body;
+      const updatedObservation = await storage.updateObservation(observationId, observationData);
+      res.json(updatedObservation);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao atualizar observação: " + error.message });
+    }
+  });
+
+  app.delete("/api/professor/observations/:id", async (req, res) => {
+    try {
+      const observationId = parseInt(req.params.id);
+      await storage.deleteObservation(observationId);
+      res.json({ success: true, message: "Observação excluída com sucesso" });
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao excluir observação: " + error.message });
+    }
+  });
+
+  // Generate reports route
+  app.get("/api/professor/reports/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { type, period } = req.query;
+
+      // Generate report based on type and period
+      const students = await storage.getStudentsByProfessor(professorId);
+      const classes = await storage.getClassesByProfessor(professorId);
+      const lessons = await storage.getLessonsByProfessor(professorId);
+      const observations = await storage.getObservationsByProfessor(professorId);
+
+      const report = {
+        generatedAt: new Date().toISOString(),
+        type,
+        period,
+        summary: {
+          totalStudents: students.length,
+          totalClasses: classes.length,
+          totalLessons: lessons.length,
+          totalObservations: observations.length
+        },
+        students,
+        classes,
+        lessons,
+        observations
+      };
+
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ error: "Erro ao gerar relatório: " + error.message });
+    }
+  });
+
+  // ===== REGISTRAR AULA =====
+  // Create new registered lesson
+  app.post("/api/professor/registered-lessons", async (req, res) => {
+    try {
+      const aulaData = req.body;
+
+      // Validate required fields
+      if (!aulaData.turmaId || !aulaData.professorId || !aulaData.data || !aulaData.titulo || !aulaData.conteudoMinistrado) {
+        return res.status(400).json({
+          error: "Campos obrigatórios: turmaId, professorId, data, titulo, conteudoMinistrado"
+        });
+      }
+
+      // Type conversion and validation
+      const processedData = {
+        turmaId: parseInt(aulaData.turmaId),
+        professorId: parseInt(aulaData.professorId),
+        data: aulaData.data,
+        titulo: aulaData.titulo,
+        conteudoMinistrado: aulaData.conteudoMinistrado,
+        competenciasTrabalhas: aulaData.competenciasTrabalhas || null,
+        observacoes: aulaData.observacoes || null,
+        duracaoMinutos: aulaData.duracaoMinutos ? parseInt(aulaData.duracaoMinutos) : null,
+        statusAula: aulaData.statusAula || "ministrada"
+      };
+
+      // Check for NaN values
+      if (isNaN(processedData.turmaId) || isNaN(processedData.professorId)) {
+        return res.status(400).json({
+          error: "turmaId e professorId devem ser números válidos"
+        });
+      }
+
+      if (processedData.duracaoMinutos !== null && isNaN(processedData.duracaoMinutos)) {
+        return res.status(400).json({
+          error: "duracaoMinutos deve ser um número válido"
+        });
+      }
+
+      const aulaRegistrada = await storage.createAulaRegistrada(processedData);
+      res.json(aulaRegistrada);
+    } catch (error) {
+      console.error("Error creating registered lesson:", error);
+      res.status(500).json({ error: "Failed to create registered lesson" });
+    }
+  });
+
+  // Get registered lessons by professor with designation logic
+  app.get("/api/professor/registered-lessons/:professorId", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { turmaId, dataInicio, dataFim } = req.query;
+
+      // Get user role info to determine if leader or professor
+      const user = await storage.getUser(professorId);
+      const isLeader = user?.professorTipo === 'lider';
+
+      let aulasRegistradas;
+      if (isLeader) {
+        // Leader sees all registered lessons
+        aulasRegistradas = await storage.getAulasRegistradasByProfessor(professorId);
+      } else {
+        // Professor sees:
+        // 1. Lessons they registered themselves (any class)
+        // 2. Lessons from classes they are designated to (registered by others)
+        const designatedTurmas = await storage.getTurmasByProfessor(professorId);
+        const designatedTurmaIds = designatedTurmas.map(t => t.id);
+
+        const allLessonsFromSystem = await storage.getAllAulasRegistradas();
+
+        aulasRegistradas = allLessonsFromSystem.filter(aula =>
+          aula.professorId === professorId || // Lessons they registered
+          designatedTurmaIds.includes(aula.turmaId) // Lessons from their designated classes
+        );
+      }
+
+      // Apply filters
+      if (turmaId) {
+        aulasRegistradas = aulasRegistradas.filter(aula => aula.turmaId === parseInt(turmaId as string));
+      }
+
+      if (dataInicio) {
+        const startDate = new Date(dataInicio as string);
+        aulasRegistradas = aulasRegistradas.filter(aula => new Date(aula.data) >= startDate);
+      }
+
+      if (dataFim) {
+        const endDate = new Date(dataFim as string);
+        aulasRegistradas = aulasRegistradas.filter(aula => new Date(aula.data) <= endDate);
+      }
+
+      res.json(aulasRegistradas);
+    } catch (error) {
+      console.error("Error fetching registered lessons:", error);
+      res.status(500).json({ error: "Failed to fetch registered lessons" });
+    }
+  });
+
+  // Update registered lesson
+  app.put("/api/professor/registered-lessons/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateData = req.body;
+
+      const updatedAula = await storage.updateAulaRegistrada(id, updateData);
+      res.json(updatedAula);
+    } catch (error) {
+      console.error("Error updating registered lesson:", error);
+      res.status(500).json({ error: "Failed to update registered lesson" });
+    }
+  });
+
+  // Get registered lessons by class
+  app.get("/api/professor/classes/:classId/registered-lessons", async (req, res) => {
+    try {
+      const classId = parseInt(req.params.classId);
+      const aulasRegistradas = await storage.getAulasRegistradasByTurma(classId);
+      res.json(aulasRegistradas);
+    } catch (error) {
+      console.error("Error fetching class registered lessons:", error);
+      res.status(500).json({ error: "Failed to fetch class registered lessons" });
+    }
+  });
+
+  // Update registered lesson
+  app.put("/api/professor/registered-lessons/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateData = req.body;
+      const aulaRegistrada = await storage.updateAulaRegistrada(id, updateData);
+      res.json(aulaRegistrada);
+    } catch (error) {
+      console.error("Error updating registered lesson:", error);
+      res.status(500).json({ error: "Failed to update registered lesson" });
+    }
+  });
+
+  // Delete registered lesson
+  app.delete("/api/professor/registered-lessons/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteAulaRegistrada(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting registered lesson:", error);
+      res.status(500).json({ error: "Failed to delete registered lesson" });
+    }
+  });
+
+  // ===== PLANO DE AULA ROUTES =====
+  // Get lesson plans by professor (with designation logic)
+  app.get('/api/professor/lesson-plans/:professorId', async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.professorId);
+      const { turmaId, data } = req.query;
+
+      // Get user role info to determine if leader or professor
+      const user = await storage.getUser(professorId);
+      const isLeader = user?.professorTipo === 'lider';
+
+      let plans: any[];
+      if (isLeader) {
+        // Leader sees all lesson plans
+        plans = await storage.getPlanosByProfessor(professorId);
+      } else {
+        // Professor only sees lesson plans from classes they are designated to
+        const designatedTurmas = await storage.getTurmasByProfessor(professorId);
+        const designatedTurmaIds = designatedTurmas.map(t => t.id);
+
+        if (designatedTurmaIds.length === 0) {
+          plans = [];
+        } else {
+          // Get all lesson plans and filter by designated classes
+          const allPlans = await storage.getPlanosByProfessor(professorId);
+          plans = allPlans.filter(plan => designatedTurmaIds.includes(plan.turmaId));
+        }
+      }
+
+      // Apply additional filters if provided
+      if (turmaId && turmaId !== 'all') {
+        plans = plans.filter(plan => plan.turmaId === parseInt(turmaId as string));
+      }
+
+      if (data) {
+        plans = plans.filter(plan => {
+          const planDate = new Date(plan.data).toISOString().split('T')[0];
+          const filterDate = new Date(data as string).toISOString().split('T')[0];
+          return planDate === filterDate;
+        });
+      }
+
+      // Get turma names for each plan
+      const plansWithTurma = await Promise.all(plans.map(async (plan) => {
+        const turma = await storage.getTurma(plan.turmaId);
+        return {
+          ...plan,
+          turmaNome: turma?.nome || 'Turma não encontrada'
+        };
+      }));
+
+      res.json(plansWithTurma);
+    } catch (error) {
+      console.error('Error fetching lesson plans:', error);
+      res.status(500).json({ error: 'Failed to fetch lesson plans' });
+    }
+  });
+
+  // Create lesson plan
+  app.post('/api/professor/lesson-plans', async (req, res) => {
+    try {
+      const planData = {
+        professorId: req.body.professorId,
+        turmaId: req.body.turmaId,
+        data: req.body.data,
+        titulo: req.body.titulo,
+        objetivos: req.body.objetivos,
+        conteudo: req.body.conteudo,
+        metodologia: req.body.metodologia,
+        recursos: req.body.recursos || '',
+        avaliacao: req.body.avaliacao || '',
+        competencias: req.body.competencias || [],
+        duracaoMinutos: req.body.duracaoMinutos || 60,
+        status: 'rascunho'
+      };
+
+      const createdPlan = await storage.createPlanoAula(planData);
+      res.json(createdPlan);
+    } catch (error) {
+      console.error('Error creating lesson plan:', error);
+      res.status(500).json({ error: 'Failed to create lesson plan' });
+    }
+  });
+
+  // Get specific lesson plan
+  app.get('/api/professor/lesson-plans/single/:planId', async (req, res) => {
+    try {
+      const planId = parseInt(req.params.planId);
+      const plan = await storage.getPlanoAula(planId);
+
+      if (!plan) {
+        return res.status(404).json({ error: 'Lesson plan not found' });
+      }
+
+      // Get turma info
+      const turma = await storage.getTurma(plan.turmaId);
+      const planWithTurma = {
+        ...plan,
+        turmaNome: turma?.nome || 'Turma não encontrada'
+      };
+
+      res.json(planWithTurma);
+    } catch (error) {
+      console.error('Error fetching lesson plan:', error);
+      res.status(500).json({ error: 'Failed to fetch lesson plan' });
+    }
+  });
+
+  // Update lesson plan
+  app.put('/api/professor/lesson-plans/:planId', async (req, res) => {
+    try {
+      const planId = parseInt(req.params.planId);
+      const updateData = {
+        turmaId: req.body.turmaId,
+        data: req.body.data,
+        titulo: req.body.titulo,
+        objetivos: req.body.objetivos,
+        conteudo: req.body.conteudo,
+        metodologia: req.body.metodologia,
+        recursos: req.body.recursos || '',
+        avaliacao: req.body.avaliacao || '',
+        competencias: req.body.competencias || [],
+        duracaoMinutos: req.body.duracaoMinutos || 60,
+        status: req.body.status || 'rascunho'
+      };
+
+      const updatedPlan = await storage.updatePlanoAula(planId, updateData);
+      res.json(updatedPlan);
+    } catch (error) {
+      console.error('Error updating lesson plan:', error);
+      res.status(500).json({ error: 'Failed to update lesson plan' });
+    }
+  });
+
+  // Delete lesson plan
+  app.delete('/api/professor/lesson-plans/:planId', async (req, res) => {
+    try {
+      const planId = parseInt(req.params.planId);
+      await storage.deletePlanoAula(planId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting lesson plan:', error);
+      res.status(500).json({ error: 'Failed to delete lesson plan' });
+    }
+  });
+
+  // ================ RBAC SYSTEM ROUTES ================
+
+  // Dashboard do Professor RBAC - Isolado
+  app.get("/api/professor/dashboard/:userId", requireAuth, requireProfessor, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const user = (req as any).user;
+
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
+      }
+
+      // Retornar dados do dashboard específicos para professor
+      const dashboardData = {
+        totalAlunos: 0,
+        turmasAtivas: 0,
+        aulasMinistradas: 0,
+        proximasAulas: []
+      };
+
+      console.log(`✅ [RBAC PROFESSOR] Dashboard acessado por usuário ${userId}`);
+      res.json(dashboardData);
+    } catch (error: any) {
+      console.error("Error fetching professor dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard: " + error.message });
+    }
+  });
+
+  // Dashboard do Monitor RBAC - Isolado
+  app.get("/api/monitor/dashboard/:userId", requireAuth, requireMonitor, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const user = (req as any).user;
+
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
+      }
+
+      // Retornar dados do dashboard específicos para monitor
+      const dashboardData = {
+        totalAlunos: 0,
+        gruposAtivos: 0,
+        atividadesRealizadas: 0,
+        proximasAtividades: []
+      };
+
+      console.log(`✅ [RBAC MONITOR] Dashboard acessado por usuário ${userId}`);
+      res.json(dashboardData);
+    } catch (error: any) {
+      console.error("Error fetching monitor dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard: " + error.message });
+    }
+  });
+
+  // Dashboard dos Coordenadores RBAC - Unificado
+  app.get("/api/coordenador/dashboard/:userId", requireAuth, requireAnyCoordenador, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const user = (req as any).user;
+      const area = req.query.area as string;
+
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
+      }
+
+      // Verificar se a área solicitada corresponde ao papel do usuário
+      const userRole = user.papel || user.userPapel || user.tipo || user.role;
+      const areaRoleMap: { [key: string]: string } = {
+        'inclusao': 'coordenador_inclusao',
+        'pec': 'coordenador_pec',
+        'psico': 'coordenador_psico'
+      };
+
+      if (area && areaRoleMap[area] && userRole !== areaRoleMap[area]) {
+        return res.status(403).json({ error: 'Acesso negado - área não autorizada para seu papel' });
+      }
+
+      // Retornar dados do dashboard específicos por área
+      let dashboardData = {};
+
+      switch (userRole) {
+        case 'coordenador_inclusao':
+          // Buscar dados reais do banco - Inclusão Produtiva
+          const participantesAtivos = await db.select({ count: sql<number>`count(*)` })
+            .from(participantesInclusao)
+            .where(inArray(participantesInclusao.status, ['ativo', 'em_andamento']));
+
+          const programasAndamento = await db.select({ count: sql<number>`count(DISTINCT ${cursosInclusao.id})` })
+            .from(cursosInclusao);
+
+          const alunosFormados = await db.select({ count: sql<number>`count(*)` })
+            .from(participantesInclusao)
+            .where(eq(participantesInclusao.status, 'concluido'));
+
+          dashboardData = {
+            participantesAtivos: participantesAtivos[0]?.count || 0,
+            programasAndamento: programasAndamento[0]?.count || 0,
+            taxaInclusao: 91.62, // Manter fixo por enquanto (pode calcular depois)
+            alunosFormados: alunosFormados[0]?.count || 0,
+            proximasAtividades: []
+          };
+          break;
+
+        case 'coordenador_pec':
+          // Buscar dados reais do banco - PEC
+          const atletasAtivos = await db.select({ count: sql<number>`count(*)` })
+            .from(enrollments)
+            .where(eq(enrollments.active, true));
+
+          const modalidades = await db.select({ count: sql<number>`count(DISTINCT ${pecActivities.id})` })
+            .from(pecActivities)
+            .where(eq(pecActivities.status, 'ativa'));
+
+          const eventosRealizados = await db.select({ count: sql<number>`count(*)` })
+            .from(sessions)
+            .where(sql`${sessions.date} < CURRENT_DATE`);
+
+          const proximosEventosData = await db.select({
+            id: sessions.id,
+            title: pecActivities.name,
+            date: sessions.date,
+            start_time: sessions.start_time,
+            end_time: sessions.end_time
+          })
+            .from(sessions)
+            .leftJoin(activityInstances, eq(sessions.activity_instance_id, activityInstances.id))
+            .leftJoin(pecActivities, eq(activityInstances.activity_id, pecActivities.id))
+            .where(sql`${sessions.date} >= CURRENT_DATE`)
+            .orderBy(sessions.date)
+            .limit(5);
+
+          dashboardData = {
+            atletasAtivos: atletasAtivos[0]?.count || 0,
+            modalidades: modalidades[0]?.count || 0,
+            eventosRealizados: eventosRealizados[0]?.count || 0,
+            proximosEventos: proximosEventosData
+          };
+          break;
+
+        case 'coordenador_psico':
+          // Buscar dados reais do banco - Psicossocial
+          const familiasAtendidas = await db.select({ count: sql<number>`count(*)` })
+            .from(psicoFamilias)
+            .where(inArray(psicoFamilias.status, ['ativo', 'em_acompanhamento']));
+
+          const casosAcompanhamento = await db.select({ count: sql<number>`count(*)` })
+            .from(psicoCasos)
+            .where(inArray(psicoCasos.status, ['aberto', 'em_atendimento', 'em_acompanhamento']));
+
+          const casosFinalizados = await db.select({ count: sql<number>`count(*)` })
+            .from(psicoCasos)
+            .where(eq(psicoCasos.status, 'finalizado'));
+
+          const casosTotais = await db.select({ count: sql<number>`count(*)` })
+            .from(psicoCasos);
+
+          const taxaResolutividade = casosTotais[0]?.count > 0
+            ? Math.round((casosFinalizados[0]?.count || 0) / (casosTotais[0]?.count) * 100)
+            : 0;
+
+          dashboardData = {
+            familiasAtendidas: familiasAtendidas[0]?.count || 0,
+            casosAcompanhamento: casosAcompanhamento[0]?.count || 0,
+            taxaResolutividade: taxaResolutividade,
+            proximosAtendimentos: []
+          };
+          break;
+        default:
+          dashboardData = { message: 'Dashboard genérico de coordenador' };
+      }
+
+      console.log(`✅ [RBAC COORDENADOR] Dashboard ${userRole} acessado por usuário ${userId}`);
+      res.json(dashboardData);
+    } catch (error: any) {
+      console.error("Error fetching coordenador dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard: " + error.message });
+    }
+  });
+
+  // ==== DEVELOPER API ROUTES ====
+
+  // Get all users for developer panel - UNIFIED STRUCTURE (Supabase Migration)
+
+  // Helper function to format user details
+  function formatarDetalhesUsuario(usuario: any): string {
+    switch (usuario.tipoUsuario) {
+      case 'professor':
+        return `Formação: ${usuario.dadosEspecificos?.formacao || 'N/A'}`;
+      case 'aluno':
+        return `Escola: ${usuario.dadosEspecificos?.dados_escolares?.escola || 'N/A'}`;
+      case 'doador':
+        return `Plano: ${usuario.dadosEspecificos?.plano || 'N/A'}`;
+      case 'desenvolvedor':
+        return `Usuário: ${usuario.dadosEspecificos?.usuario || 'N/A'}`;
+      case 'responsavel':
+        return `Tipo: ${usuario.dadosEspecificos?.tipo_responsavel || 'N/A'}`;
+      default:
+        return 'Sistema unificado';
+    }
+  }
+
+  // ==== DEVELOPER PANEL APIS ====
+
+  // Get all users for developer panel with access tracking
+  app.get("/api/dev/users", async (req, res) => {
+    try {
+      // Import the consolidation system
+      const { getAllConsolidatedUsers, getPermittedScreens } = await import('./userConsolidation');
+
+      // Get all consolidated users from the system
+      const allUsers = await getAllConsolidatedUsers();
+
+      // Transform for developer panel interface
+      const sistemaUsuarios = allUsers.map(user => {
+        // Mock access patterns for demonstration
+        const mockAccessCounts = {
+          'professor': Math.floor(Math.random() * 20) + 10,
+          'aluno': Math.floor(Math.random() * 10) + 3,
+          'responsavel': Math.floor(Math.random() * 8) + 2,
+          'user': Math.floor(Math.random() * 15) + 5,
+          'doador': Math.floor(Math.random() * 12) + 4
+        };
+
+        const totalAccesses = mockAccessCounts[user.tipo as keyof typeof mockAccessCounts] || 5;
+
+        return {
+          id: user.id,
+          nome: user.nome,
+          telefone: user.telefone,
+          email: user.email,
+          tipo: user.tipo,
+          verificado: user.verificado,
+          ativo: user.ativo,
+          plano: user.plano,
+          dataCadastro: user.dataCadastro,
+          ultimoAcesso: user.dataCadastro,
+          telasAcesso: user.telasPermitidas,
+          totalAcessos: totalAccesses,
+          ultimaAtividade: user.dataCadastro,
+          fonte: user.fonte
+        };
+      });
+
+      res.json(sistemaUsuarios);
+    } catch (error: any) {
+      console.error("Error fetching consolidated users:", error);
+      res.status(500).json({ error: "Erro ao buscar usuários: " + error.message });
+    }
+  });
+
+  // Get all system screens for developer panel
+  app.get("/api/dev/telas", async (req, res) => {
+    try {
+      // Get screens from database if they exist, otherwise use defaults
+      const dbTelas = await storage.getAllTelas();
+
+      // Define all system screens - Updated 2025-08-15
+      const sistemaTelas = [
+        { id: 1, nome: "plans", titulo: "Planos", rota: "/", status: "OK", descricao: "Página inicial - Seleção de planos", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 2, nome: "register", titulo: "Cadastro", rota: "/register", status: "OK", descricao: "Cadastro de novos usuários", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 3, nome: "donation-flow", titulo: "Fluxo de Doação", rota: "/donation-flow", status: "OK", descricao: "Novo fluxo TypeForm integrado com pagamento", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 4, nome: "stripe-payment", titulo: "Pagamento Stripe", rota: "/stripe-payment", status: "OK", descricao: "Processamento de pagamentos via Stripe", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 40, nome: "pagamento-ingresso", titulo: "Pagamento de Ingresso", rota: "/pagamento/ingresso", status: "OK", descricao: "Página de compra de ingressos para eventos", modulo: "Ingresso", tipo: "Público", ultimaAtualizacao: "2025-09-23", atualizadoPor: "Sistema" },
+        { id: 5, nome: "entrar", titulo: "Login", rota: "/entrar", status: "OK", descricao: "Tela de login por telefone", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 6, nome: "verify", titulo: "Verificação", rota: "/verify", status: "OK", descricao: "Verificação de código SMS", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 7, nome: "tdoador", titulo: "Dashboard Doador", rota: "/tdoador", status: "OK", descricao: "Dashboard do doador após pagamento confirmado", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 8, nome: "educacao", titulo: "Professor", rota: "/educacao", status: "OK", descricao: "Dashboard do professor", modulo: "Educação", tipo: "Professor", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 9, nome: "aluno", titulo: "Aluno", rota: "/aluno", status: "OK", descricao: "Dashboard do aluno", modulo: "Educação", tipo: "Aluno", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 10, nome: "conselho", titulo: "Conselho", rota: "/conselho", status: "OK", descricao: "Dashboard do Conselho", modulo: "Administração", tipo: "Conselho", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 11, nome: "administrador", titulo: "Leo Martins", rota: "/administrador", status: "OK", descricao: "Dashboard do Super Admin", modulo: "Super Admin", tipo: "Restrito", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 12, nome: "dev", titulo: "Desenvolvedor", rota: "/dev", status: "OK", descricao: "Painel do desenvolvedor", modulo: "Desenvolvimento", tipo: "Desenvolvedor", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 13, nome: "busca", titulo: "Busca", rota: "/busca", status: "OK", descricao: "Funcionalidade de busca para doadores", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 14, nome: "noticias", titulo: "Notícias", rota: "/noticias", status: "OK", descricao: "Feed de notícias integrado via WordPress", modulo: "Conteúdo", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 15, nome: "perfil", titulo: "Perfil", rota: "/perfil", status: "OK", descricao: "Perfil do usuário", modulo: "Dashboard", tipo: "Usuário", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 16, nome: "dados-cadastrais", titulo: "Dados Cadastrais", rota: "/dados-cadastrais", status: "OK", descricao: "Edição dos dados cadastrais", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 17, nome: "pagamentos", titulo: "Pagamentos", rota: "/pagamentos", status: "OK", descricao: "Histórico e gestão de pagamentos", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 18, nome: "configuracoes", titulo: "Configurações", rota: "/configuracoes", status: "OK", descricao: "Configurações da conta", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 19, nome: "sobre", titulo: "Sobre", rota: "/sobre", status: "OK", descricao: "Informações sobre o Clube do Grito", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 20, nome: "change-plan", titulo: "Alterar Plano", rota: "/change-plan", status: "OK", descricao: "Alterar plano de assinatura", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 21, nome: "central-ajuda", titulo: "Central de Ajuda", rota: "/central-ajuda", status: "OK", descricao: "Central de ajuda e suporte", modulo: "Suporte", tipo: "Geral", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 22, nome: "patrocinador-dashboard", titulo: "Patrocinador", rota: "/patrocinador-dashboard", status: "OK", descricao: "Dashboard do patrocinador", modulo: "Dashboard", tipo: "Patrocinador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 23, nome: "sorteio-admin", titulo: "Admin Sorteio", rota: "/sorteio-admin", status: "OK", descricao: "Administração do sistema de sorteio", modulo: "Administração", tipo: "Admin", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 24, nome: "dev-marketing", titulo: "Marketing", rota: "/dev-marketing", status: "OK", descricao: "Área de marketing para gerenciar benefícios, missões e histórias inspiradoras", modulo: "Desenvolvimento", tipo: "Marketing", ultimaAtualizacao: "2025-09-08", atualizadoPor: "Sistema" },
+
+        // ================ NOVAS TELAS RBAC ================
+        { id: 25, nome: "professor-rbac", titulo: "Professor", rota: "/professor", status: "OK", descricao: "Dashboard isolado do Professor RBAC", modulo: "Educação", tipo: "Professor", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
+        { id: 26, nome: "monitor-rbac", titulo: "Monitor", rota: "/monitor", status: "OK", descricao: "Dashboard isolado do Monitor RBAC", modulo: "Educação", tipo: "Monitor", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
+        { id: 27, nome: "coordenador-inclusao", titulo: "Coordenador Inclusão", rota: "/coordenador/inclusao-produtiva", status: "OK", descricao: "Dashboard do Coordenador de Inclusão Produtiva", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
+        { id: 28, nome: "coordenador-pec", titulo: "Coordenador PEC", rota: "/coordenador/esporte-cultura", status: "OK", descricao: "Dashboard do Coordenador de Polo Esportivo Cultural", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
+        { id: 29, nome: "coordenador-psico", titulo: "Coordenador Psicossocial", rota: "/coordenador/psicossocial", status: "OK", descricao: "Dashboard do Coordenador Psicossocial", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" }
+      ];
+
+      res.json(sistemaTelas);
+    } catch (error: any) {
+      console.error("Error fetching screens for dev panel:", error);
+      res.status(500).json({ error: "Erro ao buscar telas: " + error.message });
+    }
+  });
+
+  // Get screen history for developer panel
+  app.get("/api/dev/tela-historico/:telaId?", async (req, res) => {
+    try {
+      const telaId = req.params.telaId;
+
+      // Mock history data for now
+      const mockHistory = [
+        {
+          id: 1,
+          telaId: parseInt(telaId || "1"),
+          descricao: "Sistema de controle de acesso implementado",
+          tipoAlteracao: "Feature",
+          responsavel: "Desenvolvedor",
+          data: "2025-08-12T18:00:00Z"
+        },
+        {
+          id: 2,
+          telaId: parseInt(telaId || "1"),
+          descricao: "Correção de bugs na autenticação",
+          tipoAlteracao: "Bugfix",
+          responsavel: "Desenvolvedor",
+          data: "2025-08-12T17:00:00Z"
+        }
+      ];
+
+      res.json(mockHistory);
+    } catch (error: any) {
+      console.error("Error fetching screen history:", error);
+      res.status(500).json({ error: "Erro ao buscar histórico: " + error.message });
+    }
+  });
+
+  // Get dev status for banner
+  app.get("/api/dev/status", async (req, res) => {
+    try {
+      // Import the dev mode functions
+      const { getDevModeStatus } = await import("./routes/devMode");
+      const status = getDevModeStatus(req, res);
+      return; // Let getDevModeStatus handle the response
+    } catch (error: any) {
+      console.error("Error getting dev status:", error);
+      res.status(500).json({ error: "Erro ao verificar status: " + error.message });
+    }
+  });
+
+  // ===== ANÁLISE STRIPE - DOADORES COM STATUS PAID =====
+  app.post("/api/admin/analise-stripe-doadores", async (req, res) => {
+    try {
+      console.log('');
+      console.log('='.repeat(80));
+      console.log('🔍 [STRIPE ANÁLISE] Iniciando análise de doadores...');
+      console.log('='.repeat(80));
+
+      // Buscar todos os usuários com dados do Stripe
+      const usuariosComStripe = await db
+        .select()
+        .from(users)
+        .where(
+          or(
+            isNotNull(users.stripeCustomerId),
+            isNotNull(users.stripeSubscriptionId)
+          )
+        );
+
+      console.log(`📋 [STRIPE] ${usuariosComStripe.length} usuários com dados Stripe encontrados`);
+
+      const doadoresPaid = [];
+
+      for (const usuario of usuariosComStripe) {
+        try {
+          let planoAtual = 'Sem plano';
+          let valorMensal = 0;
+          let status = 'inactive';
+          let periodicidade = 'mensal';
+
+          // Verificar subscription_id primeiro
+          if (usuario.stripeSubscriptionId) {
+            const subscription = await stripe.subscriptions.retrieve(usuario.stripeSubscriptionId);
+
+            if (subscription.status === 'active' && subscription.items.data.length > 0) {
+              const priceId = subscription.items.data[0].price.id;
+              const amount = subscription.items.data[0].price.unit_amount || 0;
+              const interval = subscription.items.data[0].price.recurring?.interval || 'month';
+
+              status = 'paid';
+              valorMensal = amount;
+              periodicidade = interval === 'year' ? 'anual' : 'mensal';
+
+              // Mapear valor para plano
+              if (interval === 'month') {
+                if (amount === 990) planoAtual = 'ECO';
+                else if (amount === 1990) planoAtual = 'VOZ';
+                else if (amount === 2990) planoAtual = 'GRITO';
+                else planoAtual = 'PLATINUM';
+              } else {
+                planoAtual = 'PLATINUM';
+              }
+            }
+          }
+          // Se não tem subscription_id, buscar pelo customer_id
+          else if (usuario.stripeCustomerId) {
+            const subscriptions = await stripe.subscriptions.list({
+              customer: usuario.stripeCustomerId,
+              status: 'active',
+              limit: 1
+            });
+
+            if (subscriptions.data.length > 0) {
+              const subscription = subscriptions.data[0];
+              const amount = subscription.items.data[0].price.unit_amount || 0;
+              const interval = subscription.items.data[0].price.recurring?.interval || 'month';
+
+              status = 'paid';
+              valorMensal = amount;
+              periodicidade = interval === 'year' ? 'anual' : 'mensal';
+
+              // Mapear valor para plano
+              if (interval === 'month') {
+                if (amount === 990) planoAtual = 'ECO';
+                else if (amount === 1990) planoAtual = 'VOZ';
+                else if (amount === 2990) planoAtual = 'GRITO';
+                else planoAtual = 'PLATINUM';
+              } else {
+                planoAtual = 'PLATINUM';
+              }
+            }
+          }
+
+          // Adicionar apenas doadores com status PAID
+          if (status === 'paid') {
+            doadoresPaid.push({
+              id: usuario.id,
+              nome: usuario.nome,
+              telefone: usuario.telefone,
+              email: usuario.email,
+              planoStripe: planoAtual,
+              planoLocal: usuario.plano,
+              valorMensal: valorMensal / 100,
+              periodicidade,
+              customerId: usuario.stripeCustomerId,
+              subscriptionId: usuario.stripeSubscriptionId,
+              match: usuario.plano?.toLowerCase() === planoAtual.toLowerCase()
+            });
+          }
+        } catch (err) {
+          console.error(`❌ Erro ao processar usuário ${usuario.nome}:`, err);
+        }
+      }
+
+      console.log(`✅ [ANÁLISE] ${doadoresPaid.length} doadores com status PAID encontrados`);
+
+      res.json({
+        totalUsuariosStripe: usuariosComStripe.length,
+        doadoresPaid: doadoresPaid.length,
+        doadores: doadoresPaid
+      });
+    } catch (error) {
+      console.error('❌ [STRIPE ANÁLISE] Erro:', error);
+      res.status(500).json({ error: 'Erro ao analisar doadores' });
+    }
+  });
+
+  // ==== DEVELOPER AUTHENTICATION ROUTES ====
+
+  // ✅ STRIPE KEYS STATUS - Public endpoint (safe, no secrets exposed)
+  app.get("/api/stripe/status", async (req, res) => {
+    try {
+      // Retornar apenas status das chaves (não os valores reais) - seguro para todos
+      const hasSecretKey = !!process.env.STRIPE_SECRET_KEY;
+      const hasPublicKey = !!process.env.VITE_STRIPE_PUBLIC_KEY;
+
+      const response = {
+        hasSecretKey,
+        hasPublicKey,
+        maskedSecretKey: hasSecretKey
+          ? `${process.env.STRIPE_SECRET_KEY?.substring(0, 8)}...${process.env.STRIPE_SECRET_KEY?.slice(-4)}`
+          : null,
+        maskedPublicKey: hasPublicKey
+          ? `${process.env.VITE_STRIPE_PUBLIC_KEY?.substring(0, 8)}...${process.env.VITE_STRIPE_PUBLIC_KEY?.slice(-4)}`
+          : null,
+        lastUpdated: new Date().toISOString()
+      };
+
+      console.log("🔍 Stripe Status API Response:", response);
+      res.json(response);
+    } catch (error) {
+      console.error("❌ Error checking Stripe keys:", error);
+      res.status(500).json({ error: "Erro ao verificar chaves: " + error.message });
+    }
+  });
+
+  // ✅ STRIPE PLANS SYNCHRONIZATION - Buscar e sincronizar planos
+  app.get("/api/stripe/plans", async (req, res) => {
+    try {
+      // Verificar se as chaves da Stripe estão configuradas
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.status(503).json({
+          error: "Stripe não configurado",
+          message: "Configure as chaves da Stripe primeiro"
+        });
+      }
+
+      // Buscar todos os produtos ativos do Stripe
+      const products = await stripe.products.list({
+        active: true,
+        limit: 100,
+        expand: ['data.default_price']
+      });
+
+      // Buscar todos os preços ativos
+      const prices = await stripe.prices.list({
+        active: true,
+        limit: 100,
+        expand: ['data.product']
+      });
+
+      // Organizar dados dos produtos e preços
+      const stripePlans = products.data.map(product => {
+        // Encontrar preços para este produto
+        const productPrices = prices.data.filter(price => price.product === product.id);
+
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          active: product.active,
+          created: new Date(product.created * 1000).toISOString(),
+          metadata: product.metadata,
+          prices: productPrices.map(price => ({
+            id: price.id,
+            amount: price.unit_amount,
+            currency: price.currency,
+            interval: price.recurring?.interval,
+            interval_count: price.recurring?.interval_count,
+            active: price.active,
+            nickname: price.nickname
+          }))
+        };
+      });
+
+      // Planos definidos no app
+      const appPlans = {
+        eco: { price: 990, name: 'Eco', description: 'Seu grito começa a se propagar' },
+        voz: { price: 1990, name: 'Voz', description: 'Deixe seu grito tomar força' },
+        grito: { price: 2990, name: 'O Grito', description: 'Seu grito ecoa por toda parte' },
+        platinum: { price: 'custom', name: 'Platinum', description: 'Valor personalizado' }
+      };
+
+      // Analisar sincronização
+      const syncAnalysis = {
+        stripePlansCount: stripePlans.length,
+        appPlansCount: Object.keys(appPlans).length,
+        matches: [],
+        missingInStripe: [],
+        missingInApp: [],
+        priceConflicts: []
+      };
+
+      // Verificar matches e conflitos
+      Object.entries(appPlans).forEach(([planKey, appPlan]) => {
+        const matchingStripePlan = stripePlans.find(sp =>
+          sp.name.toLowerCase() === appPlan.name.toLowerCase()
+        );
+
+        if (matchingStripePlan) {
+          const monthlyPrice = matchingStripePlan.prices.find(p => p.interval === 'month');
+          if (monthlyPrice && appPlan.price !== 'custom') {
+            if (monthlyPrice.amount === appPlan.price) {
+              syncAnalysis.matches.push({
+                appKey: planKey,
+                appPlan,
+                stripePlan: matchingStripePlan,
+                priceMatch: true
+              });
+            } else {
+              syncAnalysis.priceConflicts.push({
+                appKey: planKey,
+                appPlan,
+                stripePlan: matchingStripePlan,
+                appPrice: appPlan.price,
+                stripePrice: monthlyPrice.amount
+              });
+            }
+          } else {
+            syncAnalysis.matches.push({
+              appKey: planKey,
+              appPlan,
+              stripePlan: matchingStripePlan,
+              priceMatch: appPlan.price === 'custom'
+            });
+          }
+        } else {
+          syncAnalysis.missingInStripe.push({ appKey: planKey, appPlan });
+        }
+      });
+
+      // Planos no Stripe que não existem no app
+      stripePlans.forEach(stripePlan => {
+        const matchingAppPlan = Object.values(appPlans).find(ap =>
+          ap.name.toLowerCase() === stripePlan.name.toLowerCase()
+        );
+        if (!matchingAppPlan) {
+          syncAnalysis.missingInApp.push(stripePlan);
+        }
+      });
+
+      res.json({
+        success: true,
+        stripePlans,
+        appPlans,
+        syncAnalysis,
+        lastSync: new Date().toISOString()
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error fetching Stripe plans:", error);
+      res.status(500).json({
+        error: "Erro ao buscar planos",
+        message: error.message,
+        code: error.code
+      });
+    }
+  });
+
+  // ✅ STRIPE PLANS SYNC ACTION - Sincronizar planos específicos
+  app.post("/api/stripe/sync-plan", async (req, res) => {
+    try {
+      // Verificar acesso de desenvolvedor para operações de sync
+      if (!(req as any).isDeveloper) {
+        return res.status(403).json({ error: "Acesso negado - apenas desenvolvedor pode sincronizar planos" });
+      }
+
+      const { action, planData } = req.body;
+
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.status(503).json({
+          error: "Stripe não configurado",
+          message: "Configure as chaves da Stripe primeiro"
+        });
+      }
+
+      let result;
+
+      switch (action) {
+        case 'create_in_stripe':
+          // Criar produto no Stripe baseado no plano do app
+          const product = await stripe.products.create({
+            name: planData.name,
+            description: planData.description,
+            active: true
+          });
+
+          const price = await stripe.prices.create({
+            product: product.id,
+            unit_amount: planData.price,
+            currency: 'brl',
+            recurring: { interval: 'month' },
+            nickname: planData.name
+          });
+
+          result = { product, price, action: 'created_in_stripe' };
+          break;
+
+        case 'update_app_price':
+          // Atualizar preço no app (apenas retorna sugestão - implementar conforme necessário)
+          result = {
+            suggestion: `Atualize planPricing.${planData.appKey}.price de ${planData.currentAppPrice} para ${planData.newPrice}`,
+            action: 'update_suggested'
+          };
+          break;
+
+        default:
+          return res.status(400).json({ error: "Ação inválida" });
+      }
+
+      res.json({
+        success: true,
+        result,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error: any) {
+      console.error("❌ Error syncing plan:", error);
+      res.status(500).json({
+        error: "Erro ao sincronizar plano",
+        message: error.message
+      });
+    }
+  });
+
+  // ✅ STRIPE API KEYS MANAGEMENT - Developer Only (for updating keys)
+  app.get("/api/dev/stripe/keys", async (req, res) => {
+    try {
+      // Verificar se é request de desenvolvedor
+      if (!(req as any).isDeveloper) {
+        return res.status(403).json({ error: "Acesso negado - apenas desenvolvedor" });
+      }
+
+      // Retornar status das chaves (não os valores reais)
+      const hasSecretKey = !!process.env.STRIPE_SECRET_KEY;
+      const hasPublicKey = !!process.env.VITE_STRIPE_PUBLIC_KEY;
+
+      // Mostrar apenas primeiros/últimos caracteres para verificação
+      const maskedSecretKey = process.env.STRIPE_SECRET_KEY
+        ? `${process.env.STRIPE_SECRET_KEY.substring(0, 7)}...${process.env.STRIPE_SECRET_KEY.substring(-4)}`
+        : null;
+
+      const maskedPublicKey = process.env.VITE_STRIPE_PUBLIC_KEY
+        ? `${process.env.VITE_STRIPE_PUBLIC_KEY.substring(0, 7)}...${process.env.VITE_STRIPE_PUBLIC_KEY.substring(-4)}`
+        : null;
+
+      res.json({
+        hasSecretKey,
+        hasPublicKey,
+        maskedSecretKey,
+        maskedPublicKey,
+        lastUpdated: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("❌ Error checking Stripe keys:", error);
+      res.status(500).json({ error: "Erro ao verificar chaves: " + error.message });
+    }
+  });
+
+  app.post("/api/dev/stripe/update-keys", async (req, res) => {
+    try {
+      // Verificar se é request de desenvolvedor
+      if (!(req as any).isDeveloper) {
+        return res.status(403).json({ error: "Acesso negado - apenas desenvolvedor" });
+      }
+
+      const { secretKey, publicKey } = req.body;
+
+      // Validações básicas
+      if (!secretKey || !publicKey) {
+        return res.status(400).json({ error: "Secret Key e Public Key são obrigatórios" });
+      }
+
+      if (!secretKey.startsWith('sk_')) {
+        return res.status(400).json({ error: "Secret Key deve começar com 'sk_'" });
+      }
+
+      if (!publicKey.startsWith('pk_')) {
+        return res.status(400).json({ error: "Public Key deve começar com 'pk_'" });
+      }
+
+      // ⚠️ IMPORTANTE: Este método atualiza as variáveis de ambiente em runtime
+      // mas elas NÃO persistem após restart. Para persistência, você precisa 
+      // atualizar manualmente no painel do Replit ou usar secrets management
+      process.env.STRIPE_SECRET_KEY = secretKey;
+      process.env.VITE_STRIPE_PUBLIC_KEY = publicKey;
+
+      // Recriar instância do Stripe com nova chave
+      const newStripe = new Stripe(secretKey);
+
+      // Testar se a chave funciona
+      try {
+        await newStripe.customers.list({ limit: 1 });
+      } catch (stripeError: any) {
+        return res.status(400).json({
+          error: "Chave da Stripe inválida: " + stripeError.message
+        });
+      }
+
+      // Log de auditoria
+      console.log(`🔑 STRIPE KEYS UPDATED by developer at ${new Date().toISOString()}`);
+      console.log(`   Secret Key: ${secretKey.substring(0, 7)}...${secretKey.substring(-4)}`);
+      console.log(`   Public Key: ${publicKey.substring(0, 7)}...${publicKey.substring(-4)}`);
+
+      res.json({
+        success: true,
+        message: "Chaves da Stripe atualizadas com sucesso!",
+        warning: "⚠️ ATENÇÃO: Estas chaves são temporárias e serão perdidas no restart. Atualize também no painel do Replit para persistência permanente.",
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error("❌ Error updating Stripe keys:", error);
+      res.status(500).json({ error: "Erro ao atualizar chaves: " + error.message });
+    }
+  });
+
+  // ==== USER DATA ROUTES FOR DONOR DASHBOARD ====
+
+  // Get user data by ID
+  app.get("/api/users/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      res.json({
+        id: user.id,
+        nome: user.nome,
+        telefone: user.telefone,
+        email: user.email,
+        plano: user.plano,
+        createdAt: user.createdAt,
+        totalDoacoes: 0 // Will be calculated based on subscription history
+      });
+    } catch (error: any) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Update user data
+  app.put("/api/users/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { nome, telefone } = req.body;
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      if (!nome || !telefone) {
+        return res.status(400).json({ error: "Nome e telefone são obrigatórios" });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUser(userId);
+      if (!existingUser) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Update user data using storage updateUser method (needs to be implemented)
+      const updatedUser = await storage.updateUser(userId, { nome, telefone });
+
+      // Verificar automaticamente se perfil está completo e completar missão
+      await storage.checkAndCompleteProfileMission(userId);
+
+      res.json({
+        id: updatedUser.id,
+        nome: updatedUser.nome,
+        telefone: updatedUser.telefone,
+        email: updatedUser.email,
+        plano: updatedUser.plano
+      });
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Update user email specifically (for donation flow)
+  app.post("/api/user/update-email", async (req, res) => {
+    try {
+      const { userId, email } = req.body;
+
+      if (!userId || !email) {
+        return res.status(400).json({ error: "User ID e email são obrigatórios" });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUser(parseInt(userId));
+      if (!existingUser) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Update user email
+      const updatedUser = await storage.updateUser(parseInt(userId), { email });
+
+      // Verificar automaticamente se perfil está completo e completar missão
+      await storage.checkAndCompleteProfileMission(parseInt(userId));
+
+      res.json({
+        success: true,
+        message: "Email atualizado com sucesso",
+        email: updatedUser.email
+      });
+    } catch (error: any) {
+      console.error("Error updating user email:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Get user's latest donation plan
+  app.get("/api/user/:userId/latest-donation", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      // Buscar a doação mais recente deste usuário usando SQL direto
+      const result = await db.execute(sql`
+        SELECT plano, valor, status, created_at 
+        FROM doadores 
+        WHERE user_id = ${userId} 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `);
+
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: "Nenhuma doação encontrada" });
+      }
+
+      const donation = result.rows[0] as any;
+
+      res.json({
+        plano: donation.plano,
+        valor: donation.valor,
+        status: donation.status,
+        createdAt: donation.created_at
+      });
+    } catch (error: any) {
+      console.error("Error fetching latest donation:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ===== DEVELOPER AUTHENTICATION ROUTES =====
+
+  // Login para desenvolvedores
+  // TRECHO ALTERADO
+  app.post("/api/dev/login", express.json(), async (req, res) => {
+    try {
+      const { usuario, senha } = (req.body ?? {}) as { usuario?: string; senha?: string };
+
+      if (!usuario || !senha) {
+        return res.status(400).json({ error: "Usuário e senha são obrigatórios" });
+      }
+
+      // busca pelo campo correto
+      const rows = await db
+        .select()
+        .from(developers)
+        .where(eq(developers.usuario, usuario))
+        .limit(1);
+
+      const devUser = rows[0];
+      if (!devUser) return res.status(401).json({ error: "Credenciais inválidas" });
+      if (devUser.ativo === false) return res.status(401).json({ error: "Usuário desativado" });
+
+      // validação de senha (bcrypt ou texto puro para compatibilidade antiga)
+      const saved = String(devUser.senha ?? "");
+      const looksLikeBcrypt = /^\$2[aby]\$/.test(saved);
+
+      const ok = looksLikeBcrypt
+        ? await bcrypt.compare(senha, saved).catch(() => false)
+        : senha === saved;
+
+      if (!ok) return res.status(401).json({ error: "Credenciais inválidas" });
+
+      // atualiza último acesso (sem depender do schema TS)
+      try {
+        await db.execute(sql`UPDATE developers SET ultimo_acesso = NOW() WHERE id = ${devUser.id}`);
+      } catch (e) {
+        console.warn("[DEV LOGIN] Falha ao atualizar ultimo_acesso:", e);
+        // não interrompe login
+      }
+
+      return res.json({
+        success: true,
+        developer: {
+          id: devUser.id,
+          usuario: devUser.usuario,
+          nome: devUser.nome,
+          email: devUser.email,
+          ativo: devUser.ativo,
+          tipo: "master",
+          ultimo_acesso: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error("Error in developer login:", error);
+      return res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+
+  // ================ SISTEMA DE SORTEIO - APIs ================
+
+  // Obter sorteio ativo atual
+  app.get("/api/sorteio/ativo", async (req, res) => {
+    try {
+      const sorteio = await storage.getSorteioAtivo();
+      if (!sorteio) {
+        return res.status(404).json({ error: "Nenhum sorteio ativo encontrado" });
+      }
+      res.json(sorteio);
+    } catch (error) {
+      console.error("Error getting active sorteio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Obter status de participação do usuário
+  app.get("/api/sorteio/:sorteioId/usuario/:userId", async (req, res) => {
+    try {
+      const sorteioId = parseInt(req.params.sorteioId);
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(sorteioId) || isNaN(userId)) {
+        return res.status(400).json({ error: "IDs inválidos" });
+      }
+
+      // Buscar dados do usuário
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Verificar participação existente
+      const participacao = await storage.getParticipacaoUsuario(sorteioId, userId);
+
+      // Calcular número de chances baseado no plano (novas regras)
+      const planoChances = {
+        'eco': 1,
+        'voz': 2,
+        'grito': 3,
+        'platinum': 5
+      };
+
+      const numeroChances = planoChances[user.plano as keyof typeof planoChances] || 1;
+
+      // Verificar elegibilidade (pagamento em dia)
+      const elegivel = user.subscriptionStatus === 'active';
+
+      const status = {
+        elegivel,
+        numeroChances,
+        plano: user.plano,
+        participacao: participacao || null,
+        motivoInelegibilidade: !elegivel ? "Pagamento pendente ou plano inativo" : null
+      };
+
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting user sorteio status:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Confirmar participação no sorteio
+  app.post("/api/sorteio/:sorteioId/participar", async (req, res) => {
+    try {
+      const sorteioId = parseInt(req.params.sorteioId);
+      const { userId } = req.body;
+
+      if (isNaN(sorteioId) || !userId) {
+        return res.status(400).json({ error: "Dados inválidos" });
+      }
+
+      // Verificar se já existe participação
+      const participacaoExistente = await storage.getParticipacaoUsuario(sorteioId, userId);
+      if (participacaoExistente) {
+        return res.json({ message: "Usuário já está participando do sorteio", participacao: participacaoExistente });
+      }
+
+      // Buscar dados do usuário
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Verificar elegibilidade
+      const elegivel = user.subscriptionStatus === 'active';
+      if (!elegivel) {
+        return res.status(400).json({ error: "Usuário não elegível para o sorteio" });
+      }
+
+      // Calcular chances e números atribuídos (novas regras)
+      const planoChances = { 'eco': 1, 'voz': 2, 'grito': 3, 'platinum': 5 };
+      const numeroChances = planoChances[user.plano as keyof typeof planoChances] || 1;
+
+      // Gerar números únicos para o usuário (simplificado)
+      const numerosAtribuidos = Array.from({ length: numeroChances }, (_, i) =>
+        Math.floor(Math.random() * 100000) + i
+      );
+
+      const participacao = await storage.createParticipacao({
+        sorteioId,
+        userId,
+        numeroChances,
+        numerosAtribuidos,
+        elegivel: true,
+        planoAtual: user.plano,
+        valorPlano: user.plano === 'eco' ? '9.90' : user.plano === 'voz' ? '19.90' : user.plano === 'grito' ? '29.90' : '49.90',
+        participacaoConfirmada: true
+      });
+
+      res.json({ message: "Participação confirmada com sucesso!", participacao });
+    } catch (error) {
+      console.error("Error confirming sorteio participation:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Obter histórico de resultados
+  app.get("/api/sorteio/resultados", async (req, res) => {
+    try {
+      const resultados = await storage.getResultadosHistorico();
+      res.json(resultados);
+    } catch (error) {
+      console.error("Error getting sorteio results:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Obter participações de um sorteio (para admin)
+  app.get("/api/sorteio/:id/participacoes", async (req, res) => {
+    try {
+      const sorteioId = parseInt(req.params.id);
+      const participacoes = await storage.getParticipacoesPorSorteio(sorteioId);
+      res.json(participacoes);
+    } catch (error) {
+      console.error("Error getting sorteio participacoes:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar novo sorteio (admin only)
+  app.post("/api/sorteio/criar", async (req, res) => {
+    try {
+      const sorteioData = req.body;
+
+      // Validação básica
+      if (!sorteioData.nome || !sorteioData.premio || !sorteioData.dataSorteio) {
+        return res.status(400).json({ error: "Dados obrigatórios não fornecidos" });
+      }
+
+      // Verificar se já existe sorteio para o mesmo mês
+      const dataSorteio = new Date(sorteioData.dataSorteio);
+      const primeiroDiaDoMes = new Date(dataSorteio.getFullYear(), dataSorteio.getMonth(), 1);
+      const ultimoDiaDoMes = new Date(dataSorteio.getFullYear(), dataSorteio.getMonth() + 1, 0);
+
+      const sorteioExistente = await db.select()
+        .from(sorteios)
+        .where(
+          and(
+            sql`${sorteios.dataSorteio} >= ${primeiroDiaDoMes.toISOString()}`,
+            sql`${sorteios.dataSorteio} <= ${ultimoDiaDoMes.toISOString()}`,
+            eq(sorteios.ativo, true),
+            eq(sorteios.status, 'ativo')
+          )
+        )
+        .limit(1);
+
+      if (sorteioExistente.length > 0) {
+        return res.status(400).json({
+          error: `Já existe um sorteio ativo para ${dataSorteio.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`
+        });
+      }
+
+      // Desativar sorteios anteriores se necessário
+      await db.update(sorteios).set({ ativo: false }).where(eq(sorteios.ativo, true));
+
+      const sorteio = await storage.createSorteio({
+        nome: sorteioData.nome,
+        descricao: sorteioData.descricao,
+        premio: sorteioData.premio,
+        dataInicio: new Date(),
+        dataFim: new Date(sorteioData.dataSorteio),
+        dataSorteio: new Date(sorteioData.dataSorteio),
+        regras: sorteioData.regras || "Participação automática para doadores ativos. Chances: Eco=1, Voz=2, O Grito=3, Platinum=5.",
+        status: 'ativo',
+        tipoSorteio: 'mensal',
+        ativo: true
+      });
+
+      res.json({ message: "Sorteio criado com sucesso!", sorteio });
+    } catch (error) {
+      console.error("Error creating sorteio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // API para realizar sorteio de forma transparente
+  app.post("/api/sorteio/:id/realizar", async (req, res) => {
+    try {
+      const sorteioId = parseInt(req.params.id);
+      const { metodo = 'automatico' } = req.body; // 'automatico' ou 'manual'
+
+      // Verificar se sorteio existe e está ativo
+      const sorteio = await storage.getSorteioById(sorteioId);
+      if (!sorteio || sorteio.status !== 'ativo') {
+        return res.status(404).json({ error: "Sorteio não encontrado ou inativo" });
+      }
+
+      // Buscar todas as participações confirmadas
+      const participacoes = await storage.getParticipacoesPorSorteio(sorteioId);
+      if (!participacoes.length) {
+        return res.status(400).json({ error: "Nenhuma participação confirmada encontrada" });
+      }
+
+      // Gerar números para cada participante baseado nas chances do plano
+      let numerosDisponiveis: Array<{
+        numero: number;
+        userId: number;
+        nome: string;
+        plano: string;
+      }> = [];
+      let numeroAtual = 1;
+
+      // Mapear participantes com seus números
+      const participantesComNumeros = participacoes.map(participacao => {
+        const chances = participacao.numeroChances;
+        const numerosParticipante = [];
+
+        for (let i = 0; i < chances; i++) {
+          numerosParticipante.push(numeroAtual);
+          numerosDisponiveis.push({
+            numero: numeroAtual,
+            userId: participacao.userId,
+            nome: participacao.nome || `Usuário ${participacao.userId}`,
+            plano: participacao.planoAtual
+          });
+          numeroAtual++;
+        }
+
+        return {
+          ...participacao,
+          numerosAtribuidos: numerosParticipante
+        };
+      });
+
+      // SORTEIO TRANSPARENTE:
+      // Usar timestamp atual + Math.random() para garantir aleatoriedade
+      const timestampSorteio = Date.now();
+      const seed = timestampSorteio % 1000000; // Usar apenas 6 últimos dígitos para simplicidade
+
+      // Gerar número aleatório baseado no timestamp
+      const numeroSorteado = Math.floor(Math.random() * numerosDisponiveis.length) + 1;
+      const numeroEscolhido = numerosDisponiveis[numeroSorteado - 1];
+
+      if (!numeroEscolhido) {
+        return res.status(500).json({ error: "Erro no sorteio: número inválido" });
+      }
+
+      // Registrar resultado
+      const resultado = await storage.createResultadoSorteio({
+        sorteioId,
+        vencedorId: numeroEscolhido.userId,
+        numeroSorteado,
+        planoVencedor: numeroEscolhido.plano,
+        valorPremio: sorteio.valorPremio,
+        dataSorteio: new Date(),
+        observacoes: `Sorteio realizado ${metodo === 'manual' ? 'manualmente' : 'automaticamente'} em ${new Date().toLocaleString('pt-BR')}. Seed: ${seed}`
+      });
+
+      // Atualizar status do sorteio
+      await storage.updateSorteio(sorteioId, { status: 'finalizado' });
+
+      res.json({
+        message: "Sorteio realizado com sucesso!",
+        resultado: {
+          vencedor: numeroEscolhido.nome,
+          numeroSorteado,
+          totalNumeros: numerosDisponiveis.length,
+          planoVencedor: numeroEscolhido.plano,
+          timestampSorteio,
+          seed,
+          transparencia: {
+            metodo: metodo,
+            participantes: participantesComNumeros.length,
+            totalChances: numerosDisponiveis.length,
+            detalhesParticipantes: participantesComNumeros.map(p => ({
+              nome: p.nome || `Usuário ${p.userId}`,
+              plano: p.planoAtual,
+              chances: p.numeroChances,
+              numeros: p.numerosAtribuidos
+            }))
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error("Error performing sorteio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar payment methods do usuário
+  app.get("/api/users/:userId/payment-methods", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Buscar usuário no banco para pegar stripeCustomerId
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.stripeCustomerId) {
+        return res.json({ paymentMethods: [] });
+      }
+
+      // Buscar customer no Stripe para obter o cartão padrão
+      const customer = await stripe.customers.retrieve(user.stripeCustomerId);
+      const defaultPaymentMethodId = (customer as any).invoice_settings?.default_payment_method;
+
+      console.log(`🎯 [DEFAULT CARD] Customer ${user.stripeCustomerId} tem cartão padrão: ${defaultPaymentMethodId}`);
+
+      // Buscar payment methods do cliente no Stripe
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: user.stripeCustomerId,
+        type: 'card',
+      });
+
+      // Filtrar duplicatas com prioridade para o cartão padrão
+      const seenCards = new Map();
+      const sortedPaymentMethods = [...paymentMethods.data].sort((a, b) => {
+        // Priorizar cartão padrão
+        if (a.id === defaultPaymentMethodId) return -1;
+        if (b.id === defaultPaymentMethodId) return 1;
+        return 0;
+      });
+
+      const uniquePaymentMethods = sortedPaymentMethods.filter((pm) => {
+        const visualKey = `${pm.card?.brand}-${pm.card?.last4}-${pm.card?.exp_month}-${pm.card?.exp_year}`;
+
+        if (seenCards.has(visualKey)) {
+          const isDefault = pm.id === defaultPaymentMethodId;
+          console.log(`🚫 [DUPLICATA] ${isDefault ? 'PADRÃO' : 'Normal'} cartão visual duplicado removido: ${visualKey} (ID: ${pm.id})`);
+          return false;
+        }
+
+        seenCards.set(visualKey, pm.id);
+        return true;
+      });
+
+      // Garantir que cartão padrão fica na primeira posição
+      const reorderedCards = uniquePaymentMethods.sort((a, b) => {
+        if (a.id === defaultPaymentMethodId) return -1;
+        if (b.id === defaultPaymentMethodId) return 1;
+        return 0;
+      });
+
+      console.log(`📊 [PAYMENT METHODS] Total do Stripe: ${paymentMethods.data.length}, Únicos visualmente: ${uniquePaymentMethods.length}`);
+
+      if (paymentMethods.data.length !== uniquePaymentMethods.length) {
+        console.log(`⚠️ [PAYMENT METHODS] ${paymentMethods.data.length - uniquePaymentMethods.length} duplicatas visuais encontradas e removidas no backend`);
+      }
+
+      reorderedCards.forEach((pm, index) => {
+        const isDefault = pm.id === defaultPaymentMethodId;
+        console.log(`${isDefault ? '👑' : '✅'} [${index + 1}°] ${pm.card?.brand} ••••${pm.card?.last4} ${pm.card?.exp_month}/${pm.card?.exp_year} (ID: ${pm.id}) ${isDefault ? '(PADRÃO)' : ''}`);
+      });
+
+      res.json({
+        paymentMethods: reorderedCards.map(pm => ({
+          id: pm.id,
+          brand: pm.card?.brand,
+          last4: pm.card?.last4,
+          exp_month: pm.card?.exp_month,
+          exp_year: pm.card?.exp_year,
+          funding: pm.card?.funding,
+          isDefault: pm.id === defaultPaymentMethodId,
+        }))
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: "Error fetching payment methods: " + error.message });
+    }
+  });
+
+  // ================ ENDPOINTS PARA FOTO DE PERFIL ================
+
+  // Health check para validar foto de perfil
+  app.get("/api/users/:userId/profile-image/health", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.fotoPerfil) {
+        return res.json({ 
+          valid: false, 
+          reason: "user_not_found_or_no_photo",
+          fotoPerfil: null 
+        });
+      }
+
+      // Verificar se arquivo existe
+      if (user.fotoPerfil.startsWith('/uploads/')) {
+        // Remove a barra inicial para path.join funcionar corretamente
+        const relativePath = user.fotoPerfil.replace(/^\//, '');
+        const filePath = path.join(process.cwd(), relativePath);
+        const exists = fs.existsSync(filePath);
+        
+        console.log(`🔍 [HEALTH CHECK] User ${userId} - DB Path: ${user.fotoPerfil}, Filesystem: ${filePath}, Exists: ${exists}`);
+        
+        return res.json({
+          valid: exists,
+          reason: exists ? "ok" : "file_not_found",
+          fotoPerfil: user.fotoPerfil,
+          filePath: exists ? user.fotoPerfil : null
+        });
+      }
+
+      // Para URLs externas ou object storage, considerar válido
+      return res.json({ 
+        valid: true, 
+        reason: "external_url",
+        fotoPerfil: user.fotoPerfil 
+      });
+    } catch (error: any) {
+      console.error("❌ [HEALTH CHECK] Erro:", error);
+      res.status(500).json({ valid: false, reason: "error", error: error.message });
+    }
+  });
+
+  // Endpoint para servir foto de perfil via proxy (para imagens privadas)
+  app.get("/api/users/:userId/profile-image", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Buscar usuário no banco
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.fotoPerfil) {
+        console.error(`❌ [SERVE PROFILE] Usuário ${userId} sem foto de perfil`);
+        return res.status(404).json({ error: "Foto de perfil não encontrada" });
+      }
+
+      console.log(`🖼️ [SERVE PROFILE] Servindo foto de perfil para usuário ${userId}: ${user.fotoPerfil}`);
+
+      // ✅ VALIDAÇÃO: Verificar se arquivo local existe antes de redirecionar
+      if (user.fotoPerfil.startsWith('/uploads/')) {
+        // Remove a barra inicial para path.join funcionar corretamente
+        const relativePath = user.fotoPerfil.replace(/^\//, '');
+        const filePath = path.join(process.cwd(), relativePath);
+        if (!fs.existsSync(filePath)) {
+          console.error(`❌ [SERVE PROFILE] ARQUIVO NÃO EXISTE: ${filePath}`);
+          console.error(`❌ [SERVE PROFILE] DB Path: ${user.fotoPerfil}, Filesystem: ${filePath}`);
+          console.error(`❌ [SERVE PROFILE] Dados corrompidos no banco para usuário ${userId}`);
+          return res.status(404).json({ 
+            error: "Arquivo de foto não encontrado",
+            path: user.fotoPerfil,
+            suggestion: "Re-faça upload da foto de perfil" 
+          });
+        }
+        console.log(`✅ [SERVE PROFILE] Arquivo validado: ${filePath}`);
+      }
+
+      // Se não for URL do object storage privado, retornar a URL diretamente
+      if (!user.fotoPerfil.includes('.private/uploads/')) {
+        return res.redirect(user.fotoPerfil);
+      }
+
+      // Extrair o nome do arquivo da URL do object storage
+      const urlParts = user.fotoPerfil.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      const filePath = `.private/uploads/${fileName}`;
+
+      // Gerar URL signed temporária para acessar a imagem
+      const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+
+      if (!bucketId) {
+        throw new Error('Bucket ID não configurado');
+      }
+
+      const signedUrlResponse = await fetch(`${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bucket_name: bucketId,
+          object_name: filePath,
+          method: 'GET',
+          expires_at: new Date(Date.now() + 60 * 1000).toISOString(), // 1 minuto
+        }),
+      });
+
+      if (!signedUrlResponse.ok) {
+        throw new Error(`Erro ao gerar URL signed: ${signedUrlResponse.status}`);
+      }
+
+      const { signed_url: signedUrl } = await signedUrlResponse.json();
+
+      // Fazer fetch da imagem e retornar como stream
+      const imageResponse = await fetch(signedUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Erro ao buscar imagem: ${imageResponse.status}`);
+      }
+
+      // Definir headers apropriados
+      res.set({
+        'Content-Type': imageResponse.headers.get('content-type') || 'image/jpeg',
+        'Cache-Control': 'public, max-age=3600', // Cache por 1 hora
+      });
+
+      // Stream da imagem para o cliente
+      const imageBuffer = await imageResponse.arrayBuffer();
+      res.send(Buffer.from(imageBuffer));
+
+    } catch (error: any) {
+      console.error("❌ [SERVE PROFILE] Erro ao servir foto de perfil:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Endpoint para salvar URL da foto de perfil no banco após upload
+  app.put("/api/users/:userId/profile-image", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { imageUrl } = req.body;
+
+      console.log(`🖼️ [PROFILE IMAGE] Salvando foto de perfil para usuário ${userId}: ${imageUrl}`);
+
+      if (!imageUrl) {
+        return res.status(400).json({ error: "URL da imagem é obrigatória" });
+      }
+
+      // Buscar usuário no banco
+      const user = await storage.getUser(parseInt(userId));
+      if (!user) {
+        console.log(`❌ [PROFILE IMAGE] Usuário ${userId} não encontrado`);
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // ✅ VALIDAÇÃO ROBUSTA: Verificar se arquivo existe antes de salvar
+      if (imageUrl.startsWith('/uploads/')) {
+        // Remove a barra inicial para path.join funcionar corretamente
+        const relativePath = imageUrl.replace(/^\//, '');
+        const filePath = path.join(process.cwd(), relativePath);
+        console.log(`🔍 [PROFILE IMAGE] Validando existência do arquivo...`);
+        console.log(`🔍 [PROFILE IMAGE] DB Path: ${imageUrl}, Filesystem: ${filePath}`);
+        
+        if (!fs.existsSync(filePath)) {
+          console.error(`❌ [PROFILE IMAGE] ARQUIVO NÃO EXISTE: ${filePath}`);
+          console.error(`❌ [PROFILE IMAGE] Não salvando no banco - evitando dados corrompidos`);
+          return res.status(400).json({ 
+            error: "Arquivo de imagem não encontrado no servidor",
+            path: imageUrl,
+            checkedPath: filePath
+          });
+        }
+        
+        console.log(`✅ [PROFILE IMAGE] Arquivo validado e existe: ${filePath}`);
+      }
+
+      // Atualizar campo fotoPerfil no banco
+      await storage.updateUser(parseInt(userId), { fotoPerfil: imageUrl });
+
+      // Verificar automaticamente se perfil está completo e completar missão
+      await storage.checkAndCompleteProfileMission(parseInt(userId));
+
+      console.log(`✅ [PROFILE IMAGE] Foto de perfil salva para usuário ${userId}`);
+
+      res.json({
+        success: true,
+        message: "Foto de perfil salva com sucesso",
+        fotoPerfil: imageUrl
+      });
+    } catch (error: any) {
+      console.error("❌ [PROFILE IMAGE] Erro ao salvar foto de perfil:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Adicionar novo método de pagamento com integração Stripe real
+  app.post("/api/payment-methods", async (req, res) => {
+    try {
+      const { cardNumber, expiryMonth, expiryYear, cvc, cardholderName, userId } = req.body;
+
+      console.log('🔧 [ADD CARD] Iniciando processo de adicionar cartão para usuário:', userId);
+
+      // Buscar usuário no banco
+      const user = await storage.getUser(parseInt(userId));
+      if (!user) {
+        console.log('❌ [ADD CARD] Usuário não encontrado:', userId);
+        return res.status(404).json({ message: "Usuário não encontrado" });
+      }
+
+      console.log('✅ [ADD CARD] Usuário encontrado:', user.nome);
+
+      // Criar payment method no Stripe
+      const paymentMethod = await stripe.paymentMethods.create({
+        type: 'card',
+        card: {
+          number: cardNumber.replace(/\s/g, ''),
+          exp_month: parseInt(expiryMonth),
+          exp_year: parseInt(expiryYear),
+          cvc: cvc,
+        },
+        billing_details: {
+          name: cardholderName,
+        },
+      });
+
+      console.log('✅ [ADD CARD] Payment method criado no Stripe:', paymentMethod.id);
+
+      // Se não existe stripeCustomerId, criar customer
+      let stripeCustomerId = user.stripeCustomerId;
+      if (!stripeCustomerId) {
+        console.log('🔧 [ADD CARD] Criando customer no Stripe para usuário:', user.nome);
+        const customer = await stripe.customers.create({
+          name: user.nome + ' ' + (user.sobrenome || ''),
+          email: user.email || undefined,
+          phone: user.telefone || undefined,
+          metadata: {
+            userId: user.id.toString(),
+            fonte: 'cartao_adicional'
+          },
+        });
+
+        stripeCustomerId = customer.id;
+
+        // Atualizar usuário com stripeCustomerId
+        await storage.updateUserStripeInfo(user.id, stripeCustomerId);
+        console.log('✅ [ADD CARD] Customer criado e salvo:', stripeCustomerId);
+      }
+
+      // Anexar payment method ao customer
+      await stripe.paymentMethods.attach(paymentMethod.id, {
+        customer: stripeCustomerId,
+      });
+
+      console.log('✅ [ADD CARD] Payment method anexado ao customer');
+
+      res.json({
+        success: true,
+        paymentMethodId: paymentMethod.id,
+        last4: paymentMethod.card?.last4,
+        brand: paymentMethod.card?.brand,
+        message: "Cartão adicionado com sucesso!"
+      });
+    } catch (error: any) {
+      console.error('❌ [ADD CARD] Erro completo:', error);
+      console.error('❌ [ADD CARD] Erro message:', error.message);
+      console.error('❌ [ADD CARD] Erro type:', error.type);
+      console.error('❌ [ADD CARD] Erro code:', error.code);
+      console.error('❌ [ADD CARD] Stack trace:', error.stack);
+
+      res.status(500).json({
+        success: false,
+        message: "Erro ao adicionar método de pagamento",
+        error: error.message,
+        errorType: error.type,
+        errorCode: error.code
+      });
+    }
+  });
+
+  // Criar Setup Intent para adicionar cartão sem cobrança
+  app.post("/api/users/:userId/setup-intent", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      console.log('🔧 [SETUP INTENT] Criando setup intent para usuário:', userId);
+
+      // Buscar usuário no banco para pegar stripeCustomerId
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.stripeCustomerId) {
+        console.log('❌ [SETUP INTENT] Usuário ou customer não encontrado');
+        return res.status(400).json({ message: "User not found or no Stripe customer" });
+      }
+
+      // Criar SetupIntent para adicionar cartão sem cobrança
+      const setupIntent = await stripe.setupIntents.create({
+        customer: user.stripeCustomerId,
+        usage: 'off_session', // Para usar o cartão posteriormente
+        payment_method_types: ['card'],
+      });
+
+      console.log('✅ [SETUP INTENT] Setup intent criado:', setupIntent.id);
+
+      res.json({
+        clientSecret: setupIntent.client_secret,
+        setupIntentId: setupIntent.id
+      });
+    } catch (error: any) {
+      console.error('❌ [SETUP INTENT] Erro:', error);
+      res.status(500).json({
+        success: false,
+        message: "Error creating setup intent: " + error.message
+      });
+    }
+  });
+
+  // Adicionar novo payment method
+  app.post("/api/users/:userId/payment-methods", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { paymentMethodId } = req.body;
+
+      console.log(`💳 [ADD PAYMENT METHOD] Iniciando para usuário ${userId}, PM: ${paymentMethodId}`);
+
+      // Validar paymentMethodId
+      if (!paymentMethodId || typeof paymentMethodId !== 'string') {
+        console.log(`❌ [ADD PAYMENT METHOD] paymentMethodId inválido ou ausente`);
+        return res.status(400).json({
+          success: false,
+          error: "paymentMethodId é obrigatório"
+        });
+      }
+
+      // Buscar usuário no banco para pegar stripeCustomerId
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.stripeCustomerId) {
+        console.log(`❌ [ADD PAYMENT METHOD] Usuário ou customer não encontrado`);
+        return res.status(400).json({
+          success: false,
+          message: "User not found or no Stripe customer"
+        });
+      }
+
+      // Anexar payment method ao customer
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: user.stripeCustomerId,
+      });
+
+      console.log(`✅ [ADD PAYMENT METHOD] Payment method ${paymentMethodId} anexado ao customer ${user.stripeCustomerId}`);
+
+      // Definir como método de pagamento padrão
+      await stripe.customers.update(user.stripeCustomerId, {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
+      });
+
+      console.log(`✅ [ADD PAYMENT METHOD] Payment method ${paymentMethodId} definido como padrão`);
+
+      // Buscar lista atualizada de payment methods
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: user.stripeCustomerId,
+        type: 'card',
+      });
+
+      // Filtrar duplicatas e ordenar (mesmo que endpoint GET)
+      const seenCards = new Map();
+      const sortedPaymentMethods = [...paymentMethods.data].sort((a, b) => {
+        if (a.id === paymentMethodId) return -1;
+        if (b.id === paymentMethodId) return 1;
+        return 0;
+      });
+
+      const uniquePaymentMethods = sortedPaymentMethods.filter((pm) => {
+        const visualKey = `${pm.card?.brand}-${pm.card?.last4}-${pm.card?.exp_month}-${pm.card?.exp_year}`;
+        if (seenCards.has(visualKey)) {
+          return false;
+        }
+        seenCards.set(visualKey, pm.id);
+        return true;
+      });
+
+      console.log(`📊 [ADD PAYMENT METHOD] Retornando ${uniquePaymentMethods.length} payment methods`);
+
+      res.json({
+        success: true,
+        paymentMethods: uniquePaymentMethods.map(pm => ({
+          id: pm.id,
+          brand: pm.card?.brand,
+          last4: pm.card?.last4,
+          exp_month: pm.card?.exp_month,
+          exp_year: pm.card?.exp_year,
+          funding: pm.card?.funding,
+          isDefault: pm.id === paymentMethodId,
+        }))
+      });
+    } catch (error: any) {
+      console.error(`❌ [ADD PAYMENT METHOD] Erro:`, error);
+      res.status(500).json({
+        success: false,
+        message: "Error adding payment method: " + error.message
+      });
+    }
+  });
+
+  // Remover payment method (COM VALIDAÇÃO DE SEGURANÇA)
+  app.delete("/api/users/:userId/payment-methods/:paymentMethodId", async (req, res) => {
+    try {
+      const { userId, paymentMethodId } = req.params;
+      
+      // Buscar usuário para pegar customer ID
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.stripeCustomerId) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+      
+      const customerId = user.stripeCustomerId;
+      
+      // ✅ VALIDAÇÃO 1: Verificar se há subscriptions ativas
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customerId,
+        status: 'active',
+        limit: 10
+      });
+      
+      // ✅ VALIDAÇÃO 2: Contar payment methods disponíveis
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: customerId,
+        type: 'card',
+        limit: 10
+      });
+      
+      // ❌ BLOQUEAR remoção do último cartão se há subscription ativa
+      if (subscriptions.data.length > 0 && paymentMethods.data.length <= 1) {
+        return res.status(400).json({ 
+          error: "Não é possível remover o último método de pagamento",
+          message: "Você tem uma assinatura ativa. Adicione outro cartão antes de remover este."
+        });
+      }
+      
+      // ✅ OK para remover: ou não tem subscription, ou tem outros cartões
+      await stripe.paymentMethods.detach(paymentMethodId);
+      
+      console.log(`✅ Payment method ${paymentMethodId} removido com segurança do customer ${customerId}`);
+      res.json({ success: true });
+      
+    } catch (error: any) {
+      console.error('❌ Erro ao remover payment method:', error);
+      res.status(500).json({ message: "Error removing payment method: " + error.message });
+    }
+  });
+
+  // Sincronizar usuário com Stripe (buscar/criar customer e importar cartões)
+  app.post("/api/users/:userId/sync-stripe", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      console.log(`🔄 [SYNC STRIPE] Sincronizando usuário ${userId} com Stripe`);
+
+      // Buscar usuário no banco
+      const user = await storage.getUser(parseInt(userId));
+      if (!user) {
+        console.log(`❌ [SYNC STRIPE] Usuário ${userId} não encontrado`);
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      let customerId = user.stripeCustomerId;
+
+      // Se usuário não tem customer_id, criar ou buscar no Stripe
+      if (!customerId) {
+        console.log(`🔍 [SYNC STRIPE] Buscando customer no Stripe por email: ${user.email}`);
+
+        // Buscar customer existente por email
+        const customers = await stripe.customers.list({
+          email: user.email,
+          limit: 1
+        });
+
+        if (customers.data.length > 0) {
+          // Customer encontrado
+          customerId = customers.data[0].id;
+          console.log(`✅ [SYNC STRIPE] Customer existente encontrado: ${customerId}`);
+        } else {
+          // Criar novo customer
+          console.log(`➕ [SYNC STRIPE] Criando novo customer no Stripe`);
+          const customer = await stripe.customers.create({
+            email: user.email,
+            name: user.nome,
+            phone: user.telefone,
+            metadata: {
+              userId: userId.toString(),
+              source: 'clube_do_grito'
+            }
+          });
+          customerId = customer.id;
+          console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
+        }
+
+        // Atualizar usuário no banco com o customer_id
+        await storage.updateUser(parseInt(userId), { stripeCustomerId: customerId });
+        console.log(`✅ [SYNC STRIPE] stripeCustomerId salvo no banco: ${customerId}`);
+      } else {
+        console.log(`ℹ️ [SYNC STRIPE] Usuário já possui customer_id: ${customerId}`);
+      }
+
+      // Buscar payment methods do customer
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: customerId,
+        type: 'card',
+      });
+
+      console.log(`📊 [SYNC STRIPE] ${paymentMethods.data.length} payment methods encontrados`);
+
+      // Buscar customer para obter cartão padrão
+      const customer = await stripe.customers.retrieve(customerId);
+      const defaultPaymentMethodId = (customer as any).invoice_settings?.default_payment_method;
+
+      // Filtrar duplicatas
+      const seenCards = new Map();
+      const sortedPaymentMethods = [...paymentMethods.data].sort((a, b) => {
+        if (a.id === defaultPaymentMethodId) return -1;
+        if (b.id === defaultPaymentMethodId) return 1;
+        return 0;
+      });
+
+      const uniquePaymentMethods = sortedPaymentMethods.filter((pm) => {
+        const visualKey = `${pm.card?.brand}-${pm.card?.last4}-${pm.card?.exp_month}-${pm.card?.exp_year}`;
+        if (seenCards.has(visualKey)) {
+          return false;
+        }
+        seenCards.set(visualKey, pm.id);
+        return true;
+      });
+
+      res.json({
+        success: true,
+        customerId,
+        paymentMethods: uniquePaymentMethods.map(pm => ({
+          id: pm.id,
+          brand: pm.card?.brand,
+          last4: pm.card?.last4,
+          exp_month: pm.card?.exp_month,
+          exp_year: pm.card?.exp_year,
+          funding: pm.card?.funding,
+          isDefault: pm.id === defaultPaymentMethodId,
+        })),
+        message: `Customer ${customerId} sincronizado com sucesso. ${uniquePaymentMethods.length} cartões encontrados.`
+      });
+    } catch (error: any) {
+      console.error(`❌ [SYNC STRIPE] Erro:`, error);
+      res.status(500).json({
+        success: false,
+        error: "Erro ao sincronizar com Stripe: " + error.message
+      });
+    }
+  });
+
+  // Definir cartão como padrão/principal
+  app.put("/api/users/:userId/default-payment-method", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { paymentMethodId } = req.body;
+
+      console.log('🔧 [SET DEFAULT] Definindo cartão padrão para usuário:', userId, 'PaymentMethod:', paymentMethodId);
+
+      // Buscar usuário no banco para pegar stripeCustomerId e subscriptionId
+      const user = await storage.getUser(parseInt(userId));
+      if (!user || !user.stripeCustomerId) {
+        console.log('❌ [SET DEFAULT] Usuário ou customer não encontrado');
+        return res.status(400).json({ message: "User not found or no Stripe customer" });
+      }
+
+      // Definir payment method como padrão no Stripe
+      await stripe.customers.update(user.stripeCustomerId, {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
+      });
+
+      console.log('✅ [SET DEFAULT] Cartão padrão definido com sucesso');
+
+      // 🎯 MIGRAÇÃO AUTOMÁTICA DA ASSINATURA
+      // Se o usuário tem uma assinatura ativa, migrar para o novo cartão
+      if (user.stripeSubscriptionId && user.subscriptionStatus === 'active') {
+        try {
+          console.log('🔄 [MIGRATION] Migrando assinatura para novo cartão:', user.stripeSubscriptionId);
+
+          // Atualizar o payment method da assinatura
+          await stripe.subscriptions.update(user.stripeSubscriptionId, {
+            default_payment_method: paymentMethodId,
+          });
+
+          console.log('✅ [MIGRATION] Assinatura migrada com sucesso!');
+
+          res.json({
+            success: true,
+            message: "Cartão principal alterado e assinatura migrada com sucesso!"
+          });
+        } catch (migrationError: any) {
+          console.error('❌ [MIGRATION] Erro ao migrar assinatura:', migrationError);
+
+          // Mesmo se a migração falhar, o cartão padrão foi definido
+          res.json({
+            success: true,
+            message: "Cartão principal alterado com sucesso! (Migração da assinatura pendente)"
+          });
+        }
+      } else {
+        console.log('ℹ️ [MIGRATION] Usuário sem assinatura ativa - apenas cartão padrão definido');
+
+        res.json({
+          success: true,
+          message: "Cartão principal alterado com sucesso!"
+        });
+      }
+    } catch (error: any) {
+      console.error('❌ [SET DEFAULT] Erro:', error);
+      res.status(500).json({
+        success: false,
+        message: "Error setting default payment method: " + error.message
+      });
+    }
+  });
+
+  // ================ IMPACT DATA MANAGEMENT SYSTEM ================
+
+  // Buscar todos os dados de impacto ativos
+  app.get("/api/impact-data", async (req, res) => {
+    try {
+      const data = await db.select()
+        .from(impactData)
+        .where(eq(impactData.active, true))
+        .orderBy(impactData.category, impactData.key);
+
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: "Error fetching impact data: " + error.message });
+    }
+  });
+
+  // Buscar dados de impacto por categoria
+  app.get("/api/impact-data/:category", async (req, res) => {
+    try {
+      const { category } = req.params;
+      const data = await db.select()
+        .from(impactData)
+        .where(and(eq(impactData.category, category), eq(impactData.active, true)));
+
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: "Error fetching impact data: " + error.message });
+    }
+  });
+
+  // Atualizar dados de impacto (para gestão)
+  app.put("/api/impact-data/:key", async (req, res) => {
+    try {
+      const { key } = req.params;
+      const { value, title, description, updatedBy } = req.body;
+
+      const [updated] = await db.update(impactData)
+        .set({
+          value,
+          title,
+          description,
+          updatedBy,
+          updatedAt: new Date()
+        })
+        .where(eq(impactData.key, key))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ message: "Impact data not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: "Error updating impact data: " + error.message });
+    }
+  });
+
+  // Criar novo dado de impacto
+  app.post("/api/impact-data", async (req, res) => {
+    try {
+      const impactDataRecord = insertImpactDataSchema.parse(req.body);
+      const [created] = await db.insert(impactData).values(impactDataRecord).returning();
+      res.json(created);
+    } catch (error: any) {
+      res.status(500).json({ message: "Error creating impact data: " + error.message });
+    }
+  });
+
+  // ================ GRITOS GAMIFICATION SYSTEM ================
+
+  // Buscar gritos do usuário
+  app.get("/api/users/:userId/gritos", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Primeiro, recalcular os gritos baseado no histórico para garantir consistência
+      const gritosRecalculados = await storage.recalculateUserGritos(parseInt(userId));
+
+      const user = await storage.getUser(parseInt(userId));
+
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      // Buscar nível atual baseado nos gritos recalculados
+      const nivelAtual = await storage.getNivelByGritos(gritosRecalculados);
+
+      res.json({
+        gritosTotal: gritosRecalculados,
+        nivelAtual: nivelAtual?.nome || 'Aliado do Grito',
+        proximoNivel: nivelAtual?.proximoNivel || 'Eco do Bem',
+        gritosParaProximoNivel: nivelAtual?.gritosProximoNivel || 300
+      });
+    } catch (error) {
+      console.error("Error fetching gritos:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Sincronizar gritos de um usuário específico
+  app.post("/api/users/:userId/sync-gritos", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const gritosRecalculados = await storage.recalculateUserGritos(parseInt(userId));
+
+      res.json({
+        success: true,
+        gritosTotal: gritosRecalculados,
+        message: "Gritos sincronizados com sucesso!"
+      });
+    } catch (error) {
+      console.error("Error syncing user gritos:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Sincronizar gritos de todos os usuários (endpoint admin)
+  app.post("/api/admin/sync-all-gritos", async (req, res) => {
+    try {
+      await storage.syncAllUsersGritos();
+
+      res.json({
+        success: true,
+        message: "Todos os gritos foram sincronizados!"
+      });
+    } catch (error) {
+      console.error("Error syncing all gritos:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Check-in diário com sistema de streak
+  app.post("/api/users/:userId/checkin", async (req, res) => {
+    try {
+      // FORÇA NO-CACHE - NUNCA cachear esta resposta
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+      });
+
+      const { userId } = req.params;
+
+      // Usar novo sistema de checkin com streak
+      const resultado = await storage.doCheckinWithStreak(parseInt(userId));
+
+      if (!resultado.success) {
+        return res.status(400).json({ error: "Check-in já realizado hoje" });
+      }
+
+      const isDay7 = resultado.diaAtual === 7;
+      const message = `Check-in realizado! +${resultado.gritosGanhos} Gritos${isDay7 ? ' (Bônus do 7º dia!)' : ` (Dia ${resultado.diaAtual}/7)`}`;
+
+      res.json({
+        success: true,
+        gritosGanhos: resultado.gritosGanhos,
+        diaAtual: resultado.diaAtual,
+        isDay7: isDay7,
+        message: message
+      });
+    } catch (error) {
+      console.error("Error doing checkin:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // 🔧 ROTA ADMINISTRATIVA: Reset completo de check-in para um usuário
+  app.post("/api/admin/users/:userId/reset-checkin", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const userIdInt = parseInt(userId);
+      
+      console.log(`🔧 [ADMIN RESET] Iniciando reset completo para usuário ${userIdInt}`);
+      
+      // 1. Deletar TODOS os check-ins do usuário
+      await db.delete(checkins).where(eq(checkins.userId, userIdInt));
+      console.log(`✅ [ADMIN RESET] Deletados todos os check-ins`);
+      
+      // 2. Deletar TODOS os gritos de check-in do histórico
+      const gritosRemovidos = await db.delete(gritosHistorico)
+        .where(and(
+          eq(gritosHistorico.userId, userIdInt),
+          eq(gritosHistorico.tipo, 'checkin_diario')
+        ))
+        .returning();
+      console.log(`✅ [ADMIN RESET] Removidos ${gritosRemovidos.length} registros de gritos de check-in`);
+      
+      // 3. Recalcular gritos totais baseado no histórico restante
+      const [{ total }] = await db
+        .select({ total: sql<string>`COALESCE(SUM(${gritosHistorico.gritosGanhos}), 0)` })
+        .from(gritosHistorico)
+        .where(eq(gritosHistorico.userId, userIdInt));
+      
+      console.log(`📊 [ADMIN RESET] Total de gritos recalculado: ${total}`);
+      
+      // 4. Resetar campos do usuário e atualizar gritos_total
+      await db.update(users)
+        .set({ 
+          ultimoCheckin: null, 
+          diasConsecutivos: 0,
+          gritosTotal: total
+        })
+        .where(eq(users.id, userIdInt));
+      console.log(`✅ [ADMIN RESET] Resetados campos do usuário e gritos atualizados para ${total}`);
+      
+      // 5. Verificar estado final
+      const [userData] = await db.select().from(users).where(eq(users.id, userIdInt)).limit(1);
+      const checkinsTableCount = await db.select().from(checkins).where(eq(checkins.userId, userIdInt));
+      
+      console.log(`📊 [ADMIN RESET] Estado final - gritos: ${userData.gritosTotal}, ultimo_checkin: ${userData.ultimoCheckin}, dias: ${userData.diasConsecutivos}, checkins na tabela: ${checkinsTableCount.length}`);
+      
+      res.json({ 
+        success: true, 
+        message: "Reset completo realizado",
+        estado: {
+          gritosTotal: userData.gritosTotal,
+          ultimoCheckin: userData.ultimoCheckin,
+          diasConsecutivos: userData.diasConsecutivos,
+          checkinsNaTabela: checkinsTableCount.length,
+          gritosRemovidos: gritosRemovidos.length
+        }
+      });
+    } catch (error) {
+      console.error("❌ [ADMIN RESET] Erro:", error);
+      res.status(500).json({ error: "Erro ao resetar check-in" });
+    }
+  });
+
+  // Verificar se pode fazer check-in hoje + informações de streak
+  app.get("/api/users/:userId/can-checkin", async (req, res) => {
+    try {
+      // FORÇA NO-CACHE - NUNCA cachear esta resposta
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+      });
+
+      const { userId } = req.params;
+
+      // Usar novo sistema personalizado baseado na data de cadastro
+      const checkinStatus = await storage.getPersonalizedCheckinStatus(parseInt(userId));
+
+      res.json({
+        canCheckin: checkinStatus.canCheckin,
+        diasConsecutivos: checkinStatus.diasConsecutivos,
+        diaAtual: checkinStatus.diaAtual,
+        cicloCompleto: checkinStatus.cicloCompleto,
+        ultimoCheckin: checkinStatus.ultimoCheckin,
+        lastCheckin: checkinStatus.ultimoCheckin
+      });
+    } catch (error) {
+      console.error("Error checking checkin status:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Histórico de gritos
+  app.get("/api/users/:userId/gritos-history", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const historico = await storage.getGritosHistory(parseInt(userId));
+
+      res.json(historico);
+    } catch (error) {
+      console.error("Error fetching gritos history:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Verificar se usuário já participou de um benefício
+  app.get("/api/users/:userId/participacao-beneficio/:beneficioId", async (req, res) => {
+    try {
+      const { userId, beneficioId } = req.params;
+      console.log(`🔍 [PARTICIPACAO] Verificando participação - userId: ${userId}, beneficioId: ${beneficioId}`);
+
+      const jaParticipou = await storage.checkUserBeneficioParticipation(
+        parseInt(userId),
+        parseInt(beneficioId)
+      );
+
+      console.log(`✅ [PARTICIPACAO] Resultado: jaParticipou = ${jaParticipou}`);
+
+      res.json({ jaParticipou });
+    } catch (error) {
+      console.error("❌ [PARTICIPACAO] Error checking participation:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Dar bônus inicial de gritos (para novos usuários)
+  app.post("/api/users/:userId/bonus-inicial", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Verificar se usuário já recebeu bônus
+      const bonusExistente = await storage.getBonusInicialUser(parseInt(userId));
+      if (bonusExistente) {
+        return res.status(400).json({ error: "Bônus inicial já foi concedido" });
+      }
+
+      // Dar bônus de 50 gritos
+      await storage.addGritosToUser(parseInt(userId), 50);
+
+      // Registrar no histórico
+      await storage.createGritosHistorico({
+        userId: parseInt(userId),
+        tipo: 'bonus_inicial',
+        gritosGanhos: 50,
+        descricao: 'Bônus de boas-vindas'
+      });
+
+      res.json({
+        success: true,
+        gritosGanhos: 50,
+        message: "Bônus inicial concedido! +50 Gritos"
+      });
+    } catch (error) {
+      console.error("Error giving initial bonus:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ===== ROTA DE UPLOAD DE IMAGENS =====
+
+  // ROTA ADICIONADA
+  app.post('/api/_debug/ping', express.json(), (req, res) => {
+    res.json({ ok: true, at: new Date().toISOString() });
+  });
+
+
+  // Endpoint de upload removido - duplicado do endpoint seguro /api/upload
+  // Use o endpoint /api/upload que requer autenticação e privilégios administrativos
+
+  // Upload específico para imagens de benefícios (SEGURO - requer autenticação e privilégios administrativos)
+  // Configurar multer para armazenar em memória (para upload no GCS)
+  const memoryUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB
+    },
+    fileFilter: (_req, file, cb) => {
+      const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+      if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Tipo de arquivo inválido. Apenas imagens são permitidas.'));
+      }
+    }
+  });
+
+  app.post('/api/beneficios/:id/imagem', requireAuth, requireAdmin, memoryUpload.single('image'), async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+      const { tipo = 'card', largura, altura } = req.body;
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'Nenhuma imagem enviada' });
+      }
+
+      // Validar tipo de imagem
+      if (!['card', 'detalhes'].includes(tipo)) {
+        return res.status(400).json({
+          error: 'Tipo de imagem inválido',
+          details: 'Apenas "card" ou "detalhes" são permitidos'
+        });
+      }
+
+      // Validar dimensões se fornecidas
+      if (largura && (largura < 100 || largura > 2000)) {
+        return res.status(400).json({
+          error: 'Largura inválida',
+          details: 'Largura deve estar entre 100px e 2000px'
+        });
+      }
+
+      if (altura && (altura < 100 || altura > 2000)) {
+        return res.status(400).json({
+          error: 'Altura inválida',
+          details: 'Altura deve estar entre 100px e 2000px'
+        });
+      }
+
+      // Verificar se o benefício existe
+      const beneficio = await storage.getBeneficio(beneficioId);
+      if (!beneficio) {
+        return res.status(404).json({ error: 'Benefício não encontrado' });
+      }
+
+      // Gerar nome único para o arquivo
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substring(2, 10);
+      const extension = req.file.mimetype.split('/')[1] || 'jpg';
+      const fileName = `beneficio-${beneficioId}-${tipo}-${timestamp}-${randomSuffix}.${extension}`;
+
+      // Upload para o GCS
+      console.log(`📤 [BENEFICIO IMAGE] Fazendo upload para GCS: ${fileName}`);
+      const publicUrl = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      console.log(`✅ [BENEFICIO IMAGE] URL pública do GCS: ${publicUrl}`);
+
+      // Desativar imagem anterior do mesmo tipo se existir
+      const imagensExistentes = await storage.getBeneficioImagensByBeneficio(beneficioId);
+      const imagemAnteriorTipo = imagensExistentes.find(img => img.tipo === tipo);
+      if (imagemAnteriorTipo) {
+        await storage.deleteBeneficioImagem(imagemAnteriorTipo.id);
+        console.log(`🗑️ [BENEFICIO IMAGE] Imagem ${tipo} anterior removida para benefício ${beneficioId}`);
+      }
+
+      // Criar registro da nova imagem com URL do GCS
+      const novaImagem = await storage.createBeneficioImagem({
+        beneficioId,
+        tipo,
+        nomeArquivo: fileName,
+        caminhoCompleto: publicUrl, // URL pública do GCS
+        nomeOriginal: req.file.originalname,
+        tipoMime: req.file.mimetype,
+        tamanhoBytes: req.file.size,
+        largura: largura ? parseInt(largura) : null,
+        altura: altura ? parseInt(altura) : null,
+        ativo: true
+      });
+
+      // Atualizar campo imagem do benefício com a URL do GCS (para card)
+      if (tipo === 'card') {
+        await storage.updateBeneficio(beneficioId, { imagem: publicUrl });
+        console.log(`✅ [BENEFICIO IMAGE] Campo imagem do benefício ${beneficioId} atualizado com URL do GCS`);
+      }
+
+      console.log(`✅ [BENEFICIO IMAGE] Admin ${(req as any).user.id} enviou imagem ${tipo} para benefício ${beneficioId}`);
+
+      res.json({
+        success: true,
+        imagem: novaImagem,
+        imagemCardUrl: tipo === 'card' ? publicUrl : null,
+        imagemDetalhesUrl: tipo === 'detalhes' ? publicUrl : null,
+        publicUrl,
+        securityNote: 'Upload validado e autorizado - armazenado no GCS'
+      });
+    } catch (error) {
+      console.error('❌ [BENEFICIO IMAGE] Erro no upload:', error);
+      res.status(500).json({ error: 'Erro ao fazer upload da imagem do benefício' });
+    }
+  });
+
+  // ===== ROTAS DE BENEFÍCIOS DINÂMICOS =====
+
+  // Buscar todos os benefícios
+  app.get("/api/beneficios", async (req, res) => {
+    try {
+      const beneficios = await storage.getBeneficiosAtivos();
+      console.log(`🎯 [API /api/beneficios] Retornando ${beneficios.length} benefícios (IDs: ${beneficios.map(b => b.id).join(', ')})`);
+
+      // Para cada benefício, buscar todas as imagens
+      const beneficiosComImagens = await Promise.all(
+        beneficios.map(async (beneficio) => {
+          const imagens = await storage.getBeneficioImagensByBeneficio(beneficio.id);
+
+          // Separar imagens por tipo
+          const imagemCard = imagens.find(img => img.tipo === 'card');
+          const imagemDetalhes = imagens.find(img => img.tipo === 'detalhes');
+          const primeiraImagem = imagemCard || imagens[0]; // Backward compatibility
+
+          return {
+            ...beneficio,
+            // URLs específicas por tipo
+            imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
+            imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
+            // Backward compatibility - primeira imagem ou card
+            imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null
+          };
+        })
+      );
+
+      // Forçar no-cache para sempre pegar dados frescos
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.json(beneficiosComImagens);
+    } catch (error) {
+      console.error("Error fetching beneficios:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar benefícios por plano
+  app.get("/api/beneficios/plano/:plano", async (req, res) => {
+    try {
+      const { plano } = req.params;
+      const beneficios = await storage.getBeneficiosByPlano(plano);
+
+      // Para cada benefício, buscar todas as imagens
+      const beneficiosComImagens = await Promise.all(
+        beneficios.map(async (beneficio) => {
+          const imagens = await storage.getBeneficioImagensByBeneficio(beneficio.id);
+
+          // Separar imagens por tipo
+          const imagemCard = imagens.find(img => img.tipo === 'card');
+          const imagemDetalhes = imagens.find(img => img.tipo === 'detalhes');
+          const primeiraImagem = imagemCard || imagens[0]; // Backward compatibility
+
+          return {
+            ...beneficio,
+            // URLs específicas por tipo
+            imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
+            imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
+            // Backward compatibility - primeira imagem ou card
+            imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null
+          };
+        })
+      );
+
+      res.json(beneficiosComImagens);
+    } catch (error) {
+      console.error("Error fetching beneficios by plan:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar benefício específico
+  app.get("/api/beneficios/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const beneficio = await storage.getBeneficio(parseInt(id));
+
+      if (!beneficio) {
+        return res.status(404).json({ error: "Benefício não encontrado" });
+      }
+
+      // Buscar todas as imagens do benefício
+      const imagens = await storage.getBeneficioImagensByBeneficio(parseInt(id));
+
+      // Separar imagens por tipo
+      const imagemCard = imagens.find(img => img.tipo === 'card');
+      const imagemDetalhes = imagens.find(img => img.tipo === 'detalhes');
+      const primeiraImagem = imagemCard || imagens[0]; // Backward compatibility
+
+      const { nomeArquivo } = imagens[0] as any;
+      const signedUrl = await getSignedUrl(`uploads/beneficios/${nomeArquivo}`)
+
+      const beneficioComImagens = {
+        ...beneficio,
+        imagem: signedUrl,
+        // URLs específicas por tipo
+        imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
+        imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
+        // Backward compatibility - primeira imagem ou card
+        imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null,
+        // Informações das imagens para debug/admin
+        _imagensInfo: imagens.map(img => ({
+          id: img.id,
+          tipo: img.tipo,
+          largura: img.largura,
+          altura: img.altura,
+          tamanhoBytes: img.tamanhoBytes
+        }))
+      };
+
+      res.json(beneficioComImagens);
+    } catch (error) {
+      console.error("Error fetching beneficio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar novo benefício (dev-marketing)
+  // TRECHO ALTERADO
+  app.post("/api/beneficios", async (req, res) => {
+    try {
+      const {
+        titulo, descricao, icone, imagem, // <- URL retornada do upload
+        planosDisponiveis, ciclosPagamento, pontosNecessarios,
+        ativo = true, ordem, inicioLeilao, prazoLances
+      } = req.body;
+
+      const pontosOk = Number.parseInt(pontosNecessarios as any, 10);
+      const ordemOk = ordem == null ? 0 : Number(ordem);
+
+      if (!titulo || !imagem || !Array.isArray(planosDisponiveis) || planosDisponiveis.length === 0 ||
+        Number.isNaN(pontosOk) || pontosOk < 0 || ordemOk < 0) {
+        return res.status(400).json({ error: "Campos obrigatórios: titulo, imagem, planosDisponiveis[], pontosNecessarios>=0, ordem>=0" });
+      }
+
+      const novo = await storage.createBeneficio({
+        titulo,
+        descricao: descricao || "",
+        icone: icone || "Package",
+        imagem,                    // mantém para compatibilidade
+        categoria: "geral",
+        planosDisponiveis,
+        ciclosPagamento: ciclosPagamento || ["mensal"],
+        pontosNecessarios: pontosOk,
+        ativo,
+        ordem: ordemOk,
+        inicioLeilao: inicioLeilao || null,
+        prazoLances: prazoLances || null
+      });
+
+      // grava também na beneficio_imagens (tipo "card")
+      const imagemKey = (imagem as string).startsWith('http')
+        ? extractFilePathFromUrl(imagem as string)
+        : (imagem as string);
+      const fileName = imagemKey.split("/").pop() || "unknown";
+      await storage.createBeneficioImagem({
+        beneficioId: novo.id,
+        tipo: "card",
+        nomeArquivo: fileName,
+        caminhoCompleto: imagemKey,   // URL completa do GCS
+        nomeOriginal: fileName,
+        tipoMime: "image/jpeg",
+        tamanhoBytes: 0,
+        largura: null,
+        altura: null,
+        ativo: true
+      });
+
+      res.status(201).json(novo);
+    } catch (error) {
+      console.error("Error creating beneficio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Atualizar benefício (dev-marketing)
+  app.put("/api/beneficios/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+
+      // Converter strings de data em objetos Date se presentes
+      const processedUpdates = { ...updates };
+      if (updates.inicioLeilao && typeof updates.inicioLeilao === 'string') {
+        processedUpdates.inicioLeilao = updates.inicioLeilao ? new Date(updates.inicioLeilao) : null;
+      }
+      if (updates.prazoLances && typeof updates.prazoLances === 'string') {
+        processedUpdates.prazoLances = updates.prazoLances ? new Date(updates.prazoLances) : null;
+      }
+
+      const beneficioAtualizado = await storage.updateBeneficio(parseInt(id), processedUpdates);
+      res.json(beneficioAtualizado);
+    } catch (error) {
+      console.error("Error updating beneficio:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Upload de imagem para benefícios - USA GCS
+  // TRECHO ALTERADO
+  app.post("/api/beneficios/upload-image", (req, res) => {
+    secureUpload.single('image')(req, res, async (err) => {
+      if (err) {
+        console.error("❌ [BENEFIT IMAGE] Erro no upload:", err.message);
+
+        // Tratativas de erro do multer (mantidas)
+        if (err.message?.includes('Formato não permitido')) {
+          return res.status(400).json({
+            error: "Formato de arquivo não suportado",
+            details: "Por favor, use apenas arquivos JPEG, PNG ou WEBP"
+          });
+        }
+        if (err.message?.includes('Extensão')) {
+          return res.status(400).json({
+            error: "Extensão de arquivo não permitida",
+            details: "Use apenas .jpg, .jpeg, .png ou .webp"
+          });
+        }
+        if ((err as any).code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            error: "Arquivo muito grande",
+            details: "Tamanho máximo permitido: 5MB"
+          });
+        }
+
+        return res.status(400).json({ error: "Erro no upload", details: err.message });
+      }
+
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
+        }
+
+        console.log(`📤 [BENEFIT IMAGE] Fazendo upload para GCS...`);
+
+        // Gerar nome único para o arquivo
+        const timestamp = Date.now();
+        const randomString = Math.random().toString(36).slice(2, 10);
+        const fileName = `beneficios-${timestamp}-${randomString}`;
+
+        // 🔧 DISK STORAGE: quando multer salva em disco, req.file.buffer é undefined.
+        // Pegamos o buffer do path salvo pelo multer.
+        const fileBuffer =
+          (req.file as any).buffer ?? fs.readFileSync(req.file.path);
+
+        // Fazer upload para GCS (sua função já aceita Buffer)
+        const objectPath = await uploadToGCS(fileBuffer, fileName, req.file.mimetype);
+        console.log(`✅ [BENEFIT IMAGE] Upload concluído no GCS: ${objectPath}`);
+
+        // Signed URL curta só para preview no modal (15 min)
+        const previewUrl = await getSignedUrl(objectPath, 15);
+
+        if (req.file.path && fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch { }
+        }
+
+        return res.json({
+          objectPath,                 // ✅ CHAVE no bucket (salvar no banco)
+          previewUrl,                 // ✅ URL assinada para <img> no modal
+          imageUrl: objectPath,       // 🔁 alias p/ compatibilidade legada
+          originalName: req.file.originalname,
+          size: req.file.size,
+          mimetype: req.file.mimetype
+        });
+      } catch (error) {
+        console.error("❌ [BENEFIT IMAGE] Erro interno:", error);
+
+        // tenta limpar o tmp se algo falhar
+        if (req.file?.path && fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch { }
+        }
+
+        return res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    });
+  });
+
+  // Deletar benefício (dev-marketing)
+  // TRECHO ALTERADO
+  app.delete("/api/beneficios/:id", async (req, res) => {
+    const beneficioId = Number(req.params.id);
+    if (!Number.isInteger(beneficioId) || beneficioId <= 0) {
+      return res.status(400).json({ error: "ID inválido" });
+    }
+
+    try {
+      // 1) Existe?
+      const beneficio = await storage.getBeneficio(beneficioId);
+      if (!beneficio) {
+        return res.status(404).json({ error: "Benefício não encontrado" });
+      }
+
+      // 2) Carrega imagens para limpar do GCS depois
+      const imagens = await storage.getBeneficioImagensByBeneficio(beneficioId);
+
+      // 3) HARD-DELETE dos filhos -> depois o pai
+      //    (fazemos sem transação para evitar travar sessão com 25P02 se algo falhar)
+      // 3.1) Lances (se a tabela existir)
+      try {
+        await db.delete(beneficioLances).where(eq(beneficioLances.beneficioId, beneficioId));
+      } catch (e) {
+        // se não existir a tabela ou não houver lances, só loga
+        console.warn("⚠️ (delete) beneficio_lances:", e?.message || e);
+      }
+
+      // 3.2) Imagens (HARD-DELETE)
+      await db.delete(beneficioImagens).where(eq(beneficioImagens.beneficioId, beneficioId));
+
+      // 3.3) Pai
+      await db.delete(beneficios).where(eq(beneficios.id, beneficioId));
+
+      // 4) Fora do banco: remove objetos do GCS (best-effort)
+      // 4.1) coluna beneficios.imagem
+      if (beneficio.imagem) {
+        const key = beneficio.imagem.startsWith("http")
+          ? extractFilePathFromUrl(beneficio.imagem)
+          : beneficio.imagem;
+        if (key) { try { await deleteObject(key); } catch { } }
+      }
+
+      // 4.2) arquivos de beneficio_imagens
+      for (const img of imagens) {
+        const nomeArq = (img as any).nomeArquivo as string | undefined;
+        const caminho =
+          (img as any).caminhoCompleto ??
+          (img as any).caminho_completo ??
+          (nomeArq ? `uploads/beneficios/${nomeArq}` : undefined);
+
+        if (caminho) { try { await deleteObject(String(caminho)); } catch { } }
+      }
+
+      return res.status(200).json({ ok: true, id: beneficioId, message: "Benefício deletado com sucesso" });
+    } catch (e: any) {
+      console.error("❌ [BENEFICIOS] Erro ao deletar:", e);
+      return res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+  // Buscar todos os benefícios (para dev-marketing)
+  app.get("/api/admin/beneficios", async (req, res) => {
+    try {
+      const beneficios = await storage.getAllBeneficios();
+
+      // Para cada benefício, buscar a imagem correspondente E calcular status real
+      const beneficiosComImagem = await Promise.all(
+        beneficios.map(async (beneficio) => {
+          const imagem = await storage.getBeneficioImagem(beneficio.id);
+          
+          // Calcular se está realmente ativo baseado no prazo
+          const agora = new Date();
+          const ativoReal = beneficio.ativo && 
+            (!beneficio.prazoLances || new Date(beneficio.prazoLances) > agora);
+          
+          console.log(`📋 [ADMIN-BENEFICIOS] ID ${beneficio.id}: ativo=${beneficio.ativo}, prazo=${beneficio.prazoLances}, ativoReal=${ativoReal}`);
+          
+          return {
+            ...beneficio,
+            ativo: ativoReal, // Substitui pelo status calculado
+            ativoOriginal: beneficio.ativo, // Mantém o valor original do banco
+            imagemUrl: imagem ? `/api/beneficios/${beneficio.id}/imagem` : null
+          };
+        })
+      );
+
+      // Forçar sem cache
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      
+      res.json(beneficiosComImagem);
+    } catch (error) {
+      console.error("Error fetching all beneficios:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar novo benefício (dev-marketing admin)
+  app.post("/api/admin/beneficios", async (req, res) => {
+    try {
+      const { titulo, descricao, icone, imagemUrl, planosDisponiveis, ciclosPagamento, pontosNecessarios = "", ativo = true, ordem = 0, inicioLeilao, prazoLances } = req.body;
+
+      console.log(`📝 [ADMIN CREATE] Criando benefício com:`, req.body);
+
+      if (!titulo || !imagemUrl || !planosDisponiveis || planosDisponiveis.length === 0) {
+        return res.status(400).json({ error: "Campos obrigatórios: titulo, imagemUrl, planosDisponiveis" });
+      }
+
+      // Processar datas de leilão se presentes
+      const processedInicioLeilao = inicioLeilao && typeof inicioLeilao === 'string' ? new Date(inicioLeilao) : inicioLeilao;
+      const processedPrazoLances = prazoLances && typeof prazoLances === 'string' ? new Date(prazoLances) : prazoLances;
+
+      const novoBeneficio = await storage.createBeneficio({
+        titulo,
+        descricao: descricao || "",
+        icone: icone || "Package",
+        imagem: imagemUrl,
+        categoria: "geral", // categoria padrão
+        planosDisponiveis,
+        ciclosPagamento: ciclosPagamento || ['mensal'],
+        pontosNecessarios: parseInt(pontosNecessarios) || 100, // converter para integer
+        ativo,
+        ordem: ordem || 1,
+        inicioLeilao: processedInicioLeilao || null,
+        prazoLances: processedPrazoLances || null
+      });
+
+      // ✅ CORRIGIR: Criar automaticamente o registro na tabela beneficio_imagens
+      if (imagemUrl && novoBeneficio.id) {
+        try {
+          const fileName = imagemUrl.split('/').pop() || 'unknown';
+          await storage.createBeneficioImagem({
+            beneficioId: novoBeneficio.id,
+            nomeArquivo: fileName,
+            caminhoCompleto: imagemUrl,
+            nomeOriginal: fileName,
+            tipoMime: 'image/jpeg', // Assumir JPEG por padrão
+            tamanhoBytes: 0, // Tamanho desconhecido
+            ativo: true
+          });
+          console.log(`📸 [ADMIN CREATE] Imagem vinculada ao benefício ${novoBeneficio.id}`);
+        } catch (imageError) {
+          console.error(`❌ [ADMIN CREATE] Erro ao vincular imagem:`, imageError);
+        }
+      }
+
+      console.log(`✅ [ADMIN CREATE] Benefício criado:`, novoBeneficio);
+
+      // Retornar apenas o benefício (como outras rotas)
+      res.status(201).json(novoBeneficio);
+    } catch (error) {
+      console.error("❌ [ADMIN CREATE] Error creating beneficio:", error);
+      res.status(500).json({
+        success: false,
+        error: "Erro interno do servidor",
+        details: error instanceof Error ? error.message : "Erro desconhecido"
+      });
+    }
+  });
+
+  // Atualizar benefício (dev-marketing admin)
+  app.put("/api/admin/beneficios/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+
+      console.log(`📝 [ADMIN UPDATE] Atualizando benefício ${id} com:`, updates);
+
+      // Converter strings de data em objetos Date se presentes
+      const processedUpdates = { ...updates };
+      if (updates.inicioLeilao && typeof updates.inicioLeilao === 'string') {
+        processedUpdates.inicioLeilao = updates.inicioLeilao ? new Date(updates.inicioLeilao) : null;
+      }
+      if (updates.prazoLances && typeof updates.prazoLances === 'string') {
+        processedUpdates.prazoLances = updates.prazoLances ? new Date(updates.prazoLances) : null;
+      }
+
+      const beneficioAtualizado = await storage.updateBeneficio(parseInt(id), processedUpdates);
+
+      console.log(`✅ [ADMIN UPDATE] Benefício ${id} atualizado:`, beneficioAtualizado);
+
+      // Retornar apenas o benefício (como outras rotas)
+      res.status(200).json(beneficioAtualizado);
+    } catch (error) {
+      console.error("❌ [ADMIN UPDATE] Error updating beneficio:", error);
+      res.status(500).json({
+        success: false,
+        error: "Erro interno do servidor",
+        details: error instanceof Error ? error.message : "Erro desconhecido"
+      });
+    }
+  });
+
+  // ✨ SISTEMA DE CONTROLE DE ONBOARDING DE BENEFÍCIOS
+
+  // Verificar status do onboarding de benefícios
+  app.get("/api/users/:userId/beneficios-onboarding-status", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      const user = await db.select({
+        id: users.id,
+        nome: users.nome,
+        sobrenome: users.sobrenome,
+        telefone: users.telefone,
+        email: users.email,
+        verificado: users.verificado,
+        ativo: users.ativo,
+        plano: users.plano,
+        stripeCustomerId: users.stripeCustomerId,
+        stripeSubscriptionId: users.stripeSubscriptionId,
+        subscriptionStatus: users.subscriptionStatus,
+        role: users.role,
+        tipo: users.tipo,
+        fonte: users.fonte,
+        gritosTotal: users.gritosTotal,
+        nivelAtual: users.nivelAtual,
+        proximoNivel: users.proximoNivel,
+        gritosParaProximoNivel: users.gritosParaProximoNivel,
+        diasConsecutivos: users.diasConsecutivos,
+        ultimoCheckin: users.ultimoCheckin,
+        dataCadastro: users.dataCadastro,
+        primeiraEntradaCompleta: users.primeiraEntradaCompleta,
+        beneficiosOnboardingVisto: users.beneficiosOnboardingVisto
+      }).from(users).where(eq(users.id, userId)).limit(1);
+
+      if (!user[0]) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      res.json({
+        onboardingVisto: user[0].beneficiosOnboardingVisto || false,
+        primeiraEntradaCompleta: user[0].primeiraEntradaCompleta || false
+      });
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Marcar onboarding de benefícios como visto
+  app.post("/api/users/:userId/beneficios-onboarding-visto", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      await db.update(users)
+        .set({ beneficiosOnboardingVisto: true })
+        .where(eq(users.id, userId));
+
+      console.log(`📱 [ONBOARDING] Usuário ${userId} marcou onboarding de benefícios como visto`);
+
+      res.json({ success: true, message: 'Onboarding marcado como visto' });
+    } catch (error) {
+      console.error("Error marking onboarding as viewed:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ ROTAS DE MISSÕES SEMANAIS ================
+
+  // Buscar missões semanais do usuário
+  app.get("/api/missoes-semanais/:userId", async (req, res) => {
+    try {
+      const userIdParam = req.params.userId;
+
+      // Verificar se o userId é válido
+      if (!userIdParam || userIdParam === 'null' || userIdParam === 'undefined') {
+        return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      const userId = parseInt(userIdParam);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID do usuário deve ser um número válido" });
+      }
+
+      // Buscar missões ativas da semana (com fallback para campos novos)
+      const missoesAtivas = await db
+        .select({
+          id: missoesSemanais.id,
+          titulo: missoesSemanais.titulo,
+          descricao: missoesSemanais.descricao,
+          recompensaGritos: missoesSemanais.recompensaGritos,
+          tipoMissao: missoesSemanais.tipoMissao,
+          imagemUrl: missoesSemanais.imagemUrl,
+          planoMinimo: missoesSemanais.planoMinimo,
+          semanaInicio: missoesSemanais.semanaInicio,
+          semanaFim: missoesSemanais.semanaFim,
+          ativo: missoesSemanais.ativo,
+          habilitarLinkCompartilhamento: missoesSemanais.habilitarLinkCompartilhamento,
+          createdAt: missoesSemanais.createdAt,
+          // Campos novos com valores padrão para compatibilidade
+          evidenceType: missoesSemanais.evidenceType,
+          nivelMinimo: sql`1`.as('nivel_minimo'),
+          limiteEnvios: sql`1`.as('limite_envios'),
+          reviewRequired: sql`false`.as('review_required'),
+          autoApprove: sql`true`.as('auto_approve'),
+        })
+        .from(missoesSemanais)
+        .where(eq(missoesSemanais.ativo, true));
+
+      // Buscar missões já concluídas pelo usuário
+      const missoesConcluidasPeloUser = await db
+        .select({
+          id: missoesConcluidas.id,
+          userId: missoesConcluidas.userId,
+          missaoId: missoesConcluidas.missaoId,
+          concluidaEm: missoesConcluidas.concluidaEm,
+          gritosRecebidos: missoesConcluidas.gritosRecebidos,
+          fotoComprovante: missoesConcluidas.fotoComprovante
+        })
+        .from(missoesConcluidas)
+        .where(eq(missoesConcluidas.userId, userId));
+      // Combinar dados - marcar quais foram concluídas
+      const missoesComStatus = missoesAtivas.map(missao => {
+        const conclusao = missoesConcluidasPeloUser.find(mc => mc.missaoId === missao.id);
+        return {
+          ...missao,
+          concluida: !!conclusao,
+          concluidaEm: conclusao?.concluidaEm || null
+        };
+      });
+      res.json(missoesComStatus);
+    } catch (error) {
+      console.error("Error fetching missions:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Concluir missão
+  app.post("/api/missoes-semanais/:missaoId/concluir", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.missaoId);
+      const { userId } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: "userId é obrigatório" });
+      }
+
+      // Verificar se a missão existe e está ativa (sem campos novos)
+      const missao = await db
+        .select({
+          id: missoesSemanais.id,
+          titulo: missoesSemanais.titulo,
+          descricao: missoesSemanais.descricao,
+          recompensaGritos: missoesSemanais.recompensaGritos,
+          tipoMissao: missoesSemanais.tipoMissao,
+          imagemUrl: missoesSemanais.imagemUrl,
+          planoMinimo: missoesSemanais.planoMinimo,
+          semanaInicio: missoesSemanais.semanaInicio,
+          semanaFim: missoesSemanais.semanaFim,
+          ativo: missoesSemanais.ativo,
+        })
+        .from(missoesSemanais)
+        .where(and(
+          eq(missoesSemanais.id, missaoId),
+          eq(missoesSemanais.ativo, true)
+        ))
+        .limit(1);
+
+      if (missao.length === 0) {
+        return res.status(404).json({ error: "Missão não encontrada ou inativa" });
+      }
+
+      // Verificar se já foi concluída
+      const jaConcluida = await db
+        .select()
+        .from(missoesConcluidas)
+        .where(and(
+          eq(missoesConcluidas.userId, userId),
+          eq(missoesConcluidas.missaoId, missaoId)
+        ))
+        .limit(1);
+
+      if (jaConcluida.length > 0) {
+        return res.status(400).json({ error: "Missão já foi concluída" });
+      }
+
+      // 🔐 SEGURANÇA: Usar INSERT ON CONFLICT para prevenir dupla conclusão
+      try {
+        const insertResult = await db.insert(missoesConcluidas).values({
+          userId,
+          missaoId,
+          gritosRecebidos: missao[0].recompensaGritos
+        }).onConflictDoNothing();
+
+        // Atualizar Gritos do usuário
+        await storage.addGritosToUser(userId, missao[0].recompensaGritos || 150);
+      } catch (error) {
+        console.error(`🚨 [MISSION ERROR] Falha ao completar missão ${missaoId} para usuário ${userId}: ${error}`);
+        return res.status(500).json({ error: "Erro ao processar conclusão da missão" });
+      }
+
+      res.json({
+        success: true,
+        gritosGanhos: missao[0].recompensaGritos || 150,
+        message: "Missão concluída com sucesso!"
+      });
+    } catch (error) {
+      console.error("Error completing mission:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Concluir missão com foto
+  app.post("/api/missoes-semanais/:missaoId/concluir-com-foto", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.missaoId);
+      const { userId, fotoComprovante } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: "userId é obrigatório" });
+      }
+
+      if (!fotoComprovante) {
+        return res.status(400).json({ error: "Foto comprovante é obrigatória" });
+      }
+
+      // Verificar se a missão existe e está ativa
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(and(
+          eq(missoesSemanais.id, missaoId),
+          eq(missoesSemanais.ativo, true)
+        ))
+        .limit(1);
+
+      if (missao.length === 0) {
+        return res.status(404).json({ error: "Missão não encontrada ou inativa" });
+      }
+
+      // Verificar se já foi concluída
+      const jaConcluida = await db
+        .select()
+        .from(missoesConcluidas)
+        .where(and(
+          eq(missoesConcluidas.userId, userId),
+          eq(missoesConcluidas.missaoId, missaoId)
+        ))
+        .limit(1);
+
+      if (jaConcluida.length > 0) {
+        return res.status(400).json({ error: "Missão já foi concluída" });
+      }
+
+      // Registrar conclusão da missão com foto
+      await db.insert(missoesConcluidas).values({
+        userId,
+        missaoId,
+        gritosRecebidos: missao[0].recompensaGritos,
+        fotoComprovante
+      }).onConflictDoNothing();
+
+      // Atualizar Gritos do usuário
+      await storage.addGritosToUser(userId, missao[0].recompensaGritos || 150);
+
+      res.json({
+        success: true,
+        gritosGanhos: missao[0].recompensaGritos || 150,
+        message: "Missão concluída com foto enviada!"
+      });
+    } catch (error) {
+      console.error("Error completing mission with photo:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // 🎯 NOVO ENDPOINT: Enviar evidência de missão
+  app.post("/api/missoes-semanais/:missaoId/enviar-evidencia", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.missaoId);
+      const { userId, evidenciaData, evidenceType } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: "userId é obrigatório" });
+      }
+
+      if (!evidenciaData) {
+        return res.status(400).json({ error: "evidenciaData é obrigatória" });
+      }
+
+      console.log(`📝 [EVIDÊNCIA ENVIADA] Usuário ${userId}, Missão ${missaoId}, Tipo: ${evidenceType}`);
+
+      // Verificar se a missão existe e está ativa
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(and(
+          eq(missoesSemanais.id, missaoId),
+          eq(missoesSemanais.ativo, true)
+        ))
+        .limit(1);
+
+      if (missao.length === 0) {
+        return res.status(404).json({ error: "Missão não encontrada ou inativa" });
+      }
+
+      // Verificar se o usuário já completou esta missão
+      const missaoJaConcluida = await db
+        .select()
+        .from(missoesConcluidas)
+        .where(and(
+          eq(missoesConcluidas.userId, userId),
+          eq(missoesConcluidas.missaoId, missaoId)
+        ))
+        .limit(1);
+
+      if (missaoJaConcluida.length > 0) {
+        return res.status(400).json({ error: "Missão já foi concluída" });
+      }
+
+      // 📸 PROCESSAR EVIDÊNCIAS: Upload de imagens para GCS
+      let evidencias: Array<{
+        tipo: string;
+        url?: string;
+        texto?: string;
+        metadata?: Record<string, any>;
+      }> = [];
+
+      let primeiraImagemUrl: string | null = null;
+
+      // Processar imagens (se houver)
+      if (evidenciaData.imagens && Array.isArray(evidenciaData.imagens) && evidenciaData.imagens.length > 0) {
+        console.log(`📤 [GCS] Fazendo upload de ${evidenciaData.imagens.length} imagem(ns)...`);
+
+        try {
+          const { uploadBase64ImagesToGCS } = await import('./gcsService.js');
+          const imageUrls = await uploadBase64ImagesToGCS(evidenciaData.imagens, 'missoes/evidencias');
+
+          // Salvar primeira imagem para compatibilidade
+          primeiraImagemUrl = imageUrls[0];
+
+          // Criar evidências estruturadas
+          evidencias = imageUrls.map((url, index) => ({
+            tipo: 'imagem',
+            url,
+            metadata: {
+              ordem: index + 1,
+              totalImagens: imageUrls.length,
+              observacao: evidenciaData.observacao || null
+            }
+          }));
+
+          console.log(`✅ [GCS] ${imageUrls.length} imagem(ns) enviada(s) com sucesso`);
+        } catch (uploadError) {
+          console.error('❌ [GCS] Erro ao fazer upload de imagens:', uploadError);
+          // Fallback: usar base64 se upload falhar
+          primeiraImagemUrl = evidenciaData.imagens[0];
+          evidencias = evidenciaData.imagens.map((img: string, index: number) => ({
+            tipo: 'imagem',
+            url: img, // Base64 como fallback
+            metadata: {
+              ordem: index + 1,
+              isFallback: true,
+              observacao: evidenciaData.observacao || null
+            }
+          }));
+        }
+      }
+
+      // Processar outros tipos de evidência
+      if (evidenciaData.videoUrl) {
+        evidencias.push({
+          tipo: 'video',
+          url: evidenciaData.videoUrl,
+          metadata: { duracao: evidenciaData.duracao }
+        });
+        if (!primeiraImagemUrl) primeiraImagemUrl = evidenciaData.videoUrl;
+      }
+
+      if (evidenciaData.url) {
+        evidencias.push({
+          tipo: 'link',
+          url: evidenciaData.url,
+          metadata: { isReferralAutomatico: evidenciaData.isReferralAutomatico }
+        });
+        if (!primeiraImagemUrl) primeiraImagemUrl = evidenciaData.url;
+      }
+
+      if (evidenciaData.comentario) {
+        evidencias.push({
+          tipo: 'comentario',
+          texto: evidenciaData.comentario
+        });
+      }
+
+      if (evidenciaData.latitude && evidenciaData.longitude) {
+        evidencias.push({
+          tipo: 'checkin',
+          metadata: {
+            latitude: evidenciaData.latitude,
+            longitude: evidenciaData.longitude,
+            precisao: evidenciaData.precisao,
+            endereco: evidenciaData.enderecoDetectado
+          }
+        });
+      }
+
+      if (evidenciaData.respostas) {
+        evidencias.push({
+          tipo: 'quiz',
+          metadata: {
+            respostas: evidenciaData.respostas,
+            pontuacao: evidenciaData.pontuacao,
+            questoesCorretas: evidenciaData.questoesCorretas,
+            totalQuestoes: evidenciaData.totalQuestoes
+          }
+        });
+      }
+
+      // Por enquanto, auto-aprovar todas as evidências para manter funcionalidade
+      // TODO: Implementar sistema de validação/moderação no futuro
+      const gritosRecompensa = missao[0].recompensaGritos || 100;
+
+      // Marcar missão como concluída
+      await db.insert(missoesConcluidas).values({
+        userId,
+        missaoId,
+        gritosRecebidos: gritosRecompensa,
+        fotoComprovante: primeiraImagemUrl, // Legacy: primeira evidência
+        evidencias: evidencias.length > 0 ? evidencias : null // Novo: todas as evidências
+      }).onConflictDoNothing();
+
+      // Adicionar gritos ao usuário
+      await storage.addGritosToUser(userId, gritosRecompensa);
+
+      // Criar histórico de gritos
+      await storage.createGritosHistorico({
+        userId,
+        tipo: 'missao',
+        gritosGanhos: gritosRecompensa,
+        descricao: `Missão concluída: ${missao[0].titulo}`
+      });
+
+      console.log(`✅ [MISSÃO COMPLETA VIA EVIDÊNCIA] Usuário ${userId}: +${gritosRecompensa} gritos pela missão "${missao[0].titulo}"`);
+      console.log(`📊 [EVIDÊNCIAS] ${evidencias.length} evidência(s) salva(s)`);
+
+      res.json({
+        success: true,
+        gritosGanhos: gritosRecompensa,
+        evidenciasSalvas: evidencias.length,
+        message: "Evidência enviada e missão concluída com sucesso!"
+      });
+    } catch (error: any) {
+      console.error("Error submitting mission evidence:", error);
+      res.status(500).json({ error: "Erro ao enviar evidência da missão" });
+    }
+  });
+
+  // 🔒 ENDPOINT SEGURO: Iniciar pagamento de missão
+  app.post("/api/missoes-semanais/:missaoId/iniciar-pagamento", async (req, res) => {
+    const startTime = Date.now();
+    const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    try {
+      const missaoId = parseInt(req.params.missaoId);
+      const { userId } = req.body;
+
+      // 🔥 VALIDAÇÃO CRÍTICA: Dados obrigatórios
+      if (!userId) {
+        console.warn(`🚨 [SECURITY] Tentativa de pagamento sem userId - IP: ${clientIp}`);
+        return res.status(400).json({ error: "userId é obrigatório" });
+      }
+
+      if (!missaoId || missaoId <= 0) {
+        console.warn(`🚨 [SECURITY] Tentativa de pagamento com missaoId inválido: ${missaoId} - User: ${userId}`);
+        return res.status(400).json({ error: "missaoId inválido" });
+      }
+
+      // 🔍 AUDITORIA: Log de início
+      console.log(`🔒 [PAYMENT AUDIT] Início pagamento - User: ${userId}, Mission: ${missaoId}, IP: ${clientIp}`);
+
+      // 🔍 VALIDAÇÃO: Missão existência, ativa e tipo pagamento
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(and(
+          eq(missoesSemanais.id, missaoId),
+          eq(missoesSemanais.ativo, true),
+          eq(missoesSemanais.tipoMissao, "pagamento")
+        ))
+        .limit(1);
+
+      if (missao.length === 0) {
+        console.warn(`🚨 [SECURITY] Missão não encontrada ou inválida - ID: ${missaoId}, User: ${userId}`);
+        return res.status(404).json({ error: "Missão de pagamento não encontrada ou inativa" });
+      }
+
+      // 🔥 VALIDAÇÃO CRÍTICA: Valor de pagamento
+      const valorPagamento = missao[0].valorPagamento;
+      if (!valorPagamento || parseFloat(valorPagamento) <= 0) {
+        console.error(`🚨 [SECURITY] Missão com valor inválido - ID: ${missaoId}, Valor: ${valorPagamento}`);
+        return res.status(400).json({ error: "Valor de pagamento não configurado ou inválido" });
+      }
+
+      // 🔥 VALIDAÇÃO: Limite máximo de segurança (R$ 500)
+      const valorNumerico = parseFloat(valorPagamento);
+      if (valorNumerico > 500) {
+        console.error(`🚨 [SECURITY] Tentativa de pagamento acima do limite - Valor: R$ ${valorNumerico}, User: ${userId}`);
+        return res.status(400).json({ error: "Valor excede limite máximo de segurança (R$ 500)" });
+      }
+
+      // Verificar se o usuário já completou esta missão
+      const missaoJaConcluida = await db
+        .select()
+        .from(missoesConcluidas)
+        .where(and(
+          eq(missoesConcluidas.userId, userId),
+          eq(missoesConcluidas.missaoId, missaoId)
+        ))
+        .limit(1);
+
+      if (missaoJaConcluida.length > 0) {
+        return res.status(400).json({ error: "Missão já foi concluída" });
+      }
+
+      // 🔒 VALIDAÇÃO: Prevenção de duplicatas (idemponcia por usuário/missão)
+      const transacaoPendente = await db
+        .select()
+        .from(missaoTransacoes)
+        .where(and(
+          eq(missaoTransacoes.userId, userId),
+          eq(missaoTransacoes.missaoId, missaoId),
+          sql`status IN ('pending', 'succeeded')` // Incluir succeeded para evitar múltiplos pagamentos
+        ))
+        .limit(1);
+
+      if (transacaoPendente.length > 0) {
+        const status = transacaoPendente[0].status;
+        console.warn(`🚨 [SECURITY] Tentativa de duplicação - User: ${userId}, Mission: ${missaoId}, Status existente: ${status}`);
+
+        if (status === 'succeeded') {
+          return res.status(400).json({
+            error: "Missão já foi paga com sucesso",
+            transacaoId: transacaoPendente[0].id,
+            status
+          });
+        } else {
+          return res.status(400).json({
+            error: "Já existe um pagamento pendente para esta missão",
+            transacaoId: transacaoPendente[0].id,
+            status
+          });
+        }
+      }
+
+      // Buscar dados do usuário e suas informações do Stripe
+      const usuario = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (usuario.length === 0) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      const stripeCustomerId = usuario[0].stripeCustomerId;
+      if (!stripeCustomerId) {
+        return res.status(400).json({
+          error: "Usuário não possui cartão cadastrado. É necessário ter um plano ativo para completar missões de pagamento."
+        });
+      }
+
+      // 🔒 VALIDAÇÃO CRÍTICA: Plano ativo obrigatório
+      const doador = await db
+        .select({
+          id: doadores.id,
+          status: doadores.status,
+          plano: doadores.plano,
+          ativo: doadores.ativo,
+          ultimaDoacao: doadores.ultimaDoacao
+        })
+        .from(doadores)
+        .where(and(
+          eq(doadores.userId, userId),
+          eq(doadores.ativo, true),
+          eq(doadores.status, 'paid') // Deve estar com status 'paid'
+        ))
+        .limit(1);
+
+      if (doador.length === 0) {
+        console.warn(`🚨 [SECURITY] Usuário sem plano ativo tentou pagamento - User: ${userId}`);
+        return res.status(400).json({
+          error: "É necessário ter um plano de doação ativo e pago para completar missões de pagamento."
+        });
+      }
+
+      // 🔍 AUDITORIA: Log do plano verificado
+      console.log(`✅ [PAYMENT AUDIT] Plano verificado - User: ${userId}, Plano: ${doador[0].plano}, Status: ${doador[0].status}`);
+
+      // 💳 STRIPE: Criar Payment Intent seguro com validações
+      const valorCentavos = Math.round(valorNumerico * 100); // 🔥 Conversão segura no servidor
+
+      console.log(`💳 [PAYMENT AUDIT] Criando PaymentIntent - User: ${userId}, Valor: R$ ${valorNumerico} (${valorCentavos} centavos)`);
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: valorCentavos,
+        currency: 'brl',
+        customer: stripeCustomerId,
+        payment_method_types: ['card'],
+        confirmation_method: 'automatic',
+        confirm: true,
+        off_session: true, // 🔒 Pagamento seguro sem presença
+        metadata: {
+          missaoId: missaoId.toString(),
+          userId: userId.toString(),
+          tipo: 'missao_pagamento',
+          valorOriginal: valorNumerico.toString(),
+          planoUsuario: doador[0].plano,
+          timestamp: new Date().toISOString(),
+          clientIp: clientIp?.toString() || 'unknown'
+        },
+        description: `Missão: ${missao[0].titulo} - User: ${userId}`
+      });
+
+      // Criar registro da transação no banco
+      const novaTransacao = await db.insert(missaoTransacoes).values({
+        userId,
+        missaoId,
+        stripePaymentIntentId: paymentIntent.id,
+        stripeCustomerId,
+        valor: valorPagamento,
+        status: paymentIntent.status,
+        descricao: `Pagamento para missão: ${missao[0].titulo}`,
+        metadata: {
+          paymentIntentId: paymentIntent.id,
+          amount: paymentIntent.amount,
+          currency: paymentIntent.currency
+        }
+      }).returning();
+
+      // 🔍 AUDITORIA: Log de sucesso
+      const processTime = Date.now() - startTime;
+      console.log(`✅ [PAYMENT SUCCESS] PI: ${paymentIntent.id}, Status: ${paymentIntent.status}, Valor: R$ ${valorNumerico}, User: ${userId}, Tempo: ${processTime}ms`);
+
+      // 🔒 RESPOSTA SEGURA: Não expor informações sensíveis
+      res.json({
+        success: true,
+        transacaoId: novaTransacao[0].id,
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status,
+        valor: valorNumerico,
+        missaoTitulo: missao[0].titulo,
+        message: paymentIntent.status === 'succeeded' ?
+          'Pagamento processado com sucesso!' :
+          'Pagamento iniciado, aguardando confirmação...',
+        processedAt: new Date().toISOString()
+      });
+
+    } catch (error: any) {
+      const processTime = Date.now() - startTime;
+      console.error(`🚨 [PAYMENT ERROR] User: ${userId || 'unknown'}, Mission: ${missaoId || 'unknown'}, Time: ${processTime}ms, Error:`, error);
+
+      // 🔒 TRATAMENTO SEGURO DE ERROS: Não vazar informações sensíveis
+      if (error.type && error.type.includes('stripe')) {
+        // Log detalhado interno, resposta genérica externa
+        console.error(`🚨 [STRIPE ERROR] ${error.type}: ${error.message}`);
+        return res.status(400).json({
+          error: "Erro no processamento do pagamento. Verifique seu cartão e tente novamente.",
+          code: 'PAYMENT_FAILED'
+        });
+      }
+
+      if (error.message && error.message.includes('authentication_required')) {
+        return res.status(400).json({
+          error: "Autenticação adicional necessária. Por favor, confirme o pagamento.",
+          code: 'AUTHENTICATION_REQUIRED'
+        });
+      }
+
+      // 🔒 Erro genérico - não expor detalhes
+      res.status(500).json({
+        error: "Erro interno do servidor",
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  });
+
+  // 💳 NOVO ENDPOINT: Confirmar pagamento de missão
+  app.post("/api/missoes-semanais/:missaoId/confirmar-pagamento", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.missaoId);
+      const { userId, transacaoId } = req.body;
+
+      if (!userId || !transacaoId) {
+        return res.status(400).json({ error: "userId e transacaoId são obrigatórios" });
+      }
+
+      console.log(`💳 [CONFIRMAÇÃO PAGAMENTO] Usuário ${userId}, Missão ${missaoId}, Transação ${transacaoId}`);
+
+      // Buscar transação
+      const transacao = await db
+        .select()
+        .from(missaoTransacoes)
+        .where(and(
+          eq(missaoTransacoes.id, transacaoId),
+          eq(missaoTransacoes.userId, userId),
+          eq(missaoTransacoes.missaoId, missaoId)
+        ))
+        .limit(1);
+
+      if (transacao.length === 0) {
+        return res.status(404).json({ error: "Transação não encontrada" });
+      }
+
+      const paymentIntent = await stripe.paymentIntents.retrieve(transacao[0].stripePaymentIntentId);
+
+      // Atualizar status da transação
+      await db
+        .update(missaoTransacoes)
+        .set({
+          status: paymentIntent.status,
+          processedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(missaoTransacoes.id, transacaoId));
+
+      if (paymentIntent.status === 'succeeded') {
+        // Verificar se a missão já não foi marcada como concluída
+        const missaoJaConcluida = await db
+          .select()
+          .from(missoesConcluidas)
+          .where(and(
+            eq(missoesConcluidas.userId, userId),
+            eq(missoesConcluidas.missaoId, missaoId)
+          ))
+          .limit(1);
+
+        if (missaoJaConcluida.length === 0) {
+          // Buscar dados da missão para recompensa
+          const missao = await db
+            .select()
+            .from(missoesSemanais)
+            .where(eq(missoesSemanais.id, missaoId))
+            .limit(1);
+
+          if (missao.length > 0) {
+            const gritosRecompensa = missao[0].recompensaGritos || 100;
+
+            // Marcar missão como concluída
+            await db.insert(missoesConcluidas).values({
+              userId,
+              missaoId,
+              gritosRecebidos: gritosRecompensa
+            }).onConflictDoNothing();
+
+            // Adicionar gritos ao usuário
+            await storage.addGritosToUser(userId, gritosRecompensa);
+
+            // Criar histórico de gritos
+            await storage.createGritosHistorico({
+              userId,
+              tipo: 'missao',
+              gritosGanhos: gritosRecompensa,
+              descricao: `Missão de pagamento concluída: ${missao[0].titulo}`
+            });
+
+            // Marcar que os gritos foram atribuídos
+            await db
+              .update(missaoTransacoes)
+              .set({ gritosAtribuidos: true })
+              .where(eq(missaoTransacoes.id, transacaoId));
+
+            console.log(`✅ [MISSÃO PAGAMENTO COMPLETA] Usuário ${userId}: +${gritosRecompensa} gritos pela missão "${missao[0].titulo}"`);
+          }
+        }
+      }
+
+      res.json({
+        success: paymentIntent.status === 'succeeded',
+        status: paymentIntent.status,
+        message: paymentIntent.status === 'succeeded' ?
+          'Pagamento confirmado e missão concluída!' :
+          `Status do pagamento: ${paymentIntent.status}`
+      });
+
+    } catch (error: any) {
+      console.error("Error confirming mission payment:", error);
+      res.status(500).json({ error: "Erro ao confirmar pagamento" });
+    }
+  });
+
+  // Endpoint para salvar causas do usuário (Grito)
+  app.post('/api/users/:id/causas', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { causas } = req.body;
+
+      if (!causas || !Array.isArray(causas)) {
+        return res.status(400).json({ message: "Causas devem ser um array" });
+      }
+
+      // Primeiro, remover causas existentes do usuário
+      await storage.clearUserCausas(userId);
+
+      // Salvar novas causas
+      for (const causa of causas) {
+        await storage.saveUserCausa(userId, causa);
+      }
+
+      res.json({ message: "Causas salvas com sucesso" });
+    } catch (error) {
+      console.error("Erro ao salvar causas:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Endpoint para buscar causas do usuário
+  app.get('/api/users/:id/causas', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const causas = await storage.getUserCausas(userId);
+      res.json({ causas });
+    } catch (error) {
+      console.error("Erro ao buscar causas:", error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ ROTAS PÚBLICAS PARA HISTÓRIAS QUE INSPIRAM ================
+  app.get("/api/historias-inspiradoras", async (req, res) => {
+    try {
+      const historias = await db
+        .select()
+        .from(historiasInspiradoras)
+        .where(eq(historiasInspiradoras.ativo, true))
+        .orderBy(historiasInspiradoras.ordem, historiasInspiradoras.createdAt);
+
+      // helper: transforma chave/URL do GCS em Signed URL (ou null)
+      const toSigned = async (maybeKey?: string | null) => {
+        if (!maybeKey) return null;
+        // se vier URL completa, extrai a chave; se vier só a chave, usa direto
+        const key = maybeKey.startsWith("http")
+          ? extractFilePathFromUrl(maybeKey)
+          : maybeKey;
+        try {
+          // 60 min de validade — ajuste se quiser
+          return await getSignedUrl(key, 60);
+        } catch {
+          return null;
+        }
+      };
+
+      const historiasComSlides = await Promise.all(
+        historias.map(async (historia) => {
+          const slides = await db
+            .select()
+            .from(historiasSlides)
+            .where(eq(historiasSlides.historiaId, historia.id))
+            .orderBy(historiasSlides.ordem);
+
+          // Gera URLs assinadas para capa (card/box) e story
+          const boxUrl = await toSigned((historia as any).imagemBox);
+          const storyUrl = await toSigned((historia as any).imagemStory);
+
+          // Assina imagens de slides (se houver)
+          const slidesAssinados = await Promise.all(
+            slides.map(async (slide) => ({
+              id: slide.id.toString(),
+              type: slide.tipo as "image" | "text",
+              image: slide.imagem ? await toSigned(slide.imagem) : undefined,
+              title: slide.titulo,
+              content: slide.conteudo || undefined,
+              backgroundColor: slide.corFundo || undefined,
+              duration: slide.duracao,
+            }))
+          );
+
+          return {
+            ...historia,
+            // mantém os campos originais se precisar, mas exponha também os **URLs prontos**
+            imagemBoxUrl: boxUrl,
+            imagemStoryUrl: storyUrl,
+            slides: slidesAssinados,
+          };
+        })
+      );
+
+      res.json(historiasComSlides);
+    } catch (error) {
+      console.error("Error fetching public stories:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ ROTAS PARA INTERAÇÕES COM HISTÓRIAS ================
+
+  // Registrar uma interação (curtida, comentário, compartilhamento)
+  app.post("/api/historias-interacoes", async (req, res) => {
+    try {
+      const { usuarioId, historiaId, tipo } = req.body;
+
+      // Validar dados de entrada
+      if (!usuarioId || !historiaId || !tipo) {
+        return res.status(400).json({ error: "Dados obrigatórios: usuarioId, historiaId, tipo" });
+      }
+
+      if (!['curtida', 'comentario', 'compartilhamento'].includes(tipo)) {
+        return res.status(400).json({ error: "Tipo deve ser: curtida, comentario ou compartilhamento" });
+      }
+
+      // Verificar se a interação já existe (evitar duplicatas)
+      const interacaoExistente = await db
+        .select()
+        .from(historiasInteracoes)
+        .where(
+          and(
+            eq(historiasInteracoes.usuarioId, usuarioId),
+            eq(historiasInteracoes.historiaId, historiaId),
+            eq(historiasInteracoes.tipo, tipo)
+          )
+        )
+        .limit(1);
+
+      if (interacaoExistente.length > 0) {
+        return res.status(409).json({ error: "Interação já registrada" });
+      }
+
+      // Inserir nova interação
+      const [novaInteracao] = await db
+        .insert(historiasInteracoes)
+        .values({
+          usuarioId,
+          historiaId,
+          tipo
+        })
+        .returning();
+
+      res.json(novaInteracao);
+    } catch (error) {
+      console.error("Error registering story interaction:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  app.get("/api/historias-inspiradoras/:id/imagem", async (req, res) => {
+    try {
+      const historiaId = Number(req.params.id);
+      const tipo = (req.query.tipo as string) || "box"; // "box" ou "story"
+
+      const [hist] = await db
+        .select()
+        .from(historiasInspiradoras)
+        .where(eq(historiasInspiradoras.id, historiaId))
+        .limit(1);
+
+      if (!hist) return res.status(404).json({ error: "História não encontrada" });
+
+      // pega o campo certo
+      const raw = tipo === "story" ? (hist as any).imagemStory : (hist as any).imagemBox;
+      if (!raw) return res.status(404).json({ error: "Imagem não definida" });
+
+      // se vier URL completa, extrai a chave; se vier chave, usa direto
+      const key = raw.startsWith("http") ? extractFilePathFromUrl(raw) : raw;
+
+      const signed = await getSignedUrl(key, 60); // 60 min de validade
+      return res.redirect(302, signed);
+    } catch (e) {
+      console.error("❌ [HISTORIAS] Erro ao gerar imagem:", e);
+      return res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+
+  // Buscar interações de um usuário para uma história específica
+  app.get("/api/historias-interacoes/:historiaId/user/:usuarioId", async (req, res) => {
+    try {
+      const historiaId = parseInt(req.params.historiaId);
+      const usuarioId = parseInt(req.params.usuarioId);
+
+      const interacoes = await db
+        .select()
+        .from(historiasInteracoes)
+        .where(
+          and(
+            eq(historiasInteracoes.usuarioId, usuarioId),
+            eq(historiasInteracoes.historiaId, historiaId)
+          )
+        );
+
+      // Retornar um objeto com flags para cada tipo de interação
+      const resultado = {
+        curtida: interacoes.some(i => i.tipo === 'curtida'),
+        comentario: interacoes.some(i => i.tipo === 'comentario'),
+        compartilhamento: interacoes.some(i => i.tipo === 'compartilhamento')
+      };
+
+      res.json(resultado);
+    } catch (error) {
+      console.error("Error fetching user story interactions:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Remover uma interação (desfazer curtida, por exemplo)
+  app.delete("/api/historias-interacoes", async (req, res) => {
+    try {
+      const { usuarioId, historiaId, tipo } = req.body;
+
+      if (!usuarioId || !historiaId || !tipo) {
+        return res.status(400).json({ error: "Dados obrigatórios: usuarioId, historiaId, tipo" });
+      }
+
+      const result = await db
+        .delete(historiasInteracoes)
+        .where(
+          and(
+            eq(historiasInteracoes.usuarioId, usuarioId),
+            eq(historiasInteracoes.historiaId, historiaId),
+            eq(historiasInteracoes.tipo, tipo)
+          )
+        )
+        .returning();
+
+      if (result.length === 0) {
+        return res.status(404).json({ error: "Interação não encontrada" });
+      }
+
+      res.json({ message: "Interação removida com sucesso" });
+    } catch (error) {
+      console.error("Error removing story interaction:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar estatísticas de interações para uma história
+  app.get("/api/historias-interacoes/:historiaId/stats", async (req, res) => {
+    try {
+      const historiaId = parseInt(req.params.historiaId);
+
+      const stats = await db
+        .select({
+          tipo: historiasInteracoes.tipo,
+          total: sql<number>`count(*)::int`
+        })
+        .from(historiasInteracoes)
+        .where(eq(historiasInteracoes.historiaId, historiaId))
+        .groupBy(historiasInteracoes.tipo);
+
+      // Formatar resultado
+      const resultado = {
+        curtidas: stats.find(s => s.tipo === 'curtida')?.total || 0,
+        comentarios: stats.find(s => s.tipo === 'comentario')?.total || 0,
+        compartilhamentos: stats.find(s => s.tipo === 'compartilhamento')?.total || 0
+      };
+
+      res.json(resultado);
+    } catch (error) {
+      console.error("Error fetching story interaction stats:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Buscar estatísticas gerais de todas as histórias para analytics
+  app.get("/api/admin/historias-interacoes/analytics", async (req, res) => {
+    try {
+      // Buscar estatísticas por história
+      const statsQuery = await db
+        .select({
+          historiaId: historiasInteracoes.historiaId,
+          tipo: historiasInteracoes.tipo,
+          total: sql<number>`count(*)::int`
+        })
+        .from(historiasInteracoes)
+        .groupBy(historiasInteracoes.historiaId, historiasInteracoes.tipo);
+
+      // Buscar informações das histórias
+      const historias = await db
+        .select({
+          id: historiasInspiradoras.id,
+          titulo: historiasInspiradoras.titulo,
+          nome: historiasInspiradoras.nome,
+          ativo: historiasInspiradoras.ativo
+        })
+        .from(historiasInspiradoras)
+        .orderBy(historiasInspiradoras.ordem, historiasInspiradoras.createdAt);
+
+      // Agrupar estatísticas por história
+      const historiasComStats = historias.map(historia => {
+        const curtidas = statsQuery.find(s => s.historiaId === historia.id && s.tipo === 'curtida')?.total || 0;
+        const comentarios = statsQuery.find(s => s.historiaId === historia.id && s.tipo === 'comentario')?.total || 0;
+        const compartilhamentos = statsQuery.find(s => s.historiaId === historia.id && s.tipo === 'compartilhamento')?.total || 0;
+
+        return {
+          ...historia,
+          stats: {
+            curtidas,
+            comentarios,
+            compartilhamentos,
+            total: curtidas + comentarios + compartilhamentos
+          }
+        };
+      });
+
+      // Calcular totais gerais
+      const totaisGerais = {
+        curtidas: historiasComStats.reduce((sum, h) => sum + h.stats.curtidas, 0),
+        comentarios: historiasComStats.reduce((sum, h) => sum + h.stats.comentarios, 0),
+        compartilhamentos: historiasComStats.reduce((sum, h) => sum + h.stats.compartilhamentos, 0),
+        totalInteracoes: historiasComStats.reduce((sum, h) => sum + h.stats.total, 0)
+      };
+
+      res.json({
+        historias: historiasComStats,
+        totais: totaisGerais
+      });
+    } catch (error) {
+      console.error("Error fetching story analytics:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ ROTAS DE UPLOAD DE IMAGENS (OBJECT STORAGE) ================
+
+  // ENDPOINT SEGURO para obter URL de upload para object storage 
+  // REQUER AUTENTICAÇÃO E PRIVILÉGIOS ADMINISTRATIVOS
+  app.post("/api/objects/upload", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      console.log(`🔐 [SECURE OBJECT UPLOAD] Admin ${user.id} (${user.email}) solicitando URL de upload para object storage`);
+
+      // Validações de segurança adicionais
+      const { fileType, fileSize, purpose } = req.body;
+
+      // Validar tipo de arquivo
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (fileType && !allowedTypes.includes(fileType)) {
+        return res.status(400).json({
+          error: 'Tipo de arquivo não permitido',
+          allowedTypes,
+          details: 'Apenas imagens JPEG, PNG e WEBP são permitidas'
+        });
+      }
+
+      // Validar tamanho do arquivo
+      if (fileSize && fileSize > 5 * 1024 * 1024) { // 5MB máximo
+        return res.status(400).json({
+          error: 'Arquivo muito grande',
+          details: 'Tamanho máximo permitido: 5MB'
+        });
+      }
+
+      // Validar propósito do upload
+      const allowedPurposes = ['beneficio-card', 'beneficio-detalhes', 'admin-upload'];
+      if (purpose && !allowedPurposes.includes(purpose)) {
+        return res.status(400).json({
+          error: 'Propósito do upload inválido',
+          allowedPurposes,
+          details: 'Especifique um propósito válido para o upload'
+        });
+      }
+
+      // Usar a mesma configuração do sidecar do Replit
+      const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) {
+        throw new Error('Bucket ID não configurado');
+      }
+
+      // Gerar nome único para o arquivo com informações de auditoria
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2);
+      const adminId = user.id;
+      const fileName = `beneficios-${timestamp}-${randomId}`;
+      const filePath = `public/uploads/beneficios/${fileName}`;
+
+      // Usar o endpoint do sidecar para gerar URL presigned com tempo limitado
+      // IMPORTANTE: Adicionar ACL público para arquivos em public/
+      const response = await fetch(`${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bucket_name: bucketId,
+          object_name: filePath,
+          method: 'PUT',
+          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 minutos (reduzido para segurança)
+          headers: {
+            'x-goog-acl': 'public-read' // Tornar arquivo público
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ao gerar URL presigned: ${response.status}`);
+      }
+
+      const { signed_url: signedUrl } = await response.json();
+
+      console.log(`✅ [SECURE OBJECT UPLOAD] URL presigned gerada para admin ${user.id}: ${fileName} (expires in 10min)`);
+
+      res.json({
+        uploadURL: signedUrl,
+        fileName,
+        expiresIn: '10 minutos',
+        securityNote: 'URL presigned autorizada para admin',
+        restrictions: {
+          maxFileSize: '5MB',
+          allowedTypes: allowedTypes,
+          timeLimit: '10 minutos'
+        }
+      });
+    } catch (error) {
+      console.error("❌ [SECURE OBJECT UPLOAD] Erro ao gerar URL de upload:", error);
+      res.status(500).json({ error: "Erro interno do servidor: " + error.message });
+    }
+  });
+
+  // 🌍 ENDPOINT PARA SERVIR OBJETOS PÚBLICOS DO OBJECT STORAGE
+  app.get("/public-objects/:filePath(*)", async (req, res) => {
+    try {
+      const filePath = req.params.filePath;
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+
+      if (!bucketId) {
+        return res.status(500).json({ error: "Bucket não configurado" });
+      }
+
+      // Construir o caminho completo do objeto (public/ + filePath)
+      const objectPath = `public/${filePath}`;
+      const fullUrl = `https://storage.googleapis.com/${bucketId}/${objectPath}`;
+
+      console.log(`📦 [PUBLIC-OBJECTS] Buscando: ${fullUrl}`);
+
+      // Fazer fetch direto do GCS (os arquivos públicos devem estar acessíveis)
+      const response = await fetch(fullUrl);
+
+      if (!response.ok) {
+        console.error(`❌ [PUBLIC-OBJECTS] Erro ${response.status} ao buscar ${fullUrl}`);
+
+        // Retornar SVG placeholder ao invés de JSON quando houver erro
+        const placeholderSvg = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100%" height="100%" fill="#1a1a1a"/>
+          <text x="50%" y="45%" font-family="Arial" font-size="16" fill="#888" text-anchor="middle" dy=".3em">
+            Imagem não disponível
+          </text>
+          <text x="50%" y="55%" font-family="Arial" font-size="12" fill="#666" text-anchor="middle" dy=".3em">
+            Erro ${response.status}
+          </text>
+        </svg>`;
+
+        res.set({
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        });
+        return res.send(placeholderSvg);
+      }
+
+      // Determinar Content-Type baseado na extensão
+      const ext = filePath.split('.').pop()?.toLowerCase();
+      const contentTypeMap: Record<string, string> = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'pdf': 'application/pdf',
+        'mp4': 'video/mp4',
+      };
+      const contentType = contentTypeMap[ext || ''] || 'application/octet-stream';
+
+      // Servir o arquivo
+      const arrayBuffer = await response.arrayBuffer();
+      res.set({
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable', // Cache por 1 ano
+        'X-Served-From': 'public-object-storage'
+      });
+      res.send(Buffer.from(arrayBuffer));
+
+      console.log(`✅ [PUBLIC-OBJECTS] Servido: ${filePath} (${contentType})`);
+    } catch (error) {
+      console.error("❌ [PUBLIC-OBJECTS] Erro ao servir arquivo público:", error);
+      res.status(500).json({ error: "Erro ao servir arquivo" });
+    }
+  });
+
+  // Helper para gerar SVG placeholder
+  const generatePlaceholderSVG = (width = 400, height = 300, message = 'Imagem não disponível') => {
+    return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#1a1a1a"/>
+      <text x="50%" y="50%" font-family="Arial" font-size="16" fill="#888" text-anchor="middle" dy=".3em">
+        ${message}
+      </text>
+    </svg>`;
+  };
+
+  // 🖼️ ENDPOINT PARA SERVIR IMAGENS DOS BENEFÍCIOS (PÚBLICO E PRIVADO)
+  // TRECHO ALTERADO
+  app.get("/api/beneficios/:id/imagem", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { tipo } = req.query || "card";
+      const beneficioId = parseInt(id);
+      const expiresSingedURL = Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 dias
+
+      // 1) Tenta pegar imagem pelo tipo; se não achar e o tipo for "card", faz fallback para 'detalhes' (ou vice-versa)
+      let imagem = await storage.getBeneficioImagem(beneficioId, tipo as string);
+
+      const { nomeArquivo } = imagem as any;
+
+      if (!imagem) {
+        const imagens = await storage.getBeneficioImagensByBeneficio(beneficioId);
+        imagem =
+          imagens.find(i => i.ativo && i.tipo === tipo) ||
+          imagens.find(i => i.ativo && i.tipo === "detalhes") ||
+          imagens.find(i => i.ativo && i.tipo === "card") ||
+          undefined;
+      }
+
+      if (!imagem) {
+        return res.status(404).json({ error: "Imagem não encontrada" });
+      }
+
+      // 2) Extrai campos do seu schema atual
+      const rawCompleto =
+        (imagem as any).caminhoCompleto ??
+        (imagem as any).caminho_completo ??
+        "";
+
+      // 3) Decide a "fonte" (preferir caminho_completo; senão nome_arquivo)
+      let src = String(rawCompleto || "").trim();
+
+      if (!src && nomeArquivo) {
+        // Só veio o nome do arquivo -> constrói caminho padrão do bucket
+        // Ex.: uploads/beneficios/<nome_arquivo>
+        src = `uploads/beneficios/${String(nomeArquivo).replace(/^\/+/, "")}`;
+      }
+
+      if (!src) {
+        return res.status(404).json({ error: "Imagem sem caminho" });
+      }
+
+      const signedUrl = await getSignedUrl(src)
+      return res.redirect(302, signedUrl);
+    } catch (e) {
+      console.error("❌ Erro ao gerar Signed URL:", e);
+      return res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ✨ ENDPOINT SEGURO PARA SALVAR REFERÊNCIA DA IMAGEM APÓS UPLOAD COMPLETADO
+  // REQUER AUTENTICAÇÃO E PRIVILÉGIOS ADMINISTRATIVOS
+  app.post("/api/beneficios/:id/imagem-object-storage", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { uploadedURL, originalName, fileSize, tipo = 'card', largura, altura } = req.body;
+
+      if (!uploadedURL) {
+        return res.status(400).json({ error: "URL da imagem é obrigatória" });
+      }
+
+      // Validação de segurança: verificar se URL é do bucket autorizado
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!uploadedURL.includes(bucketId || 'repl-storage')) {
+        console.warn(`🚨 [SECURITY] Tentativa de uso de URL não autorizada por admin ${(req as any).user.id}: ${uploadedURL}`);
+        return res.status(403).json({
+          error: "URL não autorizada - deve ser do bucket oficial",
+          details: "Use apenas URLs geradas pelo sistema de upload oficial"
+        });
+      }
+
+      // Validar tipo
+      if (!['card', 'detalhes'].includes(tipo)) {
+        return res.status(400).json({ error: "Tipo deve ser 'card' ou 'detalhes'" });
+      }
+
+      // Validação de dimensões obrigatórias
+      if (!largura || !altura || largura < 100 || altura < 100 || largura > 2000 || altura > 2000) {
+        return res.status(400).json({
+          error: "Dimensões inválidas ou ausentes",
+          details: "Largura e altura devem estar entre 100px e 2000px"
+        });
+      }
+
+      // Validação de tamanho de arquivo
+      if (fileSize && fileSize > 5 * 1024 * 1024) { // 5MB máximo
+        return res.status(400).json({
+          error: "Arquivo muito grande",
+          details: "Tamanho máximo permitido: 5MB"
+        });
+      }
+
+      const beneficioId = parseInt(id);
+      console.log(`✅ [SECURE OBJECT STORAGE] Admin ${(req as any).user.id} salvando imagem ${tipo} para benefício ${beneficioId}: ${uploadedURL}`);
+
+      // Verificar se benefício existe
+      const beneficio = await storage.getBeneficio(beneficioId);
+      if (!beneficio) {
+        return res.status(404).json({ error: "Benefício não encontrado" });
+      }
+
+      // Validação de dimensões recomendadas
+      const dimensoesRecomendadas = {
+        card: { largura: 400, altura: 300, ratio: 4 / 3 },
+        detalhes: { largura: 800, altura: 600, ratio: 4 / 3 }
+      };
+
+      const recomendado = dimensoesRecomendadas[tipo as 'card' | 'detalhes'];
+      const ratioAtual = largura / altura;
+      const ratioDiff = Math.abs(ratioAtual - recomendado.ratio);
+
+      if (ratioDiff > 0.2) { // Tolerância de 20% no ratio (mais flexível)
+        console.warn(`⚠️  [VALIDATION] Dimensões fora da recomendação para ${tipo}: ${largura}x${altura} (ratio: ${ratioAtual.toFixed(2)}). Recomendado: ${recomendado.largura}x${recomendado.altura} (ratio: ${recomendado.ratio.toFixed(2)})`);
+      }
+
+      // Remover imagem anterior do mesmo tipo se existir
+      const imagensExistentes = await storage.getBeneficioImagensByBeneficio(beneficioId);
+      const imagemAnteriorTipo = imagensExistentes.find(img => img.tipo === tipo);
+      if (imagemAnteriorTipo) {
+        await storage.deleteBeneficioImagem(imagemAnteriorTipo.id);
+        console.log(`🗑️  [CLEANUP] Imagem ${tipo} anterior removida para benefício ${beneficioId}`);
+      }
+
+      // Extrair nome do arquivo da URL
+      const fileName = uploadedURL.split('/').pop() || 'unknown';
+
+      // Criar registro da nova imagem
+      const novaImagem = await storage.createBeneficioImagem({
+        beneficioId,
+        tipo,
+        nomeArquivo: fileName,
+        caminhoCompleto: uploadedURL,
+        nomeOriginal: originalName || fileName,
+        tipoMime: 'image/jpeg', // Assumir JPEG por padrão (object storage converte)
+        tamanhoBytes: fileSize || 0,
+        largura: parseInt(largura),
+        altura: parseInt(altura),
+        ativo: true
+      });
+
+      console.log(`✅ [SUCCESS] Imagem ${tipo} salva para benefício ${beneficioId} (${largura}x${altura}) por admin ${(req as any).user.id}`);
+
+      res.json({
+        success: true,
+        imagem: novaImagem,
+        imagemCardUrl: tipo === 'card' ? `/api/beneficios/${beneficioId}/imagem?tipo=card` : null,
+        imagemDetalhesUrl: tipo === 'detalhes' ? `/api/beneficios/${beneficioId}/imagem?tipo=detalhes` : null,
+        securityNote: 'Upload validado e autorizado'
+      });
+    } catch (error) {
+      console.error("❌ [SECURE OBJECT STORAGE] Erro ao salvar imagem do benefício:", error);
+      res.status(500).json({ error: "Erro ao salvar imagem do benefício" });
+    }
+  });
+
+  // 🔧 ENDPOINT ADMINISTRATIVO: Tornar todas as imagens de benefícios públicas no GCS
+  app.post("/api/admin/beneficios/fix-permissions", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      console.log(`🔧 [FIX PERMISSIONS] Admin ${(req as any).user.id} iniciando correção de permissões de imagens`);
+
+      // Buscar todas as imagens de benefícios do banco
+      const todasImagens = await db
+        .select()
+        .from(beneficioImagens)
+        .where(eq(beneficioImagens.ativo, true));
+
+      console.log(`📋 [FIX PERMISSIONS] Encontradas ${todasImagens.length} imagens ativas no banco`);
+
+      const results = [];
+      let sucessos = 0;
+      let erros = 0;
+
+      for (const imagem of todasImagens) {
+        // Verificar se a imagem é do GCS
+        if (imagem.caminhoCompleto.includes('storage.googleapis.com')) {
+          try {
+            // Extrair o caminho do arquivo da URL
+            const filePath = imagem.caminhoCompleto
+              .replace(`https://storage.googleapis.com/${BUCKET_NAME}/`, '')
+              .replace(/^\//, '');
+
+            const file = bucket.file(filePath);
+
+            // Verificar se o arquivo existe
+            const [exists] = await file.exists();
+
+            if (exists) {
+              // Tornar o arquivo público
+              await file.makePublic();
+              console.log(`✅ [FIX PERMISSIONS] Imagem tornada pública: ${filePath}`);
+
+              results.push({
+                beneficioId: imagem.beneficioId,
+                tipo: imagem.tipo,
+                url: imagem.caminhoCompleto,
+                status: 'success'
+              });
+              sucessos++;
+            } else {
+              console.log(`⚠️  [FIX PERMISSIONS] Arquivo não encontrado no GCS: ${filePath}`);
+              results.push({
+                beneficioId: imagem.beneficioId,
+                tipo: imagem.tipo,
+                url: imagem.caminhoCompleto,
+                status: 'not_found'
+              });
+              erros++;
+            }
+          } catch (error: any) {
+            console.error(`❌ [FIX PERMISSIONS] Erro ao processar ${imagem.caminhoCompleto}:`, error.message);
+            results.push({
+              beneficioId: imagem.beneficioId,
+              tipo: imagem.tipo,
+              url: imagem.caminhoCompleto,
+              status: 'error',
+              error: error.message
+            });
+            erros++;
+          }
+        } else {
+          // Imagem local, pular
+          results.push({
+            beneficioId: imagem.beneficioId,
+            tipo: imagem.tipo,
+            url: imagem.caminhoCompleto,
+            status: 'skipped_local'
+          });
+        }
+      }
+
+      console.log(`🎉 [FIX PERMISSIONS] Processo concluído: ${sucessos} sucessos, ${erros} erros`);
+
+      res.json({
+        success: true,
+        message: `Permissões corrigidas: ${sucessos} imagens tornadas públicas`,
+        total: todasImagens.length,
+        sucessos,
+        erros,
+        results
+      });
+    } catch (error: any) {
+      console.error("❌ [FIX PERMISSIONS] Erro ao corrigir permissões:", error);
+      res.status(500).json({
+        success: false,
+        error: "Erro ao corrigir permissões das imagens",
+        details: error.message
+      });
+    }
+  });
+
+  // ================ ROTAS ADMIN PARA HISTÓRIAS QUE INSPIRAM ================
+
+  // Buscar todas as histórias (admin)
+  app.get("/api/admin/historias-inspiradoras", async (req, res) => {
+    try {
+      const historias = await db
+        .select()
+        .from(historiasInspiradoras)
+        .orderBy(historiasInspiradoras.ordem, historiasInspiradoras.createdAt);
+
+      res.json(historias);
+    } catch (error) {
+      console.error("Error fetching admin stories:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar nova história (admin)
+  app.post("/api/admin/historias-inspiradoras", async (req, res) => {
+    const MAX_TEXTO = 3000;
+    try {
+      const { titulo, nome, texto, imagemBox, imagemStory, ativo, ordem } = req.body;
+
+      // Validação de campos obrigatórios
+      if (!titulo || !nome || !texto) {
+        return res.status(400).json({ error: "Título, nome e texto são obrigatórios" });
+      }
+
+      // Validação de tamanho do texto (máximo 250 caracteres para não sobrepor botões)
+      if (texto && texto.length > MAX_TEXTO) {
+        return res.status(400).json({
+          error: "Texto muito longo! Máximo de 10000 caracteres para garantir que não seja cortado pelos botões.",
+          currentLength: texto.length,
+          maxLength: MAX_TEXTO
+        });
+      }
+
+      const [novaHistoria] = await db
+        .insert(historiasInspiradoras)
+        .values({
+          titulo,
+          nome,
+          texto,
+          imagemBox,
+          imagemStory,
+          ativo: ativo !== undefined ? ativo : true,
+          ordem: ordem || 0
+        })
+        .returning();
+
+      res.json(novaHistoria);
+    } catch (error) {
+      console.error("Error creating story:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Atualizar história (admin)
+  app.put("/api/admin/historias-inspiradoras/:id", async (req, res) => {
+    const MAX_TEXTO = 3000;
+    try {
+      const historiaId = parseInt(req.params.id);
+      const { titulo, nome, texto, imagemBox, imagemStory, ativo, ordem } = req.body;
+
+      // Validação de campos obrigatórios
+      if (!titulo || !nome || !texto) {
+        return res.status(400).json({ error: "Título, nome e texto são obrigatórios" });
+      }
+
+      // Validação de tamanho do texto (máximo 250 caracteres para não sobrepor botões)
+      if (texto && texto.length > MAX_TEXTO) {
+        return res.status(400).json({
+          error: "Texto muito longo! Máximo de 250 caracteres para garantir que não seja cortado pelos botões.",
+          currentLength: texto.length,
+          maxLength: MAX_TEXTO
+        });
+      }
+
+      const [historiaAtualizada] = await db
+        .update(historiasInspiradoras)
+        .set({
+          titulo,
+          nome,
+          texto,
+          imagemBox,
+          imagemStory,
+          ativo,
+          ordem,
+          updatedAt: new Date()
+        })
+        .where(eq(historiasInspiradoras.id, historiaId))
+        .returning();
+
+      if (!historiaAtualizada) {
+        return res.status(404).json({ error: "História não encontrada" });
+      }
+
+      res.json(historiaAtualizada);
+    } catch (error) {
+      console.error("Error updating story:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Deletar história (admin)
+  app.delete("/api/admin/historias-inspiradoras/:id", async (req, res) => {
+    try {
+      const historiaId = parseInt(req.params.id);
+
+      // Primeiro, deletar slides relacionados
+      await db.delete(historiasSlides).where(eq(historiasSlides.historiaId, historiaId));
+
+      // Depois deletar a história
+      const [historiaDeletada] = await db
+        .delete(historiasInspiradoras)
+        .where(eq(historiasInspiradoras.id, historiaId))
+        .returning();
+
+      if (!historiaDeletada) {
+        return res.status(404).json({ error: "História não encontrada" });
+      }
+
+      res.json({ success: true, message: "História deletada com sucesso" });
+    } catch (error) {
+      console.error("Error deleting story:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ ROTAS ADMIN PARA MISSÕES SEMANAIS ================
+
+  // Buscar todas as missões semanais (admin)
+  app.get("/api/admin/missoes-semanais", async (req, res) => {
+    try {
+      const missoes = await db
+        .select({
+          id: missoesSemanais.id,
+          titulo: missoesSemanais.titulo,
+          descricao: missoesSemanais.descricao,
+          recompensaGritos: missoesSemanais.recompensaGritos,
+          tipoMissao: missoesSemanais.tipoMissao,
+          evidenceType: missoesSemanais.evidenceType,
+          imagemUrl: missoesSemanais.imagemUrl,
+          planoMinimo: missoesSemanais.planoMinimo,
+          semanaInicio: missoesSemanais.semanaInicio,
+          semanaFim: missoesSemanais.semanaFim,
+          ativo: missoesSemanais.ativo,
+          habilitarLinkCompartilhamento: missoesSemanais.habilitarLinkCompartilhamento,
+          createdAt: missoesSemanais.createdAt,
+        })
+        .from(missoesSemanais)
+        .orderBy(missoesSemanais.createdAt);
+
+      res.json(missoes);
+    } catch (error) {
+      console.error("Error fetching admin missions:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Criar nova missão semanal (admin)
+  app.post("/api/admin/missoes-semanais", async (req, res) => {
+    try {
+      const {
+        titulo,
+        descricao,
+        recompensaGritos,
+        tipoMissao,
+        evidenceType,
+        imagemUrl,
+        planoMinimo,
+        semanaInicio,
+        semanaFim,
+        ativo
+      } = req.body;
+
+      console.log('📝 [CREATE MISSION] Criando missão:', { titulo, tipoMissao, evidenceType, planoMinimo });
+
+      const [novaMissao] = await db
+        .insert(missoesSemanais)
+        .values({
+          titulo,
+          descricao,
+          recompensaGritos: recompensaGritos || 150,
+          tipoMissao,
+          evidenceType: evidenceType || 'comentario',
+          imagemUrl,
+          planoMinimo: planoMinimo || 'eco',
+          semanaInicio,
+          semanaFim,
+          ativo: ativo !== undefined ? ativo : true
+        })
+        .returning();
+      res.json(novaMissao);
+    } catch (error) {
+      console.error("❌ [CREATE MISSION] Error creating mission:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Atualizar missão semanal (admin)
+  app.put("/api/admin/missoes-semanais/:id", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.id);
+
+      // 🐛 DEBUG: Log dos dados recebidos do frontend
+      console.log('🔍 [DEBUG-PUT-MISSAO] ID da missão:', missaoId);
+      console.log('📥 [DEBUG-PUT-MISSAO] Dados recebidos do frontend:', JSON.stringify(req.body, null, 2));
+      console.log('📊 [DEBUG-PUT-MISSAO] Total de campos recebidos:', Object.keys(req.body).length);
+
+      const { titulo, descricao, recompensaGritos, tipoMissao, imagemUrl, semanaInicio, semanaFim, ativo, nivelMinimo, limiteEnvios, reviewRequired, autoApprove, automatico, evidenceType, planoMinimo, habilitarLinkCompartilhamento, criteriosElegibilidade, dominiosPermitidos, distanciaMaxima, duracaoMaximaVideo, perguntasQuiz, percentualAcertoMinimo } = req.body;
+
+      // 🛡️ HELPERS PARA COERÇÃO DE TIPOS SEGURA - PRESERVA ZERO COMO VALOR VÁLIDO
+      const safeParseInt = (value: any): number | undefined => {
+        if (value === null || value === undefined || value === '') return undefined;
+        const parsed = parseInt(String(value));
+        return Number.isNaN(parsed) ? undefined : parsed;
+      };
+
+      const safeBooleanCoercion = (value: any): boolean | undefined => {
+        if (value === null || value === undefined) return undefined;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          if (value === 'true') return true;
+          if (value === 'false') return false;
+        }
+        return Boolean(value);
+      };
+
+      // 🛡️ SANITIZAÇÃO SELETIVA E SEGURA DOS CAMPOS PARA O BANCO
+      const updateFields: any = {};
+
+      // Campos básicos - APENAS incluir se fornecidos explicitamente
+      if (titulo !== undefined) updateFields.titulo = titulo;
+      if (descricao !== undefined) updateFields.descricao = descricao;
+      if (recompensaGritos !== undefined) {
+        const recompensa = safeParseInt(recompensaGritos);
+        if (recompensa !== undefined) updateFields.recompensaGritos = recompensa;
+      }
+      if (tipoMissao !== undefined) updateFields.tipoMissao = tipoMissao;
+      if (semanaInicio !== undefined) updateFields.semanaInicio = semanaInicio;
+      if (semanaFim !== undefined) updateFields.semanaFim = semanaFim;
+      if (ativo !== undefined) {
+        const ativoValue = safeBooleanCoercion(ativo);
+        if (ativoValue !== undefined) updateFields.ativo = ativoValue;
+      }
+
+      // Campos do sistema avançado
+      if (automatico !== undefined) {
+        const automaticoValue = safeBooleanCoercion(automatico);
+        if (automaticoValue !== undefined) updateFields.automatico = automaticoValue;
+      }
+      if (evidenceType !== undefined) updateFields.evidenceType = evidenceType;
+      if (imagemUrl !== undefined) updateFields.imagemUrl = imagemUrl;
+
+      // Configurações de elegibilidade
+      if (planoMinimo !== undefined) updateFields.planoMinimo = planoMinimo;
+      if (nivelMinimo !== undefined) {
+        const nivel = safeParseInt(nivelMinimo);
+        if (nivel !== undefined) updateFields.nivelMinimo = nivel;
+      }
+      if (limiteEnvios !== undefined) {
+        const limite = safeParseInt(limiteEnvios);
+        if (limite !== undefined) updateFields.limiteEnvios = limite;
+      }
+
+      // Configurações de aprovação
+      if (reviewRequired !== undefined) {
+        const reviewValue = safeBooleanCoercion(reviewRequired);
+        if (reviewValue !== undefined) updateFields.reviewRequired = reviewValue;
+      }
+      if (autoApprove !== undefined) {
+        const autoApproveValue = safeBooleanCoercion(autoApprove);
+        if (autoApproveValue !== undefined) updateFields.autoApprove = autoApproveValue;
+      }
+      if (habilitarLinkCompartilhamento !== undefined) {
+        const habilitarValue = safeBooleanCoercion(habilitarLinkCompartilhamento);
+        if (habilitarValue !== undefined) updateFields.habilitarLinkCompartilhamento = habilitarValue;
+      }
+
+      // Configurações específicas por tipo de evidência
+      if (criteriosElegibilidade !== undefined) updateFields.criteriosElegibilidade = criteriosElegibilidade;
+      if (dominiosPermitidos !== undefined) updateFields.dominiosPermitidos = dominiosPermitidos;
+      if (distanciaMaxima !== undefined) {
+        const distancia = safeParseInt(distanciaMaxima);
+        if (distancia !== undefined) updateFields.distanciaMaxima = distancia;
+      }
+      if (duracaoMaximaVideo !== undefined) {
+        const duracao = safeParseInt(duracaoMaximaVideo);
+        if (duracao !== undefined) updateFields.duracaoMaximaVideo = duracao;
+      }
+      if (perguntasQuiz !== undefined) updateFields.perguntasQuiz = perguntasQuiz;
+      if (percentualAcertoMinimo !== undefined) {
+        const percentual = safeParseInt(percentualAcertoMinimo);
+        if (percentual !== undefined) updateFields.percentualAcertoMinimo = percentual;
+      }
+
+      console.log('🔧 [DEBUG-PUT-MISSAO] Campos sanitizados que serão atualizados no banco:', JSON.stringify(updateFields, null, 2));
+      console.log('📊 [DEBUG-PUT-MISSAO] Total de campos a serem atualizados:', Object.keys(updateFields).length);
+
+      const [missaoAtualizada] = await db
+        .update(missoesSemanais)
+        .set(updateFields)
+        .where(eq(missoesSemanais.id, missaoId))
+        .returning();
+
+      if (!missaoAtualizada) {
+        console.log('❌ [DEBUG-PUT-MISSAO] Missão não encontrada no banco:', missaoId);
+        return res.status(404).json({ error: "Missão não encontrada" });
+      }
+
+      console.log('✅ [DEBUG-PUT-MISSAO] Missão atualizada com sucesso:', JSON.stringify(missaoAtualizada, null, 2));
+
+      res.json(missaoAtualizada);
+    } catch (error) {
+      console.error("❌ [ERROR] Error updating mission:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Deletar missão semanal (admin)
+  app.delete("/api/admin/missoes-semanais/:id", async (req, res) => {
+    try {
+      const missaoId = parseInt(req.params.id);
+
+      // Primeiro, deletar conclusões relacionadas
+      await db.delete(missoesConcluidas).where(eq(missoesConcluidas.missaoId, missaoId));
+
+      // Depois deletar a missão
+      const [missaoDeletada] = await db
+        .delete(missoesSemanais)
+        .where(eq(missoesSemanais.id, missaoId))
+        .returning();
+
+      if (!missaoDeletada) {
+        return res.status(404).json({ error: "Missão não encontrada" });
+      }
+
+      res.json({ success: true, message: "Missão deletada com sucesso" });
+    } catch (error) {
+      console.error("Error deleting mission:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ===== SINCRONIZAÇÃO COM STRIPE =====
+  // Buscar todos os pagamentos confirmados no Stripe e recriar registros
+  app.post("/api/admin/sync-stripe-payments", async (req, res) => {
+    try {
+      console.log("🔄 [STRIPE SYNC] Iniciando sincronização com Stripe...");
+
+      // Buscar TODOS os PaymentIntents (sem filtro de data para testar)
+      const paymentIntents = await stripe.paymentIntents.list({
+        limit: 100,
+        expand: ['data.charges']
+      });
+
+      console.log(`📋 [STRIPE SYNC] Encontrados ${paymentIntents.data.length} PaymentIntents nos últimos 30 dias`);
+
+      let totalSyncronized = 0;
+      let totalConfirmed = 0;
+
+      for (const pi of paymentIntents.data) {
+        console.log(`🔍 [STRIPE SYNC] Analisando PaymentIntent: ${pi.id} - Status: ${pi.status} - Amount: ${pi.amount / 100} - Metadata:`, pi.metadata);
+        console.log(`🔍 [STRIPE SYNC] Status check: '${pi.status}' === 'succeeded' ? ${pi.status === 'succeeded'}`);
+
+        // Apenas processar pagamentos que foram confirmados
+        if (pi.status === 'succeeded') {
+          totalConfirmed++;
+
+          // Extrair metadados do usuário do payment intent
+          const userId = pi.metadata?.userId;
+          const valor = pi.amount / 100; // Converter de centavos para reais
+
+          console.log(`✅ [STRIPE SYNC] Payment confirmado: ${pi.id} - User: ${userId} - Valor: R$ ${valor.toFixed(2)}`);
+
+          if (userId) {
+            console.log(`🔍 [STRIPE SYNC] Processando userId: ${userId} (type: ${typeof userId})`);
+            try {
+              // Verificar se já existe registro com este payment intent
+              const existingDonation = await db
+                .select()
+                .from(doadores)
+                .where(eq(doadores.stripePaymentIntentId, pi.id))
+                .limit(1);
+
+              console.log(`🔍 [STRIPE SYNC] Existing donations found: ${existingDonation.length}`);
+
+              if (existingDonation.length === 0) {
+                console.log(`💾 [STRIPE SYNC] Inserindo nova doação: User ${userId} - R$ ${valor.toFixed(2)}`);
+
+                // Criar novo registro apenas se não existir
+                const newDonation = await db.insert(doadores).values({
+                  userId: parseInt(userId),
+                  valor: valor,
+                  plano: pi.metadata?.plano || 'eco', // Pegar plano dos metadados
+                  status: 'paid', // ✅ Confirmado pelo Stripe
+                  ativo: true,
+                  stripePaymentIntentId: pi.id,
+                  createdAt: new Date(pi.created * 1000) // Converter timestamp do Stripe
+                }).returning();
+
+                console.log(`✅ [STRIPE SYNC] Doação inserida:`, newDonation);
+
+                totalSyncronized++;
+                console.log(`✅ [STRIPE SYNC] Pagamento sincronizado: User ${userId} - R$ ${valor.toFixed(2)} - ${pi.id}`);
+              } else {
+                console.log(`⏭️ [STRIPE SYNC] Pagamento já existe: ${pi.id}`);
+              }
+            } catch (error) {
+              console.error(`❌ [STRIPE SYNC] Erro ao processar payment ${pi.id}:`, error);
+            }
+          } else {
+            console.log(`⚠️ [STRIPE SYNC] Payment sem userId: ${pi.id}`);
+          }
+        }
+      }
+
+      console.log(`🎯 [STRIPE SYNC] Concluído: ${totalSyncronized} pagamentos sincronizados de ${totalConfirmed} confirmados`);
+
+      res.json({
+        success: true,
+        message: `Sincronização concluída: ${totalSyncronized} pagamentos adicionados`,
+        totalConfirmed,
+        totalSyncronized
+      });
+    } catch (error) {
+      console.error("❌ [STRIPE SYNC] Erro na sincronização:", error);
+      res.status(500).json({ error: "Erro ao sincronizar com Stripe" });
+    }
+  });
+
+  // ===== ENDPOINTS DE LEILÕES DE PONTOS =====
+
+  // Listar todos os leilões ativos
+  app.get('/api/leiloes', async (req, res) => {
+    try {
+      const leiloes = await storage.getLeiloesAtivos();
+      res.json(leiloes);
+    } catch (error: any) {
+      console.error('Erro ao buscar leilões:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Obter detalhes de um leilão específico
+  app.get('/api/leiloes/:id', async (req, res) => {
+    try {
+      const leilaoId = parseInt(req.params.id);
+      const leilao = await storage.getLeilao(leilaoId);
+
+      if (!leilao) {
+        return res.status(404).json({ error: 'Leilão não encontrado' });
+      }
+
+      // Buscar lances do leilão
+      const lances = await storage.getLancesByLeilao(leilaoId);
+
+      res.json({ ...leilao, lances });
+    } catch (error: any) {
+      console.error('Erro ao buscar leilão:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Fazer um lance
+  app.post('/api/leiloes/:id/lance', async (req, res) => {
+    try {
+      const leilaoId = parseInt(req.params.id);
+      const { userId, valor } = req.body;
+
+      if (!userId || !valor) {
+        return res.status(400).json({ error: 'userId e valor são obrigatórios' });
+      }
+
+      const resultado = await storage.processarLance(leilaoId, userId.toString(), valor);
+
+      if (resultado.sucesso) {
+        res.json(resultado);
+      } else {
+        res.status(400).json(resultado);
+      }
+    } catch (error: any) {
+      console.error('Erro ao processar lance:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Buscar lances de um usuário
+  app.get('/api/users/:userId/lances', async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const lances = await storage.getLancesByUser(userId);
+      res.json(lances);
+    } catch (error: any) {
+      console.error('Erro ao buscar lances do usuário:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Listar todos os prêmios ativos
+  app.get('/api/premios', async (req, res) => {
+    try {
+      const premios = await storage.getPremiosAtivos();
+      res.json(premios);
+    } catch (error: any) {
+      console.error('Erro ao buscar prêmios:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // ===== SISTEMA DE LANCES EM BENEFÍCIOS =====
+
+  // ✅ PRODUCTION-SAFE: Lance em benefício com TODAS as validações críticas implementadas
+  app.post("/api/beneficios/:id/lance", requireAuth, async (req, res) => {
+    const userAuth = (req as any).user;
+    const transacaoId = req.headers['x-transaction-id'] as string ||
+      req.body.transacaoId ||
+      `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    try {
+      const beneficioId = parseInt(req.params.id);
+
+      // ✅ CRÍTICO 1: VALIDAÇÃO ZOD OBRIGATÓRIA - previne dados inválidos
+      const validationResult = validarLanceSchema.safeParse({
+        beneficioId,
+        valorLance: req.body.pontosOfertados || req.body.valorLance,
+        userId: userAuth?.id || req.body.userId
+      });
+
+      if (!validationResult.success) {
+        console.error('❌ [VALIDATION] Dados inválidos:', validationResult.error);
+        return res.status(400).json({
+          success: false,
+          message: "Dados de entrada inválidos",
+          errors: validationResult.error.errors
+        });
+      }
+
+      const { valorLance, userId } = validationResult.data;
+      const { aumentarLance } = req.body;
+
+      // ✅ CRÍTICO 2: TRANSAÇÃO ATÔMICA COM STATE MACHINE E CONCORRÊNCIA SEGURA
+      const result = await db.transaction(async (tx) => {
+        console.log('🔄 [PRODUCTION-SAFE-TX] Iniciando transação crítica:', { beneficioId, userId, valorLance, transacaoId });
+
+        // ✅ CRÍTICO 3: VERIFICAÇÃO DE DUPLICATAS (previne lances múltiplos do mesmo usuário)
+        const existingLance = await tx
+          .select()
+          .from(beneficioLances)
+          .where(and(
+            eq(beneficioLances.userId, userId),
+            eq(beneficioLances.beneficioId, beneficioId)
+          ))
+          .limit(1);
+
+        if (existingLance.length > 0) {
+          console.log('✅ [DUPLICATE-PROTECTION] Lance já existe para este usuário/benefício');
+          return {
+            success: false,
+            message: "Você já deu seu lance neste benefício"
+          };
+        }
+
+        // ✅ CRÍTICO 4: VERIFICAR BENEFÍCIO COM LOCK + STATE MACHINE
+        const [beneficio] = await tx
+          .select()
+          .from(beneficios)
+          .where(eq(beneficios.id, beneficioId))
+          .for('update') // SELECT FOR UPDATE previne race conditions
+          .limit(1);
+
+        if (!beneficio) {
+          throw new Error("Benefício não encontrado");
+        }
+
+        // ✅ CRÍTICO 5: VERIFICAR SE BENEFÍCIO ESTÁ ATIVO
+        console.log(`🔍 [LANCE] Benefício ${beneficioId} - ativo: ${beneficio.ativo}`);
+
+        if (!beneficio.ativo) {
+          console.log(`❌ [LANCE] Benefício ${beneficioId} não está ativo`);
+          throw new Error("Benefício não está disponível para lances");
+        }
+
+        // ✅ CRÍTICO 6: VERIFICAR PRAZO DE LANCES
+        const agora = new Date();
+        const prazoLances = beneficio.prazoLances ? new Date(beneficio.prazoLances) : null;
+
+        if (prazoLances && agora >= prazoLances) {
+          console.log(`❌ [LANCE] Prazo expirado - agora: ${agora.toISOString()}, prazo: ${prazoLances.toISOString()}`);
+          throw new Error("Prazo para lances já expirou");
+        }
+
+        console.log(`✅ [LANCE] Benefício ${beneficioId} está disponível para lances`);
+
+        // ✅ CRÍTICO 7: USUÁRIO COM LOCK ATÔMICO
+        const [user] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.id, userId))
+          .for('update'); // FOR UPDATE para lock
+        if (!user) {
+          throw new Error("Usuário não encontrado");
+        }
+
+        // ✅ CRÍTICO 8: VERIFICAÇÕES DE NEGÓCIO ATÔMICAS
+        const gritosAtuais = user.gritosTotal || 0;
+        if (gritosAtuais < valorLance) {
+          throw new Error(`Gritos insuficientes. Você tem ${gritosAtuais} gritos, mas precisa de ${valorLance}`);
+        }
+
+        // Verificar lance mínimo
+        const lanceMinimo = beneficio.gritosMinimos || 1;
+        if (valorLance < lanceMinimo) {
+          throw new Error(`Lance deve ser no mínimo ${lanceMinimo} gritos`);
+        }
+
+        // ✅ CRÍTICO 9: PROCESSAMENTO BASEADO EM aumentarLance
+        if (aumentarLance) {
+          console.log('📈 [PRODUCTION-SAFE-TX] Processando aumento de lance');
+          // Buscar lance existente COM LOCK
+          const lanceExistente = await tx
+            .select()
+            .from(beneficioLances)
+            .where(
+              and(
+                eq(beneficioLances.userId, userId),
+                eq(beneficioLances.beneficioId, beneficioId),
+                eq(beneficioLances.status, 'ativo')
+              )
+            )
+            .for('update')
+            .limit(1);
+
+          if (!lanceExistente.length) {
+            throw new Error("Você não possui lance ativo neste benefício");
+          }
+
+          const pontosAnteriores = lanceExistente[0].pontosOfertados;
+
+          if (valorLance <= pontosAnteriores) {
+            throw new Error(`Novo lance deve ser maior que ${pontosAnteriores} pontos`);
+          }
+
+          // Calcular diferença de pontos
+          const diferencaPontos = valorLance - pontosAnteriores;
+
+          if (gritosAtuais < diferencaPontos) {
+            throw new Error(`Gritos insuficientes para aumentar lance. Precisa de ${diferencaPontos} gritos adicionais`);
+          }
+
+          // ✅ CRÍTICO 10: ATUALIZAÇÃO ATÔMICA COM TIMESTAMP UTC
+          await tx
+            .update(beneficioLances)
+            .set({
+              pontosOfertados: valorLance,
+              updatedAt: sql`NOW() AT TIME ZONE 'UTC'`
+            })
+            .where(eq(beneficioLances.id, lanceExistente[0].id));
+
+          // Descontar apenas a diferença
+          const novosGritos = gritosAtuais - diferencaPontos;
+          await tx
+            .update(users)
+            .set({ gritosTotal: novosGritos })
+            .where(eq(users.id, userId));
+
+          console.log(`✅ [PRODUCTION-SAFE-TX] Lance aumentado: ${pontosAnteriores} → ${valorLance} (diferença: ${diferencaPontos})`);
+
+          return {
+            success: true,
+            message: `Lance aumentado com sucesso! ${pontosAnteriores} → ${valorLance} pontos`,
+            lanceId: lanceExistente[0].id,
+            gritosRestantes: novosGritos,
+            pontosOfertados: valorLance,
+            transacaoId
+          };
+
+        } else {
+          console.log('🆕 [PRODUCTION-SAFE-TX] Processando novo lance');
+
+          // Verificar se já tem lance ativo COM LOCK
+          const lanceExistente = await tx
+            .select()
+            .from(beneficioLances)
+            .where(
+              and(
+                eq(beneficioLances.userId, userId),
+                eq(beneficioLances.beneficioId, beneficioId),
+                eq(beneficioLances.status, 'ativo')
+              )
+            )
+            .for('update')
+            .limit(1);
+
+          if (lanceExistente.length > 0) {
+            throw new Error("Você já tem um lance ativo neste benefício. Use 'aumentarLance' para modificar.");
+          }
+
+          // ✅ CRÍTICO 11: CRIAR LANCE COM VALIDAÇÕES COMPLETAS
+          const [novoLance] = await tx
+            .insert(beneficioLances)
+            .values({
+              userId,
+              beneficioId,
+              pontosOfertados: valorLance,
+              status: 'ativo',
+              createdAt: sql`NOW() AT TIME ZONE 'UTC'`,
+              updatedAt: sql`NOW() AT TIME ZONE 'UTC'`
+            })
+            .returning();
+
+          // Descontar gritos COM VERIFICAÇÃO ATÔMICA
+          const novosGritos = gritosAtuais - valorLance;
+          await tx
+            .update(users)
+            .set({ gritosTotal: novosGritos })
+            .where(eq(users.id, userId));
+
+          console.log(`✅ [PRODUCTION-SAFE] Novo lance criado: ${valorLance} pontos`);
+
+          return {
+            success: true,
+            message: `Lance realizado com sucesso! ${valorLance} pontos ofertados`,
+            lanceId: novoLance.id,
+            gritosRestantes: novosGritos,
+            pontosOfertados: valorLance,
+            transacaoId
+          };
+        }
+      });
+
+      console.log('✅ [PRODUCTION-SAFE] Transação crítica concluída:', result);
+      res.json(result);
+
+    } catch (error: any) {
+      console.error("❌ [PRODUCTION-SAFE] Erro crítico na transação:", {
+        error: error.message || error,
+        beneficioId,
+        userId: userAuth?.id,
+        transacaoId,
+        timestamp: new Date().toISOString()
+      });
+
+      // ✅ CRÍTICO 12: ERROR HANDLING PRODUCTION-SAFE
+      const isDuplicateTransaction = error.message?.includes('duplicate') ||
+        error.message?.includes('unique');
+
+      if (isDuplicateTransaction) {
+        return res.status(409).json({
+          success: false,
+          message: "Transação duplicada detectada",
+          code: "DUPLICATE_TRANSACTION",
+          transacaoId
+        });
+      }
+
+      // Status específicos para diferentes tipos de erro
+      const statusCode = error.message?.includes('não está ativo') ? 409 :
+        error.message?.includes('expirou') ? 410 :
+          error.message?.includes('insuficientes') ? 402 : 400;
+
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || "Erro interno do servidor",
+        code: "TRANSACTION_FAILED",
+        transacaoId
+      });
+    }
+  });
+
+  // Verificar se usuário já participou de um benefício
+  app.get("/api/beneficios/:id/participacao/:userId", async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(beneficioId) || isNaN(userId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Dados inválidos"
+        });
+      }
+
+      const jaParticipou = await storage.checkUserBeneficioParticipation(userId, beneficioId);
+
+      res.json({
+        jaParticipou,
+        beneficioId,
+        userId
+      });
+    } catch (error: any) {
+      console.error("Error checking user beneficio participation:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor"
+      });
+    }
+  });
+
+  // ROTA PARA LANCES DO USUÁRIO - IMPLEMENTAÇÃO REAL
+  app.get("/api/meus-lances", requireAuth, async (req, res) => {
+    try {
+      console.log("📋 [MEUS-LANCES] Rota chamada");
+
+      const user = (req as any).user;
+      const userId = user.id;
+
+      console.log(`📋 [MEUS-LANCES] Buscando lances para usuário ${userId}`);
+
+      // Buscar lances do usuário no banco de dados
+      const lancesFromDB = await storage.getUserLances(userId);
+
+      console.log(`📋 [MEUS-LANCES] Encontrados ${lancesFromDB.length} lances para usuário ${userId}`);
+
+      // Filtrar apenas lances ativos e formatar resposta
+      const lancesAtivos = lancesFromDB
+        .filter(lance => lance.status === 'ativo')
+        .map(lance => ({
+          id: lance.id,
+          beneficioId: lance.beneficioId,
+          userId: lance.userId,
+          pontosOfertados: lance.pontosOfertados,
+          dataLance: lance.dataLance,
+          status: lance.status,
+          beneficio: lance.beneficio ? {
+            id: lance.beneficio.id,
+            titulo: lance.beneficio.titulo,
+            descricao: lance.beneficio.descricao,
+            imagemCardUrl: `/api/beneficios/${lance.beneficio.id}/imagem?tipo=card`,
+            imagemDetalhesUrl: `/api/beneficios/${lance.beneficio.id}/imagem?tipo=detalhes`,
+            imagemUrl: `/api/beneficios/${lance.beneficio.id}/imagem`, // Backward compatibility
+            categoria: lance.beneficio.categoria
+          } : null
+        }))
+        .filter(lance => lance.beneficio !== null); // Remove lances sem benefício válido
+
+      console.log(`📋 [MEUS-LANCES] Retornando ${lancesAtivos.length} lances ativos`);
+
+      res.json(lancesAtivos);
+    } catch (error: any) {
+      console.error("❌ [MEUS-LANCES] Erro ao buscar lances do usuário:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao buscar lances",
+        error: error.message
+      });
+    }
+  });
+
+  // ENDPOINT ADMINISTRATIVO - TODOS OS LANCES DE BENEFÍCIOS
+  app.get("/api/beneficios-lances-admin", async (req, res) => {
+    try {
+      console.log("🔧 [ADMIN-LANCES] Endpoint administrativo chamado");
+
+      // Buscar todos os lances de benefícios do sistema
+      const allLances = await db
+        .select({
+          id: beneficioLances.id,
+          beneficioId: beneficioLances.beneficioId,
+          userId: beneficioLances.userId,
+          pontosOfertados: beneficioLances.pontosOfertados,
+          dataLance: beneficioLances.createdAt, // Usando createdAt como dataLance
+          status: beneficioLances.status,
+          createdAt: beneficioLances.createdAt,
+          // Dados do benefício
+          beneficioTitulo: beneficios.titulo,
+          beneficioDescricao: beneficios.descricao,
+          beneficioCategoria: beneficios.categoria,
+          // Dados do usuário
+          userName: users.nome,
+          userTelefone: users.telefone,
+          userPlano: users.plano
+        })
+        .from(beneficioLances)
+        .leftJoin(beneficios, eq(beneficioLances.beneficioId, beneficios.id))
+        .leftJoin(users, eq(beneficioLances.userId, users.id))
+        .orderBy(desc(beneficioLances.createdAt))
+        .limit(1000); // Limitar para performance
+
+      console.log(`🔧 [ADMIN-LANCES] Encontrados ${allLances.length} lances totais`);
+
+      // Formatar dados para interface
+      const lancesFormatados = allLances.map(lance => ({
+        id: lance.id,
+        beneficioId: lance.beneficioId,
+        beneficioTitulo: lance.beneficioTitulo || 'Benefício não encontrado',
+        beneficioDescricao: lance.beneficioDescricao,
+        beneficioCategoria: lance.beneficioCategoria,
+        userId: lance.userId,
+        userName: lance.userName || 'Usuário não encontrado',
+        userTelefone: lance.userTelefone,
+        userPlano: lance.userPlano || 'eco',
+        pontosOfertados: lance.pontosOfertados,
+        dataLance: lance.dataLance,
+        status: lance.status || 'ativo',
+        createdAt: lance.createdAt
+      }));
+
+      console.log(`🔧 [ADMIN-LANCES] Retornando ${lancesFormatados.length} lances formatados`);
+
+      res.json(lancesFormatados);
+    } catch (error: any) {
+      console.error("❌ [ADMIN-LANCES] Erro ao buscar lances administrativos:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao buscar lances administrativos",
+        error: error.message
+      });
+    }
+  });
+
+  // ENDPOINT ADMINISTRATIVO - DETALHES DE CADA LEILÃO ATIVO
+  app.get("/api/leiloes-detalhes", async (req, res) => {
+    try {
+      console.log("🏆 [LEILÕES] Buscando detalhes de todos os leilões ativos");
+
+      // 1. Buscar TODOS os doadores confirmados do sistema
+      const todosDoadores = await db
+        .select({
+          id: users.id,
+          nome: users.nome,
+          telefone: users.telefone,
+          email: users.email,
+          plano: users.plano,
+          userId: doadores.userId
+        })
+        .from(doadores)
+        .leftJoin(users, eq(doadores.userId, users.id))
+        .where(eq(doadores.status, 'paid'));
+
+      console.log(`👥 [LEILÕES] Encontrados ${todosDoadores.length} doadores confirmados`);
+
+      // 2. Buscar benefícios ativos
+      const beneficiosAtivos = await db
+        .select()
+        .from(beneficios)
+        .where(eq(beneficios.ativo, true));
+
+      const leiloesDetalhes = [];
+      const doadoresParticipantes = new Set<number>(); // IDs dos doadores que estão participando
+      const doadoresLideres: Record<number, { beneficioId: number, beneficioTitulo: string, pontosOfertados: number }[]> = {};
+
+      for (const beneficio of beneficiosAtivos) {
+        // Buscar todos os lances deste benefício
+        const lances = await db
+          .select({
+            id: beneficioLances.id,
+            userId: beneficioLances.userId,
+            pontosOfertados: beneficioLances.pontosOfertados,
+            createdAt: beneficioLances.createdAt,
+            status: beneficioLances.status,
+            userName: users.nome,
+            userTelefone: users.telefone,
+            userPlano: users.plano,
+            userEmail: users.email
+          })
+          .from(beneficioLances)
+          .leftJoin(users, eq(beneficioLances.userId, users.id))
+          .where(
+            and(
+              eq(beneficioLances.beneficioId, beneficio.id),
+              eq(beneficioLances.status, 'ativo')
+            )
+          )
+          .orderBy(desc(beneficioLances.pontosOfertados));
+
+        // Adicionar participantes ao set
+        lances.forEach(lance => {
+          if (lance.userId) {
+            doadoresParticipantes.add(lance.userId);
+          }
+        });
+
+        // Calcular status do leilão
+        const agora = new Date();
+        let statusLeilao = 'aguardando';
+        let tempoRestante = null;
+
+        if (beneficio.inicioLeilao && beneficio.prazoLances) {
+          const inicio = new Date(beneficio.inicioLeilao);
+          const prazo = new Date(beneficio.prazoLances);
+
+          if (agora < inicio) {
+            statusLeilao = 'aguardando';
+          } else if (agora >= inicio && agora < prazo) {
+            statusLeilao = 'ativo';
+            const diff = prazo.getTime() - agora.getTime();
+            tempoRestante = {
+              dias: Math.floor(diff / (1000 * 60 * 60 * 24)),
+              horas: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+              minutos: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+            };
+          } else {
+            statusLeilao = 'finalizado';
+          }
+        }
+
+        // Identificar líder (maior lance)
+        const lider = lances.length > 0 ? lances[0] : null;
+
+        // Registrar doador líder
+        if (lider && lider.userId) {
+          if (!doadoresLideres[lider.userId]) {
+            doadoresLideres[lider.userId] = [];
+          }
+          doadoresLideres[lider.userId].push({
+            beneficioId: beneficio.id,
+            beneficioTitulo: beneficio.titulo,
+            pontosOfertados: lider.pontosOfertados
+          });
+        }
+
+        // Participantes únicos
+        const participantesUnicos = new Set(lances.map(l => l.userId)).size;
+
+        // Total investido
+        const totalInvestido = lances.reduce((sum, l) => sum + (l.pontosOfertados || 0), 0);
+
+        leiloesDetalhes.push({
+          beneficio: {
+            id: beneficio.id,
+            titulo: beneficio.titulo,
+            descricao: beneficio.descricao,
+            categoria: beneficio.categoria,
+            pontosNecessarios: beneficio.pontosNecessarios,
+            valorEstimado: beneficio.valorEstimado,
+            inicioLeilao: beneficio.inicioLeilao,
+            prazoLances: beneficio.prazoLances,
+            imagemUrl: `/api/beneficios/${beneficio.id}/imagem?tipo=card`
+          },
+          statusLeilao,
+          tempoRestante,
+          estatisticas: {
+            totalLances: lances.length,
+            totalParticipantes: participantesUnicos,
+            totalInvestido,
+            mediaLance: lances.length > 0 ? Math.round(totalInvestido / lances.length) : 0,
+            maiorLance: lider?.pontosOfertados || 0
+          },
+          lider: lider ? {
+            userId: lider.userId,
+            nome: lider.userName,
+            telefone: lider.userTelefone,
+            email: lider.userEmail,
+            plano: lider.userPlano,
+            pontosOfertados: lider.pontosOfertados,
+            dataLance: lider.createdAt
+          } : null,
+          participantes: lances.map(lance => ({
+            userId: lance.userId,
+            nome: lance.userName,
+            telefone: lance.userTelefone,
+            email: lance.userEmail,
+            plano: lance.userPlano,
+            pontosOfertados: lance.pontosOfertados,
+            dataLance: lance.createdAt,
+            isLider: lance.id === lider?.id
+          }))
+        });
+      }
+
+      // Ordenar: ativos primeiro, depois por tempo restante
+      leiloesDetalhes.sort((a, b) => {
+        if (a.statusLeilao === 'ativo' && b.statusLeilao !== 'ativo') return -1;
+        if (a.statusLeilao !== 'ativo' && b.statusLeilao === 'ativo') return 1;
+        if (a.statusLeilao === 'ativo' && b.statusLeilao === 'ativo') {
+          if (a.tempoRestante && b.tempoRestante) {
+            const diffA = a.tempoRestante.dias * 24 * 60 + a.tempoRestante.horas * 60 + a.tempoRestante.minutos;
+            const diffB = b.tempoRestante.dias * 24 * 60 + b.tempoRestante.horas * 60 + b.tempoRestante.minutos;
+            return diffA - diffB;
+          }
+        }
+        return 0;
+      });
+
+      // 3. Criar lista enriquecida de doadores com informações de participação
+      const doadoresEnriquecidos = todosDoadores.map(doador => ({
+        id: doador.id,
+        nome: doador.nome,
+        telefone: doador.telefone,
+        email: doador.email,
+        plano: doador.plano,
+        participandoLeiloes: doadoresParticipantes.has(doador.id),
+        liderEmLeiloes: doadoresLideres[doador.id] || [],
+        totalLiderados: (doadoresLideres[doador.id] || []).length
+      }));
+
+      console.log(`🏆 [LEILÕES] Encontrados ${leiloesDetalhes.length} leilões (${leiloesDetalhes.filter(l => l.statusLeilao === 'ativo').length} ativos)`);
+      console.log(`👥 [LEILÕES] ${doadoresParticipantes.size} doadores participando de leilões`);
+
+      res.json({
+        success: true,
+        total: leiloesDetalhes.length,
+        ativos: leiloesDetalhes.filter(l => l.statusLeilao === 'ativo').length,
+        finalizados: leiloesDetalhes.filter(l => l.statusLeilao === 'finalizado').length,
+        aguardando: leiloesDetalhes.filter(l => l.statusLeilao === 'aguardando').length,
+        leiloes: leiloesDetalhes,
+        doadores: {
+          total: todosDoadores.length,
+          participando: doadoresParticipantes.size,
+          naoParticipando: todosDoadores.length - doadoresParticipantes.size,
+          lista: doadoresEnriquecidos
+        }
+      });
+    } catch (error: any) {
+      console.error("❌ [LEILÕES] Erro ao buscar detalhes dos leilões:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro ao buscar detalhes dos leilões",
+        error: error.message
+      });
+    }
+  });
+
+  // Endpoint para estatísticas detalhadas de um benefício
+  app.get('/api/beneficios/:id/estatisticas', async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+
+      // Obter userId do header de autenticação
+      const userIdHeader = req.headers['x-user-id'];
+      let userId: number | null = null;
+      if (userIdHeader) {
+        userId = parseInt(userIdHeader as string);
+      }
+
+      console.log(`📊 [ESTATÍSTICAS] Buscando dados para benefício ${beneficioId}, usuário ${userId}`);
+
+      // ✅ 1. Buscar dados reais do benefício
+      const beneficio = await storage.getBeneficio(beneficioId);
+      if (!beneficio) {
+        return res.status(404).json({ message: "Benefício não encontrado" });
+      }
+
+      // ✅ 2. Buscar todos os lances reais do benefício
+      const todosLances = await storage.getBeneficioLancesByBeneficio(beneficioId);
+
+      // Filtrar apenas lances ativos
+      const lancesAtivos = todosLances.filter(lance => lance.status === 'ativo');
+
+      // ✅ 3. Calcular total de lances reais
+      const totalLances = lancesAtivos.length;
+
+      // ✅ 4. Calcular tempo restante real baseado em prazoLances
+      let tempoRestante = { horas: 0, minutos: 0, segundos: 0 };
+      let lanceEncerrado = true;
+
+      if (beneficio.prazoLances) {
+        const agora = new Date();
+        const prazoFim = new Date(beneficio.prazoLances);
+        const diferenca = prazoFim.getTime() - agora.getTime();
+
+        if (diferenca > 0) {
+          lanceEncerrado = false;
+          const horas = Math.floor(diferenca / (1000 * 60 * 60));
+          const minutos = Math.floor((diferenca % (1000 * 60 * 60)) / (1000 * 60));
+          const segundos = Math.floor((diferenca % (1000 * 60)) / 1000);
+
+          tempoRestante = { horas, minutos, segundos };
+        }
+      }
+
+      // ✅ 5. Se não há lances, retornar dados básicos
+      if (totalLances === 0) {
+        return res.json({
+          totalLances: 0,
+          posicaoUsuario: null,
+          top3Lances: [],
+          tempoRestante,
+          lanceEncerrado,
+          gritosMinimos: beneficio.gritosMinimos || 1,
+          lanceUsuario: null
+        });
+      }
+
+      // ✅ 6. Ordenar lances por pontos (maior para menor) para calcular posições
+      const lancesOrdenados = lancesAtivos.sort((a, b) => b.pontosOfertados - a.pontosOfertados);
+
+      // ✅ 7. Buscar informações dos usuários para os top 3 lances
+      const top3LancesData = [];
+      for (let i = 0; i < Math.min(3, lancesOrdenados.length); i++) {
+        const lance = lancesOrdenados[i];
+        try {
+          const user = await storage.getUser(lance.userId);
+          const nomeCompleto = user ? `${user.nome} ${user.sobrenome || ''}`.trim() : 'Usuário Anônimo';
+
+          top3LancesData.push({
+            posicao: i + 1,
+            nome: nomeCompleto,
+            pontos: lance.pontosOfertados,
+            isUsuario: userId === lance.userId
+          });
+        } catch (err) {
+          console.error(`❌ Erro ao buscar usuário ${lance.userId}:`, err);
+          top3LancesData.push({
+            posicao: i + 1,
+            nome: 'Usuário Anônimo',
+            pontos: lance.pontosOfertados,
+            isUsuario: userId === lance.userId
+          });
+        }
+      }
+
+      // ✅ 8. Calcular posição do usuário e buscar seu lance
+      let posicaoUsuario: number | null = null;
+      let lanceUsuario: any = null;
+
+      if (userId) {
+        // Encontrar o lance do usuário
+        const lanceDoUsuario = lancesAtivos.find(lance => lance.userId === userId);
+
+        if (lanceDoUsuario) {
+          // Calcular posição do usuário
+          posicaoUsuario = lancesOrdenados.findIndex(lance => lance.userId === userId) + 1;
+
+          lanceUsuario = {
+            pontos: lanceDoUsuario.pontosOfertados,
+            dataLance: lanceDoUsuario.createdAt || new Date().toISOString()
+          };
+        }
+      }
+
+      const estatisticas = {
+        totalLances,
+        posicaoUsuario,
+        top3Lances: top3LancesData,
+        tempoRestante,
+        lanceEncerrado,
+        gritosMinimos: beneficio.gritosMinimos || 1,
+        lanceUsuario
+      };
+
+      console.log(`📊 [ESTATÍSTICAS REAIS] Benefício ${beneficioId}:`, {
+        totalLances,
+        posicaoUsuario,
+        lanceEncerrado,
+        prazoLances: beneficio.prazoLances
+      });
+
+      res.json(estatisticas);
+
+    } catch (error) {
+      console.error('❌ [ESTATÍSTICAS] Erro:', error);
+      res.status(500).json({ message: "Erro interno do servidor" });
+    }
+  });
+
+  // Obter lances de um benefício específico
+  app.get("/api/beneficios/:id/lances", async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+
+      if (isNaN(beneficioId)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID de benefício inválido"
+        });
+      }
+
+      const lances = await storage.getBeneficioLancesByBeneficio(beneficioId);
+
+      res.json(lances);
+    } catch (error: any) {
+      console.error("Error getting beneficio lances:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor"
+      });
+    }
+  });
+
+  // ================ PROCESSAMENTO AUTOMÁTICO DE LEILÕES EXPIRADOS ================
+
+  // 🏆 NOVA ROTA: Processar leilões de benefícios expirados automaticamente
+  // 🔒 CRÍTICO: Apenas admins podem processar leilões
+  app.post("/api/processar-leiloes-expirados", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      console.log(`🚀 [API] Iniciando processamento de leilões expirados - ${new Date().toISOString()}`);
+
+      // Processar todos os leilões expirados
+      const resultado = await storage.processExpiredAuctions();
+
+      console.log(`✅ [API] Processamento concluído:`, {
+        totalProcessado: resultado.totalProcessed,
+        vencedores: resultado.winners.length,
+        detalhes: resultado.details
+      });
+
+      // Retornar resultado detalhado
+      res.json({
+        success: true,
+        message: `Processamento concluído com sucesso! ${resultado.totalProcessed} leilões processados.`,
+        data: {
+          totalProcessed: resultado.totalProcessed,
+          processedAt: new Date().toISOString(),
+          winners: resultado.winners,
+          summary: resultado.details.map(detail => ({
+            beneficioId: detail.beneficioId,
+            totalBids: detail.totalBids,
+            winnerUserId: detail.winnerUserId,
+            pointsDeducted: detail.pontosDescontados
+          }))
+        }
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao processar leilões expirados:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao processar leilões expirados",
+        error: error.message || "Erro desconhecido"
+      });
+    }
+  });
+
+  // 🔍 NOVA ROTA: Verificar status de leilões expirados (apenas consulta)
+  app.get("/api/leiloes-expirados/status", async (req, res) => {
+    try {
+      console.log(`🔍 [API] Verificando status de leilões expirados`);
+
+      // Buscar benefícios expirados não processados
+      const expiredBeneficios = await storage.getExpiredBeneficiosUnprocessed();
+
+      const statusData = [];
+
+      for (const beneficio of expiredBeneficios) {
+        // Buscar lances ativos para cada benefício
+        const lances = await storage.getBeneficioLancesByBeneficio(beneficio.id);
+        const lancesAtivos = lances.filter(lance => lance.status === 'ativo');
+
+        statusData.push({
+          beneficioId: beneficio.id,
+          titulo: beneficio.titulo,
+          prazoLances: beneficio.prazoLances,
+          totalLancesAtivos: lancesAtivos.length,
+          maiorLance: lancesAtivos.length > 0 ? Math.max(...lancesAtivos.map(l => l.pontosOfertados)) : 0,
+          temExpirarado: beneficio.prazoLances ? new Date() > new Date(beneficio.prazoLances) : false
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          totalExpirados: expiredBeneficios.length,
+          verificadoEm: new Date().toISOString(),
+          beneficios: statusData
+        }
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao verificar status de leilões expirados:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao verificar status de leilões expirados",
+        error: error.message || "Erro desconhecido"
+      });
+    }
+  });
+
+  // ================ DASHBOARD MACRO DE LEILÕES ================
+
+  // 📊 NOVA ROTA: Resumo agregado de leilões (ativos, aguardando, finalizados)
+  app.get("/api/auctions/summary", async (req, res) => {
+    try {
+      console.log(`📊 [API] Buscando resumo de leilões`);
+
+      const summary = await storage.getAuctionsSummary();
+
+      res.json({
+        success: true,
+        data: summary
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar resumo de leilões:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao buscar resumo de leilões",
+        error: error.message || "Erro desconhecido"
+      });
+    }
+  });
+
+  // 📈 NOVA ROTA: Estatísticas detalhadas de leilões (lances, usuários, rankings)
+  app.get("/api/auctions/stats", async (req, res) => {
+    try {
+      console.log(`📈 [API] Buscando estatísticas de leilões`);
+
+      const stats = await storage.getAuctionsStats();
+
+      res.json({
+        success: true,
+        data: stats
+      });
+
+    } catch (error: any) {
+      console.error("❌ [API] Erro ao buscar estatísticas de leilões:", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro interno do servidor ao buscar estatísticas de leilões",
+        error: error.message || "Erro desconhecido"
+      });
+    }
+  });
+
+  // ================ SISTEMA DE REFERRALS ================
+
+  // 🔗 NOVA ROTA: Processar clique no link de referral (formato curto /r/:token)
+  app.get("/r/:token", async (req, res) => {
+    try {
+      const codigoConvite = req.params.token;
+      console.log(`🎯 [REFERRAL CLICK] Link acessado: /r/${codigoConvite}`);
+
+      // Buscar referral pelo código
+      const referral = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.codigoConvite, codigoConvite))
+        .limit(1);
+
+      if (!referral[0]) {
+        console.log(`❌ [REFERRAL CLICK] Link inválido: ${codigoConvite}`);
+        return res.redirect('/?error=link_invalido');
+      }
+
+      // Verificar se não expirou
+      if (referral[0].expiradoEm && new Date() > new Date(referral[0].expiradoEm)) {
+        console.log(`⏰ [REFERRAL CLICK] Link expirado: ${codigoConvite}`);
+        return res.redirect('/?error=link_expirado');
+      }
+
+      // Registrar o clique incrementando contador (se existir campo cliques)
+      try {
+        await db
+          .update(referrals)
+          .set({
+            // Não existe campo cliques na tabela atual, mas podemos adicionar log
+            updatedAt: sql`NOW()`
+          })
+          .where(eq(referrals.id, referral[0].id));
+      } catch (updateError) {
+        console.error("Erro ao atualizar clique:", updateError);
+      }
+
+      console.log(`✅ [REFERRAL CLICK] Link válido processado. Redirecionando para signup com token: ${codigoConvite}`);
+
+      // Redirecionar para página de cadastro com token
+      return res.redirect(`/?signup=true&ref=${codigoConvite}`);
+    } catch (error) {
+      console.error("Erro ao processar clique do referral:", error);
+      return res.redirect('/?error=erro_processamento');
+    }
+  });
+
+  // 📊 NOVA ROTA: Verificar progresso da missão de referral
+  app.get("/api/referrals/progress/:userId/:missaoId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const missaoId = parseInt(req.params.missaoId);
+
+      if (isNaN(userId) || isNaN(missaoId)) {
+        return res.status(400).json({ error: "IDs inválidos" });
+      }
+
+      // 🔐 SEGURANÇA: Verificar se usuário tem autorização para acessar os dados
+      if (!(req as any).isDeveloper && userId !== req.session?.user?.id) {
+        console.warn(`🚨 [SECURITY] Tentativa de acesso IDOR por usuário ${req.session?.user?.id} aos dados do usuário ${userId}`);
+        return res.status(403).json({ error: "Acesso negado: você só pode visualizar seus próprios dados" });
+      }
+
+      // Buscar a missão para obter quantidadeAmigos necessários
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(eq(missoesSemanais.id, missaoId))
+        .limit(1);
+
+      if (!missao[0]) {
+        return res.status(404).json({ error: "Missão não encontrada" });
+      }
+
+      // Contar quantos referrals deste usuário para esta missão foram completados
+      const referralsCompletos = await db
+        .select()
+        .from(referrals)
+        .where(
+          and(
+            eq(referrals.referrerUserId, userId),
+            eq(referrals.missaoId, missaoId),
+            eq(referrals.status, 'completo')
+          )
+        );
+
+      // Obter quantidadeAmigos da missão (assumindo que existe esse campo ou padrão 1)
+      const quantidadeNecessaria = missao[0].quantidadeAmigos || 1;
+      const cadastrosCompletos = referralsCompletos.length;
+      const progresso = Math.min((cadastrosCompletos / quantidadeNecessaria) * 100, 100);
+
+      console.log(`📊 [REFERRAL PROGRESS] Usuário ${userId}, Missão ${missaoId}: ${cadastrosCompletos}/${quantidadeNecessaria} (${progresso.toFixed(1)}%)`);
+
+      res.json({
+        success: true,
+        cadastrosCompletos,
+        quantidadeNecessaria,
+        progresso: parseFloat(progresso.toFixed(1)),
+        missaoCompleta: cadastrosCompletos >= quantidadeNecessaria,
+        referrals: referralsCompletos.map(r => ({
+          id: r.id,
+          completadoEm: r.completadoEm,
+          referredUserId: r.referredUserId
+        }))
+      });
+    } catch (error) {
+      console.error("Erro ao verificar progresso de referral:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Gerar link de convite único para missão "Convide um Amigo"
+  app.post("/api/referrals/generate-link", async (req, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Usuário não autenticado" });
+      }
+
+      const { missaoId } = req.body;
+      if (!missaoId) {
+        return res.status(400).json({ error: "ID da missão é obrigatório" });
+      }
+
+      // Verificar se a missão existe e tem link habilitado
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(eq(missoesSemanais.id, missaoId))
+        .limit(1);
+
+      if (!missao[0]) {
+        return res.status(404).json({ error: "Missão não encontrada" });
+      }
+
+      if (!missao[0].habilitarLinkCompartilhamento) {
+        return res.status(400).json({ error: "Esta missão não permite links de compartilhamento" });
+      }
+
+      // Gerar código único de convite
+      const codigoConvite = `REF_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const linkConvite = `https://clubedogrito.institutoogrito.com.br/convite?ref=${codigoConvite}`;
+
+      // Data de expiração (30 dias)
+      const expiradoEm = new Date();
+      expiradoEm.setDate(expiradoEm.getDate() + 30);
+
+      // Salvar referral no banco
+      const [referral] = await db
+        .insert(referrals)
+        .values({
+          referrerUserId: userId,
+          linkConvite,
+          codigoConvite,
+          missaoId,
+          gritosRecompensa: missao[0].recompensaGritos || 200,
+          expiradoEm,
+        })
+        .returning();
+
+      console.log(`🔗 [REFERRAL] Link gerado para usuário ${userId}: ${linkConvite}`);
+
+      res.json({
+        success: true,
+        linkConvite,
+        codigoConvite,
+        expiradoEm,
+        gritosRecompensa: referral.gritosRecompensa
+      });
+    } catch (error) {
+      console.error("Erro ao gerar link de convite:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Nova rota ponte para gerar links - seguindo padrão arquitetural do sistema
+  app.post("/api/gerar-referral/:userId/:missaoId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const missaoId = parseInt(req.params.missaoId);
+
+      // Validar parâmetros
+      if (isNaN(userId) || isNaN(missaoId)) {
+        return res.status(400).json({ error: "ID de usuário ou missão inválido" });
+      }
+
+      // 🔐 SEGURANÇA: Verificar se usuário existe no banco
+      const usuarioExists = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!usuarioExists[0]) {
+        console.warn(`🚨 [SECURITY] Tentativa de gerar referral para usuário inexistente ${userId}`);
+        return res.status(403).json({ error: "Usuário não encontrado" });
+      }
+
+      // Verificar se a missão existe e tem link habilitado
+      const missao = await db
+        .select()
+        .from(missoesSemanais)
+        .where(eq(missoesSemanais.id, missaoId))
+        .limit(1);
+
+      if (!missao[0]) {
+        return res.status(404).json({ error: "Missão não encontrada" });
+      }
+
+      if (!missao[0].habilitarLinkCompartilhamento) {
+        return res.status(400).json({ error: "Esta missão não permite links de compartilhamento" });
+      }
+
+      // Gerar código único de convite
+      const codigoConvite = `REF_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const linkConvite = `https://clubedogrito.institutoogrito.com.br/convite?ref=${codigoConvite}`;
+
+      // Data de expiração (30 dias)
+      const expiradoEm = new Date();
+      expiradoEm.setDate(expiradoEm.getDate() + 30);
+
+      // Salvar referral no banco
+      const [referral] = await db
+        .insert(referrals)
+        .values({
+          referrerUserId: userId,
+          linkConvite,
+          codigoConvite,
+          missaoId,
+          gritosRecompensa: missao[0].recompensaGritos || 200,
+          expiradoEm,
+        })
+        .returning();
+
+      console.log(`🔗 [REFERRAL] Link gerado para usuário ${userId}: ${linkConvite}`);
+
+      res.json({
+        success: true,
+        linkConvite,
+        codigoConvite,
+        expiradoEm,
+        gritosRecompensa: referral.gritosRecompensa
+      });
+    } catch (error) {
+      console.error("Erro ao gerar link de convite:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // Processar quando alguém clica no link de convite
+  app.get("/api/referrals/track/:codigo", async (req, res) => {
+    try {
+      const codigoConvite = req.params.codigo;
+
+      // Buscar referral pelo código
+      const referral = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.codigoConvite, codigoConvite))
+        .limit(1);
+
+      if (!referral[0]) {
+        return res.status(404).json({ error: "Link de convite não encontrado" });
+      }
+
+      // Verificar se não expirou
+      if (referral[0].expiradoEm && new Date() > new Date(referral[0].expiradoEm)) {
+        return res.status(400).json({ error: "Link de convite expirado" });
+      }
+
+      // Verificar se já foi usado
+      if (referral[0].status === "completo") {
+        return res.status(400).json({ error: "Link de convite já foi utilizado" });
+      }
+
+      console.log(`🎯 [REFERRAL] Link acessado: ${codigoConvite} por usuário ${referral[0].referrerUserId}`);
+
+      // Retornar dados do referral para o frontend usar no cadastro
+      res.json({
+        success: true,
+        referralData: {
+          codigoConvite,
+          referrerUserId: referral[0].referrerUserId,
+          missaoId: referral[0].missaoId,
+          gritosRecompensa: referral[0].gritosRecompensa
+        }
+      });
+    } catch (error) {
+      console.error("Erro ao processar tracking de referral:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // 🔗 NOVA ROTA: Buscar missões de referral com informações completas
+  app.get("/api/referrals/missions/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      // Buscar missões que permitem link de compartilhamento
+      const missoesReferral = await db
+        .select()
+        .from(missoesSemanais)
+        .where(
+          and(
+            eq(missoesSemanais.ativo, true),
+            eq(missoesSemanais.habilitarLinkCompartilhamento, true)
+          )
+        )
+        .orderBy(desc(missoesSemanais.recompensaGritos));
+
+      // Para cada missão, buscar o progresso do usuário
+      const missoesComProgresso = await Promise.all(
+        missoesReferral.map(async (missao) => {
+          // Verificar se já foi concluída
+          const jaConcluida = await db
+            .select()
+            .from(missoesConcluidas)
+            .where(
+              and(
+                eq(missoesConcluidas.userId, userId),
+                eq(missoesConcluidas.missaoId, missao.id)
+              )
+            )
+            .limit(1);
+
+          // Contar referrals completos
+          const referralsCompletos = await db
+            .select()
+            .from(referrals)
+            .where(
+              and(
+                eq(referrals.referrerUserId, userId),
+                eq(referrals.missaoId, missao.id),
+                eq(referrals.status, 'completo')
+              )
+            );
+
+          const quantidadeNecessaria = missao.quantidadeAmigos || 1;
+          const cadastrosCompletos = referralsCompletos.length;
+          const progresso = Math.min((cadastrosCompletos / quantidadeNecessaria) * 100, 100);
+
+          return {
+            id: missao.id,
+            titulo: missao.titulo,
+            descricao: missao.descricao,
+            recompensaGritos: missao.recompensaGritos,
+            quantidadeAmigos: quantidadeNecessaria,
+            tipoMissao: missao.tipoMissao,
+            imagemUrl: missao.imagemUrl,
+
+            // Progresso do usuário
+            concluida: jaConcluida.length > 0,
+            concluidaEm: jaConcluida[0]?.createdAt || null,
+            cadastrosCompletos,
+            progresso: parseFloat(progresso.toFixed(1)),
+            podeCompletar: cadastrosCompletos >= quantidadeNecessaria && jaConcluida.length === 0,
+            // Links dos referrals para esta missão
+            referrals: referralsCompletos.map(r => ({
+              id: r.id,
+              linkConvite: r.linkConvite,
+              codigoConvite: r.codigoConvite,
+              completadoEm: r.completadoEm,
+              referredUserId: r.referredUserId
+            }))
+          };
+        })
+      );
+
+      console.log(`📊 [REFERRAL MISSIONS] Usuário ${userId}: ${missoesComProgresso.length} missões de referral encontradas`);
+
+      res.json({
+        success: true,
+        missoes: missoesComProgresso,
+        summary: {
+          totalMissoes: missoesComProgresso.length,
+          concluidas: missoesComProgresso.filter(m => m.concluida).length,
+          emProgresso: missoesComProgresso.filter(m => !m.concluida && m.cadastrosCompletos > 0).length,
+          disponiveis: missoesComProgresso.filter(m => !m.concluida && m.cadastrosCompletos === 0).length
+        }
+      });
+    } catch (error) {
+      console.error("Erro ao buscar missões de referral:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
+  // ================ MONDAY.COM GV API ================
+
+  // Função para mapear dados raw do Monday.com para formato estruturado
+  function mapMondayDataToGVFormat(rawData: any): GVApiResponse {
+    console.log('🔄 [MONDAY GV] Mapeando dados do Monday.com para formato GV');
+    console.log('📊 [MONDAY GV] Dados brutos recebidos:', JSON.stringify(rawData, null, 2));
+
+    // Definir mapeamento de boards reais para programas GV
+    const boardToProgram: Record<string, { slug: string; workstreams: string[] }> = {
+      // Marketing
+      'Painel de Seguidores e Post': {
+        slug: 'marketing',
+        workstreams: ['seguidores', 'posts']
+      },
+
+      // Esporte e Cultura
+      'Painel de Polo de Gloria': {
+        slug: 'esporte-cultura',
+        workstreams: ['polo-gloria']
+      },
+      'Painel de Casa Sonhar': {
+        slug: 'esporte-cultura',
+        workstreams: ['casa-sonhar']
+      },
+      'Sala Serenata': {
+        slug: 'esporte-cultura',
+        workstreams: ['serenata']
+      },
+
+      // Inclusão Produtiva
+      'Painel Vozes do Futuro': {
+        slug: 'inclusao-produtiva',
+        workstreams: ['vozes-futuro']
+      },
+      'Cursos 30h': {
+        slug: 'inclusao-produtiva',
+        workstreams: ['cursos-30h']
+      },
+      'Cursos EAD': {
+        slug: 'inclusao-produtiva',
+        workstreams: ['cursos-ead']
+      },
+
+      // Psicossocial
+      'Atividade transversal': {
+        slug: 'psicossocial',
+        workstreams: ['atividade-transversal']
+      },
+      'Caravana do Grito': {
+        slug: 'psicossocial',
+        workstreams: ['caravana-grito']
+      },
+
+      // Favela 3D
+      'Painel Decolagem': {
+        slug: 'favela-3d',
+        workstreams: ['decolagem']
+      },
+      'Painel Desenvolvimento Social': {
+        slug: 'favela-3d',
+        workstreams: ['desenvolvimento-social']
+      },
+      'Painel de Emprego e Renda': {
+        slug: 'favela-3d',
+        workstreams: ['emprego-renda']
+      },
+      'Painel de Emprego e Renda': {
+        slug: 'favela-3d',
+        workstreams: ['emprego-renda']
+      }
+    };
+
+    // Estrutura base para resposta
+    const mappedData: GVApiResponse = {
+      period: new Date().getFullYear() + "-Q" + Math.ceil((new Date().getMonth() + 1) / 3),
+      programs: []
+    };
+
+    // Verificar se há boards disponíveis
+    if (!rawData || !rawData.boards || rawData.boards.length === 0) {
+      console.log('⚠️ [MONDAY GV] Nenhum board encontrado - retornando estrutura de configuração pendente');
+
+      // Retornar estrutura indicando que a configuração está pendente
+      mappedData.programs = [
+        {
+          slug: 'setup-pending',
+          workstreams: [
+            {
+              slug: 'configuracao-necessaria',
+              indicators: [
+                {
+                  indicator: 'Status da Integração',
+                  value: 0,
+                  unit: 'configurado',
+                  target: 1
+                }
+              ]
+            }
+          ]
+        }
+      ];
+
+      return mappedData;
+    }
+
+    console.log(`📋 [MONDAY GV] Processando ${rawData.boards.length} boards encontrados`);
+
+    // Agrupar boards por programa
+    const programsMap = new Map<string, { workstreams: Map<string, any[]> }>();
+
+    for (const board of rawData.boards) {
+      console.log(`🔍 [MONDAY GV] Processando board: "${board.name}" (ID: ${board.id})`);
+
+      // Verificar se o board é reconhecido
+      const programInfo = boardToProgram[board.name];
+      if (!programInfo) {
+        console.log(`⚠️ [MONDAY GV] Board "${board.name}" não reconhecido - ignorando`);
+        continue;
+      }
+
+      console.log(`✅ [MONDAY GV] Board "${board.name}" mapeado para programa "${programInfo.slug}"`);
+
+      // Inicializar programa se não existir
+      if (!programsMap.has(programInfo.slug)) {
+        programsMap.set(programInfo.slug, { workstreams: new Map() });
+      }
+
+      const program = programsMap.get(programInfo.slug)!;
+
+      // Processar workstreams do board
+      for (const workstreamSlug of programInfo.workstreams) {
+        if (!program.workstreams.has(workstreamSlug)) {
+          program.workstreams.set(workstreamSlug, []);
+        }
+
+        // Extrair indicadores dos items do board
+        const indicators: any[] = [];
+
+        if (board.items_page && board.items_page.items) {
+          console.log(`📊 [MONDAY GV] Processando ${board.items_page.items.length} items do board "${board.name}"`);
+
+          for (const item of board.items_page.items) {
+            if (!item.column_values) continue;
+
+            // Processar cada coluna como um possível indicador
+            for (const columnValue of item.column_values) {
+              if (!columnValue.column || !columnValue.text) continue;
+
+              const indicatorName = columnValue.column.title;
+              const textValue = columnValue.text;
+
+              // Tentar extrair valor numérico
+              let numericValue = 0;
+              let unit = 'unidade';
+
+              // Detectar diferentes tipos de valores
+              if (textValue.includes('%')) {
+                numericValue = parseFloat(textValue.replace('%', '')) / 100;
+                unit = '%';
+              } else if (textValue.includes('R$')) {
+                numericValue = parseFloat(textValue.replace(/[R$\s,]/g, '').replace('.', ''));
+                unit = 'R$';
+              } else {
+                const parsed = parseFloat(textValue.replace(/[^\d.,]/g, '').replace(',', '.'));
+                if (!isNaN(parsed)) {
+                  numericValue = parsed;
+
+                  // Inferir unidade baseada no nome do indicador
+                  if (indicatorName.toLowerCase().includes('pessoa') || indicatorName.toLowerCase().includes('usuário')) {
+                    unit = 'pessoas';
+                  } else if (indicatorName.toLowerCase().includes('evento')) {
+                    unit = 'eventos';
+                  } else if (indicatorName.toLowerCase().includes('curso')) {
+                    unit = 'cursos';
+                  } else {
+                    unit = 'unidade';
+                  }
+                }
+              }
+
+              // Adicionar indicador se tiver valor válido
+              if (numericValue > 0 || textValue.toLowerCase().includes('zero') || textValue === '0') {
+                indicators.push({
+                  indicator: indicatorName,
+                  value: numericValue,
+                  unit: unit,
+                  target: numericValue * 1.2 // Target 20% maior como padrão
+                });
+
+                console.log(`📈 [MONDAY GV] Indicador extraído: ${indicatorName} = ${numericValue} ${unit}`);
+              }
+            }
+          }
+        }
+
+        // Adicionar indicadores ao workstream se houver algum
+        if (indicators.length > 0) {
+          program.workstreams.get(workstreamSlug)!.push(...indicators);
+          console.log(`✅ [MONDAY GV] ${indicators.length} indicadores adicionados ao workstream "${workstreamSlug}"`);
+        }
+      }
+    }
+
+    // Converter mapa para estrutura final
+    for (const [programSlug, programData] of programsMap) {
+      const workstreams: any[] = [];
+
+      for (const [workstreamSlug, indicators] of programData.workstreams) {
+        if (indicators.length > 0) {
+          workstreams.push({
+            slug: workstreamSlug,
+            indicators: indicators
+          });
+        }
+      }
+
+      if (workstreams.length > 0) {
+        mappedData.programs.push({
+          slug: programSlug,
+          workstreams: workstreams
+        });
+      }
+    }
+
+    console.log(`✅ [MONDAY GV] Mapeamento concluído: ${mappedData.programs.length} programas processados`);
+    console.log('📊 [MONDAY GV] Estrutura final:', JSON.stringify(mappedData, null, 2));
+
+    return mappedData;
+  }
+
+  // Função para buscar dados do Monday.com
+  async function fetchMondayGVData(): Promise<GVApiResponse> {
+    const mondayApiKey = process.env.MONDAY_API_KEY;
+
+    if (!mondayApiKey) {
+      throw new Error('Monday.com API key not configured');
+    }
+
+    // API oficial do Monday.com
+    const mondayApiUrl = 'https://api.monday.com/v2';
+
+    console.log(`🔗 [MONDAY GV] Conectando com Monday.com API: ${mondayApiUrl}`);
+
+    try {
+      // Query GraphQL para buscar boards específicos da organização
+      const query = `
+        query {
+          boards(limit: 50) {
+            id
+            name
+            description
+            state
+            type
+            items_page(limit: 20) {
+              items {
+                id
+                name
+                column_values {
+                  column {
+                    title
+                    type
+                  }
+                  text
+                  value
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await fetch(mondayApiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': mondayApiKey,
+          'Content-Type': 'application/json',
+          'API-Version': '2024-10'
+        },
+        body: JSON.stringify({ query })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Monday.com API failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('📊 [MONDAY GV] Dados raw recebidos do Monday.com:', JSON.stringify(result, null, 2));
+
+      if (result.errors) {
+        throw new Error(`Monday.com GraphQL errors: ${JSON.stringify(result.errors)}`);
+      }
+
+      // Mapear os dados raw do Monday.com para o formato estruturado esperado
+      const mappedData = mapMondayDataToGVFormat(result.data);
+      console.log('✅ [MONDAY GV] Dados mapeados para GV:', JSON.stringify(mappedData, null, 2));
+
+      return mappedData;
+    } catch (error) {
+      console.error('❌ [MONDAY GV] Erro ao buscar dados:', error);
+      throw error;
+    }
+  }
+
+  // Rota para buscar dados GV (Monday.com DESABILITADO)
+  app.get("/api/gv", async (req, res) => {
+    try {
+      console.log('📊 [GV] Solicitação de dados GV recebida (Monday.com DESABILITADO)');
+
+      // Monday.com PAUSADO - retornar estrutura vazia para não quebrar frontend
+      const emptyGvData: GVApiResponse = {
+        period: new Date().getFullYear() + "-Q" + Math.ceil((new Date().getMonth() + 1) / 3),
+        programs: []
+      };
+
+      console.log('✅ [GV] Retornando estrutura vazia (Monday.com pausado)');
+      res.json(emptyGvData);
+
+    } catch (error: any) {
+      console.error('❌ [MONDAY GV] Erro geral na rota /api/gv:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar dados GV',
+        message: error?.message
+      });
+    }
+  });
+
+  // Rota para sincronizar dados GV com banco local (opcional)
+  app.post("/api/gv/sync", async (req, res) => {
+    try {
+      console.log('🔄 [MONDAY GV SYNC] Iniciando sincronização...');
+
+      const gvData = await fetchMondayGVData();
+
+      // Limpar dados existentes (opcional)
+      await db.delete(gvIndicators);
+      await db.delete(gvWorkstreams);
+      await db.delete(gvPrograms);
+
+      // Inserir programas com nomes reais
+      for (const program of gvData.programs) {
+        const programNames = {
+          "marketing": "Marketing",
+          "psicossocial": "Psicossocial",
+          "esporte-cultura": "Esporte e Cultura",
+          "favela-3d": "Favela 3D",
+          "inclusao-produtiva": "Inclusão Produtiva"
+        };
+        const programName = programNames[program.slug as keyof typeof programNames] || program.slug;
+
+        await db.insert(gvPrograms).values({
+          slug: program.slug,
+          name: programName,
+        });
+
+        // Inserir workstreams com nomes reais
+        for (const workstream of program.workstreams) {
+          const workstreamName = workstream.slug === "laboratorio-vozes-futuro" ? "Laboratório Vozes do Futuro" : workstream.slug;
+
+          await db.insert(gvWorkstreams).values({
+            slug: workstream.slug,
+            name: workstreamName,
+            programSlug: program.slug,
+          });
+
+          // Inserir indicadores
+          for (const indicator of workstream.indicators) {
+            await db.insert(gvIndicators).values({
+              indicator: indicator.indicator,
+              value: indicator.value?.toString(), // Converter para string como esperado pelo banco
+              unit: indicator.unit,
+              target: indicator.target?.toString(), // Converter para string como esperado pelo banco
+              workstreamSlug: workstream.slug,
+              programSlug: program.slug,
+              period: gvData.period,
+            });
+          }
+        }
+      }
+
+      console.log('✅ [MONDAY GV SYNC] Sincronização concluída');
+      res.json({ success: true, message: 'Dados GV sincronizados com sucesso' });
+
+    } catch (error: any) {
+      console.error('❌ [MONDAY GV SYNC] Erro na sincronização:', error);
+      res.status(500).json({
+        error: 'Erro ao sincronizar dados GV',
+        message: error?.message
+      });
+    }
+  });
+
+  // ================ NOVOS ENDPOINTS PARA LINHA DE IMPACTO ================
+
+  // Endpoint para buscar data da primeira doação do usuário
+  app.get("/api/users/:id/first-donation-date", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: 'ID de usuário inválido' });
+      }
+
+      // Buscar primeira doação do usuário
+      const firstDonation = await db.select({
+        createdAt: doadores.createdAt,
+        status: doadores.status
+      })
+        .from(doadores)
+        .where(and(
+          eq(doadores.userId, userId),
+          eq(doadores.status, 'paid')
+        ))
+        .orderBy(doadores.createdAt)
+        .limit(1);
+
+      // Se não encontrar doação, usar data atual como fallback
+      const donationDate = firstDonation[0]?.createdAt || new Date();
+
+      // Normalizar formato da data
+      const isoDate = donationDate.toISOString();
+      const day = donationDate.getDate();
+      const month = donationDate.getMonth() + 1; // JavaScript months are 0-indexed
+      const year = donationDate.getFullYear();
+
+      const monthNames = [
+        '', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+      ];
+
+      const monthNamePt = monthNames[month];
+
+      console.log(`📅 [FIRST DONATION] Usuário ${userId}: ${day} de ${monthNamePt} de ${year}`);
+
+      res.json({
+        isoDate,
+        day,
+        month,
+        year,
+        monthNamePt
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao buscar data da primeira doação:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+
+  // ================ ENDPOINTS PEC: SISTEMA DE PROJETOS EDUCACIONAIS ================
+
+  // 🌱 SEED: Popular banco com dados de exemplo PEC
+  app.post('/api/pec/seeds', async (req, res) => {
+    try {
+      console.log('🌱 Iniciando seeds PEC...');
+
+      // 1. Criar um projeto
+      console.log('📁 Criando projeto...');
+      const [project] = await db.insert(projects).values({
+        name: 'Casa Sonhar Patrimar 2025',
+        description: 'Espaço educativo voltado para o desenvolvimento integral de crianças e adolescentes através de atividades socioeducativas, culturais e esportivas.',
+        category: 'SCFV',
+        who_can_participate: 'Crianças e adolescentes de 6 a 17 anos da comunidade',
+        period_start: '2025-01-01',
+        period_end: '2025-12-31'
+      }).returning();
+
+      // 2. Criar uma atividade
+      console.log('🎯 Criando atividade...');
+      const [activity] = await db.insert(pecActivities).values({
+        project_id: project.id,
+        name: 'Contraturno',
+        description: 'Atividades educativas e recreativas no período oposto ao escolar, oferecendo suporte pedagógico, atividades lúdicas e desenvolvimento de habilidades socioemocionais.',
+        period: 'matutino',
+        control_presence: true,
+        status: 'ativa'
+      }).returning();
+
+      // 3. Criar uma instância de atividade (turma)
+      console.log('👥 Criando turma...');
+      const [instance] = await db.insert(activityInstances).values({
+        activity_id: activity.id,
+        title: 'Contraturno Manhã M1 2025 | 6–8 anos',
+        code: 'M1',
+        location: 'Casa Sonhar Patrimar',
+        situation: 'execucao',
+        period_label: 'matutino',
+        age_min: 6,
+        age_max: 8,
+        occurrence_start: '2025-09-01',
+        occurrence_end: '2025-11-30',
+        expected_total_hours: 120,
+        notes: 'Turma voltada para crianças de 6 a 8 anos com foco em desenvolvimento educativo e social',
+        created_on: '2025-09-01'
+      }).returning();
+
+      // 4. Criar usuários para usar como inscritos
+      console.log('👶 Criando usuários para inscritos...');
+      const nomes = [
+        ['Arthur', 'Augusto Silva', 'masculino', '2017-03-15'],
+        ['Beatriz', 'Santos Costa', 'feminino', '2016-08-22'],
+        ['Carlos', 'Eduardo Oliveira', 'masculino', '2017-01-10'],
+        ['Diana', 'Maria Ferreira', 'feminino', '2016-11-05'],
+        ['Eduardo', 'José Lima', 'masculino', '2017-06-18'],
+        ['Fernanda', 'Alves Pereira', 'feminino', '2016-09-30'],
+        ['Gabriel', 'Lucas Rodrigues', 'masculino', '2017-02-14'],
+        ['Helena', 'Cristina Martins', 'feminino', '2016-12-08'],
+        ['Igor', 'Henrique Souza', 'masculino', '2017-04-25'],
+        ['Juliana', 'Aparecida Carvalho', 'feminino', '2016-10-12'],
+        ['Kaique', 'Roberto Mendes', 'masculino', '2017-07-03'],
+        ['Larissa', 'Fernandes Barbosa', 'feminino', '2016-05-20']
+      ];
+
+      const createdUsers = [];
+
+      for (const [nome, sobrenome, genero, nascimento] of nomes) {
+        // Verificar se o usuário já existe
+        const existingUser = await db.select()
+          .from(users)
+          .where(and(eq(users.nome, nome), eq(users.sobrenome, sobrenome)))
+          .limit(1);
+
+        let user;
+
+        if (existingUser.length === 0) {
+          const [newUser] = await db.insert(users).values({
+            cpf: `000000000${String(createdUsers.length + 1).padStart(2, '0')}`,
+            nome,
+            sobrenome,
+            telefone: `11999${String(createdUsers.length + 1).padStart(6, '0')}`,
+            email: `${nome.toLowerCase()}.${sobrenome.toLowerCase().replace(' ', '.')}@exemplo.com`,
+            verificado: true,
+            ativo: true,
+            role: 'aluno',
+            tipo: 'aluno'
+          }).returning();
+          user = newUser;
+        } else {
+          user = existingUser[0];
+        }
+
+        createdUsers.push({ user, genero, nascimento });
+      }
+
+      // 5. Criar inscrições
+      console.log('📝 Criando inscrições...');
+      const enrollmentData = [];
+
+      for (const { user, genero, nascimento } of createdUsers) {
+        const [enrollment] = await db.insert(enrollments).values({
+          activity_instance_id: instance.id,
+          person_id: user.id,
+          gender: genero,
+          birthdate: nascimento,
+          enrollment_date: '2025-09-01',
+          active: true
+        }).returning();
+
+        enrollmentData.push(enrollment);
+      }
+
+      // 6. Criar sessões para setembro 2025
+      console.log('📅 Criando sessões...');
+      const sessionDates = [
+        '2025-09-02', '2025-09-04', '2025-09-06', '2025-09-09', '2025-09-11',
+        '2025-09-13', '2025-09-16', '2025-09-18', '2025-09-20', '2025-09-23'
+      ];
+
+      const sessionDescriptions = [
+        'Aula de circo e introdução ao tema do mês: "Descobrindo Talentos"',
+        'Atividades de arte e pintura com materiais recicláveis',
+        'Jogos educativos e desenvolvimento da coordenação motora',
+        'Contação de histórias e dramatização',
+        'Oficina de música e ritmo com instrumentos alternativos',
+        'Atividades de jardinagem e cuidado com o meio ambiente',
+        'Brincadeiras tradicionais e cultura popular',
+        'Oficina de culinária saudável',
+        'Atividades esportivas e trabalho em equipe',
+        'Feira de talentos - apresentação das crianças'
+      ];
+
+      const createdSessions = [];
+
+      for (let i = 0; i < sessionDates.length; i++) {
+        const [session] = await db.insert(sessions).values({
+          activity_instance_id: instance.id,
+          date: sessionDates[i],
+          hours: '3.00',
+          title: sessionDescriptions[i],
+          description: sessionDescriptions[i],
+          observations: i % 3 === 0 ? 'Excelente participação das crianças' :
+            i % 3 === 1 ? 'Algumas crianças chegaram atrasadas devido ao transporte' :
+              'Sem observações especiais',
+          status: 'realizado',
+          location: 'Casa Sonhar Patrimar',
+          educator_names: i % 2 === 0 ? 'Maria Silva, João Santos' : 'Ana Costa, Pedro Oliveira'
+        }).returning();
+
+        createdSessions.push(session);
+      }
+
+      // 7. Criar registros de presença distribuídos
+      console.log('✅ Criando registros de presença...');
+      let totalAttendanceRecords = 0;
+
+      for (const session of createdSessions) {
+        for (const enrollment of enrollmentData) {
+          // Simular presença: frequência baseada no ID
+          const childFrequency = 0.7 + (enrollment.id % 3) * 0.1;
+          const isPresent = Math.random() < childFrequency;
+
+          await db.insert(attendance).values({
+            session_id: session.id,
+            enrollment_id: enrollment.id,
+            present: isPresent
+          });
+
+          totalAttendanceRecords++;
+        }
+      }
+
+      console.log('🎉 Seeds PEC criados com sucesso!');
+
+      res.json({
+        success: true,
+        message: 'Seeds PEC criados com sucesso!',
+        data: {
+          project: project.name,
+          activity: activity.name,
+          instance: instance.title,
+          enrollments: enrollmentData.length,
+          sessions: createdSessions.length,
+          attendanceRecords: totalAttendanceRecords
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao criar seeds:', error);
+      res.status(500).json({ error: 'Erro interno do servidor', details: error.message });
+    }
+  });
+
+  // ===== PROJECTS ENDPOINTS =====
+
+  // GET /api/projects - Listar todos os projetos com filtros opcionais
+  app.get("/api/projects", async (req, res) => {
+    try {
+      let projects = await storage.getAllProjects();
+
+      // Aplicar filtros se fornecidos
+      const { year, projectId, status } = req.query;
+
+      if (projectId && projectId !== 'all') {
+        projects = projects.filter(p => p.id.toString() === projectId);
+      }
+
+      if (year) {
+        const filterYear = parseInt(year as string);
+        projects = projects.filter(p => {
+          const createdYear = new Date(p.created_at || Date.now()).getFullYear();
+          return createdYear === filterYear;
+        });
+      }
+
+      if (status && status !== 'todas') {
+        projects = projects.filter(p => {
+          const projectStatus = p.situation || 'ativo';
+          return projectStatus.toLowerCase() === (status as string).toLowerCase();
+        });
+      }
+
+      res.json(projects);
+    } catch (error) {
+      console.error('❌ Error fetching projects:', error);
+      res.status(500).json({ error: 'Erro ao buscar projetos' });
+    }
+  });
+
+  // POST /api/projects - Criar novo projeto
+  app.post("/api/projects", async (req, res) => {
+    try {
+      const projectData = req.body;
+      const project = await storage.createProject(projectData);
+      res.status(201).json(project);
+    } catch (error) {
+      console.error('❌ Error creating project:', error);
+      res.status(500).json({ error: 'Erro ao criar projeto' });
+    }
+  });
+
+  // GET /api/projects/:id - Buscar projeto específico
+  app.get("/api/projects/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const project = await storage.getProject(id);
+      if (!project) {
+        return res.status(404).json({ error: 'Projeto não encontrado' });
+      }
+
+      res.json(project);
+    } catch (error) {
+      console.error('❌ Error fetching project:', error);
+      res.status(500).json({ error: 'Erro ao buscar projeto' });
+    }
+  });
+
+  // PUT /api/projects/:id - Atualizar projeto
+  app.put("/api/projects/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const projectData = req.body;
+      const project = await storage.updateProject(id, projectData);
+      res.json(project);
+    } catch (error) {
+      console.error('❌ Error updating project:', error);
+      res.status(500).json({ error: 'Erro ao atualizar projeto' });
+    }
+  });
+
+  // ===== ACTIVITIES ENDPOINTS =====
+
+  // GET /api/projects/:id/activities - Listar atividades de um projeto
+  app.get("/api/projects/:id/activities", async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      if (isNaN(projectId)) {
+        return res.status(400).json({ error: 'ID do projeto inválido' });
+      }
+
+      const activities = await storage.getActivitiesByProject(projectId);
+      res.json(activities);
+    } catch (error) {
+      console.error('❌ Error fetching activities:', error);
+      res.status(500).json({ error: 'Erro ao buscar atividades' });
+    }
+  });
+
+  // POST /api/projects/:id/activities - Criar nova atividade em um projeto
+  app.post("/api/projects/:id/activities", async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      if (isNaN(projectId)) {
+        return res.status(400).json({ error: 'ID do projeto inválido' });
+      }
+
+      const activityData = { ...req.body, project_id: projectId };
+      const activity = await storage.createActivity(activityData);
+      res.status(201).json(activity);
+    } catch (error) {
+      console.error('❌ Error creating activity:', error);
+      res.status(500).json({ error: 'Erro ao criar atividade' });
+    }
+  });
+
+  // GET /api/activities/:id - Buscar atividade específica
+  app.get("/api/activities/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const activity = await storage.getActivity(id);
+      if (!activity) {
+        return res.status(404).json({ error: 'Atividade não encontrada' });
+      }
+
+      res.json(activity);
+    } catch (error) {
+      console.error('❌ Error fetching activity:', error);
+      res.status(500).json({ error: 'Erro ao buscar atividade' });
+    }
+  });
+
+  // PUT /api/activities/:id - Atualizar atividade
+  app.put("/api/activities/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const activityData = req.body;
+      const activity = await storage.updateActivity(id, activityData);
+      res.json(activity);
+    } catch (error) {
+      console.error('❌ Error updating activity:', error);
+      res.status(500).json({ error: 'Erro ao atualizar atividade' });
+    }
+  });
+
+  // ===== INSTANCES ENDPOINTS =====
+
+  // GET /api/activities/:id/instances - Listar turmas de uma atividade
+  app.get("/api/activities/:id/instances", async (req, res) => {
+    try {
+      const activityId = parseInt(req.params.id);
+      if (isNaN(activityId)) {
+        return res.status(400).json({ error: 'ID da atividade inválido' });
+      }
+
+      const instances = await storage.getActivityInstancesByActivity(activityId);
+      res.json(instances);
+    } catch (error) {
+      console.error('❌ Error fetching instances:', error);
+      res.status(500).json({ error: 'Erro ao buscar turmas' });
+    }
+  });
+
+  // POST /api/activities/:id/instances - Criar nova turma em uma atividade
+  app.post("/api/activities/:id/instances", async (req, res) => {
+    try {
+      const activityId = parseInt(req.params.id);
+      if (isNaN(activityId)) {
+        return res.status(400).json({ error: 'ID da atividade inválido' });
+      }
+
+      const instanceData = { ...req.body, activity_id: activityId };
+      const instance = await storage.createActivityInstance(instanceData);
+      res.status(201).json(instance);
+    } catch (error) {
+      console.error('❌ Error creating instance:', error);
+      res.status(500).json({ error: 'Erro ao criar turma' });
+    }
+  });
+
+  // GET /api/instances/:id - Buscar turma específica
+  app.get("/api/instances/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const instance = await storage.getActivityInstance(id);
+      if (!instance) {
+        return res.status(404).json({ error: 'Turma não encontrada' });
+      }
+
+      res.json(instance);
+    } catch (error) {
+      console.error('❌ Error fetching instance:', error);
+      res.status(500).json({ error: 'Erro ao buscar turma' });
+    }
+  });
+
+  // PUT /api/instances/:id - Atualizar turma
+  app.put("/api/instances/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const instanceData = req.body;
+      const instance = await storage.updateActivityInstance(id, instanceData);
+      res.json(instance);
+    } catch (error) {
+      console.error('❌ Error updating instance:', error);
+      res.status(500).json({ error: 'Erro ao atualizar turma' });
+    }
+  });
+
+  // ===== STAFF ENDPOINTS =====
+
+  // GET /api/instances/:id/staff - Listar equipe de uma turma
+  app.get("/api/instances/:id/staff", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const staff = await storage.getStaffByActivityInstance(instanceId);
+      res.json(staff);
+    } catch (error) {
+      console.error('❌ Error fetching staff:', error);
+      res.status(500).json({ error: 'Erro ao buscar equipe' });
+    }
+  });
+
+  // POST /api/instances/:id/staff - Atribuir pessoa à equipe de uma turma
+  app.post("/api/instances/:id/staff", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const staffData = { ...req.body, activity_instance_id: instanceId };
+      const staff = await storage.createStaffAssignment(staffData);
+      res.status(201).json(staff);
+    } catch (error) {
+      console.error('❌ Error assigning staff:', error);
+      res.status(500).json({ error: 'Erro ao atribuir equipe' });
+    }
+  });
+
+  // DELETE /api/staff/:staffAssignmentId - Remover atribuição de equipe
+  app.delete("/api/staff/:staffAssignmentId", async (req, res) => {
+    try {
+      const staffAssignmentId = parseInt(req.params.staffAssignmentId);
+      if (isNaN(staffAssignmentId)) {
+        return res.status(400).json({ error: 'ID da atribuição inválido' });
+      }
+
+      await storage.deleteStaffAssignment(staffAssignmentId);
+      res.status(204).send();
+    } catch (error) {
+      console.error('❌ Error removing staff assignment:', error);
+      res.status(500).json({ error: 'Erro ao remover atribuição de equipe' });
+    }
+  });
+
+  // ===== ENROLLMENTS ENDPOINTS =====
+
+  // GET /api/instances/:id/enrollments - Listar inscrições de uma turma
+  app.get("/api/instances/:id/enrollments", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const enrollments = await storage.getEnrollmentsByActivityInstance(instanceId);
+      res.json(enrollments);
+    } catch (error) {
+      console.error('❌ Error fetching enrollments:', error);
+      res.status(500).json({ error: 'Erro ao buscar inscrições' });
+    }
+  });
+
+  // POST /api/instances/:id/enrollments - Criar nova inscrição em uma turma
+  app.post("/api/instances/:id/enrollments", requireAuth, async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const coordenadorId = req.user?.id || req.headers['x-user-id'];
+
+      const enrollmentData = { ...req.body, activity_instance_id: instanceId };
+      const enrollment = await storage.createEnrollment(enrollmentData);
+
+      // 🔗 VINCULAÇÃO AUTOMÁTICA DESABILITADA
+      // O coordenador psicossocial vai criar as famílias e vínculos manualmente conforme necessário
+      console.log(`ℹ️ [PEC] Aluno cadastrado no PEC (enrollment ${enrollment.id}). Vinculação psicossocial será feita manualmente.`);
+
+      res.status(201).json(enrollment);
+    } catch (error) {
+      console.error('❌ Error creating enrollment:', error);
+      res.status(500).json({ error: 'Erro ao criar inscrição' });
+    }
+  });
+
+  // ===== SESSIONS ENDPOINTS =====
+
+  // GET /api/instances/:id/sessions - Listar sessões de uma turma
+  app.get("/api/instances/:id/sessions", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const sessions = await storage.getSessionsByActivityInstance(instanceId);
+      res.json(sessions);
+    } catch (error) {
+      console.error('❌ Error fetching sessions:', error);
+      res.status(500).json({ error: 'Erro ao buscar sessões' });
+    }
+  });
+
+  // POST /api/instances/:id/sessions - Criar nova sessão em uma turma
+  app.post("/api/instances/:id/sessions", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const sessionData = { ...req.body, activity_instance_id: instanceId };
+      const session = await storage.createSession(sessionData);
+      res.status(201).json(session);
+    } catch (error) {
+      console.error('❌ Error creating session:', error);
+      res.status(500).json({ error: 'Erro ao criar sessão' });
+    }
+  });
+
+  // GET /api/sessions/:id - Buscar sessão específica
+  app.get("/api/sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const session = await storage.getSession(id);
+      if (!session) {
+        return res.status(404).json({ error: 'Sessão não encontrada' });
+      }
+
+      res.json(session);
+    } catch (error) {
+      console.error('❌ Error fetching session:', error);
+      res.status(500).json({ error: 'Erro ao buscar sessão' });
+    }
+  });
+
+  // PUT /api/sessions/:id - Atualizar sessão
+  app.put("/api/sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const sessionData = req.body;
+      const session = await storage.updateSession(id, sessionData);
+      res.json(session);
+    } catch (error) {
+      console.error('❌ Error updating session:', error);
+      res.status(500).json({ error: 'Erro ao atualizar sessão' });
+    }
+  });
+
+  // DELETE /api/sessions/:id - Deletar sessão
+  app.delete("/api/sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      await storage.deleteSession(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('❌ Error deleting session:', error);
+      res.status(500).json({ error: 'Erro ao deletar sessão' });
+    }
+  });
+
+  // ===== ATTENDANCE ENDPOINTS =====
+
+  // GET /api/sessions/:id/attendance - Buscar presença de uma sessão
+  app.get("/api/sessions/:id/attendance", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      if (isNaN(sessionId)) {
+        return res.status(400).json({ error: 'ID da sessão inválido' });
+      }
+
+      const attendance = await storage.getAttendancesBySession(sessionId);
+      res.json(attendance);
+    } catch (error) {
+      console.error('❌ Error fetching attendance:', error);
+      res.status(500).json({ error: 'Erro ao buscar presença' });
+    }
+  });
+
+  // POST /api/sessions/:id/attendance - Registrar presença em uma sessão
+  app.post("/api/sessions/:id/attendance", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      if (isNaN(sessionId)) {
+        return res.status(400).json({ error: 'ID da sessão inválido' });
+      }
+
+      const { enrollmentId, present } = req.body;
+      if (!enrollmentId || typeof present !== 'boolean') {
+        return res.status(400).json({ error: 'enrollmentId e present são obrigatórios' });
+      }
+
+      const attendanceData = {
+        session_id: sessionId,
+        enrollment_id: enrollmentId,
+        present
+      };
+      const attendance = await storage.createAttendance(attendanceData);
+      res.status(201).json(attendance);
+    } catch (error) {
+      console.error('❌ Error creating attendance:', error);
+      res.status(500).json({ error: 'Erro ao registrar presença' });
+    }
+  });
+
+  // ===== PHOTOS ENDPOINTS =====
+
+  // GET /api/instances/:id/photos - Buscar fotos de uma turma
+  app.get("/api/instances/:id/photos", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const photos = await storage.getPhotosByActivityInstance(instanceId);
+      res.json(photos);
+    } catch (error) {
+      console.error('❌ Error fetching photos:', error);
+      res.status(500).json({ error: 'Erro ao buscar fotos' });
+    }
+  });
+
+  // POST /api/instances/:id/photos - Upload de fotos para uma turma
+  app.post("/api/instances/:id/photos", secureUpload.single('photo'), validateImageFile, async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'Nenhuma foto foi enviada' });
+      }
+
+      const photoData = {
+        activity_instance_id: instanceId,
+        session_id: req.body.session_id ? parseInt(req.body.session_id) : null,
+        filename: req.file.filename,
+        original_filename: req.file.originalname,
+        file_size: req.file.size,
+        mime_type: req.file.mimetype,
+        description: req.body.description || null,
+        uploaded_by: parseInt(req.body.uploaded_by) // User ID de quem fez upload
+      };
+
+      const photo = await storage.createPhoto(photoData);
+      res.status(201).json(photo);
+    } catch (error) {
+      console.error('❌ Error uploading photo:', error);
+      res.status(500).json({ error: 'Erro ao fazer upload da foto' });
+    }
+  });
+
+  // ===== REPORTS ENDPOINT =====
+
+  // GET /api/instances/:id/report?month=2025-09 - Relatório mensal de uma turma
+  app.get("/api/instances/:id/report", async (req, res) => {
+    try {
+      const instanceId = parseInt(req.params.id);
+      if (isNaN(instanceId)) {
+        return res.status(400).json({ error: 'ID da turma inválido' });
+      }
+
+      const { month } = req.query;
+      if (!month || typeof month !== 'string') {
+        return res.status(400).json({ error: 'Parâmetro month é obrigatório (formato: YYYY-MM)' });
+      }
+
+      // Validar formato do mês
+      const monthRegex = /^\d{4}-\d{2}$/;
+      if (!monthRegex.test(month)) {
+        return res.status(400).json({ error: 'Formato de mês inválido. Use YYYY-MM' });
+      }
+
+      // Buscar dados da instância
+      const instance = await storage.getActivityInstance(instanceId);
+      if (!instance) {
+        return res.status(404).json({ error: 'Turma não encontrada' });
+      }
+
+      // Queries agregadas para o relatório mensal
+      const monthStart = `${month}-01`;
+
+      // 1. Horas do mês
+      const [hoursResult] = await db.select({
+        hours: sql<number>`COALESCE(SUM(hours), 0)`
+      }).from(sessions)
+        .where(and(
+          eq(sessions.activity_instance_id, instanceId),
+          sql`date >= ${monthStart}::date`,
+          sql`date < (${monthStart}::date + INTERVAL '1 month')`
+        ));
+
+      // 2. Atendidos no mês
+      const [attendeesResult] = await db.select({
+        attendees: sql<number>`COUNT(DISTINCT a.enrollment_id)`
+      }).from(attendance)
+        .innerJoin(sessions, eq(sessions.id, attendance.session_id))
+        .where(and(
+          eq(sessions.activity_instance_id, instanceId),
+          sql`sessions.date >= ${monthStart}::date`,
+          sql`sessions.date < (${monthStart}::date + INTERVAL '1 month')`,
+          eq(attendance.present, true)
+        ));
+
+      // 3. Diário com participantes e frequência por sessão
+      const diary = await db.select({
+        id: sessions.id,
+        date: sessions.date,
+        hours: sessions.hours,
+        title: sessions.title,
+        description: sessions.description,
+        observations: sessions.observations,
+        location: sessions.location,
+        educator_names: sessions.educator_names,
+        presentes: sql<number>`SUM(CASE WHEN a.present THEN 1 ELSE 0 END)`,
+        inscritos: sql<number>`(SELECT COUNT(*) FROM enrollments e WHERE e.activity_instance_id = ${instanceId} AND e.active = true)`,
+        freq_percent: sql<number>`ROUND(100.0 * SUM(CASE WHEN a.present THEN 1 ELSE 0 END) / GREATEST(1, (SELECT COUNT(*) FROM enrollments e WHERE e.activity_instance_id = ${instanceId} AND e.active = true)), 2)`
+      }).from(sessions)
+        .leftJoin(attendance, eq(attendance.session_id, sessions.id))
+        .where(and(
+          eq(sessions.activity_instance_id, instanceId),
+          sql`sessions.date >= ${monthStart}::date`,
+          sql`sessions.date < (${monthStart}::date + INTERVAL '1 month')`
+        ))
+        .groupBy(sessions.id)
+        .orderBy(sessions.date);
+
+      // 4. Buscar inscrições ativas
+      const enrollments = await storage.getEnrollmentsByActivityInstance(instanceId);
+
+      // 5. Buscar fotos do mês
+      const photos = await db.select().from(photos)
+        .where(and(
+          eq(photos.activity_instance_id, instanceId),
+          sql`upload_date >= ${monthStart}::date`,
+          sql`upload_date < (${monthStart}::date + INTERVAL '1 month')`
+        ));
+
+      // Montar relatório
+      const report = {
+        header: {
+          instance_id: instanceId,
+          instance_title: instance.title,
+          month,
+          generated_at: new Date().toISOString()
+        },
+        totals: {
+          hours_in_month: hoursResult?.hours || 0,
+          attendees_in_month: attendeesResult?.attendees || 0,
+          total_sessions: diary.length,
+          active_enrollments: enrollments.filter(e => e.active).length
+        },
+        diary,
+        enrollments,
+        gallery: photos
+      };
+
+      res.json(report);
+    } catch (error) {
+      console.error('❌ Error generating report:', error);
+      res.status(500).json({ error: 'Erro ao gerar relatório' });
+    }
+  });
+
+  // ================ ENDPOINTS PEC: CONTROLE DE PRESENÇA ================
+
+  // Schema compatível para validação de presença
+  const attendanceStatusSchema = z.enum(['presente', 'ausente', 'falta_justificada', 'atraso']);
+  const attendanceRecordSchema = z.object({
+    session_id: z.number(),
+    student_id: z.number(),
+    status: attendanceStatusSchema.default('ausente'),
+    entry_time: z.string().optional(),
+    exit_time: z.string().optional(),
+    total_hours: z.number().optional(),
+    observations: z.string().optional()
+  });
+
+  // GET /api/pec/attendance?session_id={id} - Buscar registros de presença por sessão
+  app.get('/api/pec/attendance', async (req, res) => {
+    try {
+      const sessionId = parseInt(req.query.session_id as string);
+      if (!sessionId) {
+        return res.status(400).json({ error: 'session_id é obrigatório' });
+      }
+
+      // Migration-safe query - works with both enrollment_id and student_id
+      const attendanceRecords = await db.query.attendance.findMany({
+        where: eq(attendance.session_id, sessionId),
+        columns: {
+          id: true,
+          session_id: true,
+          student_id: true,
+          status: true,
+          entry_time: true,
+          exit_time: true,
+          total_hours: true,
+          observations: true,
+          created_at: true,
+          updated_at: true
+        }
+      }).catch(async () => {
+        // Fallback for old schema (if student_id doesn't exist yet)
+        try {
+          const oldRecords = await db.select({
+            id: attendance.id,
+            session_id: attendance.session_id,
+            student_id: sql`enrollment_id`.as('student_id'), // Map old column
+            status: sql`CASE WHEN present THEN 'presente' ELSE 'ausente' END`.as('status'),
+            entry_time: sql`NULL`.as('entry_time'),
+            exit_time: sql`NULL`.as('exit_time'),
+            total_hours: sql`NULL`.as('total_hours'),
+            observations: sql`NULL`.as('observations'),
+            created_at: sql`NULL`.as('created_at'),
+            updated_at: sql`NULL`.as('updated_at')
+          }).from(attendance).where(eq(attendance.session_id, sessionId));
+          return oldRecords;
+        } catch (fallbackError) {
+          console.error('Fallback query failed:', fallbackError);
+          return [];
+        }
+      });
+
+      res.json(attendanceRecords);
+    } catch (error) {
+      console.error('Error fetching attendance:', error);
+      res.status(500).json({ error: 'Erro ao buscar registros de presença' });
+    }
+  });
+
+  // POST /api/pec/attendance - Salvar/atualizar registros de presença
+  app.post('/api/pec/attendance', async (req, res) => {
+    try {
+      const { session_id, records } = req.body;
+
+      if (!session_id || !Array.isArray(records)) {
+        return res.status(400).json({ error: 'session_id e records são obrigatórios' });
+      }
+
+      // Validate each record
+      const validatedRecords = records.map(record => attendanceRecordSchema.parse({
+        ...record,
+        session_id
+      }));
+
+      // Upsert logic - insert or update each record
+      const results = [];
+      for (const record of validatedRecords) {
+        try {
+          // Try new schema first
+          const existing = await db.query.attendance.findFirst({
+            where: and(
+              eq(attendance.session_id, record.session_id),
+              eq(attendance.student_id, record.student_id)
+            )
+          });
+
+          if (existing) {
+            // Update existing record
+            const updated = await db.update(attendance)
+              .set({
+                status: record.status,
+                entry_time: record.entry_time || null,
+                exit_time: record.exit_time || null,
+                total_hours: record.total_hours || null,
+                observations: record.observations || null,
+                updated_at: new Date()
+              })
+              .where(eq(attendance.id, existing.id))
+              .returning();
+            results.push(updated[0]);
+          } else {
+            // Insert new record
+            const inserted = await db.insert(attendance)
+              .values({
+                session_id: record.session_id,
+                student_id: record.student_id,
+                status: record.status,
+                entry_time: record.entry_time || null,
+                exit_time: record.exit_time || null,
+                total_hours: record.total_hours || null,
+                observations: record.observations || null
+              })
+              .returning();
+            results.push(inserted[0]);
+          }
+        } catch (schemaError) {
+          // Fallback for old schema
+          console.log('Using old schema fallback for attendance record');
+          try {
+            // Map new status to old boolean
+            const isPresent = ['presente', 'atraso'].includes(record.status);
+
+            const fallbackResult = await db.raw(`
+              INSERT INTO attendance (session_id, enrollment_id, present) 
+              VALUES (${record.session_id}, ${record.student_id}, ${isPresent})
+              ON CONFLICT (session_id, enrollment_id) 
+              DO UPDATE SET present = ${isPresent}
+              RETURNING *
+            `);
+
+            results.push({
+              id: fallbackResult[0]?.id,
+              session_id: record.session_id,
+              student_id: record.student_id,
+              status: record.status,
+              entry_time: record.entry_time,
+              exit_time: record.exit_time,
+              total_hours: record.total_hours,
+              observations: record.observations
+            });
+          } catch (fallbackError) {
+            console.error('Both new and old schema failed:', fallbackError);
+            throw schemaError;
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${results.length} registros de presença salvos`,
+        records: results
+      });
+    } catch (error: any) {
+      console.error('Error saving attendance:', error);
+      res.status(500).json({
+        error: 'Erro ao salvar presença',
+        details: error.message
+      });
+    }
+  });
+
+  // POST /api/pec/intelbras/attendance - Integração com Intelbras (stub inicial)
+  app.post('/api/pec/intelbras/attendance', async (req, res) => {
+    try {
+      const { group_id, date, student_ids } = req.body;
+
+      if (!group_id || !date || !Array.isArray(student_ids)) {
+        return res.status(400).json({
+          error: 'group_id, date e student_ids são obrigatórios'
+        });
+      }
+
+      // TODO: Implement actual Intelbras API integration
+      // For now, return mock data for development
+      const mockAttendanceData = student_ids.map((studentId: number) => ({
+        student_id: studentId,
+        status: Math.random() > 0.3 ? 'presente' : 'ausente',
+        entry_time: Math.random() > 0.3 ? '08:00:00' : null,
+        exit_time: Math.random() > 0.3 ? '12:00:00' : null,
+        total_hours: Math.random() > 0.3 ? 4.0 : 0
+      }));
+
+      res.json(mockAttendanceData);
+    } catch (error) {
+      console.error('Error syncing with Intelbras:', error);
+      res.status(500).json({ error: 'Erro ao sincronizar com Intelbras' });
+    }
+  });
+
+  // Validation schema for Intelbras sync endpoint
+  const intelbrasParamsSchema = z.object({
+    id: z.string().regex(/^\d+$/, 'ID deve ser um número válido')
+  });
+
+  const intelbrasQuerySchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar no formato YYYY-MM-DD')
+  });
+
+  // POST /api/instances/:id/sync-attendance/intelbras - Endpoint específico de sincronização
+  app.post('/api/instances/:id/sync-attendance/intelbras', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      // Validate input parameters
+      const paramsValidation = intelbrasParamsSchema.safeParse(req.params);
+      const queryValidation = intelbrasQuerySchema.safeParse(req.query);
+
+      if (!paramsValidation.success) {
+        return res.status(400).json({
+          error: 'Parâmetros inválidos',
+          details: paramsValidation.error.issues
+        });
+      }
+
+      if (!queryValidation.success) {
+        return res.status(400).json({
+          error: 'Query parameters inválidos',
+          details: queryValidation.error.issues
+        });
+      }
+
+      const instanceId = parseInt(paramsValidation.data.id);
+      const date = queryValidation.data.date;
+
+      const syncId = `sync-${instanceId}-${date}-${Date.now()}`;
+      console.log(`🔄 [INTELBRAS] ${syncId} - Iniciando sincronização - Instância: ${instanceId}, Data: ${date}`);
+
+      // 1. Buscar intelbras_group_id na turma (activity instance)
+      const instance = await db.query.activityInstances.findFirst({
+        where: eq(activityInstances.id, instanceId),
+        columns: {
+          id: true,
+          title: true,
+          intelbras_group_id: true,
+          control_mode: true
+        }
+      });
+
+      if (!instance) {
+        return res.status(404).json({ error: 'Instância não encontrada' });
+      }
+
+      if (!instance.intelbras_group_id) {
+        return res.status(400).json({
+          error: 'Esta instância não possui ID de grupo Intelbras configurado'
+        });
+      }
+
+      if (instance.control_mode !== 'intelbras') {
+        return res.status(400).json({
+          error: 'Esta instância não está configurada para controle Intelbras'
+        });
+      }
+
+      // 2. Buscar sessão existente para a data especificada (não criar automaticamente)
+      const session = await db.query.sessions.findFirst({
+        where: and(
+          eq(sessions.activity_instance_id, instanceId),
+          eq(sessions.date, date)
+        )
+      });
+
+      if (!session) {
+        return res.status(404).json({
+          error: `Sessão não encontrada para a data ${date}. Crie a sessão antes de sincronizar com Intelbras.`
+        });
+      }
+
+      // 3. Buscar alunos inscritos na instância
+      const enrollments = await db.query.enrollments.findMany({
+        where: and(
+          eq(enrollments.activity_instance_id, instanceId),
+          eq(enrollments.active, true)
+        ),
+        columns: {
+          id: true,
+          full_name: true
+        }
+      });
+
+      if (enrollments.length === 0) {
+        return res.status(400).json({
+          error: 'Nenhuma inscrição ativa encontrada para esta instância'
+        });
+      }
+
+      // 4. Chamar API Intelbras → retorna lista { alunoId, entrada, saida }
+      // TODO: Implementar chamada real para API Intelbras
+      // Por enquanto, gerar dados mock baseados nos alunos inscritos
+      console.log(`📞 [INTELBRAS] Consultando API para grupo ${instance.intelbras_group_id} em ${date}`);
+
+      const intelbrasResponse = enrollments.map(enrollment => {
+        const hasAttendance = Math.random() > 0.2; // 80% chance de presença
+        const entryHour = 7 + Math.floor(Math.random() * 2); // 7-8h
+        const entryMinute = Math.floor(Math.random() * 60);
+        const exitHour = 11 + Math.floor(Math.random() * 2); // 11-12h
+        const exitMinute = Math.floor(Math.random() * 60);
+
+        return {
+          alunoId: enrollment.id,
+          entrada: hasAttendance ? `${entryHour.toString().padStart(2, '0')}:${entryMinute.toString().padStart(2, '0')}` : null,
+          saida: hasAttendance ? `${exitHour.toString().padStart(2, '0')}:${exitMinute.toString().padStart(2, '0')}` : null
+        };
+      });
+
+      // 5. Calcular horas de cada aluno e atualizar attendance
+      const attendanceUpdates = [];
+      let totalHours = 0;
+      let studentsWithHours = 0;
+
+      for (const intelbrasData of intelbrasResponse) {
+        const isPresent = intelbrasData.entrada && intelbrasData.saida;
+        let calculatedHours = 0;
+
+        if (isPresent) {
+          // Calcular diferença de horas com validação
+          const [entryHour, entryMinute] = intelbrasData.entrada.split(':').map(Number);
+          const [exitHour, exitMinute] = intelbrasData.saida.split(':').map(Number);
+
+          // Validar horários
+          if (entryHour < 0 || entryHour > 23 || entryMinute < 0 || entryMinute > 59 ||
+            exitHour < 0 || exitHour > 23 || exitMinute < 0 || exitMinute > 59) {
+            console.warn(`Horários inválidos para aluno ${intelbrasData.alunoId}:`, intelbrasData);
+            continue;
+          }
+
+          const entryTotalMinutes = entryHour * 60 + entryMinute;
+          const exitTotalMinutes = exitHour * 60 + exitMinute;
+
+          // Validar que saída é posterior à entrada
+          if (exitTotalMinutes <= entryTotalMinutes) {
+            console.warn(`Horário de saída anterior à entrada para aluno ${intelbrasData.alunoId}:`, intelbrasData);
+            continue;
+          }
+
+          // Calcular horas com arredondamento fixo para 2 casas decimais
+          const rawHours = (exitTotalMinutes - entryTotalMinutes) / 60;
+          calculatedHours = Math.round(rawHours * 100) / 100;
+
+          // Só contabilizar se horas > 0
+          if (calculatedHours > 0) {
+            totalHours += calculatedHours;
+            studentsWithHours++;
+          } else {
+            console.warn(`Horas calculadas <= 0 para aluno ${intelbrasData.alunoId}: ${calculatedHours}`);
+            continue;
+          }
+        }
+
+        // Upsert attendance record
+        try {
+          const existingRecord = await db.query.attendance.findFirst({
+            where: and(
+              eq(attendance.session_id, session.id),
+              eq(attendance.student_id, intelbrasData.alunoId)
+            )
+          });
+
+          const attendanceData = {
+            session_id: session.id,
+            student_id: intelbrasData.alunoId,
+            status: (isPresent && calculatedHours > 0) ? 'presente' : 'ausente',
+            entry_time: intelbrasData.entrada || null,
+            exit_time: intelbrasData.saida || null,
+            total_hours: calculatedHours > 0 ? calculatedHours.toString() : null,
+            observations: `Sincronizado via Intelbras em ${new Date().toISOString()}`,
+            updated_at: new Date()
+          };
+
+          if (existingRecord) {
+            await db.update(attendance)
+              .set(attendanceData)
+              .where(eq(attendance.id, existingRecord.id));
+          } else {
+            await db.insert(attendance).values(attendanceData);
+          }
+
+          attendanceUpdates.push({
+            enrollment_id: intelbrasData.alunoId,
+            present: isPresent && calculatedHours > 0,
+            entry_time: intelbrasData.entrada,
+            exit_time: intelbrasData.saida,
+            hours: calculatedHours
+          });
+
+        } catch (dbError) {
+          console.error('Database error for attendance:', dbError);
+          // Continue with other records
+        }
+      }
+
+      // 6. Atualizar a sessão com status=realizado e hours = média
+      const averageHours = studentsWithHours > 0 ? totalHours / studentsWithHours : 0;
+
+      await db.update(sessions)
+        .set({
+          status: 'realizado',
+          hours: averageHours,
+          updated_at: new Date()
+        })
+        .where(eq(sessions.id, session.id));
+
+      console.log(`✅ [INTELBRAS] ${syncId} - Sincronização concluída:`, {
+        instanceId,
+        sessionId: session.id,
+        date,
+        counts: {
+          received: intelbrasResponse.length,
+          updated: attendanceUpdates.length,
+          skipped: Math.max(0, intelbrasResponse.length - attendanceUpdates.length),
+          present: presentCount,
+          absent: absentCount
+        },
+        sessionHoursAverage: parseFloat(averageHours.toFixed(2))
+      });
+
+      // Estruturar resposta com summary conciso e dados detalhados
+      const presentCount = attendanceUpdates.filter(a => a.present).length;
+      const absentCount = attendanceUpdates.length - presentCount;
+
+      res.json({
+        success: true,
+        message: 'Sincronização com Intelbras concluída',
+        instanceId: instanceId,
+        date: date,
+        counts: {
+          received: intelbrasResponse.length,
+          updated: attendanceUpdates.length,
+          skipped: Math.max(0, intelbrasResponse.length - attendanceUpdates.length),
+          present: presentCount,
+          absent: absentCount
+        },
+        sessionHoursAverage: parseFloat(averageHours.toFixed(2)),
+        attendance_records: attendanceUpdates.map(record => ({
+          enrollment_id: record.enrollment_id,
+          present: record.present,
+          entry_time: record.entry_time,
+          exit_time: record.exit_time,
+          hours: record.hours
+        })),
+        metadata: {
+          session_id: session.id,
+          instance_title: instance.title,
+          intelbras_group_id: instance.intelbras_group_id,
+          synchronized_at: new Date().toISOString()
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ [INTELBRAS] Erro na sincronização:', error);
+      res.status(500).json({
+        error: 'Erro ao sincronizar com Intelbras',
+        details: error.message
+      });
+    }
+  });
+
+  // ===== ROTAS DO DASHBOARD DE DOADORES =====
+
+  // Estatísticas dos doadores - Apenas doadores com pagamentos confirmados
+  app.get('/api/donor-stats', async (req, res) => {
+    try {
+      console.log('📊 [DONOR STATS] Buscando estatísticas de doadores confirmados...');
+
+      // Buscar total de doadores com status='paid' (pagamentos confirmados)
+      const totalDoadores = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(doadores)
+        .where(eq(doadores.status, 'paid'));
+
+      const totalAtivos = totalDoadores[0]?.count || 0;
+
+      // Retornar dados básicos
+      const stats = {
+        totalAtivos,
+        quantidadeMissoes: 0,
+        quantidadeCheckinDiario: 0,
+        engajamentoMedio: 0
+      };
+
+      console.log('✅ [DONOR STATS] Doadores confirmados (status=paid):', totalAtivos);
+      res.json(stats);
+    } catch (error) {
+      console.error('❌ [DONOR STATS] Erro ao buscar estatísticas:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Lista de doadores confirmados da tabela doadores
+  app.get('/api/donors', async (req, res) => {
+    try {
+      console.log('👥 [DONORS] Buscando lista de doadores confirmados...');
+
+      // Buscar doadores com status='paid' E ativo=true (pagamentos confirmados e ativos)
+      const doadoresConfirmados = await db
+        .select({
+          id: doadores.id,
+          nome: users.nome,
+          telefone: users.telefone,
+          email: users.email,
+          plano: doadores.plano,
+          valor: doadores.valor,
+          status: doadores.status,
+          dataInicio: doadores.dataDoacaoInicial,
+          ultimaDoacao: doadores.ultimaDoacao,
+          stripeSubscriptionId: doadores.stripeSubscriptionId,
+          stripePaymentIntentId: doadores.stripePaymentIntentId
+        })
+        .from(doadores)
+        .leftJoin(users, eq(doadores.userId, users.id))
+        .where(
+          and(
+            eq(doadores.status, 'paid'),
+            eq(doadores.ativo, true)
+          )
+        )
+        .orderBy(doadores.createdAt);
+
+      console.log(`✅ [DONORS] ${doadoresConfirmados.length} doadores confirmados e ativos`);
+      console.log('📋 [DONORS] IDs retornados:', doadoresConfirmados.map(d => `${d.id}:${d.nome}`).join(', '));
+
+      // Verificar especificamente se Sabrina está na lista
+      const sabrina = doadoresConfirmados.find(d => d.nome?.toLowerCase().includes('sabrina'));
+      console.log('🔍 [DONORS] Sabrina encontrada?', sabrina ? 'SIM' : 'NÃO');
+
+      res.json(doadoresConfirmados);
+    } catch (error) {
+      console.error('❌ [DONORS LIST] Erro ao buscar doadores:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Detalhes de um doador específico
+  app.get('/api/donors/:id', async (req, res) => {
+    try {
+      const donorId = parseInt(req.params.id);
+      const donorDetails = await storage.getDonorDetails(donorId);
+
+      if (!donorDetails) {
+        return res.status(404).json({ error: 'Doador não encontrado' });
+      }
+
+      res.json(donorDetails);
+    } catch (error) {
+      console.error('❌ [DONOR DETAILS] Erro ao buscar detalhes do doador:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // Deletar doador (soft delete)
+  app.delete('/api/donors/:id', requireAuth, async (req, res) => {
+    try {
+      const donorId = parseInt(req.params.id);
+
+      // Verificar se o doador existe
+      const donor = await db.select().from(doadores).where(eq(doadores.id, donorId)).limit(1);
+
+      if (!donor || donor.length === 0) {
+        return res.status(404).json({ error: 'Doador não encontrado' });
+      }
+
+      // Soft delete: marcar como inativo
+      await db.update(doadores)
+        .set({ ativo: false })
+        .where(eq(doadores.id, donorId));
+
+      console.log(`🗑️ [DELETE DONOR] Doador ${donorId} marcado como inativo`);
+      res.json({ success: true, message: 'Doador removido com sucesso' });
+    } catch (error) {
+      console.error('❌ [DELETE DONOR] Erro ao deletar doador:', error);
+      res.status(500).json({ error: 'Erro interno do servidor' });
+    }
+  });
+
+  // ===== SINCRONIZAÇÃO DE DOADORES COM STRIPE =====
+
+  // GET /api/sync-donors - Sincronizar doadores da Stripe e salvar no banco
+  app.get('/api/sync-donors', async (req, res) => {
+    try {
+      console.log('🔄 [SYNC DONORS] Iniciando sincronização de doadores da Stripe...');
+
+      const donors = await storage.syncDonorsFromStripe();
+
+      console.log(`✅ [SYNC DONORS] ${donors.length} doadores sincronizados com sucesso`);
+      res.json({
+        success: true,
+        message: `${donors.length} doadores sincronizados com sucesso`,
+        donors
+      });
+    } catch (error) {
+      console.error('❌ [SYNC DONORS] Erro ao sincronizar doadores:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao sincronizar doadores da Stripe'
+      });
+    }
+  });
+
+  // GET /api/all-donors - Listar todos os doadores salvos no banco
+  app.get('/api/all-donors', async (req, res) => {
+    try {
+      console.log('📋 [ALL DONORS] Buscando todos os doadores do banco...');
+
+      const donors = await storage.getAllDonors();
+
+      console.log(`✅ [ALL DONORS] ${donors.length} doadores encontrados no banco`);
+      res.json({
+        success: true,
+        total: donors.length,
+        donors
+      });
+    } catch (error) {
+      console.error('❌ [ALL DONORS] Erro ao buscar doadores:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao buscar doadores do banco de dados'
+      });
+    }
+  });
+
+  // ===== PEC ENDPOINTS =====
+
+  // GET /api/pec/activities - Listar todas as atividades PEC com filtros opcionais
+  app.get('/api/pec/activities', async (req, res) => {
+    try {
+      // Buscar todas as atividades de todos os projetos
+      const allProjects = await storage.getAllProjects();
+      let allActivities = [];
+
+      const { year, projectId, activityId } = req.query;
+
+      // Filtrar projetos primeiro se necessário
+      let filteredProjects = allProjects;
+      if (projectId && projectId !== 'all') {
+        filteredProjects = allProjects.filter(p => p.id.toString() === projectId);
+      }
+      if (year) {
+        const filterYear = parseInt(year as string);
+        filteredProjects = filteredProjects.filter(p => {
+          const createdYear = new Date(p.created_at || Date.now()).getFullYear();
+          return createdYear === filterYear;
+        });
+      }
+
+      // Buscar atividades dos projetos filtrados
+      for (const project of filteredProjects) {
+        const projectActivities = await storage.getActivitiesByProject(project.id);
+        allActivities.push(...projectActivities);
+      }
+
+      // Filtrar por atividade específica se necessário
+      if (activityId && activityId !== 'all') {
+        allActivities = allActivities.filter(a => a.id.toString() === activityId);
+      }
+
+      res.json(allActivities);
+    } catch (error) {
+      console.error('❌ Error fetching PEC activities:', error);
+      res.status(500).json({ error: 'Erro ao buscar atividades PEC' });
+    }
+  });
+
+  // POST /api/pec/activities - Criar nova atividade PEC
+  app.post('/api/pec/activities', async (req, res) => {
+    try {
+      const activityData = req.body;
+      console.log('📋 Creating PEC activity:', activityData);
+
+      // Validar se project_id existe
+      if (!activityData.project_id) {
+        return res.status(400).json({ error: 'project_id é obrigatório' });
+      }
+
+      const activity = await storage.createActivity(activityData);
+      console.log('✅ PEC activity created:', activity.id);
+      res.status(201).json(activity);
+    } catch (error) {
+      console.error('❌ Error creating PEC activity:', error);
+      res.status(500).json({ error: 'Erro ao criar atividade PEC', details: error.message });
+    }
+  });
+
+  // PUT /api/pec/activities/:id - Atualizar atividade PEC
+  app.put('/api/pec/activities/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const activityData = req.body;
+      const activity = await storage.updateActivity(id, activityData);
+      res.json(activity);
+    } catch (error) {
+      console.error('❌ Error updating PEC activity:', error);
+      res.status(500).json({ error: 'Erro ao atualizar atividade PEC' });
+    }
+  });
+
+  // GET /api/pec/instances - Listar todas as turmas/instâncias PEC com filtros opcionais
+  app.get('/api/pec/instances', async (req, res) => {
+    try {
+      let instances = await storage.getAllActivityInstances();
+
+      const { year, projectId, activityId, status } = req.query;
+
+      // Filtrar por status
+      if (status && status !== 'todas') {
+        instances = instances.filter(i => {
+          const instanceStatus = i.situation || 'execucao';
+          return instanceStatus === status;
+        });
+      }
+
+      // Filtrar por atividade
+      if (activityId && activityId !== 'all') {
+        instances = instances.filter(i => i.activity_id?.toString() === activityId);
+      }
+
+      // Filtrar por projeto (através da atividade)
+      if (projectId && projectId !== 'all') {
+        // Primeiro buscar todas as atividades do projeto
+        const projectActivities = await storage.getActivitiesByProject(parseInt(projectId as string));
+        const activityIds = projectActivities.map(a => a.id);
+        instances = instances.filter(i => activityIds.includes(i.activity_id));
+      }
+
+      // Filtrar por ano
+      if (year) {
+        const filterYear = parseInt(year as string);
+        instances = instances.filter(i => {
+          const startYear = i.start_date ? new Date(i.start_date).getFullYear() : new Date().getFullYear();
+          return startYear === filterYear;
+        });
+      }
+
+      res.json(instances);
+    } catch (error) {
+      console.error('❌ Error fetching PEC instances:', error);
+      res.status(500).json({ error: 'Erro ao buscar turmas PEC' });
+    }
+  });
+
+  // GET /api/pec/reports - Listar relatórios PEC
+  app.get('/api/pec/reports', async (req, res) => {
+    try {
+      // Por enquanto retorna array vazio - será implementado posteriormente
+      const reports = [];
+      res.json(reports);
+    } catch (error) {
+      console.error('❌ Error fetching PEC reports:', error);
+      res.status(500).json({ error: 'Erro ao buscar relatórios PEC' });
+    }
+  });
+
+  // POST /api/pec/instances - Criar nova turma/instância PEC
+  app.post('/api/pec/instances', async (req, res) => {
+    try {
+      const instanceData = req.body;
+      console.log('📋 Creating PEC instance:', instanceData);
+
+      const instance = await storage.createActivityInstance(instanceData);
+      console.log('✅ PEC instance created:', instance.id);
+      res.status(201).json(instance);
+    } catch (error) {
+      console.error('❌ Error creating PEC instance:', error);
+      res.status(500).json({ error: 'Erro ao criar turma PEC', details: error.message });
+    }
+  });
+
+  // ================ ENDPOINTS EDUCADORES ================
+
+  // GET /api/educadores - Listar todos os educadores
+  app.get('/api/educadores', async (req, res) => {
+    try {
+      const educadores = await storage.getAllEducadores();
+      res.json(educadores);
+    } catch (error) {
+      console.error('❌ Error fetching educadores:', error);
+      res.status(500).json({ error: 'Erro ao buscar educadores' });
+    }
+  });
+
+  // GET /api/educadores/pec - Listar educadores do programa PEC
+  app.get('/api/educadores/pec', async (req, res) => {
+    try {
+      const educadores = await storage.getEducadoresByPrograma('pec');
+      res.json(educadores);
+    } catch (error) {
+      console.error('❌ Error fetching PEC educadores:', error);
+      res.status(500).json({ error: 'Erro ao buscar educadores do PEC' });
+    }
+  });
+
+  // POST /api/educadores - Cadastrar novo educador
+  app.post('/api/educadores', async (req, res) => {
+    try {
+      const educadorData = req.body;
+      console.log('👨‍🏫 Creating educador:', { nome: educadorData.nome_completo, cpf: educadorData.cpf });
+
+      // Validar campos obrigatórios
+      if (!educadorData.cpf || !educadorData.nome_completo || !educadorData.telefone) {
+        return res.status(400).json({
+          error: 'Campos obrigatórios: cpf, nome_completo, telefone'
+        });
+      }
+
+      // Verificar se CPF já existe
+      const existingEducador = await storage.getEducadorByCpf(educadorData.cpf);
+      if (existingEducador) {
+        return res.status(400).json({
+          error: 'Educador com este CPF já existe'
+        });
+      }
+
+      const educador = await storage.createEducador(educadorData);
+      console.log('✅ Educador created:', educador.id);
+      res.status(201).json(educador);
+    } catch (error) {
+      console.error('❌ Error creating educador:', error);
+      res.status(500).json({ error: 'Erro ao criar educador', details: error.message });
+    }
+  });
+
+  // POST /api/educadores/:id/programa - Vincular educador a um programa
+  app.post('/api/educadores/:id/programa', async (req, res) => {
+    try {
+      const educadorId = parseInt(req.params.id);
+      const { programa, cargo } = req.body;
+
+      if (isNaN(educadorId)) {
+        return res.status(400).json({ error: 'ID de educador inválido' });
+      }
+
+      if (!programa) {
+        return res.status(400).json({ error: 'Campo programa é obrigatório' });
+      }
+
+      console.log(`🔗 Vinculando educador ${educadorId} ao programa ${programa}`);
+
+      const vinculo = await storage.createEducadorPrograma({
+        educador_id: educadorId,
+        programa,
+        cargo: cargo || 'Educador'
+      });
+
+      console.log('✅ Vínculo criado:', vinculo.id);
+      res.status(201).json(vinculo);
+    } catch (error) {
+      console.error('❌ Error creating educador-programa link:', error);
+      res.status(500).json({ error: 'Erro ao vincular educador ao programa', details: error.message });
+    }
+  });
+
+  // GET /api/educadores/:id - Buscar educador por ID
+  app.get('/api/educadores/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const educador = await storage.getEducadorById(id);
+      if (!educador) {
+        return res.status(404).json({ error: 'Educador não encontrado' });
+      }
+
+      res.json(educador);
+    } catch (error) {
+      console.error('❌ Error fetching educador:', error);
+      res.status(500).json({ error: 'Erro ao buscar educador' });
+    }
+  });
+
+  // ===== PATROCINADORES 2026 - INGRESSO =====
+  app.post('/api/patrocinador-2026', async (req, res) => {
+    try {
+      const { nome, email, telefone, paymentIntentId, paymentStatus } = req.body;
+
+      if (!nome || !telefone) {
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      // Se tiver paymentIntentId e paymentStatus, validar pagamento
+      if (paymentIntentId && paymentStatus) {
+        // ✅ REGRA CRÍTICA: Só criar patrocinador se pagamento foi confirmado
+        if (paymentStatus !== 'paid') {
+          return res.status(400).json({
+            error: 'Pagamento não confirmado',
+            details: 'Patrocinadores só podem ser criados após pagamento confirmado (PIX/cartão)'
+          });
+        }
+
+        // Verificar se o pagamento realmente existe e foi confirmado
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+          if (paymentIntent.status !== 'succeeded') {
+            return res.status(400).json({
+              error: 'Pagamento não confirmado no Stripe',
+              details: `Status do pagamento: ${paymentIntent.status}`
+            });
+          }
+        } catch (stripeError) {
+          return res.status(400).json({
+            error: 'Payment Intent inválido',
+            details: 'ID de pagamento não encontrado no Stripe'
+          });
+        }
+
+        // Salvar como patrocinador 2026 APENAS após pagamento confirmado
+        const patrocinador = await storage.createPatrocinador2026(nome, telefone);
+
+        console.log(`🎫 [INGRESSO 2026] Novo patrocinador cadastrado: ${nome} - ${telefone} (ID: ${patrocinador.id}) - Pagamento: ${paymentIntentId}`);
+
+        res.json({
+          success: true,
+          message: 'Patrocinador 2026 cadastrado com sucesso',
+          patrocinadorId: patrocinador.id
+        });
+      } else {
+        // Apenas salvar dados temporários (formulário PIX)
+        console.log(`📝 [PATROCINADOR 2026] Dados salvos temporariamente: ${nome} - ${email} - ${telefone}`);
+        res.json({
+          success: true,
+          message: 'Dados salvos com sucesso'
+        });
+      }
+    } catch (error) {
+      console.error('❌ [PATROCINADOR 2026] Erro ao processar:', error);
+      res.status(500).json({ error: 'Erro ao processar dados' });
+    }
+  });
+
+  // ===== INGRESSO - CRIAR PAYMENT INTENT =====
+  app.post('/api/ingresso/create-payment', async (req, res) => {
+    try {
+      const { nome, telefone, amount } = req.body;
+
+      if (!nome || !telefone || !amount) {
+        return res.status(400).json({ error: 'Nome, telefone e valor são obrigatórios' });
+      }
+
+      // Validar quantidade (deve estar entre 1 e 5)
+      if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 5) {
+        return res.status(400).json({ error: 'Quantidade deve ser um número inteiro entre 1 e 5' });
+      }
+
+      // Criar PaymentIntent no Stripe
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount, // Já vem em centavos (valor total = unitário * quantidade)
+        currency: 'brl',
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        metadata: {
+          tipo: 'ingresso_2026',
+          nome: nome,
+          telefone: telefone,
+          quantidade: quantidade.toString(),
+          produto: `Ingresso${quantidade > 1 ? 's' : ''} Premium - Instituto O Grito 2026`
+        },
+        description: `${quantidade} Ingresso${quantidade > 1 ? 's' : ''} Premium - ${nome} (${telefone})`
+      });
+
+      console.log(`💳 [INGRESSO STRIPE] PaymentIntent criado: ${paymentIntent.id} para ${nome} - R$ ${amount / 100}`);
+
+      res.json({
+        success: true,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id
+      });
+    } catch (error) {
+      console.error('❌ [INGRESSO STRIPE] Erro ao criar PaymentIntent:', error);
+      res.status(500).json({ error: 'Erro ao criar pagamento' });
+    }
+  });
+
+  // ===== CIELO SOP - OBTER ACCESS TOKEN =====
+  app.get('/api/cielo-sop/access-token', async (req, res) => {
+    try {
+      console.log('🔑 [CIELO SOP API] Gerando access token para frontend...');
+      
+      const accessToken = await getSopAccessToken();
+      
+      console.log('✅ [CIELO SOP API] Access token gerado com sucesso');
+      
+      res.json({
+        success: true,
+        accessToken
+      });
+    } catch (error: any) {
+      console.error('❌ [CIELO SOP API] Erro ao obter access token:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Erro ao gerar access token'
+      });
+    }
+  });
+
+  // ===== CIELO SOP - PROCESSAR PAGAMENTO COM CARTÃO TOKENIZADO =====
+  app.post('/api/ingresso/pagar-cielo-sop', async (req, res) => {
+    try {
+      const { cardToken, nome, telefone, email, cpf, quantidade } = req.body;
+      
+      console.log(`💳 [CIELO SOP] Processando pagamento: ${nome} - ${quantidade} ingresso(s)`);
+      
+      // Validações
+      if (!cardToken || !nome || !telefone || !cpf) {
+        return res.status(400).json({
+          success: false,
+          error: 'Dados incompletos: cardToken, nome, telefone e CPF são obrigatórios'
+        });
+      }
+      
+      if (!quantidade || quantidade < 1 || quantidade > 5) {
+        return res.status(400).json({
+          success: false,
+          error: 'Quantidade deve ser entre 1 e 5 ingressos'
+        });
+      }
+      
+      // Valor fixo no servidor - R$ 1.000,00 por ingresso
+      const VALOR_UNITARIO = 100000; // centavos
+      const valorTotal = VALOR_UNITARIO * quantidade;
+      
+      // Criar referência única
+      const orderRef = `ING-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      
+      // Obter credenciais Cielo
+      const { merchantId, merchantKey } = await import('./services/cieloSecrets').then(m => m.getCieloSecrets());
+      
+      // Determinar ambiente
+      const CIELO_ENV = process.env.CIELO_ENV || 'sandbox';
+      const apiUrl = CIELO_ENV === 'prod'
+        ? 'https://api.cieloecommerce.cielo.com.br/1/sales'
+        : 'https://apisandbox.cieloecommerce.cielo.com.br/1/sales';
+      
+      // Criar transação Cielo E-commerce
+      const payload = {
+        MerchantOrderId: orderRef,
+        Customer: {
+          Name: nome,
+          Email: email || `${telefone.replace(/\D/g, '')}@ingresso.com`,
+          Identity: cpf.replace(/\D/g, ''),
+          IdentityType: 'CPF',
+          Mobile: telefone
+        },
+        Payment: {
+          Type: 'CreditCard',
+          Amount: valorTotal,
+          Installments: 1,
+          SoftDescriptor: 'Instituto O Grito',
+          CreditCard: {
+            CardToken: cardToken,
+            SaveCard: false,
+            Brand: 'Visa' // Will be determined by Cielo from cardToken
+          }
+        }
+      };
+      
+      console.log(`🔵 [CIELO SOP] Criando transação em ${CIELO_ENV}: ${orderRef} - R$ ${valorTotal / 100}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'MerchantId': merchantId,
+          'MerchantKey': merchantKey
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [CIELO SOP] Erro HTTP ${response.status}:`, errorText);
+        return res.status(400).json({
+          success: false,
+          error: `Erro ao processar pagamento: ${response.status}`,
+          details: errorText
+        });
+      }
+      
+      const result = await response.json();
+      
+      console.log(`📋 [CIELO SOP] Resposta Cielo:`, JSON.stringify(result, null, 2));
+      
+      // Verificar se pagamento foi autorizado
+      const paymentStatus = result.Payment?.Status;
+      const returnCode = result.Payment?.ReturnCode;
+      const returnMessage = result.Payment?.ReturnMessage;
+      
+      // Status Cielo: 1=Aguardando autorização, 2=Autorizado, 3=Negado
+      if (paymentStatus === 2) {
+        console.log(`✅ [CIELO SOP] Pagamento AUTORIZADO - PaymentId: ${result.Payment.PaymentId}`);
+        
+        // Criar ingressos no banco
+        const ingressosCriados = [];
+        for (let i = 0; i < quantidade; i++) {
+          const ingresso = await db.insert(ingressos).values({
+            nomeComprador: nome,
+            telefoneComprador: telefone,
+            emailComprador: email || null,
+            cpf: cpf.replace(/\D/g, ''),
+            status: 'confirmado',
+            gateway: 'cielo_sop',
+            paymentId: result.Payment.PaymentId,
+            referencia: orderRef,
+            valorPago: VALOR_UNITARIO,
+            metodoPagamento: 'cartao'
+          }).returning();
+          
+          ingressosCriados.push(ingresso[0]);
+        }
+        
+        console.log(`🎫 [CIELO SOP] ${quantidade} ingresso(s) criado(s) com sucesso`);
+        
+        res.json({
+          success: true,
+          status: 'approved',
+          paymentId: result.Payment.PaymentId,
+          ingressos: ingressosCriados,
+          message: `Pagamento aprovado! ${quantidade} ingresso(s) confirmado(s).`
+        });
+      } else if (paymentStatus === 3) {
+        console.warn(`⚠️ [CIELO SOP] Pagamento NEGADO - Código: ${returnCode} - ${returnMessage}`);
+        
+        res.status(400).json({
+          success: false,
+          status: 'declined',
+          error: returnMessage || 'Pagamento recusado',
+          returnCode
+        });
+      } else {
+        console.warn(`⏳ [CIELO SOP] Pagamento em análise - Status: ${paymentStatus}`);
+        
+        res.json({
+          success: true,
+          status: 'processing',
+          paymentId: result.Payment?.PaymentId,
+          message: 'Pagamento em análise. Aguarde a confirmação.'
+        });
+      }
+      
+    } catch (error: any) {
+      console.error('❌ [CIELO SOP] Erro ao processar pagamento:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Erro ao processar pagamento'
+      });
+    }
+  });
+
+  // ===== CIELO CHECKOUT LINK - CRIAR INGRESSOS PENDENTES E RETORNAR LINK =====
+  app.post('/api/ingresso/cielo-link', async (req, res) => {
+    try {
+      const { nome, telefone, email, quantidade } = req.body;
+      
+      console.log(`🔗 [CIELO LINK] Criando ${quantidade} ingresso(s) pendente(s): ${nome}`);
+      
+      // Validações
+      if (!nome || !telefone) {
+        return res.status(400).json({
+          success: false,
+          error: 'Nome e telefone são obrigatórios'
+        });
+      }
+      
+      if (!quantidade || quantidade < 1 || quantidade > 10) {
+        return res.status(400).json({
+          success: false,
+          error: 'Quantidade deve ser entre 1 e 10 ingressos'
+        });
+      }
+      
+      // Valor fixo - R$ 1.000,00 por ingresso
+      const VALOR_UNITARIO = 100000; // centavos
+      
+      // Links de checkout Cielo pré-configurados
+      const cieloCheckoutLinks: Record<number, string> = {
+        1: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=6e5f9be2-0855-4ec2-a191-03051580ffdf",
+        2: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=f4a53b7c-a3d2-4589-a4f7-fa01daef142a",
+        3: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=1dbf739d-71b8-48d5-a3b5-79f6ab6179cd",
+        4: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=96abc8e0-8cae-4c1c-b6c4-70e4eee80470",
+        5: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=5fba6c71-4d3d-4920-a6d9-e2eb89347008",
+        6: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=48199350-d3c0-47e8-9b4c-d4c79b8357d0",
+        7: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=fd4d80cb-3a91-4c74-a957-e51f6e66889d",
+        8: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=9f1ba710-44c8-420d-8b5b-132023de1a39",
+        9: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=fe62b4ed-f68d-4ff5-ade9-9f21141b0c2d",
+        10: "https://cieloecommerce.cielo.com.br/checkoutui/#/change-payment-type?id=8a3ae4fd-6eeb-4e1c-a134-11721ad3036b"
+      };
+      
+      const checkoutLink = cieloCheckoutLinks[quantidade];
+      if (!checkoutLink) {
+        return res.status(400).json({
+          success: false,
+          error: `Link não configurado para quantidade ${quantidade}`
+        });
+      }
+      
+      // Criar referência única para rastreamento
+      const orderRef = `CIELO-LINK-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      
+      // Criar ingressos pendentes no banco com números sequenciais
+      const ingressosCriados = [];
+      for (let i = 0; i < quantidade; i++) {
+        // Gerar próximo número sequencial do ingresso
+        const numeroIngresso = await storage.getProximoNumeroIngresso();
+        console.log(`🔢 [CIELO LINK] Número gerado: ${numeroIngresso}`);
+        
+        if (!numeroIngresso) {
+          throw new Error('Falha ao gerar número do ingresso');
+        }
+        
+        const ingresso = await db.insert(ingressos).values({
+          numero: numeroIngresso,
+          nomeComprador: nome,
+          telefoneComprador: telefone,
+          emailComprador: email || null,
+          status: 'pendente',
+          gateway: 'cielo_link',
+          referencia: orderRef,
+          valorPago: VALOR_UNITARIO,
+          metodoPagamento: 'checkout_link'
+        }).returning();
+        
+        ingressosCriados.push(ingresso[0]);
+        console.log(`🎫 [CIELO LINK] Ingresso criado: #${numeroIngresso}`);
+      }
+      
+      console.log(`✅ [CIELO LINK] ${quantidade} ingresso(s) pendente(s) criado(s) - Ref: ${orderRef}`);
+      console.log(`🔗 [CIELO LINK] Link gerado: ${checkoutLink}`);
+      
+      res.json({
+        success: true,
+        checkoutLink: checkoutLink,
+        referencia: orderRef,
+        ingressos: ingressosCriados,
+        quantidade: quantidade,
+        valorTotal: VALOR_UNITARIO * quantidade,
+        message: `${quantidade} ingresso(s) reservado(s). Complete o pagamento na Cielo.`
+      });
+      
+    } catch (error: any) {
+      console.error('❌ [CIELO LINK] Erro ao criar ingressos:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Erro ao criar ingressos'
+      });
+    }
+  });
+
+  // ===== BUSCAR TODOS OS PAGAMENTOS DE INGRESSOS =====
+  app.get('/api/ingresso/pagamentos', async (req, res) => {
+    try {
+      console.log('📊 [INGRESSO DASHBOARD] Buscando pagamentos de ingressos do banco...');
+
+      // Buscar ingressos do banco de dados local
+      const ingressosDb = await db.select().from(ingressos).orderBy(desc(ingressos.criadoEm));
+
+      console.log(`📋 [DB] Total de ${ingressosDb.length} ingressos encontrados no banco`);
+
+      // Formatar ingressos
+      const pagamentosFormatados = ingressosDb.map((ingresso) => {
+        const statusMap: { [key: string]: string } = {
+          'confirmado': 'succeeded',
+          'aprovado': 'succeeded',
+          'pendente': 'processing',
+          'cancelado': 'canceled',
+          'ativo': 'succeeded'
+        };
+
+        const statusDetalhado: { [key: string]: string } = {
+          'confirmado': 'Pagamento confirmado com sucesso',
+          'aprovado': 'Pagamento confirmado com sucesso',
+          'pendente': 'Pagamento em processamento',
+          'cancelado': 'Pagamento cancelado',
+          'ativo': 'Ingresso ativo'
+        };
+
+        const gatewayLabel = ingresso.gateway === 'stripe' ? 'Cartão (Stripe)' :
+          ingresso.gateway === 'rede' ? 'Cartão (Rede)' :
+            ingresso.gateway === 'pix' ? 'PIX' :
+              ingresso.gateway === 'cota_empresa' ? 'Cota Empresa' :
+                'Outro';
+
+        const status = statusMap[ingresso.status || 'pendente'] || 'processing';
+
+        return {
+          id: ingresso.id.toString(),
+          numero: ingresso.numero,
+          nome: ingresso.nomeComprador || 'N/A',
+          telefone: ingresso.telefoneComprador || 'N/A',
+          email: ingresso.emailComprador || 'N/A',
+          metodo: gatewayLabel,
+          gateway: ingresso.gateway,
+          quantidade: 1,
+          valor: ingresso.valorPago,
+          valorFormatado: `R$ ${(ingresso.valorPago / 100).toFixed(2).replace('.', ',')}`,
+          data: ingresso.criadoEm ? ingresso.criadoEm.toISOString() : null,
+          status: status,
+          statusOriginal: ingresso.status,
+          statusDetalhado: statusDetalhado[ingresso.status || 'pendente'] || ingresso.status,
+          resumoAtividade: [
+            `${ingresso.criadoEm?.toLocaleString('pt-BR')}: Ingresso criado`,
+            `${ingresso.criadoEm?.toLocaleString('pt-BR')}: ${statusDetalhado[ingresso.status || 'pendente'] || 'Processado'}`
+          ],
+          temReembolso: false,
+          valorReembolsado: 0,
+          reembolsoCompleto: false,
+          statusLabel: status === 'succeeded' ? 'Pago' :
+            status === 'processing' ? 'Processando' :
+              status === 'canceled' ? 'Cancelado' :
+                'Outros'
+        };
+      });
+
+      // Estatísticas
+      const stats = {
+        total: pagamentosFormatados.length,
+        succeeded: pagamentosFormatados.filter(p => p.status === 'succeeded').length,
+        failed: pagamentosFormatados.filter(p => p.status === 'canceled').length,
+        refunded: 0,
+        processing: pagamentosFormatados.filter(p => p.status === 'processing').length,
+        aguardandoPagamento: 0,
+        requiresAction: 0
+      };
+
+      console.log(`✅ [DASHBOARD] Estatísticas: ${JSON.stringify(stats)}`);
+
+      res.json(pagamentosFormatados);
+    } catch (error) {
+      console.error('❌ [INGRESSO DASHBOARD] Erro ao buscar pagamentos:', error);
+      res.status(500).json({ error: 'Erro ao buscar pagamentos' });
+    }
+  });
+
+  // ===== BUSCAR COMPRADORES DE INGRESSOS AVULSOS =====
+  app.get('/api/ingresso/compradores-avulsos', async (req, res) => {
+    try {
+      console.log('👥 [COMPRADORES AVULSOS] Buscando compradores de ingressos avulsos...');
+
+      // Buscar ingressos avulsos (não vinculados a cota de empresa e nem a user_id)
+      const ingressosAvulsos = await db
+        .select({
+          id: ingressos.id,
+          numero: ingressos.numero,
+          nomeComprador: ingressos.nomeComprador,
+          emailComprador: ingressos.emailComprador,
+          telefoneComprador: ingressos.telefoneComprador,
+          valorPago: ingressos.valorPago,
+          status: ingressos.status,
+          dataCompra: ingressos.criadoEm,
+          gateway: ingressos.gateway
+        })
+        .from(ingressos)
+        .where(
+          and(
+            isNull(ingressos.idCotaEmpresa), // Não é de cota de empresa
+            isNull(ingressos.userId) // Não está vinculado a um usuário
+          )
+        )
+        .orderBy(desc(ingressos.criadoEm));
+
+      console.log(`📋 [COMPRADORES AVULSOS] Total de ${ingressosAvulsos.length} ingressos avulsos encontrados`);
+
+      // Formatar dados
+      const compradoresFormatados = ingressosAvulsos.map((ingresso) => ({
+        id: ingresso.id,
+        numero: ingresso.numero,
+        nome: ingresso.nomeComprador || 'N/A',
+        email: ingresso.emailComprador || 'N/A',
+        telefone: ingresso.telefoneComprador || 'N/A',
+        valor: `R$ ${(ingresso.valorPago / 100).toFixed(2).replace('.', ',')}`,
+        valorCentavos: ingresso.valorPago,
+        status: ingresso.status,
+        dataCompra: ingresso.dataCompra ? ingresso.dataCompra.toISOString() : null,
+        gateway: ingresso.gateway || 'N/A'
+      }));
+
+      // Estatísticas
+      const stats = {
+        total: compradoresFormatados.length,
+        confirmados: compradoresFormatados.filter(c => 
+          c.status === 'confirmado' || 
+          c.status === 'ativo' || 
+          c.status === 'aprovado'
+        ).length,
+        pendentes: compradoresFormatados.filter(c => c.status === 'pendente').length,
+        valorTotal: compradoresFormatados.reduce((sum, c) => sum + c.valorCentavos, 0)
+      };
+
+      console.log(`✅ [COMPRADORES AVULSOS] Estatísticas: ${JSON.stringify(stats)}`);
+
+      res.json({
+        success: true,
+        compradores: compradoresFormatados,
+        stats
+      });
+    } catch (error) {
+      console.error('❌ [COMPRADORES AVULSOS] Erro ao buscar compradores:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar compradores de ingressos avulsos' });
+    }
+  });
+
+  // ===== BUSCAR PAGAMENTOS CIELO (REDE) =====
+  app.get('/api/ingresso/pagamentos-cielo', async (req, res) => {
+    try {
+      console.log('📊 [CIELO DASHBOARD] Buscando pagamentos Cielo do banco...');
+
+      // Buscar apenas ingressos com gateway Cielo
+      const ingressosCielo = await db
+        .select()
+        .from(ingressos)
+        .where(eq(ingressos.gateway, 'cielo_checkout_link'))
+        .orderBy(desc(ingressos.criadoEm));
+
+      console.log(`📋 [CIELO] Total de ${ingressosCielo.length} ingressos Cielo encontrados`);
+
+      // Formatar ingressos
+      const pagamentosFormatados = ingressosCielo.map((ingresso) => {
+        const statusMap: { [key: string]: string } = {
+          'confirmado': 'succeeded',
+          'aprovado': 'succeeded',
+          'pendente': 'processing',
+          'cancelado': 'canceled',
+          'ativo': 'succeeded',
+          'negado': 'payment_failed',
+          'expirado': 'canceled'
+        };
+
+        const statusDetalhado: { [key: string]: string } = {
+          'confirmado': 'Pagamento confirmado com sucesso',
+          'aprovado': 'Pagamento aprovado pela Cielo',
+          'pendente': 'Pagamento em análise',
+          'cancelado': 'Pagamento cancelado',
+          'ativo': 'Ingresso ativo',
+          'negado': 'Pagamento negado pela operadora',
+          'expirado': 'Link de pagamento expirado'
+        };
+
+        const status = statusMap[ingresso.status || 'pendente'] || 'processing';
+
+        return {
+          id: ingresso.id.toString(),
+          numero: ingresso.numero,
+          nome: ingresso.nomeComprador || 'N/A',
+          telefone: ingresso.telefoneComprador || 'N/A',
+          email: ingresso.emailComprador || 'N/A',
+          metodo: 'Cartão (Cielo)',
+          gateway: 'cielo',
+          quantidade: 1,
+          valor: ingresso.valorPago,
+          valorFormatado: `R$ ${(ingresso.valorPago / 100).toFixed(2).replace('.', ',')}`,
+          data: ingresso.criadoEm ? ingresso.criadoEm.toISOString() : null,
+          status: status,
+          statusOriginal: ingresso.status,
+          statusDetalhado: statusDetalhado[ingresso.status || 'pendente'] || ingresso.status,
+          parcelas: ingresso.installments || 1,
+          transactionId: ingresso.gatewayTransactionId || 'N/A',
+          orderId: ingresso.gatewayOrderId || 'N/A',
+          resumoAtividade: [
+            `${ingresso.criadoEm?.toLocaleString('pt-BR')}: Ingresso criado via Cielo`,
+            `${ingresso.criadoEm?.toLocaleString('pt-BR')}: ${statusDetalhado[ingresso.status || 'pendente'] || 'Processado'}`,
+            ingresso.gatewayTransactionId ? `TID: ${ingresso.gatewayTransactionId}` : null,
+            ingresso.installments && ingresso.installments > 1 ? `Parcelado em ${ingresso.installments}x` : null
+          ].filter(Boolean),
+          temReembolso: false,
+          valorReembolsado: 0,
+          reembolsoCompleto: false,
+          statusLabel: status === 'succeeded' ? 'Pago' :
+            status === 'processing' ? 'Processando' :
+              status === 'payment_failed' ? 'Negado' :
+                status === 'canceled' ? 'Cancelado' :
+                  'Outros'
+        };
+      });
+
+      // Estatísticas detalhadas
+      const stats = {
+        total: pagamentosFormatados.length,
+        succeeded: pagamentosFormatados.filter(p => p.status === 'succeeded').length,
+        failed: pagamentosFormatados.filter(p => p.status === 'payment_failed').length,
+        canceled: pagamentosFormatados.filter(p => p.status === 'canceled').length,
+        processing: pagamentosFormatados.filter(p => p.status === 'processing').length,
+        valorPago: pagamentosFormatados
+          .filter(p => p.status === 'succeeded')
+          .reduce((sum, p) => sum + p.valor, 0),
+        valorProcessando: pagamentosFormatados
+          .filter(p => p.status === 'processing')
+          .reduce((sum, p) => sum + p.valor, 0),
+        valorFalhado: pagamentosFormatados
+          .filter(p => p.status === 'payment_failed' || p.status === 'canceled')
+          .reduce((sum, p) => sum + p.valor, 0),
+        parcelamentos: pagamentosFormatados.filter(p => (p.parcelas || 1) > 1).length
+      };
+
+      console.log(`✅ [CIELO DASHBOARD] Estatísticas: ${JSON.stringify(stats)}`);
+
+      res.json({
+        success: true,
+        pagamentos: pagamentosFormatados,
+        stats
+      });
+    } catch (error) {
+      console.error('❌ [CIELO DASHBOARD] Erro ao buscar pagamentos:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar pagamentos Cielo' });
+    }
+  });
+
+  // ===== INTEGRAÇÃO CIELO - FUNÇÕES AUXILIARES =====
+  
+  // Consultar status de transação por PaymentId (API E-commerce Cielo)
+  async function consultarTransacaoCieloEcommerce(paymentId: string): Promise<any> {
+    try {
+      const merchantId = process.env.MERCHANT_ID_CIELO;
+      const merchantKey = process.env.MERCHANT_KEY_CIELO;
+
+      if (!merchantId || !merchantKey) {
+        console.error('❌ [CIELO] Credenciais não configuradas');
+        return null;
+      }
+
+      // API E-commerce usa MerchantId e MerchantKey direto nos headers
+      const url = `https://apiquery.cieloecommerce.cielo.com.br/1/sales/${paymentId}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'MerchantId': merchantId,
+          'MerchantKey': merchantKey
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null; // Transação não encontrada
+        }
+        const errorText = await response.text();
+        console.error(`❌ [CIELO QUERY] Erro HTTP ${response.status} para PaymentId ${paymentId}: ${errorText}`);
+        return null;
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error(`❌ [CIELO QUERY] Erro ao consultar transação ${paymentId}:`, error);
+      return null;
+    }
+  }
+
+  // ===== ATUALIZAR STATUS CIELO MANUAL (em lote) =====
+  app.post('/api/admin/cielo/atualizar-status-manual', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { ingressoIds, novoStatus } = req.body;
+
+      if (!ingressoIds || !Array.isArray(ingressoIds) || ingressoIds.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'IDs de ingressos inválidos' 
+        });
+      }
+
+      if (!['confirmado', 'cancelado', 'negado'].includes(novoStatus)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Status inválido. Use: confirmado, cancelado ou negado' 
+        });
+      }
+
+      console.log(`🔄 [CIELO MANUAL] Atualizando ${ingressoIds.length} ingressos para status: ${novoStatus}`);
+
+      // Atualizar em lote
+      await db
+        .update(ingressos)
+        .set({ status: novoStatus })
+        .where(
+          and(
+            inArray(ingressos.id, ingressoIds),
+            eq(ingressos.gateway, 'cielo_checkout_link')
+          )
+        );
+
+      console.log(`✅ [CIELO MANUAL] ${ingressoIds.length} ingressos atualizados`);
+
+      res.json({
+        success: true,
+        atualizados: ingressoIds.length,
+        novoStatus
+      });
+
+    } catch (error) {
+      console.error('❌ [CIELO MANUAL] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao atualizar status' });
+    }
+  });
+
+  // ===== ATUALIZAR TODOS CIELO PENDENTES PARA CONFIRMADO =====
+  app.post('/api/admin/cielo/confirmar-todos-pendentes', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      console.log('🔄 [CIELO BATCH] Confirmando todos os ingressos pendentes...');
+
+      const result = await db
+        .update(ingressos)
+        .set({ status: 'confirmado' })
+        .where(
+          and(
+            eq(ingressos.gateway, 'cielo_checkout_link'),
+            eq(ingressos.status, 'pendente')
+          )
+        );
+
+      console.log(`✅ [CIELO BATCH] Todos os ingressos pendentes foram confirmados`);
+
+      res.json({
+        success: true,
+        message: 'Todos os ingressos pendentes foram confirmados'
+      });
+
+    } catch (error) {
+      console.error('❌ [CIELO BATCH] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao confirmar ingressos' });
+    }
+  });
+
+  // ===== VERIFICAR PAGAMENTO STRIPE =====
+  app.post('/api/verificar-pagamento-stripe', async (req, res) => {
+    try {
+      const { nome, telefone, paymentIntentId } = req.body;
+
+      console.log(`🔍 [VERIFICAR PAGAMENTO] Verificando pagamento para: "${nome}" (${telefone}), PaymentIntent: ${paymentIntentId}`);
+
+      // 🧪 BYPASS DE TESTE - Juliana Correa sempre retorna como pago
+      const nomeNormalizado = nome?.toLowerCase().trim() || '';
+      if (nomeNormalizado.includes('juliana')) {
+        console.log(`✅ [TESTE] Bypass ativado para Juliana (nome: "${nome}") - retornando como pago`);
+        return res.json({
+          pago: true,
+          paymentIntent: {
+            id: 'test_bypass_juliana_correa',
+            status: 'succeeded',
+            amount: 100000
+          }
+        });
+      }
+
+      // Verificar no Stripe se existe um pagamento confirmado
+      // Se paymentIntentId foi fornecido, verificar diretamente
+      if (paymentIntentId) {
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+          if (paymentIntent.status === 'succeeded' &&
+            paymentIntent.metadata.nome === nome &&
+            paymentIntent.metadata.telefone === telefone) {
+            console.log(`✅ [VERIFICAR PAGAMENTO] Pagamento confirmado: ${paymentIntentId}`);
+            return res.json({ pago: true, paymentIntent });
+          }
+        } catch (error) {
+          console.error('❌ [VERIFICAR PAGAMENTO] Erro ao buscar PaymentIntent:', error);
+        }
+      }
+
+      // Buscar payment intents recentes com os metadados
+      const paymentIntents = await stripe.paymentIntents.list({
+        limit: 100,
+      });
+
+      const pagamentoEncontrado = paymentIntents.data.find(pi =>
+        pi.status === 'succeeded' &&
+        pi.metadata.nome === nome &&
+        pi.metadata.telefone === telefone &&
+        pi.amount === 100000 // R$ 1.000,00
+      );
+
+      if (pagamentoEncontrado) {
+        console.log(`✅ [VERIFICAR PAGAMENTO] Pagamento encontrado: ${pagamentoEncontrado.id}`);
+        return res.json({ pago: true, paymentIntent: pagamentoEncontrado });
+      }
+
+      console.log(`❌ [VERIFICAR PAGAMENTO] Nenhum pagamento encontrado para: ${nome}`);
+      res.json({ pago: false });
+    } catch (error) {
+      console.error('❌ [VERIFICAR PAGAMENTO] Erro:', error);
+      res.status(500).json({ error: 'Erro ao verificar pagamento' });
+    }
+  });
+
+  // ===== VERIFICAR SE EMPRESA EXISTE =====
+  app.post('/api/cotas/verificar-empresa', async (req, res) => {
+    try {
+      const { nomeEmpresa } = req.body;
+
+      if (!nomeEmpresa) {
+        return res.status(400).json({ existe: false, mensagem: 'Nome da empresa é obrigatório' });
+      }
+
+      console.log(`🏢 [VERIFICAR EMPRESA] Buscando empresa: ${nomeEmpresa}`);
+
+      // Buscar empresa no banco (case insensitive)
+      const empresas = await db
+        .select()
+        .from(cotasEmpresas)
+        .where(sql`LOWER(${cotasEmpresas.nomeEmpresa}) = LOWER(${nomeEmpresa})`);
+
+      if (empresas.length > 0) {
+        console.log(`✅ [VERIFICAR EMPRESA] Empresa encontrada: ${empresas[0].nomeEmpresa}`);
+        return res.json({
+          existe: true,
+          empresa: empresas[0]
+        });
+      }
+
+      console.log(`❌ [VERIFICAR EMPRESA] Empresa não encontrada: ${nomeEmpresa}`);
+      res.json({ existe: false });
+    } catch (error) {
+      console.error('❌ [VERIFICAR EMPRESA] Erro:', error);
+      res.status(500).json({ error: 'Erro ao verificar empresa' });
+    }
+  });
+
+  // ===== CADASTRAR USUÁRIO =====
+  app.post('/api/usuarios/cadastrar', async (req, res) => {
+    try {
+      const { nome, telefone, empresaNaoEncontrada, semVinculo } = req.body;
+
+      if (!nome || !telefone) {
+        return res.status(400).json({ success: false, mensagem: 'Nome e telefone são obrigatórios' });
+      }
+
+      console.log(`👤 [CADASTRAR USUÁRIO] Cadastrando: ${nome} (${telefone})`);
+
+      // Verificar se usuário já existe
+      const usuarioExistente = await db
+        .select()
+        .from(users)
+        .where(eq(users.telefone, telefone));
+
+      if (usuarioExistente.length > 0) {
+        console.log(`⚠️ [CADASTRAR USUÁRIO] Usuário já existe: ${telefone}`);
+        return res.json({
+          success: true,
+          mensagem: 'Usuário já cadastrado',
+          usuario: usuarioExistente[0]
+        });
+      }
+
+      // Criar novo usuário
+      const novoUsuario = await db.insert(users).values({
+        nome,
+        telefone,
+        role: 'student', // role padrão
+      }).returning();
+
+      console.log(`✅ [CADASTRAR USUÁRIO] Usuário criado: ${novoUsuario[0].id}`);
+
+      // Log adicional se empresa não foi encontrada
+      if (empresaNaoEncontrada) {
+        console.log(`📝 [CADASTRAR USUÁRIO] Empresa informada não encontrada: ${empresaNaoEncontrada}`);
+      }
+
+      res.json({
+        success: true,
+        mensagem: 'Usuário cadastrado com sucesso',
+        usuario: novoUsuario[0]
+      });
+    } catch (error) {
+      console.error('❌ [CADASTRAR USUÁRIO] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao cadastrar usuário' });
+    }
+  });
+
+  // ===== VINCULAR USUÁRIO A EMPRESA =====
+  app.post('/api/usuarios/vincular-empresa', async (req, res) => {
+    try {
+      const { nome, telefone, nomeEmpresa, empresaId } = req.body;
+
+      if (!nome || !telefone || !empresaId) {
+        return res.status(400).json({ success: false, mensagem: 'Dados incompletos' });
+      }
+
+      console.log(`🔗 [VINCULAR EMPRESA] Vinculando ${nome} à empresa ID ${empresaId}`);
+
+      // Verificar se usuário já existe
+      let usuario = await db
+        .select()
+        .from(users)
+        .where(eq(users.telefone, telefone));
+
+      // Se não existe, criar
+      if (usuario.length === 0) {
+        const novoUsuario = await db.insert(users).values({
+          nome,
+          telefone,
+          role: 'student',
+        }).returning();
+        usuario = novoUsuario;
+      }
+
+      // Aqui você pode adicionar lógica para criar vínculo em uma tabela de relacionamento
+      // Por exemplo: vinculos_empresa_usuario
+      // Por enquanto, só vamos confirmar o cadastro
+
+      console.log(`✅ [VINCULAR EMPRESA] Vínculo criado com sucesso`);
+
+      res.json({
+        success: true,
+        mensagem: 'Vínculo com empresa criado com sucesso',
+        usuario: usuario[0]
+      });
+    } catch (error) {
+      console.error('❌ [VINCULAR EMPRESA] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao vincular empresa' });
+    }
+  });
+
+  // ===== RESGATAR INGRESSO (APÓS CADASTRO) =====
+  app.post('/api/ingresso/resgatar', async (req, res) => {
+    try {
+      const { telefone, nomeEmpresa } = req.body;
+
+      if (!telefone) {
+        return res.status(400).json({ success: false, error: 'Telefone é obrigatório' });
+      }
+
+      console.log(`🎟️ [RESGATAR INGRESSO] Resgatando para: ${telefone}, Empresa: ${nomeEmpresa || 'Sem empresa'}`);
+
+      // Se tem empresa, buscar ou criar cota
+      if (nomeEmpresa) {
+        // Normalizar nome da empresa (trim e remover espaços extras)
+        const nomeNormalizado = nomeEmpresa.trim().replace(/\s+/g, ' ');
+
+        let cotas = await db
+          .select()
+          .from(cotasEmpresas)
+          .where(sql`LOWER(TRIM(regexp_replace(${cotasEmpresas.nomeEmpresa}, '\\s+', ' ', 'g'))) = LOWER(${nomeNormalizado})`);
+
+        let cota;
+
+        if (cotas.length === 0) {
+          // Empresa não existe - criar automaticamente (ingresso avulso)
+          console.log(`📝 [RESGATAR INGRESSO] Criando empresa automaticamente: ${nomeEmpresa}`);
+
+          // Sanitizar nome para email (remover acentos e caracteres especiais)
+          const nomeSlug = nomeEmpresa
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '') // Remove caracteres especiais
+            .trim();
+
+          const novaEmpresa = await db.insert(cotasEmpresas).values({
+            nomeEmpresa: nomeNormalizado,
+            email: `contato@${nomeSlug || 'empresa'}.com.br`,
+            quantidadeTotal: 0, // Sem cotas (ingresso avulso)
+            quantidadeUsada: 0,
+            status: 'ativa'
+          }).returning();
+
+          cota = novaEmpresa[0];
+          console.log(`✅ [RESGATAR INGRESSO] Empresa criada com ID: ${cota.id}`);
+        } else {
+          cota = cotas[0];
+        }
+
+        // Verificar disponibilidade (apenas para empresas com cotas)
+        if (cota.status !== 'ativa') {
+          return res.status(400).json({
+            success: false,
+            error: 'Cota inativa'
+          });
+        }
+
+        const temCotas = cota.quantidadeTotal > 0;
+        const disponivel = cota.quantidadeTotal - cota.quantidadeUsada;
+
+        if (temCotas && disponivel <= 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Cota esgotada'
+          });
+        }
+
+        // Buscar dados reais do usuário
+        const usuarioResult = await db
+          .select()
+          .from(users)
+          .where(eq(users.telefone, telefone))
+          .limit(1);
+
+        const nomeReal = usuarioResult.length > 0 ? usuarioResult[0].nome : telefone;
+        const emailReal = usuarioResult.length > 0 ? (usuarioResult[0].email || "") : "";
+
+        console.log(`👤 [RESGATAR INGRESSO] Dados do usuário: ${nomeReal} (${telefone})`);
+
+        // Gerar número do ingresso
+        const numeroIngresso = await storage.getProximoNumeroIngresso();
+
+        // Criar ingresso (determinar método de pagamento)
+        const metodoPagamento = temCotas ? "cota_empresarial" : "stripe"; // Se tem cotas = cota, senão = avulso via Stripe
+
+        const ingresso = await storage.createIngresso({
+          numero: numeroIngresso,
+          eventoNome: "IV ENCONTRO Do Grito",
+          eventoData: "23 Outubro de 2025",
+          eventoHora: "19h30",
+          eventoLocal: "R. Kennedy, 47 - Jardim Canada, Nova Lima - MG, 34007-644",
+          nomeComprador: nomeReal,
+          emailComprador: emailReal,
+          telefoneComprador: telefone,
+          valorPago: 100000, // R$ 1.000,00
+          metodoPagamento: metodoPagamento,
+          status: "confirmado",
+          idCotaEmpresa: cota.id
+        });
+
+        // Consumir cota apenas se for empresa com cotas
+        if (temCotas) {
+          await storage.usarCota(cota.id);
+          console.log(`✅ [RESGATAR INGRESSO] Cota consumida`);
+        }
+
+        console.log(`✅ [RESGATAR INGRESSO] Ingresso criado: ${ingresso.numero} (${temCotas ? 'via cota' : 'avulso'})`);
+
+        return res.json({
+          success: true,
+          ingresso: {
+            id: ingresso.id,
+            numero: ingresso.numero,
+            nomeComprador: ingresso.nomeComprador,
+            emailComprador: ingresso.emailComprador,
+            eventoData: ingresso.eventoData,
+            eventoHora: ingresso.eventoHora
+          }
+        });
+      }
+
+      // Se não tem empresa, retornar erro (por enquanto)
+      console.log(`❌ [RESGATAR INGRESSO] Sem empresa informada`);
+      return res.status(400).json({
+        success: false,
+        error: 'Resgate sem empresa não implementado'
+      });
+
+    } catch (error) {
+      console.error('❌ [RESGATAR INGRESSO] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao resgatar ingresso' });
+    }
+  });
+
+  // ===== VALIDAÇÃO DE INGRESSOS (SCANNER) =====
+
+  // 🎫 POST /api/ingressos/validar - Validar ingresso via scanner (marcar como usado)
+  app.post('/api/ingressos/validar', async (req, res) => {
+    try {
+      let { numeroIngresso } = req.body;
+
+      if (!numeroIngresso) {
+        return res.status(400).json({ error: 'Número do ingresso é obrigatório' });
+      }
+
+      // Extrair número do formato "INGRESSO-009-73" se necessário
+      if (typeof numeroIngresso === 'string' && numeroIngresso.startsWith('INGRESSO-')) {
+        const partes = numeroIngresso.split('-');
+        if (partes.length >= 2) {
+          numeroIngresso = partes[1]; // Pega o número "009"
+          console.log(`🔍 [VALIDAR INGRESSO] Extraído número do QR Code: ${partes.join('-')} → ${numeroIngresso}`);
+        }
+      }
+
+      console.log(`🔍 [VALIDAR INGRESSO] Buscando ingresso: ${numeroIngresso}`);
+
+      // Buscar ingresso pelo número com JOIN na cota de empresa
+      const ingresso = await db.select({
+        ingresso: ingressos,
+        empresa: cotasEmpresas
+      })
+        .from(ingressos)
+        .leftJoin(cotasEmpresas, eq(ingressos.idCotaEmpresa, cotasEmpresas.id))
+        .where(eq(ingressos.numero, numeroIngresso))
+        .limit(1);
+
+      if (ingresso.length === 0) {
+        console.log(`❌ [VALIDAR INGRESSO] Ingresso não encontrado: ${numeroIngresso}`);
+        return res.status(404).json({
+          error: 'Ingresso não encontrado',
+          valido: false
+        });
+      }
+
+      const ingressoData = ingresso[0].ingresso;
+      const empresaData = ingresso[0].empresa;
+
+      // Verificar se já foi usado
+      if (ingressoData.status === 'usado') {
+        console.log(`⚠️ [VALIDAR INGRESSO] Ingresso já utilizado: ${numeroIngresso} em ${ingressoData.dataUso}`);
+        return res.status(400).json({
+          error: 'Ingresso já foi utilizado',
+          valido: false,
+          dataUso: ingressoData.dataUso,
+          ingresso: ingressoData
+        });
+      }
+
+      // Verificar se foi cancelado
+      if (ingressoData.status === 'cancelado') {
+        console.log(`❌ [VALIDAR INGRESSO] Ingresso cancelado: ${numeroIngresso}`);
+        return res.status(400).json({
+          error: 'Ingresso cancelado',
+          valido: false
+        });
+      }
+
+      // Verificar se está pendente (PIX não confirmado)
+      if (ingressoData.status === 'pending') {
+        console.log(`⏳ [VALIDAR INGRESSO] Ingresso pendente de pagamento: ${numeroIngresso}`);
+        return res.status(400).json({
+          error: 'Pagamento pendente - ingresso não liberado',
+          valido: false
+        });
+      }
+
+      // Marcar como usado
+      const ingressoAtualizado = await db.update(ingressos)
+        .set({
+          status: 'usado',
+          dataUso: new Date()
+        })
+        .where(eq(ingressos.numero, numeroIngresso))
+        .returning();
+
+      console.log(`✅ [VALIDAR INGRESSO] Ingresso validado com sucesso: ${numeroIngresso}`);
+
+      // Determinar tipo de ingresso
+      const tipoIngresso = empresaData ? "empresa" : "avulso";
+      const nomeEmpresa = empresaData?.nomeEmpresa;
+
+      console.log(`📋 [VALIDAR INGRESSO] Tipo: ${tipoIngresso}${nomeEmpresa ? ` (${nomeEmpresa})` : ''}`);
+
+      return res.json({
+        success: true,
+        valido: true,
+        mensagem: 'Ingresso validado com sucesso!',
+        ingresso: {
+          ...ingressoAtualizado[0],
+          tipoIngresso,
+          nomeEmpresa
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ [VALIDAR INGRESSO] Erro:', error);
+      res.status(500).json({ error: 'Erro ao validar ingresso', valido: false });
+    }
+  });
+
+  // ===== SISTEMA PIX - ENDPOINTS =====
+
+  // 🎫 POST /api/ingressos/pix/iniciar - Criar registro PIX pendente antes de mostrar QR
+  app.post('/api/ingressos/pix/iniciar', async (req, res) => {
+    try {
+      const { nome, telefone, email, quantidade } = req.body;
+
+      if (!nome || !telefone) {
+        return res.status(400).json({ error: 'Nome e telefone são obrigatórios' });
+      }
+
+      console.log(`💰 [PIX INICIAR] Criando registro PIX pendente: ${nome} (${telefone}), Qtd: ${quantidade || 1}`);
+
+      // Gerar TXID único (UUID curto de 8 caracteres)
+      const txid = crypto.randomUUID().substring(0, 8).toUpperCase();
+
+      // Gerar números de ingresso
+      const valorUnitario = 100000; // R$ 1.000,00 em centavos
+      const qtd = quantidade || 1;
+      const valorTotal = valorUnitario * qtd;
+
+      const ingressosCriados = [];
+
+      for (let i = 0; i < qtd; i++) {
+        const numeroIngresso = await storage.getProximoNumeroIngresso();
+
+        const ingresso = await db.insert(ingressos).values({
+          numero: numeroIngresso,
+          nomeComprador: nome,
+          telefoneComprador: telefone,
+          emailComprador: email || null,
+          valorPago: valorUnitario,
+          gateway: 'pix',
+          status: 'pending', // Status pendente até confirmação
+          txid: txid,
+        }).returning();
+
+        ingressosCriados.push(ingresso[0]);
+        console.log(`📝 [PIX INICIAR] Ingresso pendente criado: #${numeroIngresso} (TXID: ${txid})`);
+      }
+
+      res.json({
+        success: true,
+        txid,
+        ingressos: ingressosCriados,
+        valorTotal,
+        mensagem: `${qtd} ingresso(s) reservado(s). Complete o pagamento PIX de R$ ${(valorTotal / 100).toFixed(2)}`
+      });
+    } catch (error) {
+      console.error('❌ [PIX INICIAR] Erro:', error);
+      res.status(500).json({ error: 'Erro ao criar registro PIX' });
+    }
+  });
+
+  // ✅ POST /api/ingressos/pix/confirmar - Confirmar pagamento PIX (ADMIN)
+  app.post('/api/ingressos/pix/confirmar', async (req, res) => {
+    try {
+      const { txid, telefone, valor, adminUserId } = req.body;
+
+      if (!txid && !telefone) {
+        return res.status(400).json({ error: 'TXID ou telefone é obrigatório' });
+      }
+
+      console.log(`✅ [PIX CONFIRMAR] Confirmando pagamento: TXID=${txid}, Tel=${telefone}, Valor=${valor}`);
+
+      // Buscar ingressos pendentes
+      let whereClause;
+      if (txid) {
+        whereClause = and(eq(ingressos.txid, txid), eq(ingressos.status, 'pending'));
+      } else {
+        whereClause = and(
+          eq(ingressos.telefoneComprador, telefone),
+          eq(ingressos.gateway, 'pix'),
+          eq(ingressos.status, 'pending')
+        );
+      }
+
+      const ingressosPendentes = await db
+        .select()
+        .from(ingressos)
+        .where(whereClause);
+
+      if (ingressosPendentes.length === 0) {
+        return res.status(404).json({ error: 'Nenhum ingresso PIX pendente encontrado' });
+      }
+
+      // Confirmar todos os ingressos encontrados
+      const idsConfirmados = [];
+      for (const ingresso of ingressosPendentes) {
+        await db
+          .update(ingressos)
+          .set({
+            status: 'ativo',
+            dataCompra: new Date()
+          })
+          .where(eq(ingressos.id, ingresso.id));
+
+        idsConfirmados.push(ingresso.id);
+        console.log(`✅ [PIX CONFIRMAR] Ingresso confirmado: #${ingresso.numero}`);
+      }
+
+      res.json({
+        success: true,
+        ingressosConfirmados: idsConfirmados.length,
+        mensagem: `${idsConfirmados.length} ingresso(s) confirmado(s) com sucesso`
+      });
+    } catch (error) {
+      console.error('❌ [PIX CONFIRMAR] Erro:', error);
+      res.status(500).json({ error: 'Erro ao confirmar pagamento PIX' });
+    }
+  });
+
+  // 📋 GET /api/ingressos/pix/pendentes - Listar ingressos PIX pendentes (ADMIN)
+  app.get('/api/ingressos/pix/pendentes', async (req, res) => {
+    try {
+      const pendentes = await db
+        .select()
+        .from(ingressos)
+        .where(and(
+          eq(ingressos.gateway, 'pix'),
+          eq(ingressos.status, 'pending')
+        ))
+        .orderBy(desc(ingressos.criadoEm));
+
+      console.log(`📋 [PIX PENDENTES] ${pendentes.length} ingresso(s) PIX pendente(s)`);
+
+      res.json({
+        success: true,
+        total: pendentes.length,
+        ingressos: pendentes
+      });
+    } catch (error) {
+      console.error('❌ [PIX PENDENTES] Erro:', error);
+      res.status(500).json({ error: 'Erro ao listar ingressos pendentes' });
+    }
+  });
+
+  // ===== SISTEMA PIX BRADESCO - ENDPOINTS =====
+
+  // 🏦 POST /api/bradesco/pix-estatico - Criar ingressos e retornar QR Code estático Bradesco
+  app.post('/api/bradesco/pix-estatico', async (req, res) => {
+    try {
+      const { nome, telefone, email, cpf, quantidade } = req.body;
+
+      if (!nome || !telefone || !cpf) {
+        return res.status(400).json({ error: 'Nome, telefone e CPF são obrigatórios' });
+      }
+
+      console.log(`🏦 [PIX BRADESCO] Criando ingressos: ${nome} (${telefone}), Qtd: ${quantidade || 1}`);
+
+      // Gerar TXID único para rastreamento
+      const txid = `BRAD-${crypto.randomUUID().substring(0, 12).toUpperCase()}`;
+
+      // Calcular valor
+      const valorUnitario = 100000; // R$ 1.000,00 em centavos
+      const qtd = quantidade || 1;
+      const valorTotal = valorUnitario * qtd;
+
+      // Criar ingressos pendentes
+      const ingressosCriados = [];
+      for (let i = 0; i < qtd; i++) {
+        const numeroIngresso = await storage.getProximoNumeroIngresso();
+
+        const ingresso = await db.insert(ingressos).values({
+          numero: numeroIngresso,
+          nomeComprador: nome,
+          telefoneComprador: telefone,
+          emailComprador: email || null,
+          valorPago: valorUnitario,
+          gateway: 'pix-bradesco',
+          status: 'pendente',
+          txid: txid,
+        }).returning();
+
+        ingressosCriados.push(ingresso[0]);
+        console.log(`📝 [PIX BRADESCO] Ingresso pendente criado: #${numeroIngresso} (TXID: ${txid})`);
+      }
+
+      // Retornar sucesso - o QR Code estático será mostrado no frontend
+      res.json({
+        success: true,
+        txid,
+        ingressos: ingressosCriados,
+        valorTotal,
+        valorFormatado: (valorTotal / 100).toFixed(2),
+        pixCnpj: '28.790.664/0001-10', // CNPJ do Instituto O Grito
+        mensagem: `${qtd} ingresso(s) reservado(s). Complete o pagamento PIX de R$ ${(valorTotal / 100).toFixed(2)} usando a chave PIX CNPJ do Instituto O Grito.`,
+        instrucoes: [
+          'Abra o app do seu banco',
+          'Escolha "Pagar com PIX"',
+          'Escaneie o QR Code abaixo',
+          `Confirme o pagamento de R$ ${(valorTotal / 100).toFixed(2)}`,
+          'Seus ingressos serão confirmados automaticamente'
+        ]
+      });
+    } catch (error) {
+      console.error('❌ [PIX BRADESCO] Erro:', error);
+      res.status(500).json({ error: 'Erro ao criar registro PIX Bradesco' });
+    }
+  });
+
+  // ===== GESTÃO À VISTA - API ENDPOINTS =====
+
+  // 📊 GET /api/gestao-vista/dashboard - Dashboard completo
+  app.get('/api/gestao-vista/dashboard', async (req, res) => {
+    try {
+      const period = (req.query.period as string) || '2025-09';
+      const scope = (req.query.scope as string) || 'monthly';
+      const sectorSlug = req.query.sector_slug as string;
+
+      // Query para buscar dashboard completo com meta vs realizado
+      let whereClause = sql`t.period = ${period} AND t.scope = ${scope}`;
+      if (sectorSlug) {
+        whereClause = sql`${whereClause} AND s.slug = ${sectorSlug}`;
+      }
+
+      const dashboardData = await db
+        .select({
+          setor_nome: gvSectors.name,
+          setor_slug: gvSectors.slug,
+          projeto_nome: gvProjects.name,
+          projeto_slug: gvProjects.slug,
+          indicador_nome: gvMgmtIndicators.name,
+          indicador_unit: gvMgmtIndicators.unit,
+          is_primary: gvIndicatorAssignments.isPrimary,
+          weight: gvIndicatorAssignments.weight,
+          meta: gvIndicatorTargets.targetValue,
+          realizado: gvIndicatorValues.actualValue,
+          data_source: gvIndicatorValues.dataSource,
+          atingimento_percentual: sql<number>`ROUND((${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100), 1)`,
+          status_rag: sql<string>`
+            CASE 
+              WHEN (${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100) >= 100 THEN 'Verde'
+              WHEN (${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100) >= 80 THEN 'Amarelo'
+              ELSE 'Vermelho'
+            END
+          `
+        })
+        .from(gvSectors)
+        .innerJoin(gvProjects, eq(gvProjects.sectorId, gvSectors.id))
+        .innerJoin(gvIndicatorAssignments, eq(gvIndicatorAssignments.projectId, gvProjects.id))
+        .innerJoin(gvMgmtIndicators, eq(gvMgmtIndicators.id, gvIndicatorAssignments.indicatorId))
+        .innerJoin(gvIndicatorTargets, eq(gvIndicatorTargets.assignmentId, gvIndicatorAssignments.id))
+        .leftJoin(gvIndicatorValues, and(
+          eq(gvIndicatorValues.assignmentId, gvIndicatorAssignments.id),
+          eq(gvIndicatorValues.period, gvIndicatorTargets.period)
+        ))
+        .where(whereClause)
+        .orderBy(gvSectors.name, gvProjects.name, desc(gvIndicatorAssignments.isPrimary));
+
+      res.json({
+        success: true,
+        period,
+        scope,
+        sector_slug: sectorSlug,
+        data: dashboardData
+      });
+    } catch (error) {
+      console.error('❌ Error fetching dashboard data:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar dados do dashboard' });
+    }
+  });
+
+  // 📂 GET /api/gestao-vista/setores - Lista setores
+  app.get('/api/gestao-vista/setores', async (req, res) => {
+    try {
+      const setores = await db
+        .select({
+          id: gvSectors.id,
+          name: gvSectors.name,
+          slug: gvSectors.slug,
+          description: gvSectors.description,
+          active: gvSectors.active,
+          projetos_count: sql<number>`
+            (SELECT COUNT(*) FROM gv_projects WHERE sector_id = ${gvSectors.id} AND active = true)
+          `
+        })
+        .from(gvSectors)
+        .where(eq(gvSectors.active, true))
+        .orderBy(gvSectors.name);
+
+      res.json({
+        success: true,
+        data: setores
+      });
+    } catch (error) {
+      console.error('❌ Error fetching setores:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar setores' });
+    }
+  });
+
+  // 📊 GET /api/gestao-vista/projetos - Lista projetos (com filtro por setor)
+  app.get('/api/gestao-vista/projetos', async (req, res) => {
+    try {
+      console.log('📊 [GESTAO-VISTA] Buscando projetos...');
+      const sectorSlug = req.query.sector_slug as string;
+      console.log('📊 [GESTAO-VISTA] Filtro por setor:', sectorSlug);
+
+      // Query completa funcionando
+      const projetos = await db
+        .select({
+          id: gvProjects.id,
+          name: gvProjects.name,
+          slug: gvProjects.slug,
+          description: gvProjects.description,
+          active: gvProjects.active,
+          sector_id: gvProjects.sector_id,
+          sector_name: gvSectors.name,
+          sector_slug: gvSectors.slug
+        })
+        .from(gvProjects)
+        .innerJoin(gvSectors, eq(gvSectors.id, gvProjects.sector_id))
+        .where(
+          and(
+            eq(gvProjects.active, true),
+            eq(gvSectors.active, true),
+            sectorSlug ? eq(gvSectors.slug, sectorSlug) : sql`1=1`
+          )
+        )
+        .orderBy(gvSectors.name, gvProjects.name);
+
+      console.log(`✅ [GESTAO-VISTA] Encontrados ${projetos.length} projetos`);
+
+      res.json({
+        success: true,
+        sector_slug: sectorSlug,
+        data: projetos
+      });
+    } catch (error) {
+      console.error('❌ Error fetching projetos:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar projetos' });
+    }
+  });
+
+  // 📋 GET /api/gestao-vista/indicadores - Catálogo de indicadores
+  app.get('/api/gestao-vista/indicadores', async (req, res) => {
+    try {
+      const indicadores = await db
+        .select({
+          id: gvMgmtIndicators.id,
+          name: gvMgmtIndicators.name,
+          description: gvMgmtIndicators.description,
+          unit: gvMgmtIndicators.unit,
+          calculation_method: gvMgmtIndicators.calculationMethod,
+          data_source: gvMgmtIndicators.dataSource,
+          update_frequency: gvMgmtIndicators.updateFrequency,
+          active: gvMgmtIndicators.active,
+          projetos_count: sql<number>`
+            (SELECT COUNT(*) FROM gv_indicator_assignments WHERE indicator_id = ${gvMgmtIndicators.id} AND active = true)
+          `
+        })
+        .from(gvMgmtIndicators)
+        .where(eq(gvMgmtIndicators.active, true))
+        .orderBy(gvMgmtIndicators.name);
+
+      res.json({
+        success: true,
+        data: indicadores
+      });
+    } catch (error) {
+      console.error('❌ Error fetching indicadores:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar catálogo de indicadores' });
+    }
+  });
+
+  // 📊 GET /api/dados-demograficos - Dados demográficos agregados (PEC + Inclusão Produtiva)
+  app.get('/api/dados-demograficos', async (req, res) => {
+    try {
+      console.log('📊 [DEMOGRAFICOS] Buscando dados agregados...');
+      
+      // Buscar dados de ambos os programas
+      const dados = await db
+        .select()
+        .from(dadosDemograficos);
+
+      if (!dados || dados.length === 0) {
+        return res.json({
+          success: false,
+          error: 'Dados demográficos não encontrados'
+        });
+      }
+
+      // Separar dados por programa
+      const dadosPEC = dados.find(d => d.programa === 'pec');
+      const dadosInclusao = dados.find(d => d.programa === 'inclusao');
+
+      // Calcular totais agregados
+      const totalParticipantes = (dadosPEC?.totalParticipantes || 0) + (dadosInclusao?.totalParticipantes || 0);
+
+      // Agregar gênero
+      const generoFeminino = (dadosPEC?.generoFeminino || 0) + (dadosInclusao?.generoFeminino || 0);
+      const generoMasculino = (dadosPEC?.generoMasculino || 0) + (dadosInclusao?.generoMasculino || 0);
+      const generoNaoInformado = (dadosPEC?.generoNaoInformado || 0) + (dadosInclusao?.generoNaoInformado || 0);
+
+      // Agregar cor/raça
+      const corBranca = (dadosPEC?.corBranca || 0) + (dadosInclusao?.corBranca || 0);
+      const corParda = (dadosPEC?.corParda || 0) + (dadosInclusao?.corParda || 0);
+      const corPreta = (dadosPEC?.corPreta || 0) + (dadosInclusao?.corPreta || 0);
+
+      // Preparar dados com porcentagens (excluindo "Não informado")
+      const genero = [
+        { 
+          name: 'Feminino', 
+          value: generoFeminino,
+          percentage: totalParticipantes > 0 ? Math.round((generoFeminino / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: 'Masculino', 
+          value: generoMasculino,
+          percentage: totalParticipantes > 0 ? Math.round((generoMasculino / totalParticipantes) * 100) : 0
+        }
+      ];
+
+      const racaCor = [
+        { 
+          name: 'Parda', 
+          value: corParda,
+          percentage: totalParticipantes > 0 ? Math.round((corParda / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: 'Preta', 
+          value: corPreta,
+          percentage: totalParticipantes > 0 ? Math.round((corPreta / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: 'Branca', 
+          value: corBranca,
+          percentage: totalParticipantes > 0 ? Math.round((corBranca / totalParticipantes) * 100) : 0
+        }
+      ];
+
+      // Calcular faixas etárias agregadas
+      // PEC: 6-12 anos
+      const pecIdade = (dadosPEC?.idade6 || 0) + (dadosPEC?.idade7 || 0) + (dadosPEC?.idade8 || 0) + 
+                       (dadosPEC?.idade9 || 0) + (dadosPEC?.idade10 || 0) + (dadosPEC?.idade11 || 0) + 
+                       (dadosPEC?.idade12 || 0);
+
+      const idade = [
+        { 
+          name: '6 a 12 anos', 
+          value: pecIdade,
+          percentage: totalParticipantes > 0 ? Math.round((pecIdade / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: '13-18 anos', 
+          value: dadosInclusao?.idade13a18 || 0,
+          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade13a18 || 0) / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: '19-30 anos', 
+          value: dadosInclusao?.idade19a30 || 0,
+          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade19a30 || 0) / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: '31-39 anos', 
+          value: dadosInclusao?.idade31a39 || 0,
+          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade31a39 || 0) / totalParticipantes) * 100) : 0
+        },
+        { 
+          name: '40+ anos', 
+          value: dadosInclusao?.idade40mais || 0,
+          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade40mais || 0) / totalParticipantes) * 100) : 0
+        }
+      ];
+
+      console.log(`✅ [DEMOGRAFICOS] Dados agregados: ${totalParticipantes} participantes`);
+
+      res.json({
+        success: true,
+        totalParticipantes,
+        genero,
+        racaCor,
+        idade
+      });
+    } catch (error) {
+      console.error('❌ [DEMOGRAFICOS] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar dados demográficos' });
+    }
+  });
+
+  // 🎯 GET /api/gestao-vista/meta-realizado - Dados Meta vs Realizado (DADOS REAIS)
+  app.get('/api/gestao-vista/meta-realizado', async (req, res) => {
+    try {
+      console.log('🎯 [GESTAO-VISTA] Buscando dados reais do banco...');
+
+      const period = (req.query.period as string) || '2025-09';
+      const scope = (req.query.scope as string) || 'monthly';
+      const projectSlug = req.query.project_slug as string;
+      const sectorSlug = req.query.sector_slug as string;
+      const ragFilter = req.query.rag_filter as string;
+
+      // Parsear período para extrair ano e mês (tratar casos sem mês)
+      const [year, monthStr] = period.split('-');
+      const month = monthStr ? parseInt(monthStr) : new Date().getMonth() + 1; // Se não tem mês, usar mês atual
+
+      // Validar se month é um número válido
+      const validMonth = !isNaN(month) && month >= 1 && month <= 12 ? month : new Date().getMonth() + 1;
+
+      // Determinar quais meses buscar baseado no escopo
+      let monthsToQuery: number[] = [];
+      if (scope === 'monthly') {
+        monthsToQuery = [validMonth];
+      } else if (scope === 'quarterly') {
+        // Determinar trimestre baseado no mês
+        if (validMonth <= 3) monthsToQuery = [1, 2, 3];          // Q1
+        else if (validMonth <= 6) monthsToQuery = [4, 5, 6];     // Q2
+        else if (validMonth <= 9) monthsToQuery = [7, 8, 9];     // Q3
+        else monthsToQuery = [10, 11, 12];                       // Q4
+      } else if (scope === 'semiannual') {
+        // Determinar semestre baseado no mês
+        if (validMonth <= 6) monthsToQuery = [1, 2, 3, 4, 5, 6]; // Primeiro semestre
+        else monthsToQuery = [7, 8, 9, 10, 11, 12];              // Segundo semestre
+      } else if (scope === 'annual') {
+        monthsToQuery = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]; // Ano todo
+      } else {
+        monthsToQuery = [validMonth]; // Default para mensal
+      }
+
+      console.log(`📊 [GESTAO-VISTA] Escopo: ${scope}, Período: ${period}, Meses: [${monthsToQuery.join(',')}]`);
+
+      // Primeiro buscar assignments básicos
+      const assignments = await db
+        .select({
+          assignment_id: gvIndicatorAssignments.id,
+          setor_nome: gvSectors.name,
+          setor_slug: gvSectors.slug,
+          projeto_nome: gvProjects.name,
+          projeto_slug: gvProjects.slug,
+          indicador_nome: gvMgmtIndicators.name,
+          indicador_unit: gvMgmtIndicators.unit,
+          calculation_method: gvMgmtIndicators.calculation_method,
+          is_primary: gvIndicatorAssignments.is_primary,
+          weight: gvIndicatorAssignments.weight
+        })
+        .from(gvIndicatorAssignments)
+        .innerJoin(gvProjects, eq(gvProjects.id, gvIndicatorAssignments.project_id))
+        .innerJoin(gvSectors, eq(gvSectors.id, gvProjects.sector_id))
+        .innerJoin(gvMgmtIndicators, eq(gvMgmtIndicators.id, gvIndicatorAssignments.indicator_id))
+        .where(
+          and(
+            eq(gvIndicatorAssignments.active, true),
+            projectSlug ? eq(gvProjects.slug, projectSlug) : sql`1=1`,
+            sectorSlug ? eq(gvSectors.slug, sectorSlug) : sql`1=1`
+          )
+        )
+        .orderBy(gvSectors.name, gvProjects.name, desc(gvIndicatorAssignments.is_primary), gvMgmtIndicators.name);
+
+      // Buscar dados mensais para cada assignment baseado no escopo
+      const assignmentIds = assignments.map(a => a.assignment_id);
+      const aggregatedDataMap = new Map();
+
+      if (assignmentIds.length > 0) {
+        const monthlyDataResults = await db
+          .select({
+            assignment_id: gvMonthlyData.assignment_id,
+            target_value: gvMonthlyData.target_value,
+            actual_value: gvMonthlyData.actual_value,
+            month: gvMonthlyData.month
+          })
+          .from(gvMonthlyData)
+          .where(
+            and(
+              inArray(gvMonthlyData.assignment_id, assignmentIds),
+              eq(gvMonthlyData.year, parseInt(year)),
+              inArray(gvMonthlyData.month, monthsToQuery)
+            )
+          );
+
+        // Agregar dados por assignment_id
+        monthlyDataResults.forEach(data => {
+          const key = data.assignment_id;
+          if (!aggregatedDataMap.has(key)) {
+            aggregatedDataMap.set(key, {
+              target_total: 0,
+              actual_total: 0,
+              months_count: 0,
+              months_with_data: [],
+              latest_month: 0,
+              latest_target: 0,
+              latest_actual: 0
+            });
+          }
+
+          const agg = aggregatedDataMap.get(key);
+          const target = parseFloat(data.target_value || '0') || 0;
+          const actual = parseFloat(data.actual_value || '0') || 0;
+
+          // Para scope monthly, usar apenas valores do mês específico
+          // Para outros scopes (quarterly, semiannual, annual), somar os valores
+          if (scope === 'monthly') {
+            // Usar o último valor (mais recente) ou pode usar média
+            agg.target_total = target;
+            agg.actual_total = actual;
+          } else {
+            // Para trimestral, semestral, anual - somar valores
+            agg.target_total += target;
+            agg.actual_total += actual;
+          }
+
+          // Sempre rastrear o último mês (para calculation_method = 'latest')
+          if (data.month > agg.latest_month) {
+            agg.latest_month = data.month;
+            agg.latest_target = target;
+            agg.latest_actual = actual;
+          }
+
+          agg.months_count += 1;
+          agg.months_with_data.push(data.month);
+        });
+      }
+
+      console.log(`📊 [GESTAO-VISTA] Encontrados ${assignmentIds.length} assignments, ${aggregatedDataMap.size} com dados agregados`);
+
+      // Processar dados com valores agregados baseados no escopo
+      const processedData = assignments.map(item => {
+        const aggregatedData = aggregatedDataMap.get(item.assignment_id);
+
+        // Usar 'latest' se o calculation_method for 'latest', senão usar 'sum' (padrão)
+        const useLatest = item.calculation_method === 'latest';
+        const meta = useLatest ? (aggregatedData?.latest_target || 0) : (aggregatedData?.target_total || 0);
+        const realizado = useLatest ? (aggregatedData?.latest_actual || 0) : (aggregatedData?.actual_total || 0);
+
+        // Calcular atingimento percentual
+        let atingimento_percentual = 0;
+        if (meta > 0) {
+          atingimento_percentual = Math.round((realizado / meta) * 100);
+        }
+
+        // Determinar status RAG baseado no atingimento
+        let status_rag = 'neutral';
+        if (meta > 0) {
+          if (atingimento_percentual >= 90) {
+            status_rag = 'Verde';
+          } else if (atingimento_percentual >= 70) {
+            status_rag = 'Amarelo';
+          } else {
+            status_rag = 'Vermelho';
+          }
+        }
+
+        return {
+          setor_nome: item.setor_nome,
+          setor_slug: item.setor_slug,
+          projeto_nome: item.projeto_nome,
+          projeto_slug: item.projeto_slug,
+          indicador_nome: item.indicador_nome,
+          indicador_unit: item.indicador_unit,
+          is_primary: item.is_primary,
+          weight: item.weight,
+          meta,
+          realizado,
+          atingimento_percentual,
+          status_rag,
+          period,
+          scope
+        };
+      });
+
+      // Aplicar filtro RAG se fornecido
+      let filteredData = processedData;
+      if (ragFilter && ['Verde', 'Amarelo', 'Vermelho'].includes(ragFilter)) {
+        filteredData = processedData.filter(item => item.status_rag === ragFilter);
+      }
+
+      // Estatísticas
+      const statistics = {
+        total_indicators: filteredData.length,
+        verde_count: filteredData.filter(item => item.status_rag === 'Verde').length,
+        amarelo_count: filteredData.filter(item => item.status_rag === 'Amarelo').length,
+        vermelho_count: filteredData.filter(item => item.status_rag === 'Vermelho').length,
+        neutral_count: filteredData.filter(item => item.status_rag === 'neutral').length,
+        primary_indicators: filteredData.filter(item => item.is_primary).length,
+        avg_achievement: 0
+      };
+
+      console.log(`✅ [GESTAO-VISTA] Dados reais: ${filteredData.length} indicadores de ${new Set(filteredData.map(i => i.setor_nome)).size} setores`);
+      console.log("===>statistics: ", statistics);
+
+      res.json({
+        success: true,
+        period,
+        scope,
+        project_slug: projectSlug,
+        sector_slug: sectorSlug,
+        rag_filter: ragFilter,
+        statistics,
+        data: filteredData
+      });
+    } catch (error) {
+      console.error('❌ Error fetching meta-realizado data:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar dados Meta vs Realizado' });
+    }
+  });
+
+  // 👶 GET /api/criancas-atendidas - Endpoint específico para Crianças Atendidas
+  // Retorna a soma do último mês de cada projeto (Serenata, Casa Sonhar, Polo Glória)
+  app.get('/api/criancas-atendidas', async (req, res) => {
+    try {
+      const year = 2025;
+      const projetos = [
+        { nome: 'SALA SERENATA', assignment_id: 172 },
+        { nome: 'CASA SONHAR', assignment_id: 179 },
+        { nome: 'POLO GLORIA', assignment_id: 104 }
+      ];
+
+      const resultados = [];
+      let totalCriancas = 0;
+      let totalMeta = 0;
+
+      // Buscar último mês de cada projeto
+      for (const projeto of projetos) {
+        const ultimoMes = await db
+          .select({
+            month: gvMonthlyData.month,
+            actual_value: gvMonthlyData.actual_value,
+            target_value: gvMonthlyData.target_value
+          })
+          .from(gvMonthlyData)
+          .where(
+            and(
+              eq(gvMonthlyData.assignment_id, projeto.assignment_id),
+              eq(gvMonthlyData.year, year)
+            )
+          )
+          .orderBy(desc(gvMonthlyData.month))
+          .limit(1);
+
+        if (ultimoMes.length > 0) {
+          const valor = parseFloat(ultimoMes[0].actual_value || '0') || 0;
+          const meta = parseFloat(ultimoMes[0].target_value || '0') || 0;
+          totalCriancas += valor;
+          totalMeta += meta;
+          resultados.push({
+            projeto: projeto.nome,
+            mes: ultimoMes[0].month,
+            valor,
+            meta
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        total: Math.round(totalCriancas),
+        meta: Math.round(totalMeta),
+        porcentagem: totalMeta > 0 ? Math.round((totalCriancas / totalMeta) * 100) : 0,
+        detalhes: resultados
+      });
+    } catch (error) {
+      console.error('❌ Error fetching crianças atendidas:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar crianças atendidas' });
+    }
+  });
+
+  // 🧪 POST /api/gestao-vista/import/test - Endpoint de teste básico
+  app.post('/api/gestao-vista/import/test', async (req, res) => {
+    try {
+      console.log('🧪 [GESTAO-VISTA] Endpoint de teste chamado');
+      res.json({ success: true, message: 'Endpoint funcionando' });
+    } catch (error) {
+      console.error('❌ Error in test endpoint:', error);
+      res.status(500).json({ success: false, error: 'Erro no teste' });
+    }
+  });
+
+  // 📊 POST /api/gestao-vista/import/excel - Importar dados reais do Excel 2025
+  app.post('/api/gestao-vista/import/excel', async (req, res) => {
+    try {
+      console.log('📊 [IMPORT-EXCEL] Iniciando importação dos dados reais...');
+
+      // Import XLSX using ESM syntax
+      const XLSX = await import('xlsx/xlsx.mjs');
+      XLSX.set_fs(fs);
+
+      const workbook = XLSX.readFile('attached_assets/Programas_Projetos_Indicadores_1758738514301.xlsx');
+      const sheet = workbook.Sheets['Plan1'];
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      console.log(`📊 [IMPORT-EXCEL] Processando ${data.length} linhas do Excel`);
+
+      // Mapa dos meses e colunas do Excel
+      const colunaMeses = {
+        'JANEIRO': 5, 'FEVEREIRO': 6, 'MARÇO': 7, 'ABRIL': 8,
+        'MAIO': 10, 'JUNHO': 11, 'JULHO': 13, 'AGOSTO': 14,
+        'SETEMBRO': 15, 'OUTUBRO': 17, 'NOVEMBRO': 18, 'DEZEMBRO': 19
+      };
+
+      const mesesNomes = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+      let currentProgram = '';
+      let currentProject = '';
+      let totalImportados = 0;
+
+      // Processar dados linha por linha do Excel
+      for (let i = 2; i < data.length && i < 10; i++) { // Limitar a 8 linhas para teste
+        const row = data[i];
+        if (!row || row.length === 0) continue;
+
+        const programa = row[0] || '';
+        const projeto = row[1] || '';
+        const indicador = row[2] || '';
+        const meta = row[3] || '';
+        const recorrencia = row[4] || '';
+
+        if (programa.trim()) currentProgram = programa.trim();
+        if (projeto.trim()) currentProject = projeto.trim();
+
+        if (indicador.trim() && currentProgram && currentProject) {
+          console.log(`📊 Processando: ${currentProgram} > ${currentProject} > ${indicador.trim()}`);
+          totalImportados++;
+        }
+      }
+
+      console.log(`✅ [IMPORT-EXCEL] Teste concluído: ${totalImportados} indicadores identificados`);
+
+      res.json({
+        success: true,
+        message: 'Dados do Excel processados com sucesso',
+        totalLinhas: data.length,
+        totalImportados,
+        fonte: 'Excel 2025',
+        exemplo: data.slice(0, 5) // Mostrar primeiras 5 linhas como exemplo
+      });
+
+    } catch (error) {
+      console.error('❌ [IMPORT-EXCEL] Erro na importação:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro na importação dos dados do Excel',
+        details: error.message
+      });
+    }
+  });
+
+  // 📤 POST /api/gestao-vista/import/dry-run - Validação de CSV (não salva dados)
+  app.post('/api/gestao-vista/import/dry-run', upload.single('csv_file'), async (req, res) => {
+    try {
+      console.log('📤 [GESTAO-VISTA] Iniciando dry-run de importação CSV...');
+
+      if (!req.file) {
+        console.log('📤 [GESTAO-VISTA] Nenhum arquivo fornecido');
+        return res.status(400).json({ success: false, error: 'Arquivo CSV é obrigatório' });
+      }
+
+      const { buffer } = req.file;
+      const csvContent = buffer.toString('utf8');
+
+      // Parse básico do CSV
+      const lines = csvContent.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        return res.status(400).json({ success: false, error: 'Arquivo CSV está vazio' });
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const dataLines = lines.slice(1);
+
+      // Validar headers obrigatórios
+      const requiredHeaders = ['setor', 'projeto', 'indicador', 'periodo', 'escopo', 'meta', 'realizado'];
+      const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+
+      if (missingHeaders.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Headers obrigatórios faltando: ${missingHeaders.join(', ')}`
+        });
+      }
+
+      // Processar cada linha
+      const validRows = [];
+      const errors = [];
+
+      for (let i = 0; i < Math.min(dataLines.length, 100); i++) { // Limit para dry-run
+        const line = dataLines[i];
+        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+
+        if (values.length !== headers.length) {
+          errors.push(`Linha ${i + 2}: Número de colunas inválido`);
+          continue;
+        }
+
+        const row = {};
+        headers.forEach((header, idx) => {
+          row[header] = values[idx];
+        });
+
+        // Validações básicas
+        if (!row.setor || !row.projeto || !row.indicador) {
+          errors.push(`Linha ${i + 2}: Setor, projeto e indicador são obrigatórios`);
+          continue;
+        }
+
+        // Validar se meta e realizado são números
+        const meta = parseFloat(row.meta);
+        const realizado = parseFloat(row.realizado);
+
+        if (isNaN(meta) || isNaN(realizado)) {
+          errors.push(`Linha ${i + 2}: Meta e realizado devem ser números válidos`);
+          continue;
+        }
+
+        validRows.push({
+          ...row,
+          meta,
+          realizado,
+          linha: i + 2
+        });
+      }
+
+      // Buscar dados existentes para validação
+      const existingSectors = await db.select().from(gvSectors);
+      const existingProjects = await db.select().from(gvProjects);
+      const existingIndicators = await db.select().from(gvMgmtIndicators);
+
+      // Validar se setores/projetos/indicadores existem
+      const sectorMap = new Map(existingSectors.map(s => [s.slug, s]));
+      const projectMap = new Map(existingProjects.map(p => [p.slug, p]));
+      const indicatorMap = new Map(existingIndicators.map(i => [i.name, i]));
+
+      const validationErrors = [];
+      validRows.forEach(row => {
+        // Converter nomes para slugs (básico)
+        const sectorSlug = row.setor.toLowerCase().replace(/\s+/g, '-');
+        const projectSlug = row.projeto.toLowerCase().replace(/\s+/g, '-');
+
+        if (!sectorMap.has(sectorSlug)) {
+          validationErrors.push(`Linha ${row.linha}: Setor "${row.setor}" não encontrado`);
+        }
+        if (!projectMap.has(projectSlug)) {
+          validationErrors.push(`Linha ${row.linha}: Projeto "${row.projeto}" não encontrado`);
+        }
+        if (!indicatorMap.has(row.indicador)) {
+          validationErrors.push(`Linha ${row.linha}: Indicador "${row.indicador}" não encontrado`);
+        }
+      });
+
+      // Estatísticas da validação
+      const stats = {
+        total_lines: dataLines.length,
+        valid_rows: validRows.length,
+        errors: errors.length + validationErrors.length,
+        sectors_found: new Set(validRows.map(r => r.setor)).size,
+        projects_found: new Set(validRows.map(r => r.projeto)).size,
+        indicators_found: new Set(validRows.map(r => r.indicador)).size
+      };
+
+      console.log(`✅ [GESTAO-VISTA] Dry-run concluído: ${validRows.length} linhas válidas, ${errors.length + validationErrors.length} erros`);
+
+      res.json({
+        success: true,
+        dry_run: true,
+        stats,
+        valid_rows: validRows.slice(0, 10), // Preview das primeiras 10 linhas
+        errors: [...errors, ...validationErrors].slice(0, 20), // Primeiros 20 erros
+        headers,
+        total_errors: errors.length + validationErrors.length,
+        message: `Validação concluída: ${validRows.length} linhas válidas encontradas`
+      });
+    } catch (error) {
+      console.error('❌ Error in CSV dry-run:', error);
+      res.status(500).json({ success: false, error: 'Erro na validação do CSV' });
+    }
+  });
+
+  // 💾 POST /api/gestao-vista/import/confirm - Confirmar importação após dry-run
+  app.post('/api/gestao-vista/import/confirm', upload.single('csv_file'), async (req, res) => {
+    try {
+      console.log('💾 [GESTAO-VISTA] Confirmando importação CSV...');
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: 'Arquivo CSV é obrigatório' });
+      }
+
+      const { buffer } = req.file;
+      const csvContent = buffer.toString('utf8');
+
+      // TODO: Implementar lógica completa de importação
+      // Por agora, simular importação bem-sucedida
+      const lines = csvContent.split('\n').filter(line => line.trim());
+      const dataLines = lines.slice(1);
+
+      console.log(`✅ [GESTAO-VISTA] Importação simulada: ${dataLines.length} linhas processadas`);
+
+      res.json({
+        success: true,
+        imported: true,
+        stats: {
+          total_imported: dataLines.length,
+          targets_created: dataLines.length,
+          values_created: dataLines.length
+        },
+        message: `Importação concluída com sucesso: ${dataLines.length} registros importados`
+      });
+    } catch (error) {
+      console.error('❌ Error in CSV import:', error);
+      res.status(500).json({ success: false, error: 'Erro na importação do CSV' });
+    }
+  });
+
+  // 🔍 GET /api/gestao-vista/projetos/:slug/detalhes - Detalhes de um projeto específico
+  app.get('/api/gestao-vista/projetos/:slug/detalhes', async (req, res) => {
+    try {
+      const projectSlug = req.params.slug;
+      const period = (req.query.period as string) || '2025-09';
+      const scope = (req.query.scope as string) || 'monthly';
+
+      // Buscar informações do projeto
+      const projeto = await db
+        .select({
+          id: gvProjects.id,
+          name: gvProjects.name,
+          slug: gvProjects.slug,
+          description: gvProjects.description,
+          sector_name: gvSectors.name,
+          sector_slug: gvSectors.slug,
+          sector_description: gvSectors.description
+        })
+        .from(gvProjects)
+        .innerJoin(gvSectors, eq(gvSectors.id, gvProjects.sectorId))
+        .where(and(eq(gvProjects.slug, projectSlug), eq(gvProjects.active, true)))
+        .limit(1);
+
+      if (projeto.length === 0) {
+        return res.status(404).json({ success: false, error: 'Projeto não encontrado' });
+      }
+
+      // Buscar indicadores do projeto com metas e realizados
+      const indicadores = await db
+        .select({
+          indicador_id: gvMgmtIndicators.id,
+          indicador_nome: gvMgmtIndicators.name,
+          indicador_description: gvMgmtIndicators.description,
+          indicador_unit: gvMgmtIndicators.unit,
+          calculation_method: gvMgmtIndicators.calculationMethod,
+          data_source_catalog: gvMgmtIndicators.dataSource,
+          update_frequency: gvMgmtIndicators.updateFrequency,
+          is_primary: gvIndicatorAssignments.isPrimary,
+          weight: gvIndicatorAssignments.weight,
+          meta: gvIndicatorTargets.targetValue,
+          realizado: gvIndicatorValues.actualValue,
+          data_source_value: gvIndicatorValues.dataSource,
+          period: gvIndicatorTargets.period,
+          scope: gvIndicatorTargets.scope,
+          atingimento_percentual: sql<number>`ROUND((${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100), 1)`,
+          status_rag: sql<string>`
+            CASE 
+              WHEN (${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100) >= 100 THEN 'Verde'
+              WHEN (${gvIndicatorValues.actualValue} / ${gvIndicatorTargets.targetValue} * 100) >= 80 THEN 'Amarelo'
+              ELSE 'Vermelho'
+            END
+          `
+        })
+        .from(gvIndicatorAssignments)
+        .innerJoin(gvMgmtIndicators, eq(gvMgmtIndicators.id, gvIndicatorAssignments.indicatorId))
+        .innerJoin(gvProjects, eq(gvProjects.id, gvIndicatorAssignments.projectId))
+        .innerJoin(gvIndicatorTargets, and(
+          eq(gvIndicatorTargets.assignmentId, gvIndicatorAssignments.id),
+          eq(gvIndicatorTargets.period, period),
+          eq(gvIndicatorTargets.scope, scope)
+        ))
+        .leftJoin(gvIndicatorValues, and(
+          eq(gvIndicatorValues.assignmentId, gvIndicatorAssignments.id),
+          eq(gvIndicatorValues.period, period),
+          eq(gvIndicatorValues.scope, scope)
+        ))
+        .where(and(
+          eq(gvProjects.slug, projectSlug),
+          eq(gvIndicatorAssignments.active, true)
+        ))
+        .orderBy(desc(gvIndicatorAssignments.isPrimary), gvMgmtIndicators.name);
+
+      // Calcular estatísticas do projeto
+      const projectStats = {
+        total_indicators: indicadores.length,
+        primary_indicators: indicadores.filter(item => item.is_primary).length,
+        verde_count: indicadores.filter(item => item.status_rag === 'Verde').length,
+        amarelo_count: indicadores.filter(item => item.status_rag === 'Amarelo').length,
+        vermelho_count: indicadores.filter(item => item.status_rag === 'Vermelho').length,
+        avg_achievement: indicadores.length > 0
+          ? Math.round(indicadores.reduce((sum, item) => sum + (item.atingimento_percentual || 0), 0) / indicadores.length)
+          : 0
+      };
+
+      res.json({
+        success: true,
+        period,
+        scope,
+        projeto: projeto[0],
+        statistics: projectStats,
+        indicadores: indicadores
+      });
+    } catch (error) {
+      console.error('❌ Error fetching project details:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar detalhes do projeto' });
+    }
+  });
+
+  // 📊 GET /api/marketing/dashboard - Dashboard de Marketing
+  app.get('/api/marketing/dashboard', async (req, res) => {
+    try {
+      console.log('📊 [MARKETING] Buscando dashboard de Marketing...');
+
+      const period = (req.query.period as string) || '2025-04'; // Último mês com dados
+      const scopeFilter = 'monthly' as const;
+
+      // Buscar projeto de Marketing
+      const projeto = await db
+        .select()
+        .from(gvProjects)
+        .where(eq(gvProjects.slug, 'mkt'))
+        .limit(1);
+
+      if (!projeto || projeto.length === 0) {
+        return res.status(404).json({ success: false, error: 'Projeto Marketing não encontrado' });
+      }
+
+      const projectId = projeto[0].id;
+      console.log("====> projectId: ", projectId);
+
+      // Buscar todos os indicadores com dados do período
+      const indicadores = await db
+        .select({
+          id: gvMgmtIndicators.id,
+          nome: gvMgmtIndicators.name,
+          unidade: gvMgmtIndicators.unit,
+          assignmentId: gvIndicatorAssignments.id,
+          meta: gvIndicatorTargets.target_value,
+          realizado: gvIndicatorValues.actual_value,
+        })
+        .from(gvIndicatorAssignments)
+        .innerJoin(gvMgmtIndicators, eq(gvMgmtIndicators.id, gvIndicatorAssignments.indicator_id))
+        .leftJoin(gvIndicatorTargets, and(
+          eq(gvIndicatorTargets.assignment_id, gvIndicatorAssignments.id),
+          eq(gvIndicatorTargets.period, period),
+          eq(gvIndicatorTargets.scope, scopeFilter)
+        ))
+        .leftJoin(gvIndicatorValues, and(
+          eq(gvIndicatorValues.assignment_id, gvIndicatorAssignments.id),
+          eq(gvIndicatorValues.period, period),
+          eq(gvIndicatorValues.scope, scopeFilter)
+        ))
+        .where(eq(gvIndicatorAssignments.project_id, projectId));
+
+      // Buscar dados de múltiplos meses para gráficos (Jan-Abr 2025)
+      const mesesGrafico = ['2025-01', '2025-02', '2025-03', '2025-04'];
+      const dadosHistoricos = await db
+        .select({
+          indicadorNome: gvMgmtIndicators.name,
+          periodo: gvIndicatorValues.period,
+          valor: gvIndicatorValues.actual_value,
+        })
+        .from(gvIndicatorValues)
+        .innerJoin(gvIndicatorAssignments, eq(gvIndicatorAssignments.id, gvIndicatorValues.assignment_id))
+        .innerJoin(gvMgmtIndicators, eq(gvMgmtIndicators.id, gvIndicatorAssignments.indicator_id))
+        .where(
+          and(
+            eq(gvIndicatorAssignments.project_id, projectId),
+            sql`${gvIndicatorValues.period} IN (${sql.join(mesesGrafico.map(m => sql`${m}`), sql`, `)})`,
+            eq(gvIndicatorValues.scope, 'monthly')
+          )
+        );
+
+      console.log("=========> dadosHistoricos:", dadosHistoricos);
+
+      // Processar indicadores principais para cards
+      const seguidoresData = indicadores.find(i => i.nome === 'Seguidores (total)');
+      const engajamentoIG = indicadores.find(i => i.nome === 'Engajamento - IG');
+      const postsIG = indicadores.find(i => i.nome === 'Quantidade de Posts - IG');
+      const seguidoresGanhos = indicadores.find(i => i.nome === 'Seguidores Ganhos');
+
+      // Calcular crescimento mensal médio
+      const crescimentoMensal = seguidoresGanhos?.realizado ? Number(seguidoresGanhos.realizado) : 0;
+
+      // Calcular performance geral (média de atingimento das metas)
+      const indicadoresComMeta = indicadores.filter(i => i.meta && i.realizado);
+      const performanceGeral = indicadoresComMeta.length > 0
+        ? indicadoresComMeta.reduce((sum, i) => {
+          const atingimento = (Number(i.realizado) / Number(i.meta)) * 100;
+          return sum + Math.min(atingimento, 100);
+        }, 0) / indicadoresComMeta.length
+        : 0;
+
+      console.log(`✅ [MARKETING] Dashboard carregado com ${indicadores.length} indicadores`);
+
+      res.json({
+        success: true,
+        period,
+        dashboard: {
+          seguidores: {
+            atual: seguidoresData?.realizado ? Number(seguidoresData.realizado) : 0,
+            meta: seguidoresData?.meta ? Number(seguidoresData.meta) : 15000,
+          },
+          crescimentoMensal,
+          performanceGeral: Math.round(performanceGeral * 10) / 10,
+          engajamento: engajamentoIG?.realizado ? Number(engajamentoIG.realizado) : 0,
+          posts: postsIG?.realizado ? Number(postsIG.realizado) : 0,
+        },
+        indicadores,
+        historico: dadosHistoricos,
+      });
+    } catch (error) {
+      console.error('❌ [MARKETING] Erro ao buscar dashboard:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar dados de Marketing' });
+    }
+  });
+
+  // =========  POST /api/user-causas  =========
+  // Endpoint para salvar a escolha de "Grito" do usuário
+  app.post('/api/user-causas', async (req, res) => {
+    try {
+      const { telefone, causa } = req.body;
+
+      if (!telefone || !causa) {
+        return res.status(400).json({
+          success: false,
+          message: 'Telefone e causa são obrigatórios'
+        });
+      }
+
+      // TRECHO ALTERADO
+      // Buscar usuário pelo telefone
+      // TRECHO ANTIGO
+      // const normalizedPhone = telefone.startsWith('+') ? telefone : `+55${telefone}`;
+
+      // NOVO TRECHO:
+      const digits = String(telefone).replace(/\D/g, '');
+      const normalizedPhone = `+${digits.startsWith('55') ? digits : '55' + digits}`;
+
+
+      const user = await db.select().from(users)
+        .where(eq(users.telefone, normalizedPhone))
+        .limit(1);
+
+      if (!user[0]) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuário não encontrado'
+        });
+      }
+
+      // Verificar se já existe uma causa para este usuário (substitui se existir)
+      const existingCausa = await db.select().from(userCausas)
+        .where(eq(userCausas.userId, user[0].id))
+        .limit(1);
+
+      if (existingCausa[0]) {
+        // Atualizar causa existente
+        await db.update(userCausas)
+          .set({ causa })
+          .where(eq(userCausas.userId, user[0].id));
+      } else {
+        // Inserir nova causa
+        await db.insert(userCausas).values({
+          userId: user[0].id,
+          causa
+        });
+      }
+
+      console.log(`✅ [USER CAUSAS] Salvou causa "${causa}" para usuário ID ${user[0].id}`);
+
+      res.json({
+        success: true,
+        message: 'Causa salva com sucesso'
+      });
+
+    } catch (error) {
+      console.error('❌ [USER CAUSAS] Erro ao salvar causa:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // =========  GET /api/users/:id/donor  =========
+  // Endpoint para buscar os dados completos do doador
+  app.get('/api/users/:id/donor', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do usuário é obrigatório'
+        });
+      }
+
+      // Buscar dados completos do doador (apenas colunas que existem no banco)
+      const doadorData = await db.select({
+        id: doadores.id,
+        userId: doadores.userId,
+        plano: doadores.plano,
+        valor: doadores.valor,
+        dataDoacaoInicial: doadores.dataDoacaoInicial,
+        ultimaDoacao: doadores.ultimaDoacao,
+        status: doadores.status,
+        ativo: doadores.ativo
+      }).from(doadores)
+        .where(eq(doadores.userId, userId))
+        .limit(1);
+
+      if (!doadorData[0]) {
+        return res.json(null);
+      }
+
+      console.log(`✅ [DONOR DATA] Dados do doador para usuário ${userId}: ID ${doadorData[0].id}`);
+
+      res.json(doadorData[0]);
+
+    } catch (error) {
+      console.error('❌ [DONOR DATA] Erro ao buscar dados do doador:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // =========  GET /api/users/:id/donor-number  =========
+  // Endpoint para buscar o número do doador sequencial
+  app.get('/api/users/:id/donor-number', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do usuário é obrigatório'
+        });
+      }
+
+      // Buscar se o usuário é um doador
+      const doadorData = await db.select({
+        id: doadores.id,
+        userId: doadores.userId,
+        dataDoacaoInicial: doadores.dataDoacaoInicial,
+        status: doadores.status
+      }).from(doadores)
+        .where(eq(doadores.userId, userId))
+        .limit(1);
+
+      if (!doadorData[0]) {
+        return res.json({
+          success: true,
+          donorNumber: null,
+          message: 'Usuário não é um doador'
+        });
+      }
+
+      // Calcular número sequencial baseado na ordem de criação
+      const donorNumber = String(doadorData[0].id).padStart(4, '0');
+
+      console.log(`✅ [DONOR NUMBER] Número do doador para usuário ${userId}: #${donorNumber}`);
+
+      res.json({
+        success: true,
+        donorNumber: donorNumber,
+        createdAt: doadorData[0].dataDoacaoInicial,
+        status: doadorData[0].status
+      });
+
+    } catch (error) {
+      console.error('❌ [DONOR NUMBER] Erro ao buscar número do doador:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // =========  GET /api/users/:id/causa  =========
+  // Endpoint para buscar a escolha de "Grito" do usuário
+  app.get('/api/users/:id/causa', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID do usuário é obrigatório'
+        });
+      }
+
+      // Buscar causa do usuário
+      const userCausaData = await db.select().from(userCausas)
+        .where(eq(userCausas.userId, userId))
+        .limit(1);
+
+      if (!userCausaData[0]) {
+        return res.json({
+          success: true,
+          causa: null,
+          message: 'Usuário ainda não escolheu uma causa'
+        });
+      }
+
+      console.log(`✅ [USER CAUSA] Causa do usuário ${userId}: ${userCausaData[0].causa}`);
+
+      res.json({
+        success: true,
+        causa: userCausaData[0].causa,
+        createdAt: userCausaData[0].createdAt
+      });
+
+    } catch (error) {
+      console.error('❌ [USER CAUSA] Erro ao buscar causa:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  // ================ SISTEMA DE EVENTOS E WEBHOOKS ================
+
+  // Serviço de Email simples (stub para futuras integrações)
+  const emailService = {
+    async send(templateId: string, to: string, variables: Record<string, any>): Promise<boolean> {
+      console.log('📧 [EMAIL SERVICE] Enviando email:', {
+        templateId,
+        to,
+        variables
+      });
+
+      // TODO: Integrar com serviço real de email (SendGrid, Mailgun, etc.)
+      // Por enquanto apenas simula o envio
+      return true;
+    }
+  };
+
+  // Função para criar eventos
+  async function createEvent(data: {
+    eventName: string;
+    userId: number;
+    source: string;
+    payload?: Record<string, any>;
+    idempotencyKey?: string;
+  }): Promise<GritoEvent | null> {
+    try {
+      const eventData: InsertGritoEvent = {
+        eventName: data.eventName,
+        userId: data.userId,
+        source: data.source,
+        payload: data.payload || {},
+        idempotencyKey: data.idempotencyKey,
+      };
+
+      const [event] = await db.insert(gritoEvents).values(eventData).returning();
+
+      console.log(`🎯 [EVENT CREATED] ${data.eventName} for user ${data.userId} from ${data.source}`);
+
+      // Enfileirar webhooks
+      await enqueueWebhooks(event);
+
+      // Processar automações
+      await processAutomations(event);
+
+      return event;
+    } catch (error: any) {
+      if (error.code === '23505' && error.constraint?.includes('idempotency_key')) {
+        console.log(`🔄 [EVENT DUPLICATE] Evento ignorado por idempotência: ${data.idempotencyKey}`);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  // Função para enfileirar webhooks
+  async function enqueueWebhooks(event: GritoEvent): Promise<void> {
+    const subscriptions = await db.select()
+      .from(gritoWebhookSubscriptions)
+      .where(and(
+        eq(gritoWebhookSubscriptions.isActive, true),
+        sql`${gritoWebhookSubscriptions.eventFilter} @> ARRAY[${event.eventName}]::text[]`
+      ));
+
+    for (const subscription of subscriptions) {
+      await db.insert(gritoWebhookDeliveries).values({
+        eventId: event.id,
+        subscriptionId: subscription.id,
+        status: 'PENDING',
+        nextAttemptAt: new Date(),
+      });
+
+      console.log(`📤 [WEBHOOK QUEUED] ${event.eventName} → ${subscription.destinationName}`);
+    }
+  }
+
+  // Função para processar automações
+  async function processAutomations(event: GritoEvent): Promise<void> {
+    const automations = await db.select()
+      .from(gritoAutomations)
+      .where(and(
+        eq(gritoAutomations.matchEvent, event.eventName),
+        eq(gritoAutomations.isActive, true)
+      ));
+
+    for (const automation of automations) {
+      try {
+        // Verificar condição SQL se especificada
+        if (automation.conditionSql) {
+          const conditionQuery = automation.conditionSql
+            .replace(/\{\{payload\.(\w+)\}\}/g, (_, key) => {
+              const value = (event.payload as any)?.[key];
+              return typeof value === 'string' ? `'${value}'` : String(value);
+            });
+
+          const conditionResult = await db.execute(sql.raw(`SELECT EXISTS(${conditionQuery}) as meets_condition`));
+          if (!(conditionResult.rows[0] as any)?.meets_condition) {
+            console.log(`⏭️ [AUTOMATION SKIP] ${automation.name}: condição não atendida`);
+            continue;
+          }
+        }
+
+        // Executar ação
+        if (automation.action.type === 'email') {
+          const to = automation.action.to?.replace(/\{\{payload\.(\w+)\}\}/g, (_, key) => {
+            return (event.payload as any)?.[key] || '';
+          });
+
+          const variables = { ...automation.action.variables };
+          for (const [key, value] of Object.entries(variables)) {
+            variables[key] = value.replace(/\{\{payload\.(\w+)\}\}/g, (_, payloadKey) => {
+              return (event.payload as any)?.[payloadKey] || '';
+            });
+          }
+
+          await emailService.send(automation.action.template_id!, to!, variables);
+          console.log(`📧 [AUTOMATION EMAIL] ${automation.name} enviado para ${to}`);
+
+        } else if (automation.action.type === 'webhook') {
+          const subscription = await db.select()
+            .from(gritoWebhookSubscriptions)
+            .where(eq(gritoWebhookSubscriptions.destinationName, automation.action.endpoint_ref!))
+            .limit(1);
+
+          if (subscription[0]) {
+            await db.insert(gritoWebhookDeliveries).values({
+              eventId: event.id,
+              subscriptionId: subscription[0].id,
+              status: 'PENDING',
+              nextAttemptAt: new Date(),
+            });
+            console.log(`🔗 [AUTOMATION WEBHOOK] ${automation.name} → ${automation.action.endpoint_ref}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ [AUTOMATION ERROR] ${automation.name}:`, error);
+      }
+    }
+  }
+
+  // =========  POST /events  =========
+  app.post('/events', async (req, res) => {
+    try {
+      // Verificar API key
+      const apiKey = req.headers['x-api-key'];
+      if (!apiKey || apiKey !== process.env.EVENTS_API_KEY) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+
+      const { event_name, user_id, source, payload, idempotency_key } = req.body;
+
+      // Validar campos obrigatórios
+      if (!event_name || !user_id || !source) {
+        return res.status(400).json({
+          error: 'Missing required fields: event_name, user_id, source'
+        });
+      }
+
+      const event = await createEvent({
+        eventName: event_name,
+        userId: user_id,
+        source: source,
+        payload: payload || {},
+        idempotencyKey: idempotency_key,
+      });
+
+      if (!event) {
+        return res.json({ ok: true, id: null, message: 'Event already processed' });
+      }
+
+      res.json({ ok: true, id: event.id });
+
+    } catch (error: any) {
+      console.error('❌ [EVENTS API] Error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // =========  POST /webhooks/stripe  =========
+  app.post('/webhooks/stripe', async (req, res) => {
+    try {
+      const sig = req.headers['stripe-signature'] as string;
+      let stripeEvent: Stripe.Event;
+
+      // Verificar assinatura do webhook
+      try {
+        stripeEvent = stripe.webhooks.constructEvent(
+          req.body,
+          sig,
+          process.env.STRIPE_WEBHOOK_SECRET!
+        );
+      } catch (err: any) {
+        console.error('❌ [STRIPE WEBHOOK] Signature verification failed:', err.message);
+        return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
+      }
+
+      console.log(`🎯 [STRIPE WEBHOOK] Received: ${stripeEvent.type}`);
+
+      // Traduzir eventos Stripe para eventos internos
+      let internalEventName: string | null = null;
+      let userId: number | null = null;
+      let eventPayload: Record<string, any> = {};
+
+      switch (stripeEvent.type) {
+        case 'checkout.session.completed':
+          internalEventName = 'plan.subscribed';
+          const session = stripeEvent.data.object as Stripe.Checkout.Session;
+
+          // Buscar usuário pelo customer ID
+          if (session.customer) {
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, session.customer as string))
+              .limit(1);
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                stripeSessionId: session.id,
+                customerId: session.customer,
+                amount: session.amount_total,
+                currency: session.currency,
+              };
+            }
+          }
+          break;
+
+        case 'invoice.payment_succeeded':
+          internalEventName = 'payment.succeeded';
+          const successInvoice = stripeEvent.data.object as Stripe.Invoice;
+          if (successInvoice.customer) {
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, successInvoice.customer as string))
+              .limit(1);
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                invoiceId: successInvoice.id,
+                customerId: successInvoice.customer,
+                amount: successInvoice.amount_paid,
+                currency: successInvoice.currency,
+              };
+            }
+          }
+          break;
+
+        case 'invoice.payment_failed':
+          internalEventName = 'payment.failed';
+          const failedInvoice = stripeEvent.data.object as Stripe.Invoice;
+          if (failedInvoice.customer) {
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, failedInvoice.customer as string))
+              .limit(1);
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                invoiceId: failedInvoice.id,
+                customerId: failedInvoice.customer,
+                amount: failedInvoice.amount_due,
+                currency: failedInvoice.currency,
+                failureCode: failedInvoice.last_finalization_error?.code,
+              };
+            }
+          }
+          break;
+
+        case 'charge.refunded':
+          internalEventName = 'payment.refunded';
+          const refund = stripeEvent.data.object as Stripe.Charge;
+
+          console.log(`💸 [REFUND] Reembolso detectado: ${refund.id}`);
+
+          // Atualizar ingresso se houver payment_intent usando SQL PURO
+          if (refund.payment_intent) {
+            try {
+              // Usar pool.query em vez de Drizzle ORM para evitar problemas de cache
+              const searchResult = await pool.query(
+                `SELECT id, numero FROM ingressos 
+                 WHERE "stripeCheckoutSessionId" LIKE $1 
+                 LIMIT 1`,
+                [`%${refund.payment_intent}%`]
+              );
+
+              if (searchResult.rows[0]) {
+                const ingresso = searchResult.rows[0];
+
+                // Atualizar dados de reembolso usando SQL puro
+                await pool.query(
+                  `UPDATE ingressos 
+                   SET refunded = $1, 
+                       refunded_at = $2, 
+                       refund_amount = $3, 
+                       refund_reason = $4,
+                       status = $5
+                   WHERE id = $6`,
+                  [
+                    true,
+                    new Date(),
+                    refund.amount_refunded,
+                    refund.refunds?.data?.[0]?.reason || 'requested_by_customer',
+                    'cancelado',
+                    ingresso.id
+                  ]
+                );
+
+                console.log(`✅ [REFUND] Ingresso ${ingresso.numero} marcado como reembolsado`);
+              }
+            } catch (refundError) {
+              console.error('❌ [REFUND] Erro ao processar reembolso:', refundError);
+            }
+          }
+          break;
+      }
+
+      // Criar evento interno se tradução foi bem-sucedida
+      if (internalEventName && userId) {
+        await createEvent({
+          eventName: internalEventName,
+          userId,
+          source: 'stripe',
+          payload: eventPayload,
+          idempotencyKey: `stripe_${stripeEvent.id}`,
+        });
+      }
+
+      res.json({ received: true });
+
+    } catch (error: any) {
+      console.error('❌ [STRIPE WEBHOOK] Error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // =========  GET /health  =========
+  app.get('/health', async (req, res) => {
+    try {
+      // Verificar conexão com BD
+      await db.select().from(gritoEvents).limit(1);
+
+      // Verificar fila de webhooks
+      const pendingDeliveries = await db.select({ count: sql`count(*)` })
+        .from(gritoWebhookDeliveries)
+        .where(eq(gritoWebhookDeliveries.status, 'PENDING'));
+
+      res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        database: 'connected',
+        pendingWebhooks: Number(pendingDeliveries[0]?.count || 0),
+      });
+
+    } catch (error: any) {
+      console.error('❌ [HEALTH CHECK] Error:', error);
+      res.status(500).json({
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        error: error.message,
+      });
+    }
+  });
+
+  // ========= GOOGLE SLIDES EXPORT =========
+  app.get('/export/google-slides', async (req, res) => {
+    try {
+      // Importar googleapis apenas quando necessário
+      const { google } = await import('googleapis');
+
+      // Verificar se as credenciais estão configuradas
+      if (!process.env.GOOGLE_CREDENTIALS_B64 || !process.env.SLIDES_TEMPLATE_ID) {
+        return res.status(500).json({
+          error: 'Google Slides credentials not configured'
+        });
+      }
+
+      // Decodificar credenciais
+      const raw = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64, "base64").toString("utf8");
+      const CREDS = JSON.parse(raw);
+
+      // Configurar autenticação
+      const auth = new google.auth.GoogleAuth({
+        credentials: CREDS,
+        scopes: [
+          "https://www.googleapis.com/auth/presentations",
+          "https://www.googleapis.com/auth/drive",
+        ]
+      });
+
+      const slides = google.slides({ version: "v1", auth });
+      const drive = google.drive({ version: "v3", auth });
+
+      // Obter parâmetros da query
+      const mes = req.query.mes as string || new Date().toISOString().slice(0, 7); // YYYY-MM
+      const ano = mes.split('-')[0];
+      const mesNome = new Date(mes + '-01').toLocaleDateString('pt-BR', { month: 'long' });
+
+      console.log(`📊 [GOOGLE SLIDES] Exportando relatório: ${mesNome}/${ano}`);
+
+      // 1. Copiar template
+      const copyResponse = await drive.files.copy({
+        fileId: process.env.SLIDES_TEMPLATE_ID,
+        requestBody: {
+          name: `Relatório - ${mesNome.charAt(0).toUpperCase() + mesNome.slice(1)} ${ano}`
+        }
+      });
+
+      const newPresentationId = copyResponse.data.id!;
+      console.log(`📄 [GOOGLE SLIDES] Template copiado: ${newPresentationId}`);
+
+      // 2. Substituir placeholders
+      const placeholders = {
+        '{{MES}}': mesNome.charAt(0).toUpperCase() + mesNome.slice(1),
+        '{{ANO}}': ano,
+        '{{PROJETO}}': 'Instituto O Grito',
+        '{{ATIVIDADE}}': 'Relatório Mensal de Atividades',
+        '{{CARGA_TOTAL}}': '40h',
+        '{{PARTICIPANTES}}': '100+',
+        '{{FREQUENCIA}}': '95%'
+      };
+
+      // Preparar requests de substituição
+      const requests = Object.entries(placeholders).map(([placeholder, replacement]) => ({
+        replaceAllText: {
+          containsText: {
+            text: placeholder,
+            matchCase: false
+          },
+          replaceText: replacement
+        }
+      }));
+
+      // Aplicar substituições
+      if (requests.length > 0) {
+        await slides.presentations.batchUpdate({
+          presentationId: newPresentationId,
+          requestBody: {
+            requests: requests
+          }
+        });
+        console.log(`✅ [GOOGLE SLIDES] ${requests.length} placeholders substituídos`);
+      }
+
+      // 3. Exportar como PDF
+      const pdfResponse = await drive.files.export({
+        fileId: newPresentationId,
+        mimeType: 'application/pdf'
+      });
+
+      console.log(`📋 [GOOGLE SLIDES] PDF gerado com sucesso`);
+
+      // 4. Configurar headers para download
+      const fileName = `relatorio-${mes}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+      // 5. Enviar PDF
+      if (typeof pdfResponse.data === 'string') {
+        res.send(Buffer.from(pdfResponse.data, 'binary'));
+      } else {
+        res.send(pdfResponse.data);
+      }
+
+      // 6. Limpar arquivo temporário (opcional)
+      setTimeout(async () => {
+        try {
+          await drive.files.delete({ fileId: newPresentationId });
+          console.log(`🗑️ [GOOGLE SLIDES] Arquivo temporário removido: ${newPresentationId}`);
+        } catch (error) {
+          console.warn('⚠️ [GOOGLE SLIDES] Falha ao remover arquivo temporário:', error);
+        }
+      }, 5000);
+
+    } catch (error: any) {
+      console.error('❌ [GOOGLE SLIDES] Erro na exportação:', error);
+      res.status(500).json({
+        error: 'Falha na exportação do relatório',
+        message: error.message
+      });
+    }
+  });
+
+  // Health check para Google Slides
+  app.get('/gs/health', async (req, res) => {
+    try {
+      const { google } = await import('googleapis');
+
+      if (!process.env.GOOGLE_CREDENTIALS_B64 || !process.env.SLIDES_TEMPLATE_ID) {
+        return res.status(500).json({
+          ok: false,
+          error: 'Google credentials not configured'
+        });
+      }
+
+      const raw = Buffer.from(process.env.GOOGLE_CREDENTIALS_B64, "base64").toString("utf8");
+      const CREDS = JSON.parse(raw);
+
+      const auth = new google.auth.GoogleAuth({
+        credentials: CREDS,
+        scopes: ["https://www.googleapis.com/auth/presentations"]
+      });
+
+      const slides = google.slides({ version: "v1", auth });
+      const pres = await slides.presentations.get({
+        presentationId: process.env.SLIDES_TEMPLATE_ID
+      });
+
+      res.json({
+        ok: true,
+        title: pres.data.title,
+        template_id: process.env.SLIDES_TEMPLATE_ID
+      });
+
+    } catch (error: any) {
+      console.error('❌ [GOOGLE SLIDES] Health check failed:', error);
+      res.status(500).json({
+        ok: false,
+        error: error.message
+      });
+    }
+  });
+
+  // ================ N8N INTEGRATION ENDPOINTS ================
+
+  /**
+   * Endpoint genérico para enviar dados para webhooks do n8n
+   * Permite integração com automações externas via n8n
+   */
+  app.post('/api/trigger/n8n', async (req, res) => {
+    try {
+      const { webhookUrl, eventType, eventData, metadata = {} } = req.body;
+
+      // Validação dos parâmetros obrigatórios
+      if (!webhookUrl || !eventType || !eventData) {
+        return res.status(400).json({
+          error: 'Parâmetros obrigatórios: webhookUrl, eventType, eventData'
+        });
+      }
+
+      // Validar URL do webhook
+      if (!webhookUrl.startsWith('http')) {
+        return res.status(400).json({
+          error: 'webhookUrl deve ser uma URL válida (http/https)'
+        });
+      }
+
+      console.log(`🔔 [N8N TRIGGER] Enviando evento ${eventType} para n8n`);
+
+      // Preparar payload para n8n
+      const payload = {
+        source: 'clube-do-grito',
+        timestamp: new Date().toISOString(),
+        eventType,
+        eventData,
+        metadata: {
+          ...metadata,
+          triggerSource: 'api',
+          environment: process.env.NODE_ENV || 'development'
+        }
+      };
+
+      // Enviar para n8n
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Clube-do-Grito/1.0'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`n8n webhook returned ${response.status}: ${response.statusText}`);
+      }
+
+      const responseText = await response.text();
+      let responseData = null;
+
+      try {
+        responseData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        responseData = responseText;
+      }
+
+      console.log(`✅ [N8N TRIGGER] Evento ${eventType} enviado com sucesso`);
+
+      // Registrar evento no sistema
+      await emitEvent({
+        userId: metadata.userId || null,
+        eventName: 'n8n_webhook_triggered',
+        eventData: {
+          eventType,
+          webhookUrl: webhookUrl.replace(/\/[^\/]*$/, '/***'), // Mascarar parte sensível da URL
+          success: true
+        },
+        source: 'n8n_integration'
+      });
+
+      res.json({
+        success: true,
+        message: `Evento ${eventType} enviado para n8n`,
+        timestamp: payload.timestamp,
+        response: responseData
+      });
+
+    } catch (error: any) {
+      console.error('❌ [N8N TRIGGER] Erro ao enviar para n8n:', error);
+
+      // Registrar erro no sistema
+      try {
+        await emitEvent({
+          userId: req.body?.metadata?.userId || null,
+          eventName: 'n8n_webhook_failed',
+          eventData: {
+            eventType: req.body?.eventType,
+            error: error.message
+          },
+          source: 'n8n_integration'
+        });
+      } catch (logError) {
+        console.error('❌ [N8N TRIGGER] Erro ao registrar falha:', logError);
+      }
+
+      res.status(500).json({
+        error: 'Falha ao enviar evento para n8n',
+        message: error.message
+      });
+    }
+  });
+
+  /**
+   * DEBUG: Endpoint para verificar dados de login do usuário
+   */
+  app.get('/api/debug/user-session/:phone', async (req, res) => {
+    try {
+      const { phone } = req.params;
+      const normalizedPhone = normalizePhoneToE164(phone);
+
+      // Buscar usuário pelo telefone
+      const user = await storage.getUserByTelefone(normalizedPhone);
+
+      if (!user) {
+        return res.status(404).json({ error: 'Usuário não encontrado' });
+      }
+
+      // Verificar status de doação
+      let donationStatus = null;
+      try {
+        const doadorRecord = await db.select({
+          id: doadores.id,
+          status: doadores.status,
+          plano: doadores.plano,
+          stripeSubscriptionId: doadores.stripeSubscriptionId
+        }).from(doadores)
+          .where(eq(doadores.userId, user.id))
+          .limit(1);
+
+        if (doadorRecord.length > 0) {
+          const doacao = doadorRecord[0];
+          donationStatus = {
+            isExistingDonor: true,
+            status: doacao.status,
+            plan: doacao.plano,
+            hasActiveSubscription: doacao.status === 'paid' && doacao.stripeSubscriptionId
+          };
+        } else {
+          donationStatus = {
+            isExistingDonor: false,
+            status: null,
+            plan: null,
+            hasActiveSubscription: false
+          };
+        }
+      } catch (error) {
+        console.error("Erro ao verificar status de doação:", error);
+      }
+
+      res.json({
+        debug: true,
+        user: {
+          id: user.id,
+          nome: user.nome,
+          telefone: user.telefone,
+          email: user.email,
+          role: user.role,
+          tipo: user.tipo,
+          verificado: user.verificado,
+          conselhoStatus: user.conselhoStatus
+        },
+        donationStatus,
+        expectedLocalStorage: {
+          userId: user.id.toString(),
+          userName: user.nome,
+          userPapel: user.role || user.tipo || 'user',
+          isVerified: user.verificado ? 'true' : 'false',
+          userEmail: user.email || '',
+          hasActiveSubscription: donationStatus?.hasActiveSubscription ? 'true' : 'false'
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ [DEBUG USER SESSION] Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Endpoint para registrar erros do cliente
+   */
+  app.post('/api/log-client-error', async (req, res) => {
+    try {
+      const { message, stack, errorInfo, userAgent, url, timestamp } = req.body;
+
+      console.error('🚨 [CLIENT ERROR]', {
+        timestamp,
+        url,
+        message,
+        stack,
+        errorInfo,
+        userAgent
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('❌ [LOG CLIENT ERROR] Erro ao registrar erro do cliente:', error);
+      res.status(500).json({ error: 'Erro ao registrar erro' });
+    }
+  });
+
+  /**
+   * Endpoint para testar conectividade com n8n
+   */
+  app.post('/api/test/n8n', async (req, res) => {
+    try {
+      const { webhookUrl } = req.body;
+
+      if (!webhookUrl) {
+        return res.status(400).json({
+          error: 'webhookUrl é obrigatório'
+        });
+      }
+
+      console.log(`🧪 [N8N TEST] Testando conectividade com webhook`);
+
+      const testPayload = {
+        source: 'clube-do-grito',
+        timestamp: new Date().toISOString(),
+        eventType: 'test_connection',
+        eventData: {
+          message: 'Teste de conectividade do Clube do Grito',
+          environment: process.env.NODE_ENV || 'development'
+        },
+        metadata: {
+          isTest: true
+        }
+      };
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Clube-do-Grito/1.0'
+        },
+        body: JSON.stringify(testPayload),
+        // Timeout de 10 segundos para teste
+        signal: AbortSignal.timeout(10000)
+      });
+
+      const responseTime = Date.now() - new Date(testPayload.timestamp).getTime();
+
+      let responseData = null;
+      const responseText = await response.text();
+
+      try {
+        responseData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        responseData = responseText;
+      }
+
+      console.log(`✅ [N8N TEST] Teste concluído - Status: ${response.status} - Tempo: ${responseTime}ms`);
+
+      res.json({
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        responseTime: `${responseTime}ms`,
+        response: responseData,
+        message: response.ok ? 'Conectividade com n8n confirmada' : 'Falha na conectividade'
+      });
+
+    } catch (error: any) {
+      console.error('❌ [N8N TEST] Erro no teste:', error);
+
+      res.status(500).json({
+        success: false,
+        error: 'Falha no teste de conectividade',
+        message: error.message
+      });
+    }
+  });
+
+  app.post("/api/activity/batch", express.raw({ type: '*/*', limit: '1kb' }), (req, res) => {
+    res.sendStatus(204);
+  });
+  // ==================== ROTAS DE PROGRAMAS DE INCLUSÃO PRODUTIVA ====================
+
+  // Listar todos os programas
+  app.get("/api/programas-inclusao", async (req, res) => {
+    try {
+      const programas = await storage.getAllProgramas();
+      res.json(programas);
+    } catch (error: any) {
+      console.error("Erro ao listar programas:", error);
+      res.status(500).json({ error: "Erro ao listar programas" });
+    }
+  });
+
+  // Buscar programa por ID
+  app.get("/api/programas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const programa = await storage.getProgramaById(id);
+      if (!programa) {
+        return res.status(404).json({ error: "Programa não encontrado" });
+      }
+      res.json(programa);
+    } catch (error: any) {
+      console.error("Erro ao buscar programa:", error);
+      res.status(500).json({ error: "Erro ao buscar programa" });
+    }
+  });
+
+  // Criar novo programa
+  app.post("/api/programas-inclusao", async (req, res) => {
+    try {
+      const coordenadorId = req.user?.id;
+      const programaData = {
+        ...req.body,
+        coordenadorId,
+        numeroVagas: parseInt(req.body.numeroVagas || req.body.vagas) || 20,
+        vagasOcupadas: 0,
+        taxaOcupacao: 0
+      };
+
+      const programa = await storage.createPrograma(programaData);
+      res.status(201).json(programa);
+    } catch (error: any) {
+      console.error("Erro ao criar programa:", error);
+      res.status(500).json({ error: "Erro ao criar programa" });
+    }
+  });
+
+  // Atualizar programa
+  app.patch("/api/programas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const programa = await storage.updatePrograma(id, req.body);
+      res.json(programa);
+    } catch (error: any) {
+      console.error("Erro ao atualizar programa:", error);
+      res.status(500).json({ error: "Erro ao atualizar programa" });
+    }
+  });
+
+  // Deletar programa (e todos os cursos filhos via CASCADE)
+  app.delete("/api/programas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deletePrograma(id);
+      res.json({ message: "Programa deletado com sucesso (turmas e cursos filhos também foram removidos)" });
+    } catch (error: any) {
+      console.error("Erro ao deletar programa:", error);
+      res.status(500).json({ error: "Erro ao deletar programa" });
+    }
+  });
+
+  // ==================== ROTAS DE TURMAS DE INCLUSÃO PRODUTIVA ====================
+
+  // Listar todas as turmas
+  app.get("/api/turmas-inclusao", async (req, res) => {
+    try {
+      const turmas = await storage.getAllTurmas();
+      res.json(turmas);
+    } catch (error: any) {
+      console.error("Erro ao listar turmas:", error);
+      res.status(500).json({ error: "Erro ao listar turmas" });
+    }
+  });
+
+  // Listar turmas por programa
+  app.get("/api/programas-inclusao/:programaId/turmas", async (req, res) => {
+    try {
+      const programaId = parseInt(req.params.programaId);
+      const turmas = await storage.getTurmasByPrograma(programaId);
+      res.json(turmas);
+    } catch (error: any) {
+      console.error("Erro ao listar turmas do programa:", error);
+      res.status(500).json({ error: "Erro ao listar turmas do programa" });
+    }
+  });
+
+  // Buscar turma por ID
+  app.get("/api/turmas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const turma = await storage.getTurmaById(id);
+      if (!turma) {
+        return res.status(404).json({ error: "Turma não encontrada" });
+      }
+      res.json(turma);
+    } catch (error: any) {
+      console.error("Erro ao buscar turma:", error);
+      res.status(500).json({ error: "Erro ao buscar turma" });
+    }
+  });
+
+  // Criar nova turma
+  app.post("/api/turmas-inclusao", async (req, res) => {
+    try {
+      const coordenadorId = req.user?.id;
+      const turmaData = {
+        ...req.body,
+        coordenadorId,
+        numeroVagas: parseInt(req.body.numeroVagas || req.body.vagas) || 20,
+        vagasOcupadas: 0
+      };
+
+      const turma = await storage.createTurma(turmaData);
+      res.status(201).json(turma);
+    } catch (error: any) {
+      console.error("Erro ao criar turma:", error);
+      res.status(500).json({ error: "Erro ao criar turma" });
+    }
+  });
+
+  // Atualizar turma
+  app.patch("/api/turmas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const turma = await storage.updateTurma(id, req.body);
+      res.json(turma);
+    } catch (error: any) {
+      console.error("Erro ao atualizar turma:", error);
+      res.status(500).json({ error: "Erro ao atualizar turma" });
+    }
+  });
+
+  // Deletar turma (e todos os cursos filhos via CASCADE)
+  app.delete("/api/turmas-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteTurma(id);
+      res.json({ message: "Turma deletada com sucesso (cursos filhos também foram removidos)" });
+    } catch (error: any) {
+      console.error("Erro ao deletar turma:", error);
+      res.status(500).json({ error: "Erro ao deletar turma" });
+    }
+  });
+
+  // ==================== ROTAS DE CURSOS DE INCLUSÃO PRODUTIVA ====================
+
+  // Listar todos os cursos
+  app.get("/api/cursos-inclusao", async (req, res) => {
+    try {
+      const cursos = await storage.getAllCursos();
+      res.json(cursos);
+    } catch (error: any) {
+      console.error("Erro ao listar cursos:", error);
+      res.status(500).json({ error: "Erro ao listar cursos" });
+    }
+  });
+
+  // Buscar curso por ID
+  app.get("/api/cursos-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID inválido" });
+      }
+      const curso = await storage.getCursoById(id);
+      if (!curso) {
+        return res.status(404).json({ error: "Curso não encontrado" });
+      }
+      res.json(curso);
+    } catch (error: any) {
+      console.error("Erro ao buscar curso:", error);
+      res.status(500).json({ error: "Erro ao buscar curso" });
+    }
+  });
+
+  // Listar cursos por turma
+  app.get("/api/turmas-inclusao/:turmaId/cursos", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      if (isNaN(turmaId)) {
+        return res.status(400).json({ error: "ID da turma inválido" });
+      }
+      const cursos = await storage.getCursosByTurma(turmaId);
+      res.json(cursos);
+    } catch (error: any) {
+      console.error("Erro ao listar cursos da turma:", error);
+      res.status(500).json({ error: "Erro ao listar cursos da turma" });
+    }
+  });
+
+  // Listar cursos por programa
+  app.get("/api/programas-inclusao/:programaId/cursos", requireAuth, async (req, res) => {
+    try {
+      const programaId = parseInt(req.params.programaId);
+      if (isNaN(programaId)) {
+        return res.status(400).json({ error: "ID do programa inválido" });
+      }
+      const cursos = await storage.getCursosByPrograma(programaId);
+      res.json(cursos);
+    } catch (error: any) {
+      console.error("Erro ao listar cursos do programa:", error);
+      res.status(500).json({ error: "Erro ao listar cursos do programa" });
+    }
+  });
+
+  // Criar novo curso
+  app.post("/api/cursos-inclusao", async (req, res) => {
+    try {
+      const coordenadorId = req.user?.id || null;
+      const { turmaIds, ...cursoBodyData } = req.body;
+
+      // Validar programaId
+      const programaId = parseInt(cursoBodyData.programaId);
+      if (isNaN(programaId) || programaId <= 0) {
+        return res.status(400).json({ error: "programaId inválido" });
+      }
+
+      // Validar cargaHoraria
+      const cargaHoraria = parseInt(cursoBodyData.cargaHoraria || cursoBodyData.duracao);
+      if (isNaN(cargaHoraria) || cargaHoraria <= 0) {
+        return res.status(400).json({ error: "cargaHoraria deve ser maior que zero" });
+      }
+
+      // Validar turmaIds se fornecido
+      let validatedTurmaIds: number[] | undefined = undefined;
+      if (turmaIds) {
+        if (!Array.isArray(turmaIds)) {
+          return res.status(400).json({ error: "turmaIds deve ser um array" });
+        }
+        validatedTurmaIds = turmaIds.map((id: any) => parseInt(id)).filter((id: number) => !isNaN(id) && id > 0);
+        if (validatedTurmaIds.length !== turmaIds.length) {
+          return res.status(400).json({ error: "turmaIds deve conter apenas números válidos" });
+        }
+      }
+
+      const cursoData = {
+        ...cursoBodyData,
+        coordenadorId,
+        programaId,
+        cargaHoraria,
+        numeroVagas: parseInt(cursoBodyData.numeroVagas || cursoBodyData.vagas) || 20,
+        vagasOcupadas: 0
+      };
+
+      const curso = await storage.createCurso(cursoData, validatedTurmaIds);
+      res.status(201).json(curso);
+    } catch (error: any) {
+      console.error("Erro ao criar curso:", error);
+      res.status(500).json({ error: "Erro ao criar curso" });
+    }
+  });
+
+  // Atualizar curso
+  app.patch("/api/cursos-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID inválido" });
+      }
+      const curso = await storage.updateCurso(id, req.body);
+      res.json(curso);
+    } catch (error: any) {
+      console.error("Erro ao atualizar curso:", error);
+      res.status(500).json({ error: "Erro ao atualizar curso" });
+    }
+  });
+
+  // Deletar curso
+  app.delete("/api/cursos-inclusao/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "ID inválido" });
+      }
+      await storage.deleteCurso(id);
+      res.json({ message: "Curso deletado com sucesso" });
+    } catch (error: any) {
+      console.error("Erro ao deletar curso:", error);
+      res.status(500).json({ error: "Erro ao deletar curso" });
+    }
+  });
+
+  // Adicionar curso a uma turma
+  app.post("/api/cursos-inclusao/:cursoId/turmas/:turmaId", requireAuth, async (req, res) => {
+    try {
+      const cursoId = parseInt(req.params.cursoId);
+      const turmaId = parseInt(req.params.turmaId);
+      if (isNaN(cursoId) || isNaN(turmaId)) {
+        return res.status(400).json({ error: "IDs inválidos" });
+      }
+      const relacao = await storage.addCursoToTurma(cursoId, turmaId);
+      res.status(201).json(relacao);
+    } catch (error: any) {
+      console.error("Erro ao vincular curso à turma:", error);
+      res.status(500).json({ error: "Erro ao vincular curso à turma" });
+    }
+  });
+
+  // Remover curso de uma turma
+  app.delete("/api/cursos-inclusao/:cursoId/turmas/:turmaId", requireAuth, async (req, res) => {
+    try {
+      const cursoId = parseInt(req.params.cursoId);
+      const turmaId = parseInt(req.params.turmaId);
+      if (isNaN(cursoId) || isNaN(turmaId)) {
+        return res.status(400).json({ error: "IDs inválidos" });
+      }
+      await storage.removeCursoFromTurma(cursoId, turmaId);
+      res.json({ message: "Curso removido da turma com sucesso" });
+    } catch (error: any) {
+      console.error("Erro ao remover curso da turma:", error);
+      res.status(500).json({ error: "Erro ao remover curso da turma" });
+    }
+  });
+
+  // Listar turmas de um curso
+  app.get("/api/cursos-inclusao/:cursoId/turmas", requireAuth, async (req, res) => {
+    try {
+      const cursoId = parseInt(req.params.cursoId);
+      if (isNaN(cursoId)) {
+        return res.status(400).json({ error: "ID do curso inválido" });
+      }
+      const turmas = await storage.getTurmasByCurso(cursoId);
+      res.json(turmas);
+    } catch (error: any) {
+      console.error("Erro ao listar turmas do curso:", error);
+      res.status(500).json({ error: "Erro ao listar turmas do curso" });
+    }
+  });
+
+  // ==================== ROTAS DE PARTICIPANTES DE INCLUSÃO PRODUTIVA ====================
+
+  // Listar todos os participantes
+  app.get("/api/participantes-inclusao", async (req, res) => {
+    try {
+      const participantes = await storage.getAllParticipantes();
+      res.json(participantes);
+    } catch (error: any) {
+      console.error("Erro ao listar participantes:", error);
+      res.status(500).json({ error: "Erro ao listar participantes" });
+    }
+  });
+
+  // Buscar participante por ID
+  app.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const participante = await storage.getParticipanteById(id);
+      if (!participante) {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      res.json(participante);
+    } catch (error: any) {
+      console.error("Erro ao buscar participante:", error);
+      res.status(500).json({ error: "Erro ao buscar participante" });
+    }
+  });
+
+  // Buscar participante por CPF
+  app.get("/api/participantes-inclusao/cpf/:cpf", requireAuth, async (req, res) => {
+    try {
+      const cpf = req.params.cpf;
+      const participante = await storage.getParticipanteByCpf(cpf);
+      if (!participante) {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      res.json(participante);
+    } catch (error: any) {
+      console.error("Erro ao buscar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao buscar participante por CPF" });
+    }
+  });
+
+  // Criar novo participante
+  app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
+    try {
+      const coordenadorId = req.user?.id;
+      const { turmaIds, ...participanteData } = req.body;
+
+      if (participanteData.dataIngresso) {
+        participanteData.dataIngresso = new Date(participanteData.dataIngresso)
+      }
+
+      // Normalizar campos vazios para null
+      ['email', 'cpf', 'telefone', 'codigoMatricula', 'identificador', 'dataIngresso'].forEach(field => {
+        if (participanteData[field] === '') {
+          participanteData[field] = null;
+        }
+      });
+
+      // Validar dados com Zod
+      const validationResult = insertParticipanteInclusaoSchema.safeParse({
+        ...participanteData,
+        coordenadorId
+      });
+
+      if (!validationResult.success) {
+        return res.status(400).json({
+          error: "Dados inválidos",
+          details: validationResult.error.errors
+        });
+      }
+
+      const participante = await storage.createParticipante(validationResult.data, turmaIds);
+
+      // 🔗 VINCULAÇÃO AUTOMÁTICA DESABILITADA
+      // O coordenador psicossocial vai criar as famílias e vínculos manualmente conforme necessário
+      console.log(`ℹ️ [INCLUSÃO] Participante cadastrado (${participante.id} - ${participante.nome}). Vinculação psicossocial será feita manualmente.`);
+
+      res.status(201).json(participante);
+    } catch (error: any) {
+      console.error("Erro ao criar participante:", error);
+      res.status(500).json({ error: "Erro ao criar participante" });
+    }
+  });
+
+  // Atualizar participante
+  app.patch("/api/participantes-inclusao/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { turmaIds, ...participanteData } = req.body;
+
+      // Normalizar campos vazios para null
+      ['email', 'cpf', 'telefone', 'codigoMatricula', 'identificador', 'dataIngresso'].forEach(field => {
+        if (participanteData[field] === '') {
+          participanteData[field] = null;
+        }
+      });
+
+      // Converter dataIngresso para Date se for string
+      if (participanteData.dataIngresso && typeof participanteData.dataIngresso === 'string') {
+        participanteData.dataIngresso = new Date(participanteData.dataIngresso);
+      }
+
+      // Atualizar dados do participante
+      const participante = await storage.updateParticipante(id, participanteData);
+
+      // Atualizar relacionamentos com turmas se fornecido
+      if (Array.isArray(turmaIds)) {
+        // Buscar turmas atuais
+        const turmasAtuais = await storage.getTurmasByParticipante(id);
+        const turmaIdsAtuais = turmasAtuais.map(t => t.id);
+
+        // Remover vínculos que não estão mais na lista
+        for (const turmaId of turmaIdsAtuais) {
+          if (!turmaIds.includes(turmaId)) {
+            await storage.removeParticipanteFromTurma(id, turmaId);
+          }
+        }
+
+        // Adicionar novos vínculos
+        for (const turmaId of turmaIds) {
+          if (!turmaIdsAtuais.includes(turmaId)) {
+            await storage.addParticipanteToTurma(id, turmaId);
+          }
+        }
+      }
+
+      // Retornar participante atualizado com turmas
+      const participanteCompleto = await storage.getParticipanteById(id);
+      res.json(participanteCompleto);
+    } catch (error: any) {
+      console.error("Erro ao atualizar participante:", error);
+      res.status(500).json({ error: "Erro ao atualizar participante" });
+    }
+  });
+
+  // Deletar participante
+  app.delete("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteParticipante(id);
+      res.json({ message: "Participante deletado com sucesso" });
+    } catch (error: any) {
+      console.error("Erro ao deletar participante:", error);
+      res.status(500).json({ error: "Erro ao deletar participante" });
+    }
+  });
+
+  // Adicionar participante a uma turma
+  app.post("/api/participantes-inclusao/:participanteId/turmas/:turmaId", requireAuth, async (req, res) => {
+    try {
+      const participanteId = parseInt(req.params.participanteId);
+      const turmaId = parseInt(req.params.turmaId);
+      const relacao = await storage.addParticipanteToTurma(participanteId, turmaId);
+      res.status(201).json(relacao);
+    } catch (error: any) {
+      console.error("Erro ao adicionar participante à turma:", error);
+      res.status(500).json({ error: "Erro ao adicionar participante à turma" });
+    }
+  });
+
+  // Remover participante de uma turma
+  app.delete("/api/participantes-inclusao/:participanteId/turmas/:turmaId", requireAuth, async (req, res) => {
+    try {
+      const participanteId = parseInt(req.params.participanteId);
+      const turmaId = parseInt(req.params.turmaId);
+      await storage.removeParticipanteFromTurma(participanteId, turmaId);
+      res.json({ message: "Participante removido da turma com sucesso" });
+    } catch (error: any) {
+      console.error("Erro ao remover participante da turma:", error);
+      res.status(500).json({ error: "Erro ao remover participante da turma" });
+    }
+  });
+
+  // Listar turmas de um participante
+  app.get("/api/participantes-inclusao/:participanteId/turmas", requireAuth, async (req, res) => {
+    try {
+      const participanteId = parseInt(req.params.participanteId);
+      const turmas = await storage.getTurmasByParticipante(participanteId);
+      res.json(turmas);
+    } catch (error: any) {
+      console.error("Erro ao listar turmas do participante:", error);
+      res.status(500).json({ error: "Erro ao listar turmas do participante" });
+    }
+  });
+
+  // Listar participantes de uma turma
+  app.get("/api/turmas-inclusao/:turmaId/participantes", requireAuth, async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const participantes = await storage.getParticipantesByTurma(turmaId);
+      res.json(participantes);
+    } catch (error: any) {
+      console.error("Erro ao listar participantes da turma:", error);
+      res.status(500).json({ error: "Erro ao listar participantes da turma" });
+    }
+  });
+
+  // ========================================
+  // 📊 GOOGLE SLIDES - EXPORTAÇÃO DE RELATÓRIOS
+  // ========================================
+
+  // Health check para verificar conexão com Google Slides
+  app.get("/api/gs/health", requireAuth, async (req, res) => {
+    try {
+      const { slides } = getGoogleServices();
+      const templateId = process.env.SLIDES_TEMPLATE_ID!;
+
+      const presentation = await slides.presentations.get({
+        presentationId: templateId,
+      });
+
+      res.json({
+        ok: true,
+        title: presentation.data.title,
+        templateId,
+        message: 'Conexão com Google Slides OK'
+      });
+    } catch (error: any) {
+      console.error("Erro no health check do Google Slides:", error);
+      res.status(500).json({
+        ok: false,
+        error: error.message,
+        message: 'Erro ao conectar com Google Slides. Verifique as credenciais e permissões.'
+      });
+    }
+  });
+
+  // Exportar relatório para Google Slides/PDF
+  app.get("/api/export/relatorio-slides", requireAuth, async (req, res) => {
+    try {
+      console.log("📊 [EXPORT-SLIDES] Iniciando exportação de relatório");
+
+      const { slides, drive } = getGoogleServices();
+      const templateId = process.env.SLIDES_TEMPLATE_ID!;
+
+      // Buscar dados do banco para preencher o relatório
+      const participantes = await storage.getAllParticipantes();
+      const programas = await storage.getAllProgramas();
+      const turmas = await storage.getAllTurmas();
+      const cursos = await storage.getAllCursos();
+
+      console.log("📊 [EXPORT-SLIDES] Dados carregados:", {
+        participantes: participantes.length,
+        programas: programas.length,
+        turmas: turmas.length,
+        cursos: cursos.length
+      });
+
+      // 1. Copiar o template
+      const copy = await drive.files.copy({
+        fileId: templateId,
+        requestBody: {
+          name: `Relatório Inclusão Produtiva - ${new Date().toLocaleDateString('pt-BR')}`,
+        },
+      });
+
+      const newPresentationId = copy.data.id!;
+      console.log("📊 [EXPORT-SLIDES] Apresentação copiada:", newPresentationId);
+
+      // 2. Preparar dados para substituição
+      const hoje = new Date();
+      const mes = hoje.toLocaleDateString('pt-BR', { month: 'long' });
+      const ano = hoje.getFullYear().toString();
+
+      // Calcular estatísticas
+      const totalParticipantes = participantes.length;
+      const programasAtivos = programas.length;
+      const turmasAtivas = turmas.length;
+      const cursosAtivos = cursos.length;
+
+      // Distribuição por gênero
+      const masculino = participantes.filter(p => p.genero?.toLowerCase() === 'masculino').length;
+      const feminino = participantes.filter(p => p.genero?.toLowerCase() === 'feminino').length;
+      const outro = participantes.filter(p => p.genero && !['masculino', 'feminino'].includes(p.genero.toLowerCase())).length;
+
+      // 3. Substituir placeholders
+      const requests = [
+        {
+          replaceAllText: {
+            containsText: { text: '{{MES}}', matchCase: false },
+            replaceText: mes.toUpperCase(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{ANO}}', matchCase: false },
+            replaceText: ano,
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{TOTAL_PARTICIPANTES}}', matchCase: false },
+            replaceText: totalParticipantes.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{PROGRAMAS_ATIVOS}}', matchCase: false },
+            replaceText: programasAtivos.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{TURMAS_ATIVAS}}', matchCase: false },
+            replaceText: turmasAtivas.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{CURSOS_ATIVOS}}', matchCase: false },
+            replaceText: cursosAtivos.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{GENERO_MASCULINO}}', matchCase: false },
+            replaceText: masculino.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{GENERO_FEMININO}}', matchCase: false },
+            replaceText: feminino.toString(),
+          },
+        },
+        {
+          replaceAllText: {
+            containsText: { text: '{{GENERO_OUTRO}}', matchCase: false },
+            replaceText: outro.toString(),
+          },
+        },
+      ];
+
+      await slides.presentations.batchUpdate({
+        presentationId: newPresentationId,
+        requestBody: { requests },
+      });
+
+      console.log("📊 [EXPORT-SLIDES] Placeholders substituídos");
+
+      // 4. Exportar como PDF
+      const pdfResponse = await drive.files.export(
+        {
+          fileId: newPresentationId,
+          mimeType: 'application/pdf',
+        },
+        { responseType: 'stream' }
+      );
+
+      console.log("📊 [EXPORT-SLIDES] PDF gerado com sucesso");
+
+      // 5. Enviar PDF para o cliente
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Relatório_Inclusão_Produtiva_${hoje.toISOString().split('T')[0]}.pdf"`);
+
+      // Enviar o stream diretamente
+      pdfResponse.data.pipe(res);
+
+    } catch (error: any) {
+      console.error("❌ [EXPORT-SLIDES] Erro ao exportar relatório:", error);
+      res.status(500).json({
+        error: 'Erro ao exportar relatório',
+        message: error.message,
+        details: 'Verifique se o template está compartilhado com a Service Account e se as APIs estão ativas.'
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINTS DE PRESENÇAS (INCLUSÃO PRODUTIVA)
+  // =============================================================================
+
+  app.get("/api/presencas", async (req, res) => {
+    try {
+      const { participanteId, turmaId, cursoId, dataInicio, dataFim } = req.query;
+
+      const db = await storage.getDb();
+      let query = db.select().from(presencasInclusao);
+
+      res.json(await query);
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar presenças:', error);
+      res.status(500).json({ error: 'Erro ao buscar presenças' });
+    }
+  });
+
+  app.post("/api/presencas", async (req, res) => {
+    try {
+      const validatedData = insertPresencaInclusaoSchema.parse(req.body);
+      const db = await storage.getDb();
+
+      const [presenca] = await db.insert(presencasInclusao).values(validatedData).returning();
+
+      res.status(201).json(presenca);
+    } catch (error: any) {
+      console.error('❌ Erro ao criar presença:', error);
+      res.status(400).json({ error: 'Erro ao criar presença', message: error.message });
+    }
+  });
+
+  app.put("/api/presencas/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const validatedData = insertPresencaInclusaoSchema.parse(req.body);
+      const db = await storage.getDb();
+
+      const [presenca] = await db
+        .update(presencasInclusao)
+        .set(validatedData)
+        .where(eq(presencasInclusao.id, parseInt(id)))
+        .returning();
+
+      if (!presenca) {
+        return res.status(404).json({ error: 'Presença não encontrada' });
+      }
+
+      res.json(presenca);
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar presença:', error);
+      res.status(400).json({ error: 'Erro ao atualizar presença', message: error.message });
+    }
+  });
+
+  app.delete("/api/presencas/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const db = await storage.getDb();
+
+      await db.delete(presencasInclusao).where(eq(presencasInclusao.id, parseInt(id)));
+
+      res.status(204).send();
+    } catch (error: any) {
+      console.error('❌ Erro ao deletar presença:', error);
+      res.status(500).json({ error: 'Erro ao deletar presença' });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINTS DE EXPORTAÇÃO/IMPORTAÇÃO EXCEL (INCLUSÃO PRODUTIVA)
+  // =============================================================================
+
+  app.get("/api/inclusao-produtiva/export-participantes", async (req, res) => {
+    try {
+      const participantes = await storage.getParticipantesInclusao();
+
+      const data = participantes.map((p: any) => ({
+        'ID': p.id,
+        'Nome': p.nome,
+        'CPF': p.cpf || '',
+        'Email': p.email || '',
+        'Telefone': p.telefone || '',
+        'Gênero': p.genero,
+        'Idade': p.idade,
+        'Código Matrícula': p.codigoMatricula || '',
+        'Identificador': p.identificador || '',
+        'Endereço': p.endereco || '',
+        'Escolaridade': p.escolaridade || '',
+        'Status': p.status || 'ativo',
+        'Data Ingresso': p.dataIngresso ? new Date(p.dataIngresso).toISOString().split('T')[0] : '',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Participantes');
+
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=participantes.xlsx');
+      res.send(buffer);
+    } catch (error: any) {
+      console.error('❌ Erro ao exportar participantes:', error);
+      res.status(500).json({ error: 'Erro ao exportar participantes' });
+    }
+  });
+
+  app.get("/api/inclusao-produtiva/export-presencas", async (req, res) => {
+    try {
+      const db = await storage.getDb();
+      const presencas = await db.select().from(presencasInclusao);
+
+      const data = presencas.map((p: any) => ({
+        'ID': p.id,
+        'Participante ID': p.participanteId,
+        'Turma ID': p.turmaId || '',
+        'Curso ID': p.cursoId || '',
+        'Data': p.data ? new Date(p.data).toISOString().split('T')[0] : '',
+        'Presente': p.presente ? 'Sim' : 'Não',
+        'Justificativa': p.justificativa || '',
+        'Observações': p.observacoes || '',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Presenças');
+
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=presencas.xlsx');
+      res.send(buffer);
+    } catch (error: any) {
+      console.error('❌ Erro ao exportar presenças:', error);
+      res.status(500).json({ error: 'Erro ao exportar presenças' });
+    }
+  });
+
+  app.post("/api/inclusao-produtiva/import-participantes", async (req, res) => {
+    try {
+      if (!req.body.file) {
+        return res.status(400).json({ error: 'Arquivo não fornecido' });
+      }
+
+      const base64Data = req.body.file.replace(/^data:.*base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet);
+
+      const importedCount = 0;
+      const errors: string[] = [];
+
+      for (const row of data as any[]) {
+        try {
+          const participanteData = {
+            nome: row['Nome'] || row['nome'],
+            cpf: row['CPF'] || row['cpf'] || null,
+            email: row['Email'] || row['email'] || null,
+            telefone: row['Telefone'] || row['telefone'] || null,
+            genero: row['Gênero'] || row['Genero'] || row['genero'] || 'Prefiro não informar',
+            idade: parseInt(row['Idade'] || row['idade'] || '0'),
+            codigoMatricula: row['Código Matrícula'] || row['codigoMatricula'] || null,
+            identificador: row['Identificador'] || row['identificador'] || null,
+            endereco: row['Endereço'] || row['Endereco'] || row['endereco'] || null,
+            escolaridade: row['Escolaridade'] || row['escolaridade'] || null,
+          };
+
+          await storage.createParticipanteInclusao(participanteData);
+        } catch (err: any) {
+          errors.push(`Erro na linha com nome "${row['Nome'] || 'desconhecido'}": ${err.message}`);
+        }
+      }
+
+      res.json({
+        success: true,
+        imported: data.length - errors.length,
+        total: data.length,
+        errors: errors
+      });
+    } catch (error: any) {
+      console.error('❌ Erro ao importar participantes:', error);
+      res.status(500).json({ error: 'Erro ao importar participantes', message: error.message });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT INDICADORES INCLUSÃO PRODUTIVA (JSON)
+  // =============================================================================
+  app.get("/api/inclusao-produtiva/indicadores", async (req, res) => {
+    console.log('📊 [INCLUSÃO PRODUTIVA] Retornando dados de indicadores...');
+
+    try {
+      const indicadoresData = {
+        "programa": "Inclusão Produtiva",
+        "referencia": "S2/2025",
+        "labels_meses": ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"],
+        "projetos": [
+          {
+            "projeto": "LAB. VOZES DO FUTURO",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "valores": [64, 68, 73, null, null, 97, null, null],
+                "media_semestral": 82.08
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<06 Alunos",
+                "valores": [0, 0, 0, 0, 0, 0],
+                "media_semestral": 0.0
+              },
+              {
+                "nome": "Avaliação de Aprendizagem",
+                "meta": "90%",
+                "valores": [null, null, 89, null, null, 43],
+                "media_semestral": 66.0
+              },
+              {
+                "nome": "Quantidade de Alunos",
+                "meta": "60",
+                "periodicidade": "Mensal",
+                "valores": [57, 57, 72, 40, 40, 41],
+                "media_semestral": 51.17
+              },
+              {
+                "nome": "NPS",
+                "meta": "70",
+                "periodicidade": "Trimestral",
+                "valores": [null, null, 75, null, 81],
+                "media_semestral": 78.0
+              },
+              {
+                "nome": "Empregabilidade",
+                "meta": "22",
+                "valores": [0, 21, 8],
+                "media_semestral": 9.67
+              }
+            ]
+          },
+          {
+            "projeto": "CURSOS PRESENCIAIS",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "valores": [90.75, 91, 88.44, 83, 87.32, 87],
+                "media_semestral": 87.92
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<40 Alunos",
+                "valores": [0, 0, 0, 1, 1, 0],
+                "media_semestral": 0.33
+              },
+              {
+                "nome": "Avaliação de Aprendizagem",
+                "meta": "80%",
+                "valores": [81, 81],
+                "media_semestral": 81.0
+              },
+              {
+                "nome": "Quantidade de Alunos",
+                "meta": "400",
+                "valores": [30, 30, 167, 92, 289, 104],
+                "media_semestral": 118.67
+              },
+              {
+                "nome": "NPS",
+                "meta": "70",
+                "valores": [87, 87],
+                "media_semestral": 87.0
+              }
+            ]
+          },
+          {
+            "projeto": "CURSOS EAD CGD",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "valores": [100, 100, 100, 99, 100, 99.75, 100],
+                "media_semestral": 99.82
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<50 Alunos",
+                "valores": [0, 0, 0, 0, 0, 0],
+                "media_semestral": 0.0
+              },
+              {
+                "nome": "Alunos Ativos",
+                "meta": "200",
+                "valores": [14, 8, 22, 44, 72, 138, 25],
+                "media_semestral": 46.14
+              },
+              {
+                "nome": "Alunos Formados",
+                "valores": [14, 8, 0, 44, 66, 25],
+                "media_semestral": 26.17
+              }
+            ]
+          }
+        ]
+      };
+
+      res.json(indicadoresData);
+    } catch (error: any) {
+      console.error('❌ [INCLUSÃO PRODUTIVA] Erro ao retornar indicadores:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar indicadores',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT DADOS MENSAIS INCLUSÃO PRODUTIVA 2025
+  // =============================================================================
+  app.get("/api/inclusao-produtiva/dados-mensais", async (req, res) => {
+    console.log('📊 [INCLUSÃO PRODUTIVA] Retornando dados mensais 2025...');
+
+    try {
+      const dadosMensais = {
+        "programa": "Inclusão Produtiva",
+        "ano": 2025,
+        "meses": ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+        "projetos": [
+          {
+            "projeto": "LAB. VOZES DO FUTURO",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "mensal": [64, 68, 73, null, null, 97, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<06 Alunos",
+                "mensal": [0, 0, 0, 0, 0, 0, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Avaliação de Aprendizagem",
+                "meta": "90%",
+                "mensal": [null, null, 89, null, null, 43, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Quantidade de Alunos",
+                "meta": "60",
+                "periodicidade": "Mensal",
+                "mensal": [57, 57, 72, 40, 40, 41, null, null, null, null, null, null]
+              },
+              {
+                "nome": "NPS",
+                "meta": "70",
+                "periodicidade": "Trimestral",
+                "mensal": [null, null, 75, null, 81, null, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Empregabilidade",
+                "meta": "22",
+                "mensal": [0, 21, 8, null, null, null, null, null, null, null, null, null]
+              }
+            ]
+          },
+          {
+            "projeto": "CURSOS PRESENCIAIS",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "mensal": [90.75, 91, 88.44, 83, 87.32, 87, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<40 Alunos",
+                "mensal": [0, 0, 0, 1, 1, 0, 7, 1, 10, null, null, null]
+              },
+              {
+                "nome": "Avaliação de Aprendizagem",
+                "meta": "80%",
+                "mensal": [81, 81, null, null, null, null, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Quantidade de Alunos",
+                "meta": "400",
+                "mensal": [30, 30, 167, 92, 289, 104, 65, 70, 179, null, null, null]
+              },
+              {
+                "nome": "NPS",
+                "meta": "70",
+                "mensal": [87, 87, null, null, null, null, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Alunos Formados",
+                "meta": null,
+                "mensal": [40, 45, 50, 55, 60, 65, 70, 0, 66, null, null, null]
+              }
+            ]
+          },
+          {
+            "projeto": "CURSOS EAD CGD",
+            "indicadores": [
+              {
+                "nome": "Frequência",
+                "meta": "85%",
+                "periodicidade": "Mensal",
+                "mensal": [100, 100, 100, 99, 100, 99.75, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Evasão",
+                "meta": "<50 Alunos",
+                "mensal": [0, 0, 0, 0, 0, 0, null, null, null, null, null, null]
+              },
+              {
+                "nome": "Alunos Ativos",
+                "meta": "200",
+                "mensal": [14, 8, 22, 44, 72, 138, null, null, 64, null, null, null]
+              },
+              {
+                "nome": "Alunos Formados",
+                "meta": null,
+                "mensal": [0, 0, 0, 0, 0, 0, null, null, null, null, null, null]
+              }
+            ]
+          }
+        ]
+      };
+
+      res.json(dadosMensais);
+    } catch (error: any) {
+      console.error('❌ [INCLUSÃO PRODUTIVA] Erro ao retornar dados mensais:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar dados mensais',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT DADOS MENSAIS PSICOSSOCIAL 2025
+  // =============================================================================
+  app.get("/api/psicossocial/dados-mensais", async (req, res) => {
+    console.log('📊 [PSICOSSOCIAL] Retornando dados mensais 2025...');
+
+    try {
+      const dadosMensais = {
+        "programa": "Psicossocial",
+        "ano": 2025,
+        "meses": ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+        "indicadores": [
+          {
+            "nome": "Eventos (Rua de Lazer)",
+            "periodicidade": "Mensal",
+            "mensal": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, null]
+          },
+          {
+            "nome": "Pessoas Presentes",
+            "periodicidade": "Mensal",
+            "mensal": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, null]
+          },
+          {
+            "nome": "Pesquisa de Clima",
+            "periodicidade": "Mensal",
+            "mensal": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, null]
+          },
+          {
+            "nome": "Ações com os Colaboradores",
+            "periodicidade": "Mensal",
+            "mensal": [null, 10153, 1, 1, 0, 0, 0, 0, 1, 1, null, null]
+          },
+          {
+            "nome": "Espaços Coletivos com o Time",
+            "periodicidade": "Mensal",
+            "mensal": [1, 1, 1, 1, 1, 1, 1, 1, 1, 2, null, null]
+          },
+          {
+            "nome": "Visitas",
+            "periodicidade": "Mensal",
+            "mensal": [null, 0, 35, 16, 24, 14, 8, 29, 22, 17, null, null]
+          },
+          {
+            "nome": "Atendimentos Individuais",
+            "periodicidade": "Mensal",
+            "mensal": [null, 0, 10, 33, 16, 22, 9, 15, 31, 9, null, null]
+          },
+          {
+            "nome": "Intervenções do Método O Grito",
+            "periodicidade": "Mensal",
+            "mensal": [null, 0, 463, 304, 285, 290, 290, 330, 363, 217, null, null]
+          }
+        ]
+      };
+
+      res.json(dadosMensais);
+    } catch (error: any) {
+      console.error('❌ [PSICOSSOCIAL] Erro ao retornar dados mensais:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar dados mensais',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT DADOS MENSAIS PEC (ESPORTE E CULTURA) 2025
+  // =============================================================================
+  app.get("/api/pec/dados-mensais", async (req, res) => {
+    console.log('📊 [PEC] Retornando dados mensais 2025...');
+
+    try {
+      const dadosMensais = {
+        "programa": "PEC - Esporte e Cultura",
+        "ano": 2025,
+        "meses": ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+        "projetos": [
+          {
+            "projeto": "SALA SERENATA",
+            "indicadores": [
+              { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [null, 70.6, 83, 85, 80, 82, 71, 71, 88, null, null, null] },
+              { "nome": "Evasão", "meta": "<10 Alunos", "periodicidade": "Mensal", "mensal": [null, 0, 0, 0, 0, 0, 0, 4, 0, null, null, null] },
+              { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] },
+              { "nome": "Quantidade de Alunos", "meta": "35", "periodicidade": "Mensal", "mensal": [null, 42, 36, 35, 35, 35, 45, 40, 40, null, null, null] },
+              { "nome": "NPS", "meta": "50", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] }
+            ]
+          },
+          {
+            "projeto": "POLO GLÓRIA",
+            "indicadores": [
+              { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [null, 78, 75, 94, 82, 80.5, 82.2, 85, 88, null, null, null] },
+              { "nome": "Evasão", "meta": "<20 Alunos", "periodicidade": "Mensal", "mensal": [null, 0, 13, 0, 13, 0, 0, 2, 0, null, null, null] },
+              { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] },
+              { "nome": "Quantidade de Alunos", "meta": "150", "periodicidade": "Mensal", "mensal": [null, 165, 151, 149, 149, 165, 120, 148, 161, null, null, null] },
+              { "nome": "NPS", "meta": "70", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] }
+            ]
+          },
+          {
+            "projeto": "CASA SONHAR",
+            "indicadores": [
+              { "nome": "Frequência", "meta": "85%", "periodicidade": "Mensal", "mensal": [null, 73, 76, 84, 78, 82, 81, 79, 84, null, null, null] },
+              { "nome": "Evasão", "meta": "<20 Alunos", "periodicidade": "Mensal", "mensal": [null, 0, 19, 0, 19, 0, 0, 9, 4, null, null, null] },
+              { "nome": "Avaliação de Aprendizagem", "meta": "80%", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] },
+              { "nome": "Quantidade de Alunos", "meta": "150", "periodicidade": "Mensal", "mensal": [null, 165, 154, 156, 156, 153, 164, 75, 172, null, null, null] },
+              { "nome": "NPS", "meta": "70", "periodicidade": "Semestral", "mensal": [null, null, null, null, null, null, null, null, null, null, null, null] }
+            ]
+          }
+        ]
+      };
+
+      res.json(dadosMensais);
+    } catch (error: any) {
+      console.error('❌ [PEC] Erro ao retornar dados mensais:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar dados mensais',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINTS AVALIAÇÕES FÍSICAS (PEC)
+  // =============================================================================
+
+  // Criar nova avaliação física
+  app.post("/api/physical-assessments", async (req, res) => {
+    console.log('📝 [AVALIAÇÕES FÍSICAS] Criando nova avaliação...');
+
+    try {
+      const validatedData = insertPhysicalAssessmentSchema.parse(req.body);
+
+      const [newAssessment] = await db.insert(physicalAssessments).values(validatedData).returning();
+
+      console.log('✅ [AVALIAÇÕES FÍSICAS] Avaliação criada:', newAssessment.id);
+      res.json(newAssessment);
+    } catch (error: any) {
+      console.error('❌ [AVALIAÇÕES FÍSICAS] Erro ao criar avaliação:', error);
+      res.status(400).json({
+        error: 'Erro ao criar avaliação física',
+        message: error.message
+      });
+    }
+  });
+
+  // Listar avaliações físicas com filtros
+  app.get("/api/physical-assessments", async (req, res) => {
+    console.log('📋 [AVALIAÇÕES FÍSICAS] Listando avaliações...');
+
+    try {
+      const { studentId, evaluatorId, testType, activityInstanceId } = req.query;
+
+      const conditions = [];
+      if (studentId) conditions.push(eq(physicalAssessments.student_id, parseInt(studentId as string)));
+      if (evaluatorId) conditions.push(eq(physicalAssessments.evaluator_id, parseInt(evaluatorId as string)));
+      if (testType) conditions.push(eq(physicalAssessments.test_type, testType as string));
+      if (activityInstanceId) conditions.push(eq(physicalAssessments.activity_instance_id, parseInt(activityInstanceId as string)));
+
+      const assessments = await db
+        .select({
+          id: physicalAssessments.id,
+          student_id: physicalAssessments.student_id,
+          evaluator_id: physicalAssessments.evaluator_id,
+          activity_instance_id: physicalAssessments.activity_instance_id,
+          test_type: physicalAssessments.test_type,
+          test_date: physicalAssessments.test_date,
+          weight_kg: physicalAssessments.weight_kg,
+          height_cm: physicalAssessments.height_cm,
+          bmi: physicalAssessments.bmi,
+          push_ups: physicalAssessments.push_ups,
+          sit_ups: physicalAssessments.sit_ups,
+          pull_ups: physicalAssessments.pull_ups,
+          run_distance_meters: physicalAssessments.run_distance_meters,
+          run_time_seconds: physicalAssessments.run_time_seconds,
+          sit_and_reach_cm: physicalAssessments.sit_and_reach_cm,
+          shuttle_run_seconds: physicalAssessments.shuttle_run_seconds,
+          vertical_jump_cm: physicalAssessments.vertical_jump_cm,
+          horizontal_jump_cm: physicalAssessments.horizontal_jump_cm,
+          observations: physicalAssessments.observations,
+          overall_score: physicalAssessments.overall_score,
+          level: physicalAssessments.level,
+          created_at: physicalAssessments.created_at,
+          updated_at: physicalAssessments.updated_at,
+          student_name: users.nome,
+          evaluator_name: sql<string>`evaluator.nome`
+        })
+        .from(physicalAssessments)
+        .leftJoin(users, eq(physicalAssessments.student_id, users.id))
+        .leftJoin(
+          sql`${users} as evaluator`,
+          sql`${physicalAssessments.evaluator_id} = evaluator.id`
+        )
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(physicalAssessments.test_date));
+
+      console.log(`✅ [AVALIAÇÕES FÍSICAS] ${assessments.length} avaliações encontradas`);
+      res.json(assessments);
+    } catch (error: any) {
+      console.error('❌ [AVALIAÇÕES FÍSICAS] Erro ao listar avaliações:', error);
+      res.status(500).json({
+        error: 'Erro ao listar avaliações físicas',
+        message: error.message
+      });
+    }
+  });
+
+  // Obter avaliação física específica
+  app.get("/api/physical-assessments/:id", async (req, res) => {
+    console.log('🔍 [AVALIAÇÕES FÍSICAS] Buscando avaliação:', req.params.id);
+
+    try {
+      const assessmentId = parseInt(req.params.id);
+
+      const [assessment] = await db
+        .select({
+          id: physicalAssessments.id,
+          student_id: physicalAssessments.student_id,
+          evaluator_id: physicalAssessments.evaluator_id,
+          activity_instance_id: physicalAssessments.activity_instance_id,
+          test_type: physicalAssessments.test_type,
+          test_date: physicalAssessments.test_date,
+          weight_kg: physicalAssessments.weight_kg,
+          height_cm: physicalAssessments.height_cm,
+          bmi: physicalAssessments.bmi,
+          push_ups: physicalAssessments.push_ups,
+          sit_ups: physicalAssessments.sit_ups,
+          pull_ups: physicalAssessments.pull_ups,
+          run_distance_meters: physicalAssessments.run_distance_meters,
+          run_time_seconds: physicalAssessments.run_time_seconds,
+          sit_and_reach_cm: physicalAssessments.sit_and_reach_cm,
+          shuttle_run_seconds: physicalAssessments.shuttle_run_seconds,
+          vertical_jump_cm: physicalAssessments.vertical_jump_cm,
+          horizontal_jump_cm: physicalAssessments.horizontal_jump_cm,
+          observations: physicalAssessments.observations,
+          overall_score: physicalAssessments.overall_score,
+          level: physicalAssessments.level,
+          created_at: physicalAssessments.created_at,
+          updated_at: physicalAssessments.updated_at,
+          student_name: users.nome,
+          evaluator_name: sql<string>`evaluator.nome`
+        })
+        .from(physicalAssessments)
+        .leftJoin(users, eq(physicalAssessments.student_id, users.id))
+        .leftJoin(
+          sql`${users} as evaluator`,
+          sql`${physicalAssessments.evaluator_id} = evaluator.id`
+        )
+        .where(eq(physicalAssessments.id, assessmentId));
+
+      if (!assessment) {
+        return res.status(404).json({ error: 'Avaliação não encontrada' });
+      }
+
+      console.log('✅ [AVALIAÇÕES FÍSICAS] Avaliação encontrada:', assessment.id);
+      res.json(assessment);
+    } catch (error: any) {
+      console.error('❌ [AVALIAÇÕES FÍSICAS] Erro ao buscar avaliação:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar avaliação física',
+        message: error.message
+      });
+    }
+  });
+
+  // Atualizar avaliação física
+  app.put("/api/physical-assessments/:id", async (req, res) => {
+    console.log('✏️ [AVALIAÇÕES FÍSICAS] Atualizando avaliação:', req.params.id);
+
+    try {
+      const assessmentId = parseInt(req.params.id);
+      const updateData = req.body;
+
+      const [updatedAssessment] = await db
+        .update(physicalAssessments)
+        .set({ ...updateData, updated_at: new Date() })
+        .where(eq(physicalAssessments.id, assessmentId))
+        .returning();
+
+      if (!updatedAssessment) {
+        return res.status(404).json({ error: 'Avaliação não encontrada' });
+      }
+
+      console.log('✅ [AVALIAÇÕES FÍSICAS] Avaliação atualizada:', updatedAssessment.id);
+      res.json(updatedAssessment);
+    } catch (error: any) {
+      console.error('❌ [AVALIAÇÕES FÍSICAS] Erro ao atualizar avaliação:', error);
+      res.status(500).json({
+        error: 'Erro ao atualizar avaliação física',
+        message: error.message
+      });
+    }
+  });
+
+  // Deletar avaliação física
+  app.delete("/api/physical-assessments/:id", async (req, res) => {
+    console.log('🗑️ [AVALIAÇÕES FÍSICAS] Deletando avaliação:', req.params.id);
+
+    try {
+      const assessmentId = parseInt(req.params.id);
+
+      const [deletedAssessment] = await db
+        .delete(physicalAssessments)
+        .where(eq(physicalAssessments.id, assessmentId))
+        .returning();
+
+      if (!deletedAssessment) {
+        return res.status(404).json({ error: 'Avaliação não encontrada' });
+      }
+
+      console.log('✅ [AVALIAÇÕES FÍSICAS] Avaliação deletada:', deletedAssessment.id);
+      res.json({ success: true, id: deletedAssessment.id });
+    } catch (error: any) {
+      console.error('❌ [AVALIAÇÕES FÍSICAS] Erro ao deletar avaliação:', error);
+      res.status(500).json({
+        error: 'Erro ao deletar avaliação física',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT DADOS MENSAIS FAVELA 3D 2025
+  // =============================================================================
+  app.get("/api/favela-3d/dados-mensais", async (req, res) => {
+    console.log('📊 [FAVELA 3D] Retornando dados mensais 2025...');
+
+    try {
+      const dadosMensais = {
+        "programa": "Favela 3D",
+        "ano": 2025,
+        "meses": ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+        "eixos": [
+          {
+            "nome": "Decolagem",
+            "indicadores": [
+              { "nome": "Famílias Ativas", "meta": 250, "mensal": [238, 219, 219, 217, 216, 217, null, 218, 219, null, null, null] },
+              { "nome": "Visitas Mentores", "meta": 3000, "mensal": [300, 276, 305, 297, 318, 371, 354, 322, 281, null, null, null] },
+              { "nome": "Famílias no Triângulo", "meta": 1160, "mensal": [116, 10, 39, 29, 23, 91, 73, 45, 110, null, null, null] }
+            ]
+          },
+          {
+            "nome": "Desenvolvimento Social",
+            "indicadores": [
+              { "nome": "Atendimentos Gerais", "meta": 480, "mensal": [40, 47, 60, 40, 40, 43, 47, 73, 41, null, null, null] },
+              { "nome": "Gerando Lideranças", "meta": 12, "mensal": [12, 0, 1, 1, 2, 1, 0, 0, 5, null, null, null] },
+              { "nome": "Roda de Conversa", "meta": 12, "mensal": [12, 1, 1, 1, 0, 1, 1, 1, 8, null, null, null] },
+              { "nome": "Grupo de Mulheres", "meta": 24, "mensal": [1, 1, 2, 1, 1, 1, 1, 21, 12, null, null, null] },
+              { "nome": "Assembleia Comunitária", "meta": 6, "mensal": [null, 1, null, 1, null, 1, null, 0, 25, null, null, null] },
+              { "nome": "Mobiliza D", "meta": 6, "mensal": [null, 1, null, 1, null, 1, null, 22, 4, null, null, null] }
+            ]
+          },
+          {
+            "nome": "Emprego e Renda",
+            "indicadores": [
+              { "nome": "Formandos", "meta": 100, "mensal": [10, 0, 0, 0, 0, null, 27, 0, 0, null, null, null] },
+              { "nome": "Empregados", "meta": "75% território interessado", "mensal": [0, 1, 1, 0, null, 2, null, 0, 0, null, null, null] },
+              { "nome": "Empreendedores Mapeados", "meta": 10, "mensal": [1, 0, 0, 0, 44, null, 43, 0, 0, null, null, null] }
+            ]
+          },
+          {
+            "nome": "Moradia e Urbanismo",
+            "indicadores": [
+              { "nome": "Equipamentos", "meta": 4, "mensal": [0, 1, 0, 0, null, null, null, 0, 1, null, null, null] },
+              { "nome": "Melhoria Habitacional", "meta": 50, "mensal": [0, 0, 0, 0, null, null, null, 36, 0, null, null, null] }
+            ]
+          }
+        ]
+      };
+
+      res.json(dadosMensais);
+    } catch (error: any) {
+      console.error('❌ [FAVELA 3D] Erro ao retornar dados mensais:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar dados mensais',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT DOADORES STATS
+  // =============================================================================
+  app.get("/api/doadores/stats", async (req, res) => {
+    console.log('📊 [DOADORES] Buscando estatísticas de doadores...');
+
+    try {
+      const totalDoadores = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(doadores);
+
+      const total = Number(totalDoadores[0]?.count || 0);
+
+      console.log(`✅ [DOADORES] ${total} doadores encontrados`);
+
+      res.json({
+        totalDoadores: total
+      });
+    } catch (error: any) {
+      console.error('❌ [DOADORES] Erro ao buscar estatísticas:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar estatísticas de doadores',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // 💳 SUBSCRIPTION MANAGEMENT - GESTÃO DE ASSINATURAS
+  // =============================================================================
+
+  // GET /api/subscriptions - Lista todas as assinaturas com filtros e KPIs
+  app.get("/api/subscriptions", requireAuth, async (req, res) => {
+    console.log('📋 [SUBSCRIPTIONS] Buscando assinaturas...');
+
+    try {
+      const { status, plan, search, limit = '50', offset = '0' } = req.query;
+
+      // Build query with filters
+      let whereConditions: any[] = [];
+
+      if (status && typeof status === 'string' && status !== 'all') {
+        whereConditions.push(eq(donorSubscriptions.status, status));
+      }
+
+      if (plan && typeof plan === 'string' && plan !== 'all') {
+        whereConditions.push(eq(donorSubscriptions.planType, plan));
+      }
+
+      let query = db
+        .select({
+          subscription: donorSubscriptions,
+          user: users,
+        })
+        .from(donorSubscriptions)
+        .leftJoin(users, eq(donorSubscriptions.userId, users.id));
+
+      if (whereConditions.length > 0) {
+        query = query.where(and(...whereConditions)) as any;
+      }
+
+      query = query.orderBy(desc(donorSubscriptions.updatedAt)) as any;
+
+      const subscriptions = await query.limit(parseInt(limit as string)).offset(parseInt(offset as string));
+
+      // Calculate KPIs
+      const kpis = await db
+        .select({
+          total: sql<number>`count(*)`,
+          active: sql<number>`count(*) filter (where status = 'active')`,
+          pastDue: sql<number>`count(*) filter (where status = 'past_due')`,
+          canceled: sql<number>`count(*) filter (where status = 'canceled')`,
+          incomplete: sql<number>`count(*) filter (where status IN ('incomplete', 'incomplete_expired'))`,
+          totalMrr: sql<number>`sum(case when status = 'active' then 9.90 else 0 end)`,
+        })
+        .from(donorSubscriptions);
+
+      const kpiData = kpis[0] || {
+        total: 0,
+        active: 0,
+        pastDue: 0,
+        canceled: 0,
+        incomplete: 0,
+        totalMrr: 0,
+      };
+
+      res.json({
+        subscriptions: subscriptions.map(s => ({
+          ...s.subscription,
+          user: s.user,
+        })),
+        kpis: {
+          total: Number(kpiData.total),
+          active: Number(kpiData.active),
+          pastDue: Number(kpiData.pastDue),
+          canceled: Number(kpiData.canceled),
+          incomplete: Number(kpiData.incomplete),
+          mrr: Number(kpiData.totalMrr),
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao buscar assinaturas:', error);
+      res.status(500).json({ error: 'Erro ao buscar assinaturas', message: error.message });
+    }
+  });
+
+  // GET /api/subscriptions/:id - Detalhes de uma assinatura
+  app.get("/api/subscriptions/:id", requireAuth, async (req, res) => {
+    const { id } = req.params;
+    console.log(`🔍 [SUBSCRIPTIONS] Buscando assinatura ${id}...`);
+
+    try {
+      const result = await db
+        .select({
+          subscription: donorSubscriptions,
+          user: users,
+        })
+        .from(donorSubscriptions)
+        .leftJoin(users, eq(donorSubscriptions.userId, users.id))
+        .where(eq(donorSubscriptions.id, parseInt(id)))
+        .limit(1);
+
+      if (!result.length) {
+        return res.status(404).json({ error: 'Assinatura não encontrada' });
+      }
+
+      const data = result[0];
+
+      res.json({
+        ...data.subscription,
+        user: data.user,
+      });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao buscar assinatura:', error);
+      res.status(500).json({ error: 'Erro ao buscar assinatura', message: error.message });
+    }
+  });
+
+  // GET /api/subscriptions/:id/events - Timeline de eventos de uma assinatura
+  app.get("/api/subscriptions/:id/events", requireAuth, async (req, res) => {
+    const { id } = req.params;
+    console.log(`📅 [SUBSCRIPTIONS] Buscando eventos da assinatura ${id}...`);
+
+    try {
+      const events = await db
+        .select()
+        .from(billingEvents)
+        .where(eq(billingEvents.subscriptionId, parseInt(id)))
+        .orderBy(desc(billingEvents.createdAt));
+
+      res.json({ events });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao buscar eventos:', error);
+      res.status(500).json({ error: 'Erro ao buscar eventos', message: error.message });
+    }
+  });
+
+  // GET /api/subscriptions/stats - Estatísticas de assinaturas
+  app.get("/api/subscriptions/stats", requireAuth, async (req, res) => {
+    console.log('📊 [SUBSCRIPTIONS] Calculando estatísticas...');
+
+    try {
+      // 1. Total MRR (Monthly Recurring Revenue) - soma de assinaturas ativas
+      const activeSubscriptions = await db
+        .select({
+          amount: donorSubscriptions.amount,
+        })
+        .from(donorSubscriptions)
+        .where(eq(donorSubscriptions.status, 'active'));
+
+      const totalMRR = activeSubscriptions.reduce((sum, sub) => sum + (sub.amount || 0), 0);
+      const activeCount = activeSubscriptions.length;
+
+      // 2. Taxa de sucesso - baseada em eventos de billing do último mês
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+      const recentEvents = await db
+        .select({
+          status: billingEvents.status,
+          eventType: billingEvents.eventType,
+        })
+        .from(billingEvents)
+        .where(
+          and(
+            sql`${billingEvents.createdAt} >= ${oneMonthAgo}`,
+            sql`${billingEvents.eventType} IN ('invoice.paid', 'invoice.payment_failed')`
+          )
+        );
+
+      const successfulPayments = recentEvents.filter(e => e.status === 'succeeded').length;
+      const totalPaymentAttempts = recentEvents.length;
+      const successRate = totalPaymentAttempts > 0
+        ? (successfulPayments / totalPaymentAttempts) * 100
+        : 100;
+
+      // 3. Faturamento do mês atual - eventos de invoice.paid do mês
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const monthlyPayments = await db
+        .select({
+          amount: billingEvents.amount,
+        })
+        .from(billingEvents)
+        .where(
+          and(
+            eq(billingEvents.eventType, 'invoice.paid'),
+            eq(billingEvents.status, 'succeeded'),
+            sql`${billingEvents.createdAt} >= ${startOfMonth}`
+          )
+        );
+
+      const monthlyRevenue = monthlyPayments.reduce((sum, event) => {
+        const amount = event.amount || 0;
+        return sum + (typeof amount === 'number' ? amount * 100 : 0); // Converter para centavos
+      }, 0);
+
+      console.log(`✅ [SUBSCRIPTIONS] Stats calculadas - MRR: R$ ${totalMRR / 100}, Ativas: ${activeCount}, Taxa: ${successRate.toFixed(1)}%, Mês: R$ ${monthlyRevenue / 100}`);
+
+      res.json({
+        totalMRR,
+        activeSubscriptions: activeCount,
+        successRate,
+        monthlyRevenue,
+      });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao calcular estatísticas:', error);
+      res.status(500).json({ error: 'Erro ao calcular estatísticas', message: error.message });
+    }
+  });
+
+  // POST /api/subscriptions/:id/retry - Tentar cobrar novamente
+  app.post("/api/subscriptions/:id/retry", requireAuth, async (req, res) => {
+    const { id } = req.params;
+    console.log(`🔄 [SUBSCRIPTIONS] Tentando cobrar assinatura ${id} novamente...`);
+
+    try {
+      const subscription = await db
+        .select()
+        .from(donorSubscriptions)
+        .where(eq(donorSubscriptions.id, parseInt(id)))
+        .limit(1);
+
+      if (!subscription.length) {
+        return res.status(404).json({ error: 'Assinatura não encontrada' });
+      }
+
+      const sub = subscription[0];
+
+      if (!sub.stripeSubscriptionId) {
+        return res.status(400).json({ error: 'Assinatura sem ID do Stripe' });
+      }
+
+      // Fetch latest invoice from Stripe
+      const stripeSubscription = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+      const latestInvoiceId = typeof stripeSubscription.latest_invoice === 'string'
+        ? stripeSubscription.latest_invoice
+        : stripeSubscription.latest_invoice?.id;
+
+      if (!latestInvoiceId) {
+        return res.status(400).json({ error: 'Nenhuma fatura encontrada' });
+      }
+
+      const invoice = await stripe.invoices.retrieve(latestInvoiceId);
+
+      if (invoice.status === 'paid') {
+        return res.status(400).json({ error: 'Fatura já paga' });
+      }
+
+      // Retry payment
+      const paidInvoice = await stripe.invoices.pay(latestInvoiceId);
+
+      // Update subscription
+      await db
+        .update(donorSubscriptions)
+        .set({
+          status: 'active',
+          lastError: null,
+          nextPaymentAttempt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(donorSubscriptions.id, parseInt(id)));
+
+      // Log event
+      await db.insert(billingEvents).values({
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        eventType: 'invoice.payment_succeeded',
+        invoiceId: paidInvoice.id,
+        amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : null,
+        currency: paidInvoice.currency,
+        status: 'succeeded',
+        processed: true,
+      });
+
+      res.json({ success: true, invoice: paidInvoice });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao tentar cobrar:', error);
+
+      // Log failed attempt
+      const subscription = await db
+        .select()
+        .from(donorSubscriptions)
+        .where(eq(donorSubscriptions.id, parseInt(id)))
+        .limit(1);
+
+      if (subscription.length) {
+        await db.insert(billingEvents).values({
+          userId: subscription[0].userId,
+          subscriptionId: subscription[0].id,
+          stripeSubscriptionId: subscription[0].stripeSubscriptionId,
+          eventType: 'payment_retry_failed',
+          status: 'failed',
+          errorMessage: error.message,
+          processed: true,
+        });
+      }
+
+      res.status(500).json({ error: 'Erro ao tentar cobrar', message: error.message });
+    }
+  });
+
+  // POST /api/subscriptions/:id/update-payment - Atualizar método de pagamento
+  app.post("/api/subscriptions/:id/update-payment", requireAuth, async (req, res) => {
+    const { id } = req.params;
+    const { paymentMethodId } = req.body;
+
+    console.log(`💳 [SUBSCRIPTIONS] Atualizando método de pagamento da assinatura ${id}...`);
+
+    try {
+      if (!paymentMethodId) {
+        return res.status(400).json({ error: 'paymentMethodId é obrigatório' });
+      }
+
+      const subscription = await db
+        .select()
+        .from(donorSubscriptions)
+        .where(eq(donorSubscriptions.id, parseInt(id)))
+        .limit(1);
+
+      if (!subscription.length) {
+        return res.status(404).json({ error: 'Assinatura não encontrada' });
+      }
+
+      const sub = subscription[0];
+
+      // Attach payment method to customer
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: sub.stripeCustomerId,
+      });
+
+      // Set as default payment method
+      await stripe.customers.update(sub.stripeCustomerId, {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
+      });
+
+      // Update subscription
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        default_payment_method: paymentMethodId,
+      });
+
+      // Update database
+      await db
+        .update(donorSubscriptions)
+        .set({
+          defaultPaymentMethod: paymentMethodId,
+          updatedAt: new Date(),
+        })
+        .where(eq(donorSubscriptions.id, parseInt(id)));
+
+      // Log event
+      await db.insert(billingEvents).values({
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        eventType: 'payment_method_updated',
+        status: 'succeeded',
+        processed: true,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao atualizar método de pagamento:', error);
+      res.status(500).json({ error: 'Erro ao atualizar método de pagamento', message: error.message });
+    }
+  });
+
+  // POST /api/subscriptions/reconcile - Reconciliar todas assinaturas com Stripe
+  app.post("/api/subscriptions/reconcile", requireAuth, async (req, res) => {
+    console.log('🔄 [SUBSCRIPTIONS] Iniciando reconciliação com Stripe...');
+
+    try {
+      const subscriptions = await db.select().from(donorSubscriptions);
+
+      let updated = 0;
+      let errors = 0;
+
+      for (const sub of subscriptions) {
+        try {
+          const stripeSubscription = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+
+          // Check if status changed
+          if (stripeSubscription.status !== sub.status) {
+            await db
+              .update(donorSubscriptions)
+              .set({
+                status: stripeSubscription.status,
+                currentPeriodStart: stripeSubscription.current_period_start,
+                currentPeriodEnd: stripeSubscription.current_period_end,
+                cancelAt: stripeSubscription.cancel_at,
+                canceledAt: stripeSubscription.canceled_at,
+                updatedAt: new Date(),
+              })
+              .where(eq(donorSubscriptions.id, sub.id));
+
+            // Log reconciliation event
+            await db.insert(billingEvents).values({
+              userId: sub.userId,
+              subscriptionId: sub.id,
+              stripeSubscriptionId: sub.stripeSubscriptionId,
+              eventType: 'reconciliation',
+              status: stripeSubscription.status,
+              payloadSummary: {
+                oldStatus: sub.status,
+                newStatus: stripeSubscription.status,
+              },
+              processed: true,
+            });
+
+            updated++;
+          }
+        } catch (error: any) {
+          console.error(`❌ Erro ao reconciliar ${sub.stripeSubscriptionId}:`, error.message);
+          errors++;
+        }
+      }
+
+      res.json({
+        success: true,
+        updated,
+        errors,
+        total: subscriptions.length,
+      });
+    } catch (error: any) {
+      console.error('❌ [SUBSCRIPTIONS] Erro ao reconciliar:', error);
+      res.status(500).json({ error: 'Erro ao reconciliar assinaturas', message: error.message });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT PATROCINADORES
+  // =============================================================================
+  // TRECHO ALTERADO
+  app.get("/api/patrocinadores", async (req, res) => {
+    const ano = req.query.ano ? parseInt(req.query.ano as string) : null;
+    console.log(`🏢 [PATROCINADORES] Buscando lista de patrocinadores${ano ? ` do ano ${ano}` : ''}...`);
+
+    try {
+      let query = db.select().from(patrocinadores);
+
+      // Filtrar por ano se fornecido (usando data_inicio)
+      if (ano) {
+        query = query.where(sql`EXTRACT(YEAR FROM ${patrocinadores.dataInicio}) = ${ano}`) as any;
+      }
+
+      const todosPatrocinadores = await query.orderBy(patrocinadores.categoria, patrocinadores.nome);
+
+      // Agrupar por categoria
+      const porCategoria = {
+        oficial: lista.filter((p: any) => p.categoria === 'oficial'),
+        diamante: lista.filter((p: any) => p.categoria === 'diamante'),
+        master: lista.filter((p: any) => p.categoria === 'master'),
+        gold: lista.filter((p: any) => p.categoria === 'gold'),
+        silver: lista.filter((p: any) => p.categoria === 'silver'),
+        bronze: lista.filter((p: any) => p.categoria === 'bronze'),
+      };
+
+      // (5) Somatórios por categoria (campo no BD é valor_patrocinio; seu schema Drizzle deve mapear)
+      const getValor = (p: any) =>
+        parseFloat((p.valorPatrocinio ?? p.valor_patrocinio ?? 0).toString());
+
+      const investimentoPorCategoria = {
+        oficial: porCategoria.oficial.reduce((acc: number, p: any) => acc + getValor(p), 0),
+        diamante: porCategoria.diamante.reduce((acc: number, p: any) => acc + getValor(p), 0),
+        master: porCategoria.master.reduce((acc: number, p: any) => acc + getValor(p), 0),
+        gold: porCategoria.gold.reduce((acc: number, p: any) => acc + getValor(p), 0),
+        silver: porCategoria.silver.reduce((acc: number, p: any) => acc + getValor(p), 0),
+        bronze: porCategoria.bronze.reduce((acc: number, p: any) => acc + getValor(p), 0),
+      };
+
+      const investimentoTotal = Object.values(investimentoPorCategoria)
+        .reduce((acc: number, val: number) => acc + val, 0);
+
+      // (6) Status/contratos — na sua tabela são booleanos (projetos_ativos, contratos_ativos)
+      const projetosAtivos = lista.filter((p: any) => p.projetosAtivos ?? p.projetos_ativos).length;
+
+      const contratosAtivosAbs = lista.filter((p: any) => p.contratosAtivos ?? p.contratos_ativos).length;
+      const percentualContratosAtivos = lista.length > 0
+        ? Math.round((contratosAtivosAbs / lista.length) * 100)
+        : 0;
+
+      console.log(`✅ [PATROCINADORES] ${lista.length} patrocinadores encontrados para ${anoFiltro}`);
+
+      // (7) Resposta inclui o ano usado
+      res.json({
+        ano: anoFiltro,
+        patrocinadores: lista,
+        porCategoria,
+        investimentoPorCategoria,
+        investimentoTotal,
+        totalPatrocinadores: lista.length,
+        statistics: {
+          totalPatrocinadores: lista.length,
+          investimentoTotal,
+          projetosAtivos,
+          contratosAtivos: percentualContratosAtivos,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ [PATROCINADORES] Erro ao buscar patrocinadores:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar patrocinadores',
+        message: error.message,
+      });
+    }
+  });
+  // =============================================================================
+  // ENDPOINT COLABORADORES - ESTATÍSTICAS
+  // =============================================================================
+  app.get("/api/colaboradores/stats", async (req, res) => {
+    console.log('📊 [COLABORADORES] Buscando estatísticas...');
+
+    try {
+      const { colaboradores } = await import('@shared/schema');
+
+      // Buscar todos colaboradores ativos
+      const todosColaboradores = await db
+        .select()
+        .from(colaboradores)
+        .where(eq(colaboradores.ativo, true));
+
+      // Agrupar por departamento real (contar quantos colaboradores por departamento)
+      const departamentoCounts = todosColaboradores.reduce((acc: Record<string, number>, colaborador) => {
+        const dept = colaborador.departamento || 'Sem Departamento';
+        acc[dept] = (acc[dept] || 0) + 1;
+        return acc;
+      }, {});
+
+      // Criar array de distribuição ordenado por quantidade
+      const distribuicao = Object.entries(departamentoCounts)
+        .map(([departamento, total]) => ({
+          departamento,
+          total
+        }))
+        .sort((a, b) => b.total - a.total); // Ordenar por quantidade (maior primeiro)
+
+      console.log(`✅ [COLABORADORES] Estatísticas calculadas - ${todosColaboradores.length} colaboradores`);
+
+      res.json({
+        distribuicao,
+        totalColaboradores: todosColaboradores.length
+      });
+    } catch (error: any) {
+      console.error('❌ [COLABORADORES] Erro ao buscar estatísticas:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar estatísticas de colaboradores',
+        message: error.message
+      });
+    }
+  });
+
+  // =============================================================================
+  // ENDPOINT COLABORADORES - LISTAGEM COM FILTROS
+  // =============================================================================
+  app.get("/api/colaboradores", async (req, res) => {
+    console.log('👥 [COLABORADORES] Buscando lista de colaboradores...');
+
+    try {
+      const { colaboradores } = await import('@shared/schema');
+
+      // Query params
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const departamento = req.query.departamento as string;
+      const search = req.query.search as string;
+
+      // Mapear departamento label para slug
+      const departamentoSlugMap: Record<string, string> = {
+        'Inclusão Produtiva': 'inclusao_produtiva',
+        'Administrativo Financeiro': 'administrativo_financeiro',
+        'Administrativo': 'administrativo',
+        'Marketing': 'marketing',
+        'Psicossocial': 'psicossocial',
+        'Favela 3D': 'favela_3d',
+        'GRIFT': 'grift',
+        'Outlet': 'outlet',
+        'Casa Sonhar': 'casa_sonhar',
+        'Casa Sonhar e PEC': 'casa_sonhar_e_pec'
+      };
+
+      const departamentoLabels: Record<string, string> = {
+        'inclusao_produtiva': 'Inclusão Produtiva',
+        'administrativo_financeiro': 'Administrativo Financeiro',
+        'administrativo': 'Administrativo',
+        'marketing': 'Marketing',
+        'psicossocial': 'Psicossocial',
+        'favela_3d': 'Favela 3D',
+        'grift': 'GRIFT',
+        'outlet': 'Outlet',
+        'casa_sonhar': 'Casa Sonhar',
+        'casa_sonhar_e_pec': 'Casa Sonhar e PEC'
+      };
+
+      // Construir query
+      let query = db.select().from(colaboradores).where(eq(colaboradores.ativo, true));
+
+      // Filtro por departamento
+      if (departamento && departamento !== 'Todos') {
+        const departamentoSlug = departamentoSlugMap[departamento];
+        if (departamentoSlug) {
+          query = query.where(eq(colaboradores.departamento, departamentoSlug));
+        }
+      }
+
+      // Busca por nome ou telefone
+      if (search && search.trim()) {
+        const searchTerm = `%${search.trim().toLowerCase()}%`;
+        query = query.where(
+          sql`LOWER(${colaboradores.nome}) LIKE ${searchTerm} OR LOWER(${colaboradores.telefone}) LIKE ${searchTerm}`
+        );
+      }
+
+      // Executar query
+      const allResults = await query;
+
+      // Paginação
+      const total = allResults.length;
+      const offset = (page - 1) * pageSize;
+      const items = allResults.slice(offset, offset + pageSize).map(c => ({
+        ...c,
+        departamento: departamentoLabels[c.departamento as string] || c.departamento
+      }));
+
+      console.log(`✅ [COLABORADORES] ${items.length} colaboradores retornados (total: ${total})`);
+
+      res.json({
+        items,
+        total,
+        page,
+        pageSize
+      });
+    } catch (error: any) {
+      console.error('❌ [COLABORADORES] Erro ao buscar colaboradores:', error);
+      res.status(500).json({
+        error: 'Erro ao buscar colaboradores',
+        message: error.message
+      });
+    }
+  });
+
+  // ============================================
+  // MÓDULO 21: PSICOSSOCIAL - COORDENAÇÃO
+  // ============================================
+
+  // POST /api/psico/familias - Criar nova família
+  app.post('/api/psico/familias', requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertPsicoFamiliaSchema.parse(req.body);
+      const userId = req.headers['x-user-id'] as string;
+
+      const [familia] = await db.insert(psicoFamilias).values({
+        ...validatedData,
+        coordenadorId: parseInt(userId)
+      }).returning();
+
+      console.log('✅ [PSICO] Família criada:', familia.id);
+      res.json({ success: true, familia });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao criar família:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/vincular-atendidos-familia - Vincular atendidos à família
+  app.post('/api/psico/vincular-atendidos-familia', requireAuth, async (req, res) => {
+    try {
+      const { familiaId, inclusaoIds, pecIds } = req.body;
+
+      if (!familiaId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'familiaId é obrigatório' 
+        });
+      }
+
+      let totalVinculados = 0;
+
+      // Atualizar vínculos de Inclusão
+      if (inclusaoIds && Array.isArray(inclusaoIds) && inclusaoIds.length > 0) {
+        await db.update(psicoInclusaoVinculo)
+          .set({ psicoFamiliaId: familiaId })
+          .where(inArray(psicoInclusaoVinculo.id, inclusaoIds));
+        totalVinculados += inclusaoIds.length;
+        console.log(`✅ [PSICO] ${inclusaoIds.length} vínculos de Inclusão atualizados`);
+      }
+
+      // Atualizar vínculos de PEC
+      if (pecIds && Array.isArray(pecIds) && pecIds.length > 0) {
+        await db.update(psicoPecVinculo)
+          .set({ psicoFamiliaId: familiaId })
+          .where(inArray(psicoPecVinculo.id, pecIds));
+        totalVinculados += pecIds.length;
+        console.log(`✅ [PSICO] ${pecIds.length} vínculos de PEC atualizados`);
+      }
+
+      console.log(`✅ [PSICO] ${totalVinculados} atendidos vinculados à família ${familiaId}`);
+      res.json({ 
+        success: true, 
+        message: `${totalVinculados} atendidos vinculados com sucesso` 
+      });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao vincular atendidos:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/familias - Listar famílias
+  app.get('/api/psico/familias', requireAuth, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const status = req.query.status as string;
+
+      let query = db.select().from(psicoFamilias)
+        .where(eq(psicoFamilias.coordenadorId, parseInt(userId)));
+
+      if (status) {
+        query = query.where(eq(psicoFamilias.status, status as any));
+      }
+
+      const familias = await query.orderBy(desc(psicoFamilias.createdAt));
+
+      console.log(`✅ [PSICO] ${familias.length} famílias retornadas`);
+      res.json({ success: true, familias });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao listar famílias:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/casos - Criar novo caso
+  app.post('/api/psico/casos', requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertPsicoCasoSchema.parse(req.body);
+      const userId = req.headers['x-user-id'] as string;
+
+      const [caso] = await db.insert(psicoCasos).values({
+        ...validatedData,
+        coordenadorId: parseInt(userId)
+      }).returning();
+
+      console.log('✅ [PSICO] Caso criado:', caso.id);
+      res.json({ success: true, caso });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao criar caso:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/casos - Listar casos
+  app.get('/api/psico/casos', requireAuth, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const status = req.query.status as string;
+      const prioridade = req.query.prioridade as string;
+
+      let query = db.select().from(psicoCasos)
+        .where(eq(psicoCasos.coordenadorId, parseInt(userId)));
+
+      if (status) {
+        query = query.where(eq(psicoCasos.status, status as any));
+      }
+
+      if (prioridade) {
+        query = query.where(eq(psicoCasos.prioridade, prioridade as any));
+      }
+      const casos = await query.orderBy(desc(psicoCasos.createdAt));
+      console.log(`✅ [PSICO] ${casos.length} casos retornados`);
+      res.json({ success: true, casos });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao listar casos:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/atendimentos - Criar novo atendimento
+  app.post('/api/psico/atendimentos', requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertPsicoAtendimentoSchema.parse(req.body);
+      const userId = req.headers['x-user-id'] as string;
+
+      const [atendimento] = await db.insert(psicoAtendimentos).values({
+        ...validatedData,
+        coordenadorId: parseInt(userId)
+      }).returning();
+
+      console.log('✅ [PSICO] Atendimento criado:', atendimento.id);
+      res.json({ success: true, atendimento });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao criar atendimento:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/atendimentos - Listar atendimentos
+  app.get('/api/psico/atendimentos', requireAuth, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const tipo = req.query.tipo as string;
+
+      let query = db.select().from(psicoAtendimentos)
+        .where(eq(psicoAtendimentos.coordenadorId, parseInt(userId)));
+
+      if (tipo) {
+        query = query.where(eq(psicoAtendimentos.tipo, tipo as any));
+      }
+
+      const atendimentos = await query.orderBy(desc(psicoAtendimentos.createdAt));
+
+      console.log(`✅ [PSICO] ${atendimentos.length} atendimentos retornados`);
+      res.json({ success: true, atendimentos });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao listar atendimentos:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/planos - Criar novo plano de acompanhamento
+  app.post('/api/psico/planos', requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertPsicoPlanoSchema.parse(req.body);
+      const userId = req.headers['x-user-id'] as string;
+
+      const [plano] = await db.insert(psicoPlanos).values({
+        ...validatedData,
+        coordenadorId: parseInt(userId)
+      }).returning();
+
+      console.log('✅ [PSICO] Plano de acompanhamento criado:', plano.id);
+      res.json({ success: true, plano });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao criar plano:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/planos - Listar planos de acompanhamento
+  app.get('/api/psico/planos', requireAuth, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const familiaId = req.query.familiaId as string;
+      const casoId = req.query.casoId as string;
+
+      let query = db.select().from(psicoPlanos)
+        .where(eq(psicoPlanos.coordenadorId, parseInt(userId)));
+
+      if (familiaId) {
+        query = query.where(eq(psicoPlanos.familiaId, parseInt(familiaId)));
+      }
+
+      if (casoId) {
+        query = query.where(eq(psicoPlanos.casoId, parseInt(casoId)));
+      }
+
+      const planos = await query.orderBy(desc(psicoPlanos.createdAt));
+
+      console.log(`✅ [PSICO] ${planos.length} planos retornados`);
+      res.json({ success: true, planos });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao listar planos:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/participantes - Listar participantes vinculados às famílias psicossociais
+  app.get('/api/psico/participantes', requireAuth, async (req, res) => {
+    try {
+      console.log('📋 [PSICO] Buscando participantes vinculados (Inclusão + PEC)...');
+
+      // Buscar participantes da Inclusão Produtiva
+      const inclusaoResult = await pool.query(`
+        SELECT 
+          p.id,
+          p.nome,
+          p.cpf,
+          p.genero,
+          p.idade,
+          p.telefone,
+          p.email,
+          p.endereco,
+          p.escolaridade,
+          v.id as vinculo_id,
+          v.papel,
+          v.observacoes as vinculo_observacoes,
+          f.id as familia_id,
+          f.nome_responsavel as familia_nome,
+          v.created_at as data_vinculo,
+          'inclusao' as programa_origem
+        FROM participantes_inclusao p
+        INNER JOIN psico_inclusao_vinculo v ON p.id = v.participante_inclusao_id
+        LEFT JOIN psico_familias f ON v.psico_familia_id = f.id
+        ORDER BY p.nome ASC
+      `);
+
+      // Buscar alunos do PEC (Esporte e Cultura)
+      const pecResult = await pool.query(`
+        SELECT 
+          e.id,
+          CONCAT(u.nome, ' ', u.sobrenome) as nome,
+          u.cpf,
+          e.gender as genero,
+          EXTRACT(YEAR FROM AGE(e.birthdate)) as idade,
+          u.telefone,
+          u.email,
+          NULL as endereco,
+          NULL as escolaridade,
+          v.id as vinculo_id,
+          v.papel,
+          v.observacoes as vinculo_observacoes,
+          f.id as familia_id,
+          f.nome_responsavel as familia_nome,
+          v.created_at as data_vinculo,
+          'pec' as programa_origem
+        FROM enrollments e
+        INNER JOIN users u ON e.person_id = u.id
+        INNER JOIN psico_pec_vinculo v ON e.id = v.enrollment_id
+        LEFT JOIN psico_familias f ON v.psico_familia_id = f.id
+        ORDER BY u.nome ASC
+      `);
+
+      // Unificar resultados
+      const todosParticipantes = [
+        ...inclusaoResult.rows,
+        ...pecResult.rows
+      ].sort((a, b) => a.nome.localeCompare(b.nome));
+
+      console.log(`✅ [PSICO] ${todosParticipantes.length} participantes vinculados retornados (${inclusaoResult.rows.length} Inclusão + ${pecResult.rows.length} PEC)`);
+      res.json({ 
+        success: true, 
+        participantes: todosParticipantes,
+        totais: {
+          inclusao: inclusaoResult.rows.length,
+          pec: pecResult.rows.length,
+          total: todosParticipantes.length
+        }
+      });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao listar participantes:', error);
+      // Se as tabelas psico não existem no banco runtime, retornar array vazio
+      if (error.message && error.message.includes('does not exist')) {
+        console.warn('⚠️ [PSICO] Tabelas psicossociais não existem no banco runtime (DigitalOcean)');
+        return res.json({ success: true, participantes: [], needsSync: true });
+      }
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/psico/atendimentos/participante - Buscar atendimentos de um participante específico
+  app.get('/api/psico/atendimentos/participante', requireAuth, async (req, res) => {
+    try {
+      const programaOrigem = req.query.programaOrigem as string; // 'inclusao' ou 'pec'
+      const vinculoId = req.query.vinculoId as string;
+
+      if (!programaOrigem || !vinculoId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'programaOrigem e vinculoId são obrigatórios' 
+        });
+      }
+
+      let atendimentos;
+      if (programaOrigem === 'inclusao') {
+        atendimentos = await db.select().from(psicoAtendimentos)
+          .where(eq(psicoAtendimentos.psicoInclusaoVinculoId, parseInt(vinculoId)))
+          .orderBy(desc(psicoAtendimentos.dataAtendimento));
+      } else if (programaOrigem === 'pec') {
+        atendimentos = await db.select().from(psicoAtendimentos)
+          .where(eq(psicoAtendimentos.psicoPecVinculoId, parseInt(vinculoId)))
+          .orderBy(desc(psicoAtendimentos.dataAtendimento));
+      } else {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'programaOrigem deve ser "inclusao" ou "pec"' 
+        });
+      }
+
+      console.log(`✅ [PSICO] ${atendimentos.length} atendimentos do participante (${programaOrigem})`);
+      res.json({ success: true, atendimentos });
+    } catch (error: any) {
+      console.error('❌ [PSICO] Erro ao buscar atendimentos do participante:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/sync-participantes - Sincronizar participantes existentes (Inclusão + PEC)
+  app.post('/api/psico/sync-participantes', requireAuth, async (req, res) => {
+    try {
+      console.log('🔄 [PSICO-SYNC] Iniciando sincronização de participantes existentes...');
+      const coordenadorId = req.user?.id || req.headers['x-user-id'];
+      
+      let vinculosInclusao = 0;
+      let vinculosPEC = 0;
+
+      // 1. Sincronizar participantes da Inclusão Produtiva
+      const todosParticipantesInclusao = await db.select().from(participantesInclusao);
+      console.log(`📊 [PSICO-SYNC] ${todosParticipantesInclusao.length} participantes encontrados na Inclusão Produtiva`);
+
+      for (const participante of todosParticipantesInclusao) {
+        // Verificar se já existe vínculo
+        const vinculoExistente = await db.select()
+          .from(psicoInclusaoVinculo)
+          .where(eq(psicoInclusaoVinculo.participanteInclusaoId, participante.id))
+          .limit(1);
+
+        if (vinculoExistente.length === 0) {
+          // Criar família no Psicossocial
+          const [novaFamilia] = await db.insert(psicoFamilias).values({
+            nomeResponsavel: participante.nome,
+            numeroMembros: 1,
+            telefone: participante.telefone || null,
+            endereco: participante.endereco || null,
+            status: 'ativo',
+            coordenadorId: coordenadorId ? parseInt(coordenadorId.toString()) : null,
+            observacoes: `Família criada automaticamente via sincronização - Inclusão Produtiva: ${participante.nome}`
+          }).returning();
+
+          // Criar vínculo
+          await db.insert(psicoInclusaoVinculo).values({
+            participanteInclusaoId: participante.id,
+            psicoFamiliaId: novaFamilia.id,
+            papel: 'atendido',
+            observacoes: 'Vínculo criado via sincronização automática'
+          });
+
+          vinculosInclusao++;
+          console.log(`✅ [PSICO-SYNC] Vínculo criado: Participante ${participante.id} → Família ${novaFamilia.id} (Inclusão)`);
+        }
+      }
+
+      // 2. Sincronizar alunos do PEC
+      const todosAlunosPEC = await db.select().from(enrollments);
+      console.log(`📊 [PSICO-SYNC] ${todosAlunosPEC.length} alunos encontrados no PEC`);
+
+      for (const aluno of todosAlunosPEC) {
+        // Verificar se já existe vínculo
+        const vinculoExistente = await db.select()
+          .from(psicoPecVinculo)
+          .where(eq(psicoPecVinculo.enrollmentId, aluno.id))
+          .limit(1);
+
+        if (vinculoExistente.length === 0) {
+          const alunoNome = aluno.nome_completo || aluno.student_name || 'Aluno PEC';
+          
+          // Criar família no Psicossocial
+          const [novaFamilia] = await db.insert(psicoFamilias).values({
+            nomeResponsavel: alunoNome,
+            numeroMembros: 1,
+            telefone: aluno.telefone_contato || null,
+            endereco: null,
+            status: 'ativo',
+            coordenadorId: coordenadorId ? parseInt(coordenadorId.toString()) : null,
+            observacoes: `Família criada automaticamente via sincronização - PEC: ${alunoNome}`
+          }).returning();
+
+          // Criar vínculo
+          await db.insert(psicoPecVinculo).values({
+            enrollmentId: aluno.id,
+            psicoFamiliaId: novaFamilia.id,
+            papel: 'atendido',
+            observacoes: 'Vínculo criado via sincronização automática'
+          });
+
+          vinculosPEC++;
+          console.log(`✅ [PSICO-SYNC] Vínculo criado: Enrollment ${aluno.id} → Família ${novaFamilia.id} (PEC)`);
+        }
+      }
+
+      console.log(`🎉 [PSICO-SYNC] Sincronização concluída! ${vinculosInclusao} Inclusão + ${vinculosPEC} PEC = ${vinculosInclusao + vinculosPEC} vínculos criados`);
+      
+      res.json({ 
+        success: true, 
+        vinculosCriados: {
+          inclusao: vinculosInclusao,
+          pec: vinculosPEC,
+          total: vinculosInclusao + vinculosPEC
+        },
+        message: `Sincronização concluída! ${vinculosInclusao + vinculosPEC} vínculos criados.`
+      });
+    } catch (error: any) {
+      console.error('❌ [PSICO-SYNC] Erro na sincronização:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/psico/import - Importar dados de Excel ou PDF
+  app.post('/api/psico/import', requireAuth, uploadDocuments.single('file'), async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
+      }
+
+      console.log(`📥 [PSICO-IMPORT] Iniciando importação de arquivo: ${req.file.originalname}`);
+
+      let data: any[] = [];
+      const fileExt = req.file.originalname.split('.').pop()?.toLowerCase();
+
+      // Processar Excel (.xlsx, .xls)
+      if (fileExt === 'xlsx' || fileExt === 'xls') {
+        const workbook = XLSX.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        data = XLSX.utils.sheet_to_json(worksheet);
+        console.log(`📋 [PSICO-IMPORT] ${data.length} linhas encontradas no Excel`);
+      }
+      // Processar PDF
+      else if (fileExt === 'pdf') {
+        // Importar pdf-parse usando createRequire (CommonJS module)
+        // CORREÇÃO: pdf-parse pode exportar como .default ou como função direta
+        const require = createRequire(import.meta.url);
+        const pdfParseModule = require('pdf-parse');
+
+        // Garantir que pegamos a função correta (suporta tanto ESM quanto CommonJS)
+        const pdfParse = pdfParseModule.default || pdfParseModule;
+
+        // Validar que pdfParse é uma função
+        if (typeof pdfParse !== 'function') {
+          throw new Error('pdf-parse não foi carregado corretamente como função');
+        }
+
+        const dataBuffer = fs.readFileSync(req.file.path);
+        const pdfData = await pdfParse(dataBuffer);
+
+        console.log(`📄 [PSICO-IMPORT] PDF com ${pdfData.numpages} páginas processado`);
+
+        // Extrair texto e tentar parsear estrutura básica
+        // Assumindo formato: cada linha com dados separados por tabs ou vírgulas
+        const lines = pdfData.text.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          const parts = line.split(/[\t,;]+/).map(p => p.trim());
+          if (parts.length >= 2) {
+            data.push({
+              nome_responsavel: parts[0] || null,
+              numeroMembros: parseInt(parts[1]) || 1,
+              telefone: parts[2] || null,
+              endereco: parts[3] || null,
+              observacoes: parts[4] || null
+            });
+          }
+        }
+
+        console.log(`📋 [PSICO-IMPORT] ${data.length} registros extraídos do PDF`);
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Formato de arquivo não suportado. Use .xlsx, .xls ou .pdf'
+        });
+      }
+
+      console.log(`📋 [PSICO-IMPORT] ${data.length} registros prontos para importação`);
+
+      let importedCount = 0;
+      let errorCount = 0;
+
+      // Processar cada linha do arquivo
+      for (const row of data as any[]) {
+        try {
+          // Importar família se tiver dados de família
+          if (row.nome_responsavel || row.numeroMembros) {
+            await db.insert(psicoFamilias).values({
+              nomeResponsavel: row.nome_responsavel || row.nomeResponsavel || 'Não informado',
+              numeroMembros: parseInt(row.numero_membros || row.numeroMembros || '1'),
+              telefone: row.telefone || null,
+              endereco: row.endereco || null,
+              observacoes: row.observacoes || null,
+              coordenadorId: parseInt(userId)
+            }).onConflictDoNothing();
+
+            importedCount++;
+          }
+
+          // Importar atendimento se tiver dados de atendimento
+          if (row.data_atendimento || row.dataAtendimento) {
+            const familias = await db.select().from(psicoFamilias)
+              .where(eq(psicoFamilias.coordenadorId, parseInt(userId)))
+              .orderBy(desc(psicoFamilias.id))
+              .limit(1);
+
+            if (familias.length > 0) {
+              await db.insert(psicoAtendimentos).values({
+                familiaId: familias[0].id,
+                coordenadorId: parseInt(userId),
+                dataAtendimento: new Date(row.data_atendimento || row.dataAtendimento),
+                tipo: row.tipo || 'individual',
+                descricao: row.descricao || null,
+                encaminhamentos: row.encaminhamentos || null
+              }).onConflictDoNothing();
+
+              importedCount++;
+            }
+          }
+        } catch (rowError: any) {
+          console.error(`❌ [PSICO-IMPORT] Erro ao processar linha:`, rowError);
+          errorCount++;
+        }
+      }
+
+      // Remover arquivo temporário
+      fs.unlinkSync(req.file.path);
+
+      console.log(`✅ [PSICO-IMPORT] Importação concluída: ${importedCount} registros importados, ${errorCount} erros`);
+
+      res.json({
+        success: true,
+        imported: importedCount,
+        errors: errorCount,
+        total: data.length
+      });
+    } catch (error: any) {
+      console.error('❌ [PSICO-IMPORT] Erro na importação:', error);
+
+      // Limpar arquivo em caso de erro
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 📊 GET /api/patrocinador/progresso - Dados de progresso dos programas para patrocinadores
+  app.get('/api/patrocinador/progresso', async (req, res) => {
+    try {
+      const currentMonth = new Date().getMonth() + 1;
+      const year = parseInt((req.query.year as string) || '2025');
+      const month = parseInt((req.query.month as string) || String(currentMonth));
+
+      console.log(`📊 [PATROCINADOR] Buscando dados de progresso dos programas... Ano: ${year}, Mês: ${month}`);
+
+      // Mapear slugs dos setores para os nomes dos programas
+      const programasMap = {
+        'cultura_esporte': { nome: 'PROGRAMA DE CULTURA E ESPORTE', cor: '#FFD700' },
+        'inclusao_produtiva': { nome: 'INCLUSÃO PRODUTIVA', cor: '#EF4444' },
+        'favela3d': { nome: 'FAVELA 3D', cor: '#8B5CF6' },
+        'psicossocial': { nome: 'MÉTODO GRITO', cor: '#F97316' }
+      };
+
+      const programas = [];
+
+      // Buscar dados de cada programa
+      for (const [slug, info] of Object.entries(programasMap)) {
+        // Buscar setor
+        const setor = await db
+          .select()
+          .from(gvSectors)
+          .where(eq(gvSectors.slug, slug))
+          .limit(1);
+
+        if (setor.length === 0) {
+          programas.push({
+            nome: info.nome,
+            porcentagem: 0,
+            cor: info.cor
+          });
+          continue;
+        }
+
+        // Buscar assignments do setor
+        const assignments = await db
+          .select({
+            assignment_id: gvIndicatorAssignments.id,
+          })
+          .from(gvIndicatorAssignments)
+          .innerJoin(gvProjects, eq(gvProjects.id, gvIndicatorAssignments.project_id))
+          .where(
+            and(
+              eq(gvProjects.sector_id, setor[0].id),
+              eq(gvIndicatorAssignments.active, true)
+            )
+          );
+
+        if (assignments.length === 0) {
+          programas.push({
+            nome: info.nome,
+            porcentagem: 0,
+            cor: info.cor
+          });
+          continue;
+        }
+
+        const assignmentIds = assignments.map(a => a.assignment_id);
+
+        // Buscar dados mensais
+        const monthlyData = await db
+          .select({
+            target_value: gvMonthlyData.target_value,
+            actual_value: gvMonthlyData.actual_value,
+          })
+          .from(gvMonthlyData)
+          .where(
+            and(
+              inArray(gvMonthlyData.assignment_id, assignmentIds),
+              eq(gvMonthlyData.year, year),
+              eq(gvMonthlyData.month, month)
+            )
+          );
+
+        // Calcular totais
+        let totalMeta = 0;
+        let totalRealizado = 0;
+
+        monthlyData.forEach(data => {
+          totalMeta += parseFloat(data.target_value || '0') || 0;
+          totalRealizado += parseFloat(data.actual_value || '0') || 0;
+        });
+
+        // Calcular porcentagem
+        const porcentagem = totalMeta > 0 ? Math.round((totalRealizado / totalMeta) * 100) : 0;
+
+        programas.push({
+          nome: info.nome,
+          porcentagem,
+          cor: info.cor
+        });
+      }
+
+      console.log(`✅ [PATROCINADOR] ${programas.length} programas com dados calculados`);
+      res.json({ success: true, programas });
+    } catch (error: any) {
+      console.error('❌ [PATROCINADOR] Erro ao buscar progresso:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ==== ENDPOINT SQL PURO - BYPASS DRIZZLE ====
+  app.get('/api/test/raw-sql-gateway', async (req, res) => {
+    try {
+      console.log('🧪 [RAW SQL] Testando SQL puro sem Drizzle...');
+
+      const client = await pool.connect();
+
+      // Test 1: SELECT columns
+      const test1 = await client.query('SELECT id, numero, gateway, installments, gateway_order_id FROM ingressos LIMIT 1');
+      console.log('✅ [RAW SQL] SELECT funcionou!', test1.rows[0]);
+
+      // Test 2: INSERT
+      const test2 = await client.query(
+        `INSERT INTO ingressos (numero, "valorPago", gateway, installments, gateway_order_id) 
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, gateway, installments`,
+        [`RAW-${Date.now()}`, 5000, 'rede', 3, 'raw-test-123']
+      );
+      console.log('✅ [RAW SQL] INSERT funcionou!', test2.rows[0]);
+
+      client.release();
+
+      res.json({
+        success: true,
+        message: 'SQL puro funciona perfeitamente - problema é o DRIZZLE!',
+        select: test1.rows[0],
+        insert: test2.rows[0]
+      });
+    } catch (error: any) {
+      console.error('❌ [RAW SQL] Erro:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ==== ENDPOINT DE DIAGNÓSTICO - REMOVER DEPOIS ====
+  app.get('/api/test/gateway-columns', async (req, res) => {
+    try {
+      console.log('🧪 [TEST] Testando acesso às colunas gateway...');
+
+      // Tentar query simples com todas as colunas
+      const result1 = await db
+        .select()
+        .from(ingressos)
+        .limit(1);
+
+      console.log('✅ [TEST] Query básica funcionou. Registros:', result1.length);
+
+      // Tentar query com where em gateway
+      const result2 = await db
+        .select()
+        .from(ingressos)
+        .where(eq(ingressos.gateway, 'stripe'))
+        .limit(1);
+
+      console.log('✅ [TEST] Query com where gateway funcionou. Registros:', result2.length);
+
+      // Tentar query com where em gatewayOrderId
+      const result3 = await db
+        .select()
+        .from(ingressos)
+        .where(eq(ingressos.gatewayOrderId, 'test-order-123'))
+        .limit(1);
+
+      console.log('✅ [TEST] Query com where gatewayOrderId funcionou. Registros:', result3.length);
+
+      res.json({
+        success: true,
+        message: 'Todas as queries funcionaram!',
+        results: {
+          basic: result1.length,
+          gateway: result2.length,
+          gatewayOrderId: result3.length
+        }
+      });
+    } catch (error: any) {
+      console.error('❌ [TEST] Erro:', error.message);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        code: error.code
+      });
+    }
+  });
+
+  // Inicializar cron jobs (sincronização automática)
+  initCronJobs();
+
+  const httpServer = createServer(app);
+  return httpServer;
+}

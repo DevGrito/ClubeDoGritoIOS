@@ -1,0 +1,46 @@
+[LaunchDarkly] LaunchDarkly client initialized
+multi-tabs.js:5075 Injected CSS loaded successfully
+main.MWM1NDgwZmE2MQ.js:1 Deprecated API for given entry type.
+(anonymous) @ main.MWM1NDgwZmE2MQ.js:1Understand this warning
+/t/o-grito:1 Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner.
+framework-af3aff93c3c4ed2c.js:1 Error while parsing the 'sandbox' attribute: 'allow-downloads-without-user-activation' is an invalid sandbox flag.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this error
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'ambient-light-sensor'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'battery'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'execution-while-not-rendered'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'execution-while-out-of-viewport'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'layout-animations'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'legacy-image-formats'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'navigation-override'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'oversized-images'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'publickey-credentials'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'speaker-selection'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'unoptimized-images'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'unsized-media'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Unrecognized feature: 'pointer-lock'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Allow attribute will take precedence over 'allowfullscreen'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Allow attribute will take precedence over 'allowpaymentrequest'.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this warning
+framework-af3aff93c3c4ed2c.js:1 Error while parsing the 'sandbox' attribute: 'allow-downloads-without-user-activation' is an invalid sandbox flag.
+_ @ framework-af3aff93c3c4ed2c.js:1Understand this error
+workspace_iframe.html?initialPath=%2Fdonation-flow%3Fplan%3Deco%26periodicity%3Dmensal&id=%3Arar%3A:26 Service Worker registrado com sucesso!
+index-mvQEg4fs.js:8316 🚨🚨🚨 [LEO DEBUG FORCE] SEMPRE EXECUTAR
+index-mvQEg4fs.js:8316 📧 Email: "temp@temp.com"
+index-mvQEg4fs.js:8316 📱 Telefone: "+5531981156288"
+index-mvQEg4fs.js:8316 🆔 UserID: "33"
+index-mvQEg4fs.js:8316 🔍 [GLOBAL LEO CHECK] Email: false, Phone: false, CurrentID: 33
+index-mvQEg4fs.js:8316 🔍 [GLOBAL LEO CHECK] IsLeo final: false

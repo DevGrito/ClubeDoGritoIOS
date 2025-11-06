@@ -1,0 +1,83 @@
+{
+  "programa": "Favela 3D",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "eixos": [
+    {
+      "nome": "Decolagem",
+      "indicadores": [
+        { "nome": "Visitas Mentores (TOTAL)", "mensal": [300,276,305,297,318,371,354,322,281,null,null,null] },
+        { "nome": "Famílias Ativas - Vila", "mensal": [138,132,132,129,130,130,130,131,132,null,null,null] },
+        { "nome": "Total de Famílias - Vila", "mensal": [158,238,219,219,217,217,217,156,156,null,null,null] },
+        { "nome": "Famílias Ativas - Soares", "mensal": [100,87,87,88,87,87,87,87,87,null,null,null] },
+        { "nome": "Total de Famílias - Soares", "mensal": [102,102,102,102,102,102,102,102,102,null,null,null] },
+        { "nome": "Famílias Inativas (Vila+Soares)", "mensal": [20,39,39,null,41,41,41,40,39,null,null,null] },
+        { "nome": "Famílias no Triângulo (TOTAL)", "mensal": [10,39,29,23,91,73,44,45,110,null,null,null] },
+        { "nome": "Famílias no Triângulo - VJA", "mensal": [5,27,19,19,45,39,23,38,82,null,null,null] },
+        { "nome": "Famílias no Triângulo - Soares", "mensal": [5,12,10,4,46,34,21,7,28,null,null,null] }
+      ],
+      "mentores": [
+        { "nome": "Nayara Reis",    "mensal_totais": [72,85,81,82,81,76,66,72,74,null,null,null] },
+        { "nome": "Mariana Faria",  "mensal_totais": [68,67,77,67,82,66,67,58,70,null,null,null] },
+        { "nome": "Vanessa Fonseca","mensal_totais": [62,70,67,67,70,68,66,71,67,null,null,null] },
+        { "nome": "William Mota",   "mensal_totais": [7,0,35,62,74,65,67,67,70,null,null,null] },
+        { "nome": "Karina Oliveira","mensal_totais": [67,83,70,67,76,70,65,54,null,null,null,null] }
+      ]
+    },
+
+    {
+      "nome": "Desenvolvimento Social",
+      "indicadores": [
+        { "nome": "Atendimentos Gerais (TOTAL)", "mensal": [80,280,0,52,86,68,81,73,41,null,null,null] },
+
+        /* — detalhamento por tipo (Ago com totais da planilha; Set mantém total agregado) — */
+        { "nome": "Atendimento Psico Vila",        "mensal": [null,null,null,null,null,null,null,9,null,null,null,null] },
+        { "nome": "Visita Psicossocial Vila",      "mensal": [null,null,null,null,null,null,null,33,null,null,null,null] },
+        { "nome": "Atendimento Psico Soares",      "mensal": [null,null,null,null,null,null,null,6,null,null,null,null] },
+        { "nome": "Visita Psicossocial Soares",    "mensal": [null,null,null,null,null,null,null,3,null,null,null,null] },
+        { "nome": "Gerando Lideranças",            "mensal": [12,0,1,1,2,1,0,0,5,null,null,null] },
+        { "nome": "Rodas de Conversa",             "mensal": [12,1,1,1,0,1,1,1,8,null,null,null] },
+        { "nome": "Grupo de Mulheres",             "mensal": [1,1,2,1,1,1,1,21,12,null,null,null] },
+        { "nome": "Assembleia Comunitária",        "mensal": [null,1,null,1,null,1,null,0,25,null,null,null] },
+        { "nome": "Comitê Mirim",                  "mensal": [null,null,null,null,null,null,null,0,4,null,null,null] },
+        { "nome": "Mobiliza D",                    "mensal": [null,1,null,1,null,1,null,22,4,null,null,null] },
+
+        { "nome": "Famílias Decolagem Atendidas",  "mensal": [45,null,null,null,null,null,null,45,null,null,null,null] },
+        { "nome": "Famílias encaminhadas p/ CRAS", "mensal": [2,null,null,null,null,null,null,2,null,null,null,null] }
+      ]
+    },
+
+    {
+      "nome": "Emprego e Renda",
+      "indicadores": [
+        { "nome": "Formandos - Vila",          "mensal": [0,0,0,0,27,0,0,0,0,null,null,null] },
+        { "nome": "Formandos - Soares",        "mensal": [0,0,0,0,0,0,0,0,0,null,null,null] },
+        { "nome": "Empregados - Vila Jardim",  "mensal": [0,1,0,0,2,0,0,0,0,null,null,null] },
+        { "nome": "Empregados - Soares",       "mensal": [0,0,0,0,0,0,0,0,0,null,null,null] },
+        { "nome": "Empreendedores Mapeados",   "mensal": [0,0,0,0,43,0,0,0,0,null,null,null] },
+        { "nome": "Produção de Currículos",    "mensal": [1,1,3,2,null,null,null,null,2,null,null,null] },
+        { "nome": "Ações de Empreendedorismo", "mensal": [0,1,0,0,0,0,0,0,0,null,null,null] }
+      ]
+    },
+
+    {
+      "nome": "Moradia e Urbanismo",
+      "indicadores": [
+        { "nome": "Equipamentos",            "mensal": [0,0,0,0,0,0,0,0,1,null,null,null] },
+        { "nome": "Vitória Rápida",          "mensal": [0,0,0,0,0,0,0,0,10,null,null,null] },
+        { "nome": "Melhoria Habitacional",   "mensal": [0,0,0,0,0,0,0,36,0,null,null,null] },
+        { "nome": "Mapeamento Territorial",  "mensal": [0,365,173,217,217,0,0,0,2,null,null,null] },
+        { "nome": "Ativações Comunitárias",  "mensal": [0,0,0,217,217,0,0,0,0,null,null,null] }
+      ]
+    },
+
+    {
+      "nome": "Cozinha Industrial Comunitária",
+      "indicadores": [
+        { "nome": "Alimentação Diária (Decolagem)", "mensal": [null,null,null,null,null,null,null,463,1089,null,null,null] },
+        { "nome": "Famílias Beneficiadas",           "mensal": [null,null,null,null,null,null,null,56,105,null,null,null] },
+        { "nome": "Distribuição",                    "mensal": [0,0,0,0,0,0,0,0,0,null,null,null] }
+      ]
+    }
+  ]
+}

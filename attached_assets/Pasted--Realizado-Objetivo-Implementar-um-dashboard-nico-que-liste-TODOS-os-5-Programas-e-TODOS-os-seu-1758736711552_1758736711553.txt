@@ -1,0 +1,69 @@
+× Realizado)
+
+Objetivo:
+Implementar um dashboard único que liste TODOS os 5 Programas e TODOS os seus Projetos, exibindo para cada indicador as colunas Meta e Realizado (e, quando houver, % atingido e status RAG). Nada de dados fictícios.
+
+Estado inicial (importante):
+
+O banco está zerado (sem dados).
+
+Eu vou enviar os dados antigos até julho via CSV para importar.
+
+Daqui pra frente, cada coordenador vai lançar mensalmente apenas os dados do seu próprio programa (e, se aplicável, do seu projeto).
+
+Regras de acesso:
+
+Supabase RLS:
+
+admin: vê/edita tudo.
+
+gestor_setor: só lê/edita seu Programa.
+
+gestor_projeto (opcional): só lê/edita seu Projeto.
+
+Backend deve ignorar/forçar sector_id/project_id conforme o perfil (não confiar no payload do cliente).
+
+Dashboard (/dashboard/gestao):
+
+Mostrar todos os Programas → todos os Projetos → todos os indicadores.
+
+Quando ainda não houver dados, exibir 0 ou “sem dados” (status neutral) — mas o item aparece na lista mesmo assim.
+
+Filtros: Escopo (Mês/Tri/Sem/Ano) + Período base (AAAA-MM) + Programa + Projeto.
+
+Importação (dados antigos até julho):
+
+POST /api/indicator-values/bulk?dryRun=true|false
+CSV: sector_slug,project_slug,indicator_slug,period,value,source,note (period=YYYY-MM).
+
+POST /api/indicator-targets/bulk?dryRun=true|false
+CSV: sector_slug,project_slug,indicator_slug,scope,period_start,target_value,note
+(scope = monthly|quarterly|semiannual|annual, period_start = 1º dia do mês inicial).
+
+Dry-run retorna relatório; só grava quando false.
+
+Lançamento mensal (próximos meses):
+
+Página /setor/lancamentos: formulário por projeto/indicador (period=YYYY-MM, value).
+
+O Programa do usuário vem do perfil; Projeto fica travado se for gestor de projeto.
+
+Cálculos e agregação:
+
+Realizado é sempre mensal; para Tri/Sem/Ano, agregar por aggregation do indicador (avg, sum, latest).
+
+RAG: green ≥ green_threshold_pct, yellow ≥ yellow_threshold_pct, senão red.
+
+Indicadores com meta e realizado aparecem com % atingido; sem meta, status neutral.
+
+Critérios de aceitação:
+
+Dashboard mostra TODOS os Programas e TODOS os Projetos — mesmo sem dados (apresentando 0/“sem dados”).
+
+Consigo importar os dados antigos até julho (dry-run + gravação) e vê-los no dashboard.
+
+A partir de agora, coordenadores só conseguem lançar dados do seu programa/projeto.
+
+Filtros e escopos (Mês/Tri/Sem/Ano) funcionam e calculam % atingido/RAG quando houver meta.
+
+Sem dados fictícios no front; tudo vem do banco.

@@ -1,0 +1,145 @@
+Prompt — Integração Planilha (GERAL) + OMNI
+
+Escopo: Ler metas na aba GERAL do Excel e cruzar com realizados da OMNI (captado para RECEITAS e realizado para DESPESAS), calculando diferenças e saldo.
+
+1) Fontes
+
+Excel (entrada única): aba GERAL
+
+Bloco RECEITAS (verde) → meta_captação
+
+Bloco DESPESAS → meta_planejamento (custo planejado)
+
+OMNI (API): fornece captado (RECEITAS) e realizado (DESPESAS) por categoria e período.
+
+2) Mapeamento esperado (por linha da aba GERAL)
+
+categoria (ex.: “Doações Recorrentes”, “Vendas Outlet”, “Clube do Grito”, etc.)
+
+grupo ∈ {RECEITAS, DESPESAS}
+
+meta (número)
+
+periodo (ex.: 2025-10 ou coluna/mês equivalente; se não existir, tratar como acumulado e usar PERIODO_ALVO)
+
+Regra:
+
+grupo = RECEITAS ⇒ usar meta como meta_captação
+
+grupo = DESPESAS ⇒ usar meta como meta_planejamento
+
+3) Como obter realizados na OMNI
+
+Parâmetros de ambiente:
+
+OMNI_API_URL=
+OMNI_API_KEY=
+PERIODO_ALVO=2025-10
+
+
+Chamadas (exemplos ilustrativos; ajustar aos endpoints reais da OMNI):
+
+Receitas (captado) por categoria e período
+GET {OMNI_API_URL}/receitas?categoria={nome}&periodo={PERIODO_ALVO}
+→ retorna: { "categoria": "...", "periodo": "2025-10", "captado": 65000 }
+
+Despesas (realizado) por categoria e período
+GET {OMNI_API_URL}/despesas?categoria={nome}&periodo={PERIODO_ALVO}
+→ retorna: { "categoria": "...", "periodo": "2025-10", "realizado": 60000 }
+
+Se a OMNI devolver listas, somar os valores do período/categoria.
+
+4) Cálculos
+
+Receitas (captação)
+
+meta_captação = meta (RECEITAS)
+captado = OMNI.receitas[categoria, periodo].captado
+resultado_captação = captado - meta_captação   // < 0: meta não atingida
+
+
+Despesas (planejamento)
+
+meta_planejamento = meta (DESPESAS)
+realizado = OMNI.despesas[categoria, periodo].realizado
+resultado_planejamento = meta_planejamento - realizado   // > 0: economia
+
+
+Saldo final
+
+saldo_final_categoria = (resultado_captação se RECEITA) + (resultado_planejamento se DESPESA)
+saldo_final_geral = soma de todos os resultados
+
+5) Saída (JSON)
+{
+  "periodo": "2025-10",
+  "totais": {
+    "receitas_meta": 100000,
+    "receitas_captado": 65000,
+    "receitas_resultado": -35000,
+    "despesas_meta": 80000,
+    "despesas_realizado": 60000,
+    "despesas_resultado": 20000,
+    "saldo_final_geral": -15000
+  },
+  "categorias": [
+    {
+      "categoria": "Doações Recorrentes",
+      "grupo": "RECEITAS",
+      "meta_captação": 100000,
+      "captado": 65000,
+      "resultado_captação": -35000,
+      "status": "meta_nao_atingida"
+    },
+    {
+      "categoria": "Operacional",
+      "grupo": "DESPESAS",
+      "meta_planejamento": 80000,
+      "realizado": 60000,
+      "resultado_planejamento": 20000,
+      "status": "economia"
+    }
+  ],
+  "avisos": [
+    "Categoria 'Patrocínios' sem dado na OMNI (captado=0).",
+    "Categoria 'Eventos' sem meta no Excel; ignorada."
+  ]
+}
+
+6) Regras e validações
+
+Ler apenas a aba GERAL.
+
+Detectar blocos RECEITAS e DESPESAS; ignorar linhas vazias e totais pré-calculados.
+
+Normalizar nomes (trim, minúsculas, sem acentos) antes de casar com a OMNI.
+
+Se não houver periodo no Excel, usar PERIODO_ALVO.
+
+Se uma categoria existir na planilha e não vier da OMNI, considerar 0 e registrar aviso.
+
+Produzir totais por grupo e saldo_final_geral.
+
+Retornar JSON final e, se aplicável, POST para {OMNI_API_URL}/financeiro/consolidado com o corpo acima (opcional).
+
+7) Pseudocódigo (alto nível)
+lerExcel("GERAL") -> linhas
+normalizar(linhas)
+
+para cada linha em linhas:
+  if grupo == "RECEITAS":
+    meta_cap = linha.meta
+    captado = soma(OMNI.getReceitas(categoria, PERIODO_ALVO))
+    res_cap = captado - meta_cap
+    acumular_totais_receita(meta_cap, captado, res_cap)
+    adicionar_categoria(...)
+
+  if grupo == "DESPESAS":
+    meta_plan = linha.meta
+    realizado = soma(OMNI.getDespesas(categoria, PERIODO_ALVO))
+    res_plan = meta_plan - realizado
+    acumular_totais_despesa(meta_plan, realizado, res_plan)
+    adicionar_categoria(...)
+
+saldo_final_geral = receitas_resultado + despesas_resultado
+montar_json_saida()

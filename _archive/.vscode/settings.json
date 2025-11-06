@@ -1,0 +1,24 @@
+{
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.turbo/**": true,
+    "**/coverage/**": true
+  },
+  "search.exclude": {
+    "**/node_modules/**": true,
+    "**/.git/**": true,
+    "**/.next/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.turbo/**": true,
+    "**/coverage/**": true
+  },
+  "typescript.tsserver.maxTsServerMemory": 1024,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "editor.formatOnSave": true,
+  "files.autoSave": "onFocusChange"
+}

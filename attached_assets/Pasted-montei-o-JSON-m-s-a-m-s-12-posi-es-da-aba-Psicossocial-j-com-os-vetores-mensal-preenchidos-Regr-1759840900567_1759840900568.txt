@@ -1,0 +1,107 @@
+montei o JSON mês-a-mês (12 posições) da aba Psicossocial já com os vetores mensal preenchidos.
+Regra que usei:
+
+Se havia >12 valores, peguei os últimos 12 (mais recentes) e mapeei para Jan→Dez (ordem cronológica).
+
+Se havia <12 valores, preenchi de Jan em diante e deixei o restante null (sem dado).
+
+Cole no Replit/RAPID:
+
+{
+  "programa": "Psicossocial",
+  "ano": 2025,
+  "meses": ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"],
+  "indicadores": [
+    {
+      "nome": "Eventos (Rua de Lazer)",
+      "periodicidade": "Mensal",
+      "mensal": [0,0,0,0,0,0,0,0,null,null,null,null]
+    },
+    {
+      "nome": "Pessoas Presentes",
+      "periodicidade": "Mensal",
+      "mensal": [0,0,0,0,0,0,0,0,null,null,null,null]
+    },
+    {
+      "nome": "Pesquisa de Clima",
+      "periodicidade": "Mensal",
+      "mensal": [0,0,0,0,0,0,0,0,null,null,null,null]
+    },
+    {
+      "nome": "Ações com os Colaboradores",
+      "periodicidade": "Mensal",
+      "mensal": [10153,1,1,0,0,0,1,1,0,0,null,null]
+    },
+    {
+      "nome": "Espaços Coletivos com o Time",
+      "periodicidade": "Mensal",
+      "mensal": [1,1,1,1,1,1,1,1,1,1,2,1]
+    },
+    {
+      "nome": "Visitas",
+      "periodicidade": "Mensal",
+      "mensal": [3,8,4,13,5,7,29,6,4,7,5,22]
+    },
+    {
+      "nome": "Atendimentos Individuais",
+      "periodicidade": "Mensal",
+      "mensal": [4,9,2,0,5,8,15,10,6,6,9,31]
+    },
+    {
+      "nome": "Intervenções do Método O Grito",
+      "periodicidade": "Mensal",
+      "mensal": [76,290,5,66,214,45,330,95,97,135,36,363]
+    }
+  ]
+}
+
+instruções para o Replit/RAPID (cole junto ou como prompt de sistema do agente)
+
+Selecionar mês anterior automaticamente (padrão do dashboard)
+
+Calcule current_month_index como o mês atual − 2 (para pegar o anterior) em base 0, ajustando wrap (ex.: Jan→index 0, mês anterior = Dez→index 11).
+
+Pseudocódigo:
+
+const idxMesAnterior = (hoje.getMonth() - 1 + 12) % 12; // getMonth(): Jan=0..Dez=11
+
+
+Para cada card, use indicador.mensal[idxMesAnterior].
+
+Se o valor for null, exiba “—” e não calcule percentuais de meta.
+
+Filtros de mês (macro)
+
+Renderize um select (ou chips) com as opções de meses do JSON.
+
+Ao trocar o filtro, atualize os cards para indicador.mensal[idxSelecionado].
+
+Mantenha “Mês Anterior (automático)” como opção default que usa a regra do item 1.
+
+Cálculo de % da meta (quando existir meta)
+
+Se existir meta numérica (ou string percentual), calcule:
+
+Indicadores “quanto maior melhor” → % = valor / meta.
+
+Indicadores “quanto menor melhor” (ex.: Evasão < X) → % = 1 - (valor / limite) (cap mínimo 0, máx 1).
+
+Formate como xxx.x%.
+
+Se valor for null, não mostrar a %.
+
+Tratamento de dados faltantes
+
+null significa “sem dado / não se aplica”.
+
+Não mostrar barra/percentual; apenas o valor —.
+
+Em gráficos de linha, pule o ponto (null), mantendo o restante.
+
+Exportar para gráficos/tabelas
+
+Para linhas/colunas: use diretamente indicador.mensal mapeando contra meses.
+
+Para cards: pegam um único índice (mês atual − 1, ou o selecionado no filtro).
+
+Se quiser, eu já acrescento metas e tipos de cálculo por indicador (maior-melhor vs menor-melhor) para o agente não precisar de lógica condicional por nome.

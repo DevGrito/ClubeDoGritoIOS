@@ -1,0 +1,45 @@
+Orientações de Desenvolvimento: Integração Segura do Sistema de Cotas
+O princípio fundamental é: Nenhuma alteração pode apagar dados ou quebrar o fluxo de venda de Ingresso Avulso. Todas as mudanças devem ser adicionadas (novas funcionalidades) ou alteradas (modificando o código existente) apenas em pontos específicos.
+
+1. Alterações no Frontend (Página /ingresso/pagamento)
+A página de pagamento deve ser o ponto de bifurcação, sem apagar a funcionalidade de "Ingresso Avulso".
+
+Ação: ADICIONAR um novo bloco de seleção no topo da página.
+
+Fluxo Atual (Intacto): A opção de "Pagar com Cartão ou Pix" (para ingresso avulso) deve permanecer funcional e visível, possivelmente abaixo da nova seleção.
+
+Elemento	Ação no Código
+Nova Seleção de Fluxo	ADICIONAR dois botões ou uma opção de escolha: 1. Cotas do Jantar e 2. Ingresso Avulso.
+Fluxo Antigo	Se o usuário escolher "Ingresso Avulso", o sistema deve seguir o fluxo EXISTENTE de preencher o nome e ir para o pagamento (Cartão/Pix), sem alteração na lógica de compra.
+
+Exportar para as Planilhas
+2. Criação do Fluxo de Resgate de Cotas (Novas Páginas e Endpoints)
+Este é um fluxo NOVO que não deve interferir no banco de dados de vendas avulsas, exceto para criar o ingresso final.
+
+Nova Página de Identificação (Ex: /ingresso/resgate/identificar):
+
+Ação: Criar uma nova página que recebe o Nome da Empresa.
+
+Segurança: Este formulário deve se comunicar com um novo endpoint na sua API (Ex: POST /api/cotas/validar-empresa).
+
+Novas Tabelas no Banco de Dados (Crucial!):
+
+Ação: ADICIONAR uma tabela chamada COTA_EMPRESA (ou similar) que armazena: Nome da Empresa, Quantidade Total de Ingressos, e talvez um Status da Cota.
+
+Ação: ADICIONAR um campo de id_cota_empresa na sua tabela principal de ingressos para vincular o ingresso avulso ao resgatado. Não apagar os campos existentes.
+
+Nova Lógica de Geração do Ingresso com QR Code:
+
+A geração do ID Único/Código Gold e a criação do QR Code será a mesma para ingressos avulsos e de cotas. Isso garante que o sistema de Scanner no dia do evento precise apenas de uma lógica de validação.
+
+3. Validação do Scanner (Backend/API)
+O endpoint de validação de ingressos (POST /api/validar-ingresso) deve ser o único ponto de consulta, e ele NÃO PODE apagar informações.
+
+Ação (Atualização Segura): A única alteração permitida na tabela de ingressos é a mudança do campo Status de "Não Usado" para "Usado" após a leitura bem-sucedida.
+
+Proibido: O sistema de scanner NUNCA deve ter permissão para apagar um registro do banco de dados.
+
+Resumo da Regra de Ouro (A ser comunicada à equipe):
+🛑 NÃO APAGAR DADOS: Em nenhuma hipótese qualquer código (seja no frontend ou backend) pode conter funções de exclusão (DELETE SQL ou similar) para ingressos válidos, cotas ou transações.
+
+🔄 PRESERVAR O FLUXO ANTIGO: O fluxo de venda de "Ingresso Avulso" (venda normal de cartão/pix) deve ser testado e verificado para funcionar exatamente como antes após a integração do novo módulo de cotas.

@@ -1,0 +1,46 @@
+PROMPT DEFINITIVO PARA REPL.IT — BUG DE SINCRONIZAÇÃO ENTRE FRONT E BACK (CHECK-IN / TELA DO DOADOR – CLUBE DO GRITO)
+
+⚠️ O problema é 100% no front-end.
+O banco de dados e o back-end estão corretos. Já testei manualmente e confirmei os valores.
+Também já testei em guia anônima e em navegadores diferentes. Portanto, o erro está na forma como o front está buscando, armazenando ou atualizando os dados.
+
+O comportamento atual:
+
+O usuário faz o check-in.
+
+O back-end grava corretamente.
+
+Mas o front continua mostrando dados antigos, como se o check-in não tivesse acontecido.
+
+✅ Sua missão: corrigir DEFINITIVAMENTE a sincronização entre o front-end e o back-end.
+
+Instruções claras e obrigatórias:
+
+Não toque em design, layout, componentes visuais ou estilos.
+
+Analise toda a lógica de estado e cache do front-end, especialmente o uso de React Query, useState e useEffect.
+
+Garanta que após o check-in, a aplicação:
+
+Invalide e refaça a query imediatamente (invalidateQueries ou equivalente).
+
+Atualize o estado local com os novos dados do servidor.
+
+Exiba instantaneamente as informações atualizadas, sem precisar recarregar a página.
+
+Corrija qualquer queryKey duplicada ou incorreta que esteja causando cache antigo.
+
+Verifique se o onCheckinComplete está disparando corretamente a atualização do estado global.
+
+Elimine qualquer debounce, memoization, ou dependência errada no useEffect que esteja impedindo a atualização.
+
+Adicione logs (console.log) antes e depois do check-in, mostrando o dado vindo do servidor e o dado renderizado, para confirmar que o estado realmente muda.
+
+💥 Atenção:
+O bug não pode depender de reload manual ou troca de tela. Assim que o check-in for feito, o dado precisa mudar no front na mesma hora.
+
+🔍 E mais importante:
+Analise todo o código do front-end da tela do doador, não apenas o componente de check-in.
+O erro pode estar em algum hook global, estado compartilhado ou contexto que está impedindo a atualização visual dos dados.
+
+Corrija de forma definitiva para que o front exiba sempre as informações mais recentes do back-end.

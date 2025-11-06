@@ -1,0 +1,58 @@
+Funcionalidade Avançada do Painel do Desenvolvedor
+🧭 1. Corrigir Navegação: Botão "Voltar"
+Problema atual: Ao clicar para visualizar uma tela do sistema via painel do desenvolvedor, e depois clicar em voltar (seta), o sistema desloga o usuário ou volta para login.
+
+Solução esperada:
+
+A navegação de “voltar” deve retornar exatamente para o Painel do Desenvolvedor, mantendo:
+
+A sessão ativa
+
+O scroll ou filtro usado (se possível)
+
+O estado anterior da lista de telas
+
+Requisitos Técnicos:
+
+Implementar navegação com router.push ou navigate() com histórico bem definido
+
+Garantir que o botão “voltar” no navegador ou na interface use o histórico correto (history.back() ou rota explícita /painel-desenvolvedor)
+
+Verificar se há reset indevido de auth/context ao trocar de rota, e corrigir
+
+🔐 2. Acesso Universal às Telas (incluindo restritas)
+Objetivo: Desenvolvedores precisam ter visualização total de todas as telas do sistema, inclusive as de acesso restrito, como a tela do conselho, tela de doadores, administrativo, etc.
+
+Requisitos:
+
+Toda tela deve poder ser visualizada via o Painel do Desenvolvedor, independentemente de restrições normais de usuário
+
+O acesso não deve respeitar as regras de permissão padrão de usuários comuns, mas sim validar se quem está acessando é desenvolvedor autenticado
+
+O botão “Visualizar” ou “Testar Tela” deve abrir a rota real (ou em sandbox) com permissão elevada para desenvolvedor
+
+Solução Técnica sugerida:
+
+Criar uma verificação global de permissões com exceção para usuários com role: 'desenvolvedor'
+
+Ou permitir “override” de acesso quando a navegação é originada via /painel-desenvolvedor
+
+Importante: Esse acesso é somente leitura ou visualização — o dev não precisa interagir como um usuário final da tela (exceto se desejar).
+
+🔐 3. Segurança
+Mesmo com acesso liberado, as telas com dados sensíveis devem continuar exigindo autenticação válida de desenvolvedor
+
+Todas as ações executadas dentro dessas telas acessadas via painel devem ser logadas no sistema com ID do dev + data/hora
+
+✅ Exemplo prático de fluxo corrigido
+Dev acessa o Painel do Desenvolvedor (/painel-desenvolvedor)
+
+Clica na tela /cadastrar
+
+Visualiza a tela normalmente (sem restrições, mesmo se for restrita a outro grupo)
+
+Clica em “Voltar” (seta ou botão)
+
+Retorna para o Painel do Desenvolvedor, sem logout, sem recarregar login
+
+Estado da listagem preservado (opcional, mas ideal)

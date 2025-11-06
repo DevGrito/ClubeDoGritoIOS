@@ -1,0 +1,141 @@
+PROMPT PARA O REPLIT AI (copiar e colar)
+
+Quero implementar a seção “Gestão à Vista” dentro da aba Impacto do app Clube do Grito (React 18 + TS + Vite + Tailwind + shadcn/ui + TanStack Query).
+Objetivo: exibir um painel compacto no mesmo estilo visual do print fornecido (cards altos com barra horizontal colorida animando de 0→valor, título à esquerda e percentual/valor à direita), com o título “Gestão à Vista” no topo.
+
+1) Layout e comportamento
+
+Manter o mesmo layout do print: topo com saudação/brand já existente; abaixo um card “Gestão à Vista” contendo a lista de indicadores.
+
+Cada indicador é uma linha com:
+
+Label (nome do indicador, fonte semibold).
+
+Valor à direita (formatação PT-BR).
+
+Barra de progresso grande (altura ~8–10px), com cantos arredondados, que anima de 0 até o valor atual ao montar/atualizar.
+
+Cores das barras (sequência repetível): amarelo/laranja/vermelho/roxo/azul/verde (use classes Tailwind neutras do tema; não mude o tema do app).
+
+Responsivo mobile-first; no desktop, largura máx. 480–560px centralizada.
+
+A11y: aria-label nos itens; contraste suficiente; animação respeita prefers-reduced-motion.
+
+Estados: skeleton loaders (linhas cinza), erro com toast (já usamos useToast()), e empty-state (“Sem dados do período selecionado”).
+
+2) Indicadores (ordem EXATA)
+
+Use esta ordem e nomenclatura exata (sem trocar a sequência). Todos exibem percentual quando fizer sentido (0–100) e número absoluto quando for contagem. Ao lado do valor, mostrar automaticamente % quando for percentual.
+
+Frequência (%)
+
+Evasão (%)
+
+Critério de Sucesso (%)
+
+NPS (%)
+
+Alunos Formados (qtde)
+
+Alunos em Formação (qtde)
+
+Crianças Atendidas (qtde)
+
+Empreendedores (qtde)
+
+Pessoas Empregadas (qtde)
+
+Famílias Ativas (qtde)
+
+Visitas (qtde)
+
+Atendimentos (qtde)
+
+3) Regras de exibição e cores (heurísticas)
+
+Valores percentuais: 0–100.
+
+Paleta por faixa (aplicar à barra):
+
+0–49 → vermelho
+
+50–69 → laranja
+
+70–84 → amarelo
+
+85–100 → verde
+
+Evasão (quanto menor, melhor): inverter a cor (0–5 verde, 6–15 amarelo, >15 vermelho).
+
+NPS já convertido para 0–100% (se vier −100..+100, converta para 0–100 mapeando (nps+100)/2).
+
+Contagens (qtde): barra usa percentual relativo ao alvo do período quando disponível (ver API abaixo). Se não houver meta para o item, renderize a barra desabilitada (cinza claro) e exiba apenas o número.
+
+4) Dados / API
+
+Crie/ajuste endpoint: GET /api/gestao-vista com filtros via querystring:
+
+ano (YYYY), mes (1–12, opcional), programa (slug opcional), unidade (slug opcional).
+
+Response (exemplo):
+
+{
+  "periodo": {"ano": 2025, "mes": 10},
+  "indicadores": {
+    "frequencia": {"valor": 90, "meta": 95, "tipo": "percent"},
+    "evasao": {"valor": 7, "meta": 5, "tipo": "percent"},
+    "criterioSucesso": {"valor": 82, "meta": 85, "tipo": "percent"},
+    "nps": {"valor": 76, "tipo": "percent"},
+    "alunosFormados": {"valor": 124, "meta": 150, "tipo": "count"},
+    "alunosEmFormacao": {"valor": 430, "meta": 500, "tipo": "count"},
+    "criancasAtendidas": {"valor": 860, "meta": 1200, "tipo": "count"},
+    "empreendedores": {"valor": 38, "meta": 50, "tipo": "count"},
+    "pessoasEmpregadas": {"valor": 112, "meta": 130, "tipo": "count"},
+    "familiasAtivas": {"valor": 410, "meta": 450, "tipo": "count"},
+    "visitas": {"valor": 96, "meta": 120, "tipo": "count"},
+    "atendimentos": {"valor": 310, "meta": 400, "tipo": "count"}
+  }
+}
+
+
+TanStack Query v5 para buscar e cachear: queryKey: ['gestao-vista', filtros].
+
+Tratar formatação PT-BR (percentuais com Intl.NumberFormat('pt-BR', { style: 'percent' ...}) e números com separador de milhar).
+
+Caso nps venha em −100..+100, converter antes de exibir.
+
+Caso algum campo não exista, ocultar a linha.
+
+5) Filtros no UI (simples e opcionais)
+
+No header do card, ícones/controles compactos (shadcn/ui):
+
+Período: seletor de Ano (YYYY) e Mês (Todos/Jan..Dez).
+
+Programa e Unidade: Dropdowns (se disponíveis).
+
+Alterou filtro → invalidateQueries e recarrega.
+
+6) Código/arquitetura
+
+Componente novo: ImpactGestaoVista.tsx (isolado).
+
+Hook: useGestaoVista(filtros) encapsulando fetch + normalização de dados.
+
+Sem mexer no layout global/bottom-navbar; apenas inserir o card “Gestão à Vista” na aba Impacto (acima do texto explicativo).
+
+Testar com dados reais e com mock para snapshot.
+
+7) Critérios de aceite
+
+Visual idêntico ao print (tipografia, espaçamento, barras “subindo”).
+
+Ordem dos 12 indicadores exatamente como especificado.
+
+Estados: carregando (skeleton), erro (toast), vazio (mensagem).
+
+Filtros funcionam e atualizam a lista.
+
+Percentuais corretos; cor da Evasão considera que menor é melhor.
+
+A página roda fluida no mobile (60fps na animação curta de preenchimento).

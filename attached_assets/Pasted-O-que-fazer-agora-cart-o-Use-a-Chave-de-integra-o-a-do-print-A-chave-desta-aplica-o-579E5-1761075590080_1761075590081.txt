@@ -1,0 +1,78 @@
+O que fazer agora (cartão)
+
+Use a Chave de integração (a do print: “A chave desta aplicação é: 579E5…A5A31B”) no FRONT.
+
+Tokenize o cartão pelo Connect (nada de mandar PAN/CSV para o servidor).
+
+Envie só o token para o seu back; aí o back chama a API do PagBank com o Access Token (Bearer) de produção e cria a cobrança.
+
+O erro “Não foi possível obter a chave pública” está vindo do seu código porque ele espera uma RSA que não se aplica ao Connect. Ajuste o front para o fluxo PagBank Connect (com a chave de integração).
+
+Esqueleto do fluxo (genérico, sem suas rotas)
+Front-end (PagBank Connect)
+<!-- script do Connect (exemplo) -->
+<script src="https://assets.pagseguro.com.br/checkout-connect/pagseguro.connect.js"></script>
+<script>
+  // 1) Inicializa com sua CHAVE DE INTEGRAÇÃO (do print)
+  const connect = new PagSeguroConnect({
+    integrationKey: "SUA_CHAVE_DE_INTEGRACAO"
+  });
+
+  // 2) Monta os campos (Hosted Fields) ou coleta dados de forma segura pelo Connect
+  // Exemplo: connect.card.mount("#card-number", "#card-exp", "#card-cvv")
+
+  // 3) Quando o cliente confirmar:
+  async function onConfirm() {
+    // o Connect devolve um token seguro do cartão
+    const { token } = await connect.card.tokenize({
+      holder: "NOME IMPRESSO NO CARTÃO",
+      // se usar hosted fields, ele já sabe número/exp/cvv
+    });
+
+    // 4) Envie só o token pro seu back
+    await fetch("/api/pagbank/pagar", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ amount: 100, card_token: token }) // amount em centavos, por ex.
+    });
+  }
+</script>
+
+Back-end (Node/Express – servidor → PagBank)
+// POST /api/pagbank/pagar
+// recebe { amount, card_token } do front
+import fetch from "node-fetch";
+
+app.post("/api/pagbank/pagar", async (req, res) => {
+  const { amount, card_token } = req.body;
+
+  // 1) Autenticação via Access Token (PRODUÇÃO)
+  const headers = {
+    "Authorization": `Bearer ${process.env.PAGBANK_ACCESS_TOKEN}`,
+    "Content-Type": "application/json"
+  };
+
+  // 2) Cria a cobrança usando o token do cartão
+  const payload = {
+    amount, // em centavos (ex.: 100 = R$1,00)
+    payment_method: {
+      type: "CREDIT_CARD",
+      token: card_token,
+      installments: 1
+    },
+    // seus metadados (id do pedido, comprador, etc.)
+  };
+
+  const r = await fetch("https://api.pagbank.com.br/charges", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  const data = await r.json();
+  // salve transaction_id/status; retorne para o front
+  return res.status(r.ok ? 200 : 400).json(data);
+});
+
+
+Webhook: mantenha a URL que você já configurou (/api/pagseguro/webhook) para confirmar pago/recusado/estornado e liberar o acesso automaticamente.
