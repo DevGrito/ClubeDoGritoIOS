@@ -34,3 +34,5 @@ ios/App/build/
 ios/Pods/
 uploads/
 gcs-service-account.json
+_archive
+_archive/
