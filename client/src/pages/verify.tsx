@@ -195,9 +195,19 @@ export default function Verify() {
             case "doador":
             case "user":
             default:
-              // Doadores existentes vão direto para dashboard
-              console.log("🔄 VERIFY.TSX: Doador fazendo login - redirecionando para tdoador");
-              setLocation("/tdoador");
+              // ✅ VERIFICAR SE TEM ASSINATURA ATIVA
+              if (userData.hasActiveSubscription) {
+                console.log("🔄 VERIFY.TSX: Doador com assinatura ativa - redirecionando para tdoador");
+                setLocation("/tdoador");
+              } else {
+                console.log("⚠️ VERIFY.TSX: Doador SEM assinatura - redirecionando para plans");
+                toast({
+                  title: "Complete seu cadastro",
+                  description: "Escolha um plano para continuar",
+                  variant: "default",
+                });
+                setLocation("/plans");
+              }
           }
           return;
         }

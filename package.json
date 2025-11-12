@@ -141,5 +141,12 @@
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
+  },
+{
+  "scripts": {
+    "build:client": "cd client && npm ci && npm run build",
+    "build:server": "cd server && npm ci && npm run build",        // se você de fato bundleia o server (esbuild/tsc). Se não, remova.
+    "build": "npm run build:client",                               // o Appflow chama este
+    "postbuild": "npx cap sync ios"                                // empacota o front gerado no app nativo
   }
 }

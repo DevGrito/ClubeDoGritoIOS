@@ -47,9 +47,9 @@ export default function CoordenadorPECPage() {
   const [showNovoPlanoModal, setShowNovoPlanoModal] = useState(false);
   const [showNovaApresentacaoModal, setShowNovaApresentacaoModal] = useState(false);
   
-  // Obter dados do usuário do localStorage
+  // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   const userId = localStorage.getItem("userId");
-  const userName = localStorage.getItem("userName") || "Coordenador";
+  const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
 
   // Função para mudar seção e fazer scroll
@@ -135,7 +135,7 @@ export default function CoordenadorPECPage() {
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso."
     });
-    setTimeout(() => window.location.href = "/entrar", 500);
+    setTimeout(() => window.location.href = "/login/coordenador", 500);
   };
 
   const handleExportReport = () => {
@@ -172,7 +172,7 @@ export default function CoordenadorPECPage() {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
                 Coordenação Esporte e Cultura
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Bem-vindo, {userName}</p>
+              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

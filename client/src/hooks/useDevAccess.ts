@@ -29,18 +29,12 @@ export const useDevAccess = (): DevAccessInfo => {
     const origin = urlParams.get('origin');
     const devOrigin = sessionStorage.getItem('dev_origin');
     
-    // Verificar se o usuário é desenvolvedor local
+    // Verificar se o usuário é desenvolvedor local (APENAS se já autenticado)
     const userPapel = localStorage.getItem('userPapel');
-    const isLocalDev = location === '/dev' || 
-                      devAccess || 
+    const isLocalDev = devAccess || 
                       devOrigin === 'dev-panel' ||
                       sessionStorage.getItem('dev_session') === 'active' ||
                       userPapel === 'desenvolvedor';
-
-    // Marcar sessão de desenvolvedor ativa
-    if (location === '/dev') {
-      sessionStorage.setItem('dev_session', 'active');
-    }
 
     // Verificar se modo dev global está ativo
     let globalDevMode = false;

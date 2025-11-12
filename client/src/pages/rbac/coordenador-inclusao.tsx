@@ -131,9 +131,9 @@ export default function CoordenadorInclusaoPage() {
   // State para o status da aula no modal
   const [aulaStatus, setAulaStatus] = useState<string>("agendada");
   
-  // Obter dados do usuário do localStorage
+  // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   const userId = localStorage.getItem("userId");
-  const userName = localStorage.getItem("userName") || "Coordenador";
+  const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
 
   // Query para buscar dados do dashboard do coordenador
@@ -520,7 +520,7 @@ export default function CoordenadorInclusaoPage() {
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso."
     });
-    setTimeout(() => window.location.href = "/entrar", 500);
+    setTimeout(() => window.location.href = "/login/coordenador", 500);
   };
 
   const handleExportReport = async () => {
@@ -743,7 +743,7 @@ export default function CoordenadorInclusaoPage() {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
                 Coordenação Inclusão Produtiva
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Bem-vindo, {userName}</p>
+              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

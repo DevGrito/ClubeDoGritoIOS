@@ -41,6 +41,16 @@ export default function Plans() {
     containScroll: 'trimSnaps'
   });
 
+  // Capturar parâmetro ref da URL (link de indicação/marketing)
+  const urlParams = new URLSearchParams(window.location.search);
+  const refCode = urlParams.get("ref");
+  
+  // Salvar refCode no localStorage se existir
+  if (refCode) {
+    localStorage.setItem("referralCode", refCode);
+    console.log(`🔗 [PLANS] Link de indicação detectado: ${refCode}`);
+  }
+
   // Constantes para cálculo de valor livre
   const BASE_AMOUNT = 29.90;
   const BASE_POINTS = 150;
@@ -60,8 +70,15 @@ export default function Plans() {
     
     setIsPeriodicityModalOpen(false);
     
-    // Redirect to donation flow with both parameters
-    setLocation(`/donation-flow?plan=${planId}&periodicity=${periodicity}`);
+    // Build URL with ref parameter if it exists
+    const baseUrl = `/donation-flow?plan=${planId}&periodicity=${periodicity}`;
+    const savedRefCode = localStorage.getItem("referralCode");
+    const finalUrl = savedRefCode ? `${baseUrl}&ref=${savedRefCode}` : baseUrl;
+    
+    console.log(`🔗 [PLANS] Redirecionando para donation-flow com ref: ${savedRefCode || 'nenhum'}`);
+    
+    // Redirect to donation flow with all parameters
+    setLocation(finalUrl);
   };
 
   const handlePremiumClick = () => {
@@ -101,77 +118,6 @@ export default function Plans() {
       return { isValid: false, error: `O valor máximo é R$ ${MAX_VALUE.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` };
     }
     return { isValid: true };
-  };
-
-  // Processar pagamento com valor livre (PIX ou Cartão)
-  const handleCustomPayment = async (paymentMethod: 'pix' | 'card') => {
-    const numericValue = normalizeValue(customValue);
-    const validation = validateValue(numericValue);
-    
-    if (!validation.isValid) {
-      toast({
-        title: "Valor inválido",
-        description: validation.error,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    
-    try {
-      console.log('💰 [CUSTOM PAYMENT] Iniciando pagamento:', { 
-        amountMonthly: numericValue, 
-        intervalMonths: getPeriodicityMonths(customPeriodicity),
-        paymentMethod 
-      });
-
-      // Chamar novo endpoint /api/checkout/subscribe usando apiRequest
-      const data = await apiRequest('/api/checkout/subscribe', {
-        method: 'POST',
-        body: JSON.stringify({
-          tier: 'PLATINUM',
-          amountMonthly: numericValue,
-          intervalMonths: getPeriodicityMonths(customPeriodicity),
-          paymentMethod: paymentMethod,
-        }),
-      });
-
-      console.log('✅ [CUSTOM PAYMENT] Checkout criado:', data);
-      console.log('🔗 [CUSTOM PAYMENT] checkoutUrl recebida:', data?.checkoutUrl);
-      console.log('📦 [CUSTOM PAYMENT] Dados completos:', JSON.stringify(data, null, 2));
-
-      // Salvar informações no localStorage para referência
-      localStorage.setItem("customAmount", numericValue.toString());
-      localStorage.setItem("selectedPlan", "platinum");
-      localStorage.setItem("selectedPeriodicity", customPeriodicity);
-      
-      // Redirecionar para Stripe Checkout
-      if (data?.checkoutUrl) {
-        console.log('✅ [CUSTOM PAYMENT] URL válida, redirecionando...');
-        // Manter loading ativo durante o redirecionamento
-        toast({
-          title: "Redirecionando...",
-          description: "Você será redirecionado para o Stripe Checkout em instantes.",
-        });
-        
-        console.log('🚀 [CUSTOM PAYMENT] Executando window.location.href...');
-        window.location.href = data.checkoutUrl;
-        console.log('✅ [CUSTOM PAYMENT] Redirecionamento executado');
-      } else {
-        console.error('❌ [CUSTOM PAYMENT] checkoutUrl não encontrada no response:', data);
-        throw new Error('URL de checkout não recebida');
-      }
-
-    } catch (error: any) {
-      console.error('❌ [CUSTOM PAYMENT] Erro:', error);
-      setIsLoading(false); // Só desativa loading se houver erro
-      toast({
-        title: "Erro ao processar pagamento",
-        description: error.message || "Houve um erro ao processar sua solicitação. Tente novamente.",
-        variant: "destructive",
-      });
-    }
   };
 
   const handleCustomValueSubmit = () => {
@@ -939,9 +885,34 @@ export default function Plans() {
 
             {/* Botões de Pagamento */}
             <div className="space-y-3 pt-2">
-              {/* Botão Cartão */}
+              {/* Botão Continuar */}
               <Button
-                onClick={() => handleCustomPayment('card')}
+                onClick={() => {
+                  const numericValue = normalizeValue(customValue);
+                  const validation = validateValue(numericValue);
+                  
+                  if (!validation.isValid) {
+                    toast({
+                      title: "Valor inválido",
+                      description: validation.error,
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+
+                  localStorage.setItem("customAmount", numericValue.toString());
+                  localStorage.setItem("selectedPlan", "platinum");
+                  localStorage.setItem("selectedPeriodicity", customPeriodicity);
+                  
+                  const savedRefCode = localStorage.getItem("referralCode");
+                  const baseUrl = `/donation-flow?plan=platinum&amount=${numericValue}&periodicity=${customPeriodicity}`;
+                  const finalUrl = savedRefCode ? `${baseUrl}&ref=${savedRefCode}` : baseUrl;
+                  
+                  console.log(`🔗 [PLATINUM] Redirecionando para donation-flow: ${finalUrl}`);
+                  
+                  setIsCustomValueModalOpen(false);
+                  setLocation(finalUrl);
+                }}
                 disabled={isLoading || !customValue}
                 className="w-full h-12 rounded-xl font-semibold text-base shadow-md"
                 style={{ 
@@ -952,7 +923,7 @@ export default function Plans() {
                 data-testid="button-custom-pay-with-card"
               >
                 <CreditCard className="w-5 h-5 mr-2" />
-                {isLoading ? 'Processando...' : 'Pagar com Cartão'}
+                Continuar
               </Button>
 
               {/* Botão Voltar */}
@@ -969,7 +940,6 @@ export default function Plans() {
           </div>
         </DialogContent>
       </Dialog>
-
 
     </div>
   );

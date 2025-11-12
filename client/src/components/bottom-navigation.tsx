@@ -67,7 +67,7 @@ export default function BottomNavigation({ onBeneficiosClick, hideBeneficios = f
     if (location === "/beneficios" || location === "/beneficios-onboarding" || location === "/sorteio" || location === "/missoes-semanais") return "beneficios";
     if (location === "/pagamentos" || location === "/financeiro") return "financeiro";
     if (location === "/impacto") return "impacto";
-    if (location === "/perfil" || location === "/perfil-patrocinador") return "perfil";
+    if (location === "/perfil" || location === "/perfil-patrocinador" || location === "/link-afiliado-cadastro") return "perfil";
     return "";
   };
 

@@ -27,7 +27,8 @@ import {
   Star,
   Menu,
   Gift,
-  BookOpen
+  BookOpen,
+  Link as LinkIcon
 } from "lucide-react";
 import Logo from "@/components/logo";
 import { useLocation } from "wouter";
@@ -49,6 +50,42 @@ export default function Perfil() {
   // Estado para controlar o modal de edição de perfil
   const [showEditModal, setShowEditModal] = useState(false);
   
+  // Estado para saber se o usuário é doador (verificado no backend)
+  const [isDonorVerified, setIsDonorVerified] = useState<boolean | null>(null);
+  // Estado para armazenar a campanha ativa
+  const [activeCampaign, setActiveCampaign] = useState<any>(null);
+  
+  // Verificar se o usuário é doador consultando o backend
+  useEffect(() => {
+    const userId = localStorage.getItem("userId");
+    if (userId) {
+      fetch(`/api/user/${userId}`)
+        .then(res => res.json())
+        .then(data => {
+          const isUserDonor = data.tipo === 'doador' || data.papel === 'doador';
+          setIsDonorVerified(isUserDonor);
+          
+          // Atualizar localStorage se necessário
+          if (isUserDonor) {
+            localStorage.setItem("isDonor", "true");
+            localStorage.setItem("userType", "doador");
+          }
+        })
+        .catch(err => console.error('Erro ao verificar status de doador:', err));
+    }
+  }, []);
+
+  // Buscar campanha ativa de marketing
+  useEffect(() => {
+    fetch('/api/mkt/active-campaign')
+      .then(res => res.json())
+      .then(data => {
+        if (data.campaign) {
+          setActiveCampaign(data.campaign);
+        }
+      })
+      .catch(err => console.error('Erro ao buscar campanha ativa:', err));
+  }, []);
 
   const planDisplayNames = {
     eco: "Eco",
@@ -96,12 +133,12 @@ export default function Perfil() {
   const role = (userData?.role || userData?.papel || userPapel || "").toLowerCase();
   const userIsLeo = role === "leo";
   const isConselheiro = userPapel === "conselho" || userPapel === "conselheiro" || userPapel === "desenvolvedor";
-  const isDonor = !userIsLeo && (
+  const isDonor = userIsLeo || 
+                 isDonorVerified === true ||
                  userPapel === "conselho" ||
                  localStorage.getItem("isDonor") === "true" || 
                  localStorage.getItem("donationFlow") === "true" ||
-                 localStorage.getItem("userType") === "doador"
-                 );
+                 localStorage.getItem("userType") === "doador";
   
   // Get initials for avatar
   const getInitials = (name: string) => {
@@ -171,6 +208,17 @@ export default function Perfil() {
         }
       ]
     },
+    ...(isDonor ? [{
+      title: activeCampaign ? activeCampaign.name : "Link de Afiliado",
+      items: [
+        {
+          icon: Gift,
+          label: "Link de Afiliado que Usei",
+          onClick: () => setLocation("/link-afiliado-cadastro"),
+          active: true
+        }
+      ]
+    }] : []),
     {
       title: "Suporte",
       items: [
@@ -210,8 +258,8 @@ export default function Perfil() {
           onClick: () => setLocation("/sobre"),
           active: true
         },
-        // Administrative items - esconder para conselheiros e donors
-        ...(!isConselheiro && !isDonor ? [
+        // Administrative items - APENAS para o Leo
+        ...(userIsLeo ? [
           { 
             icon: Users, 
             label: "Painel do Conselho", 

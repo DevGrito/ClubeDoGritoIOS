@@ -88,7 +88,7 @@ function formatValue(valor: number, tipo: 'percent' | 'count'): string {
   return new Intl.NumberFormat('pt-BR').format(valor);
 }
 
-// Componente de linha de indicador
+// Componente de linha de indicador - v2.0
 interface IndicadorLineProps {
   label: string;
   indicador: Indicador;
@@ -98,18 +98,33 @@ interface IndicadorLineProps {
 
 function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false }: IndicadorLineProps) {
   const { valor, meta, tipo, color, progress } = indicador;
-  const barColorClass = getBarColorClass(color);
   const isSemMeta = tipo === 'count' && !meta;
+  
+  console.log('🎨 [INDICADOR v2.0]', label, { valor, meta, tipo });
   
   // Calcular percentual em relação à meta
   const percentualDaMeta = meta && meta > 0 ? (valor / meta) * 100 : progress;
   const excedeMeta = percentualDaMeta > 100;
   
   // Calcular as partes da barra
-  // Se não excede: barra normal até o percentual atingido
-  // Se excede: barra verde até 100% + barra azul com o excedente
   const progressoNaMeta = excedeMeta ? 100 : percentualDaMeta;
   const excessoAlemDaMeta = excedeMeta ? Math.min(percentualDaMeta - 100, 100) : 0;
+  
+  // Cores SÓLIDAS baseadas no status (SEM GRADIENTES)
+  const getSolidColor = () => {
+    switch (color) {
+      case 'blue':
+        return '#3b82f6'; // Azul sólido
+      case 'green':
+        return '#22c55e'; // Verde sólido
+      case 'yellow':
+        return '#eab308'; // Amarelo sólido
+      case 'red':
+        return '#ef4444'; // Vermelho sólido
+      default:
+        return '#9ca3af'; // Cinza sólido
+    }
+  };
   
   // Formatar valor com meta (para contagem E percentual)
   const getValorComMeta = () => {
@@ -125,51 +140,50 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
   
   return (
     <div className="mb-4" role="region" aria-label={`${label}: ${formatValue(valor, tipo)}`}>
-      <div className="flex justify-between items-center mb-2">
+      <div className="mb-1">
         <span className="text-sm font-semibold text-gray-700">{label}</span>
-        <span className="text-sm font-bold text-gray-900">
-          {getValorComMeta()}
-          {isSemMeta && <span className="text-xs text-gray-400 ml-1">(sem meta)</span>}
-        </span>
       </div>
-      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden relative">
-        {/* Quando NÃO excede a meta: barra simples com cor padrão */}
-        {!excedeMeta && (
-          <motion.div
-            className={`h-full ${barColorClass} rounded-full`}
-            initial={{ width: 0 }}
-            animate={{ width: `${progressoNaMeta}%` }}
-            transition={
-              prefersReducedMotion
-                ? { duration: 0 }
-                : {
-                    duration: 0.8,
-                    delay: delay * 0.05,
-                    ease: [0.4, 0.0, 0.2, 1]
-                  }
-            }
-          />
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-xs text-gray-600">
+          Realizado: {new Intl.NumberFormat('pt-BR').format(valor)}
+        </span>
+        {meta && meta > 0 && (
+          <span className="text-xs text-gray-600">
+            Meta: {new Intl.NumberFormat('pt-BR').format(meta)}
+          </span>
         )}
-        
-        {/* Quando EXCEDE a meta: barra com duas cores (SEMPRE verde até 100% + azul para o excedente) */}
-        {excedeMeta && (
-          <motion.div
-            className="h-full rounded-full absolute left-0"
-            initial={{ width: 0 }}
-            animate={{ width: '100%' }}
-            transition={
-              prefersReducedMotion
-                ? { duration: 0 }
-                : {
-                    duration: 0.8,
-                    delay: delay * 0.05,
-                    ease: [0.4, 0.0, 0.2, 1]
-                  }
-            }
-            style={{
-              background: `linear-gradient(to right, #22c55e ${100 - excessoAlemDaMeta}%, #3b82f6 ${100 - excessoAlemDaMeta}%)`
-            }}
-          />
+        {isSemMeta && <span className="text-xs text-gray-400">(sem meta)</span>}
+      </div>
+      <div className="w-full h-8 bg-gray-200 rounded-full overflow-hidden relative shadow-inner">
+        <motion.div
+          className="h-full rounded-full shadow-md flex items-center justify-center"
+          initial={{ width: 0 }}
+          animate={{ width: `${excedeMeta ? 100 : progressoNaMeta}%` }}
+          transition={
+            prefersReducedMotion
+              ? { duration: 0 }
+              : {
+                  duration: 0.8,
+                  delay: delay * 0.05,
+                  ease: [0.4, 0.0, 0.2, 1]
+                }
+          }
+          style={{
+            background: excedeMeta 
+              ? `linear-gradient(to right, #22c55e 0%, #22c55e ${(100 / percentualDaMeta) * 100}%, #3b82f6 ${(100 / percentualDaMeta) * 100}%, #3b82f6 100%)`
+              : getSolidColor()
+          }}
+        >
+          {progressoNaMeta > 10 && (
+            <span className="text-xs font-bold text-white">
+              {percentualDaMeta.toFixed(1)}%
+            </span>
+          )}
+        </motion.div>
+        {progressoNaMeta <= 10 && progressoNaMeta > 0 && (
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700">
+            {percentualDaMeta.toFixed(1)}%
+          </div>
         )}
       </div>
     </div>
@@ -181,13 +195,15 @@ interface ImpactGestaoVistaProps {
   titulo?: string; // Título customizado (padrão: "Gestão à Vista 2025")
   subtitulo?: string; // Subtítulo customizado (padrão: "Metas Anuais")
   mostrarFiltros?: boolean; // Mostrar botão de filtros (padrão: true)
+  mostrarAlunosEmFormacao?: boolean; // Mostrar indicador "Alunos em formação" (apenas para Léo)
 }
 
 // Componente principal
 export default function ImpactGestaoVista({ 
   titulo = "Gestão à Vista 2025",
   subtitulo = "Metas Anuais",
-  mostrarFiltros = true
+  mostrarFiltros = true,
+  mostrarAlunosEmFormacao = false
 }: ImpactGestaoVistaProps = {}) {
   const ano = 2025; // Fixado em 2025 (único ano com dados)
   const [mes, setMes] = useState<number | null>(null);
@@ -323,12 +339,14 @@ export default function ImpactGestaoVista({
               delay={1}
               prefersReducedMotion={prefersReducedMotion}
             />
-            <IndicadorLine
-              label="Alunos em formação"
-              indicador={data.indicadores.alunosEmFormacao}
-              delay={2}
-              prefersReducedMotion={prefersReducedMotion}
-            />
+            {mostrarAlunosEmFormacao && (
+              <IndicadorLine
+                label="Alunos em formação"
+                indicador={data.indicadores.alunosEmFormacao}
+                delay={2}
+                prefersReducedMotion={prefersReducedMotion}
+              />
+            )}
             <IndicadorLine
               label="Frequência geral"
               indicador={data.indicadores.frequencia}
@@ -342,7 +360,7 @@ export default function ImpactGestaoVista({
               prefersReducedMotion={prefersReducedMotion}
             />
             <IndicadorLine
-              label="Pesquisa de Satisfação"
+              label="NPS"
               indicador={data.indicadores.nps}
               delay={5}
               prefersReducedMotion={prefersReducedMotion}

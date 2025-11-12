@@ -98,6 +98,38 @@ export default function DonationFlow() {
     }
   };
 
+  // ✅ FUNÇÃO DE POLLING: Obter clientSecret quando subscription vier com PI null
+  const pollForClientSecret = async (subscriptionId: string): Promise<string> => {
+    const MAX_ATTEMPTS = 10;
+    const INTERVAL_MS = 1000;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      console.log(`🔄 [POLLING] Tentativa ${attempt}/${MAX_ATTEMPTS} - Buscando clientSecret para subscription ${subscriptionId}`);
+      
+      try {
+        const response = await apiRequest(`/api/subscriptions/${subscriptionId}/client-secret`, {
+          method: "GET",
+        });
+
+        if (response.clientSecret && isValidClientSecret(response.clientSecret)) {
+          console.log(`✅ [POLLING] clientSecret obtido com sucesso na tentativa ${attempt}`);
+          return response.clientSecret;
+        }
+
+        console.log(`⏳ [POLLING] clientSecret ainda null, aguardando ${INTERVAL_MS}ms...`);
+        await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+      } catch (error) {
+        console.error(`❌ [POLLING] Erro na tentativa ${attempt}:`, error);
+        if (attempt === MAX_ATTEMPTS) {
+          throw new Error("Falha ao obter clientSecret após múltiplas tentativas");
+        }
+        await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+      }
+    }
+
+    throw new Error("Timeout: clientSecret não disponível após 10 tentativas");
+  };
+
   useEffect(() => {
     localStorage.removeItem("donation_flow_progress");
     localStorage.removeItem("termsAccepted");
@@ -119,7 +151,8 @@ export default function DonationFlow() {
     const savedPlan = localStorage.getItem("selectedPlan");
     const effectivePlanId = planId || savedPlan;
 
-    if (!effectivePlanId && !isDevAccess && !isFromDevPanel) {
+    // ✅ CORREÇÃO: Não redirecionar se pagamento foi completado
+    if (!effectivePlanId && !isDevAccess && !isFromDevPanel && !paymentCompleted && !paymentWasSuccessful) {
       console.log(
         `❌ [DONATION FLOW DEBUG] Redirecionando para /plans - nenhum plano encontrado`
       );
@@ -139,12 +172,35 @@ export default function DonationFlow() {
         displayValue: "R$ 9,90",
       };
     } else if (effectivePlanId === "platinum") {
-      const amount = customAmount ? parseFloat(customAmount) : 50;
+      const monthlyAmount = customAmount ? parseFloat(customAmount) : 50;
+      
+      // Obter periodicidade e calcular valor total do período
+      const selectedPeriodicity = periodicity || localStorage.getItem('selectedPeriodicity') || 'mensal';
+      
+      // Multiplicadores por periodicidade
+      const periodicityMultiplier: { [key: string]: number } = {
+        'mensal': 1,
+        'trimestral': 3,
+        'semestral': 6,
+        'anual': 12
+      };
+      
+      const periodicityDisplay: { [key: string]: string } = {
+        'mensal': '/mês',
+        'trimestral': '/trimestre',
+        'semestral': '/semestre',
+        'anual': '/ano'
+      };
+      
+      // Calcular valor total do período (valor mensal × multiplicador)
+      const multiplier = periodicityMultiplier[selectedPeriodicity] || 1;
+      const totalAmount = monthlyAmount * multiplier;
+      
       planData = {
         id: "platinum",
         name: "Platinum",
-        value: amount,
-        displayValue: `R$ ${amount.toFixed(2).replace(".", ",")}`,
+        value: totalAmount, // Valor TOTAL do período
+        displayValue: `R$ ${totalAmount.toFixed(2).replace(".", ",")}${periodicityDisplay[selectedPeriodicity] || '/mês'}`,
       };
     } else {
       // Use the centralized plan pricing structure from stripe.ts
@@ -598,6 +654,9 @@ export default function DonationFlow() {
         `✅ [NEW USER PAYMENT] Criando pagamento para novo usuário: ${phone}`
       );
 
+      // Obter periodicidade escolhida pelo usuário
+      const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
+      
       const result = await apiRequest("/api/donation/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -609,34 +668,50 @@ export default function DonationFlow() {
           valor:
             donationData.plan === "platinum"
               ? donationData.amount
-              : donationData.amount, // já vem do plano escolhido
-          // Se precisar periodicidade no futuro e o backend suportar, adicione aqui:
-          // periodicity: periodicity || localStorage.getItem('selectedPeriodicity') || 'mensal',
+              : donationData.amount,
+          periodicity: selectedPeriodicity, // ✅ ADICIONADO: Envia periodicidade escolhida
         }),
       });
 
-      // ✅ valida clientSecret antes de usar
-      if (!isValidClientSecret(result?.clientSecret)) {
-        console.error("❌ clientSecret inválido:", result?.clientSecret);
+      // ✅ NOVO FLUXO: Processar resposta subscription-first
+      let finalClientSecret = result.clientSecret;
+
+      // Se clientSecret vier null, fazer polling
+      if (!isValidClientSecret(finalClientSecret) && result.subscriptionId) {
+        console.log(`⏳ [NEW USER PAYMENT] clientSecret null, iniciando polling para subscription ${result.subscriptionId}`);
+        finalClientSecret = await pollForClientSecret(result.subscriptionId);
+      }
+
+      // Validar clientSecret final
+      if (!isValidClientSecret(finalClientSecret)) {
+        console.error("❌ clientSecret inválido:", finalClientSecret);
         throw new Error("Falha ao criar pagamento (clientSecret inválido).");
       }
 
       // Salvar dados locais para continuidade do fluxo
-      setClientSecret(result.clientSecret);
-      localStorage.setItem("paymentIntentId", result.paymentIntentId);
+      setClientSecret(finalClientSecret);
+      
+      // Salvar subscriptionId e secretType
+      if (result.subscriptionId) {
+        localStorage.setItem("subscriptionId", result.subscriptionId);
+        console.log('✅ [NEW USER PAYMENT] Subscription ID salvo:', result.subscriptionId);
+      }
+      
+      if (result.secretType) {
+        localStorage.setItem("secretType", result.secretType);
+        console.log('✅ [NEW USER PAYMENT] Secret Type salvo:', result.secretType);
+      }
 
-      // TODO: Rota não fornece esta informação
       localStorage.setItem("selectedPlan", donationData.plan);
 
       if (result.userId)
         localStorage.setItem("donationUserId", String(result.userId));
-      if (result.donationId)
-        localStorage.setItem("donationId", String(result.donationId));
+      if (result.doadorId)
+        localStorage.setItem("donationId", String(result.doadorId));
 
       // Também guardamos dados úteis da sessão
       if (result.userId) localStorage.setItem("userId", String(result.userId));
       localStorage.setItem("userName", donationData.nome);
-      // TRECHO ALTERADO
       localStorage.setItem("userPhone", phone);
       localStorage.setItem("userPlan", donationData.plan);
 
@@ -673,6 +748,9 @@ export default function DonationFlow() {
         `✅ [DONATION FLOW] Criando pagamento para telefone: ${phone}`
       );
 
+      // Obter periodicidade escolhida pelo usuário
+      const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
+
       // 🎯 Usar rota existente create-for-new-user
       const result = await apiRequest("/api/payments/create-for-new-user", {
         method: "POST",
@@ -686,6 +764,7 @@ export default function DonationFlow() {
             donationData.plan === "platinum"
               ? donationData.amount * 100
               : undefined, // Convert to cents if custom amount
+          periodicity: selectedPeriodicity, // ✅ ADICIONADO: Envia periodicidade escolhida
         }),
       });
 
@@ -1007,11 +1086,18 @@ export default function DonationFlow() {
         }),
       });
 
-      // TRECHO ALTERADO
-
       if (result.success) {
-        // ✅ valide antes de salvar/usar
-        if (!isValidClientSecret(result?.clientSecret)) {
+        // ✅ NOVO FLUXO: Processar resposta subscription-first
+        let finalClientSecret = result.clientSecret;
+
+        // Se clientSecret vier null, fazer polling
+        if (!isValidClientSecret(finalClientSecret) && result.subscriptionId) {
+          console.log(`⏳ [PREPARE PAYMENT] clientSecret null, iniciando polling para subscription ${result.subscriptionId}`);
+          finalClientSecret = await pollForClientSecret(result.subscriptionId);
+        }
+
+        // Validar clientSecret final
+        if (!isValidClientSecret(finalClientSecret)) {
           throw new Error(
             "Falha ao preparar pagamento (clientSecret inválido)."
           );
@@ -1019,9 +1105,19 @@ export default function DonationFlow() {
 
         // Save to localStorage for payment flow
         localStorage.setItem("donationUserId", result.userId.toString());
-        localStorage.setItem("donationId", result.donationId.toString());
+        localStorage.setItem("donationId", result.doadorId?.toString() || "");
         localStorage.setItem("selectedPlan", donationData.plan);
-        localStorage.setItem("paymentIntentId", result.paymentIntentId);
+        
+        // Salvar subscriptionId e secretType
+        if (result.subscriptionId) {
+          localStorage.setItem("subscriptionId", result.subscriptionId);
+          console.log('✅ [PREPARE PAYMENT] Subscription ID salvo:', result.subscriptionId);
+        }
+        
+        if (result.secretType) {
+          localStorage.setItem("secretType", result.secretType);
+          console.log('✅ [PREPARE PAYMENT] Secret Type salvo:', result.secretType);
+        }
 
         // Save user data to localStorage for future login
         console.log(
@@ -1033,7 +1129,7 @@ export default function DonationFlow() {
         localStorage.setItem("userPhone", donationData.telefone);
         localStorage.setItem("userPlan", donationData.plan);
 
-        setClientSecret(result.clientSecret);
+        setClientSecret(finalClientSecret);
 
         // Payment preparation complete - let handleNext advance normally
         setIsPreparingPayment(false);
@@ -1228,7 +1324,86 @@ export default function DonationFlow() {
       setIsProcessing(true);
 
       try {
-        const { error, paymentIntent } = await stripe.confirmPayment({
+        // Recuperar secretType do localStorage
+        const secretType = localStorage.getItem('secretType');
+        console.log('🔍 [PAYMENT] Secret Type recuperado:', secretType);
+        
+        // Fluxo diferente para PaymentIntent vs SetupIntent
+        if (secretType === 'setup') {
+          // FLUXO SETUP: Coletar cartão primeiro, depois pagar invoice
+          console.log('🔧 [PAYMENT] Fluxo SetupIntent - coletando cartão...');
+          
+          const { error, setupIntent } = await stripe.confirmSetup({
+            elements,
+            confirmParams: {
+              // Sem return_url se não precisar redirect
+            },
+            redirect: "if_required",
+          });
+
+          if (error) {
+            console.error("❌ [SETUP] Erro ao confirmar setup:", error);
+            setPaymentWasSuccessful(false);
+            setAnimationKey((prev) => prev + 1);
+            setCurrentStep(9); // payment_failed step
+            return;
+          }
+
+          if (setupIntent?.status === 'succeeded') {
+            console.log('✅ [SETUP] Cartão salvo, agora pagando invoice...');
+            
+            // Pegar subscription ID do localStorage
+            const subscriptionId = localStorage.getItem('subscriptionId');
+            
+            if (!subscriptionId) {
+              console.error('❌ [SETUP] Subscription ID não encontrado no localStorage. Keys disponíveis:', Object.keys(localStorage));
+              throw new Error('Subscription ID não encontrado');
+            }
+            
+            console.log('🔍 [SETUP] Usando subscriptionId:', subscriptionId);
+            
+            // Chamar endpoint para pagar invoice
+            const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                paymentMethodId: setupIntent.payment_method
+              })
+            });
+
+            if (!payResponse.ok) {
+              throw new Error('Falha ao processar pagamento após setup');
+            }
+
+            const payData = await payResponse.json();
+            console.log('✅ [SETUP] Invoice paga com sucesso:', payData);
+            
+            // Payment successful
+            setPaymentCompleted(true);
+            setPaymentWasSuccessful(true);
+
+            // Configure user session
+            localStorage.setItem("isVerified", "true");
+            localStorage.setItem("userPapel", "doador");
+            localStorage.setItem("hasActiveSubscription", "true");
+            localStorage.setItem("firstTimeAccess", "true");
+            localStorage.setItem("hasDoadorRole", "true");
+            sessionStorage.setItem("justCompletedDonation", "true");
+
+            // Go to success screen
+            setAnimationKey((prev) => prev + 1);
+            setCurrentStep(5); // payment_success step
+          } else {
+            console.error('❌ [SETUP] Setup failed, status:', setupIntent?.status);
+            setPaymentWasSuccessful(false);
+            setAnimationKey((prev) => prev + 1);
+            setCurrentStep(9); // payment_failed step
+          }
+        } else {
+          // FLUXO PAYMENT: Pagamento direto (original)
+          console.log('💳 [PAYMENT] Fluxo PaymentIntent - confirmando pagamento...');
+          
+          const { error, paymentIntent } = await stripe.confirmPayment({
           elements,
           confirmParams: {
             // Evitar refresh automático removendo return_url desnecessário
@@ -1294,7 +1469,9 @@ export default function DonationFlow() {
           setAnimationKey((prev) => prev + 1);
           setCurrentStep(9); // payment_failed step
         }
+        } // END else (payment flow)
       } catch (error: any) {
+        console.error('❌ [PAYMENT/SETUP] Erro:', error);
         setPaymentWasSuccessful(false);
         setAnimationKey((prev) => prev + 1);
         setCurrentStep(9); // payment_failed step
@@ -1403,13 +1580,26 @@ export default function DonationFlow() {
       }
     };
 
+    // Obter periodicidade escolhida
+    const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
+    
+    // Converter periodicidade para texto legível
+    const periodicityText: { [key: string]: string } = {
+      'mensal': 'mensal',
+      'trimestral': 'trimestral',
+      'semestral': 'semestral',
+      'anual': 'anual'
+    };
+    
+    const displayPeriodicity = periodicityText[selectedPeriodicity] || 'mensal';
+
     return (
       <div
         className="text-center animate-fade-in"
         key={`payment-${animationKey}`}
       >
         <h1 className="text-xl font-bold mb-8" style={{ color: "#000000" }}>
-          Finalize sua doação mensal!
+          Finalize sua doação {displayPeriodicity}!
         </h1>
 
         {/* Resumo compacto expansível */}
@@ -1454,15 +1644,32 @@ export default function DonationFlow() {
                   {planInfo?.name}
                 </span>
               </div>
+              
+              {/* Mostrar valor mensal base para Platinum */}
+              {planInfo?.id === 'platinum' && selectedPeriodicity !== 'mensal' && (() => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const monthlyValue = urlParams.get("amount") || localStorage.getItem("customAmount") || '50';
+                const monthlyFormatted = parseFloat(monthlyValue).toFixed(2).replace('.', ',');
+                
+                return (
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-600">Valor mensal base:</span>
+                    <span className="text-sm text-gray-700">
+                      R$ {monthlyFormatted}/mês
+                    </span>
+                  </div>
+                );
+              })()}
+              
               <div className="flex justify-between items-center mb-2">
-                <span className="text-sm text-gray-600">Valor mensal:</span>
+                <span className="text-sm text-gray-600">Valor {displayPeriodicity}:</span>
                 <span className="text-sm text-green-600 font-semibold">
                   {planInfo?.displayValue}
                 </span>
               </div>
               <div className="text-center">
                 <span className="text-xs text-gray-500 italic">
-                  Assinatura mensal recorrente
+                  Assinatura {displayPeriodicity} recorrente
                 </span>
               </div>
             </div>
@@ -2222,14 +2429,14 @@ export default function DonationFlow() {
                         {safeCurrentStepData && safeCurrentStepData.field === "telefone" ? (
                           // Campo de telefone separado em DDI e número
                           <div className="w-full space-y-4">
-                            <div className="flex gap-3">
+                            <div className="flex gap-2">
                               {/* Campo DDI fixo */}
-                              <div className="w-20">
+                              <div className="w-24 flex-shrink-0">
                                 <input
                                   type="text"
                                   value="+55"
                                   readOnly
-                                  className="w-full h-14 border-2 rounded-xl text-black text-center bg-gray-100 cursor-not-allowed"
+                                  className="w-full h-14 border-2 rounded-xl text-black text-center bg-gray-100 cursor-not-allowed font-medium"
                                   style={{
                                     backgroundColor: "#F3F4F6",
                                     borderColor: "#E5E7EB",
@@ -2242,7 +2449,7 @@ export default function DonationFlow() {
                               </div>
 
                               {/* Campo número com máscara */}
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                 <input
                                    type="tel"
                                    pattern="[0-9]*"
@@ -2250,7 +2457,13 @@ export default function DonationFlow() {
                                   placeholder="(11) 99999-9999"
                                   value={donationData.telefone_numero || ""}
                                   onChange={(e) => handleInputChange(e.target.value)}
-                                  className="w-full h-14 border-2 rounded-xl ..."
+                                  className="w-full h-14 border-2 rounded-xl text-black placeholder:text-gray-400 focus:outline-none focus:ring-0 px-4"
+                                  style={{
+                                    backgroundColor: "#FFFFFF",
+                                    borderColor: "#3B82F6",
+                                    fontFamily: "Inter",
+                                    fontSize: "16px",
+                                  }}
                                   autoFocus
                                   disabled={isLoading}
                                   maxLength={15}
@@ -2260,6 +2473,7 @@ export default function DonationFlow() {
                                       handleNext();
                                     }
                                   }}
+                                  data-testid="input-telefone"
                                 />
                               </div>
                             </div>

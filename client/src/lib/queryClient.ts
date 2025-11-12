@@ -1,19 +1,4 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { Capacitor } from "@capacitor/core";
-
-// Base do backend: usa VITE_API_BASE em build web e, no app nativo, força seu domínio
-const API_BASE =
-  import.meta.env?.VITE_API_BASE ||
-  (Capacitor.isNativePlatform()
-    ? "https://clubedogrito.institutoogrito.com.br"
-    : "");
-
-// Prefixa a URL quando vier relativa (/api/...)
-function withBase(url: string) {
-  if (/^https?:\/\//i.test(url)) return url;      // já é absoluta
-  if (url.startsWith("/")) return `${API_BASE}${url}`;
-  return url; // rotas relativas a página (evitar quebrar outros casos)
-}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -28,10 +13,8 @@ export async function apiRequest(url: string, options?: {
   headers?: Record<string, string>;
 }): Promise<any> {
   const { method = 'GET', body, headers = {} } = options || {};
-
-  const finalUrl = withBase(url);
-
-  const res = await fetch(finalUrl, {
+  
+  const res = await fetch(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -39,16 +22,17 @@ export async function apiRequest(url: string, options?: {
     },
     body,
     credentials: 'include',
+    cache: 'no-store',
   });
 
   await throwIfResNotOk(res);
-
-  // Verifica conteúdo antes de tentar JSON
+  
+  // Verificar se a resposta tem conteúdo antes de parsear JSON
   const text = await res.text();
   if (!text || text.trim() === '') {
     return null;
   }
-
+  
   try {
     return JSON.parse(text);
   } catch (error) {
@@ -63,25 +47,31 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    // queryKey[0] costuma ser '/api/...'
-    const raw = String(queryKey[0] ?? "");
-    const finalUrl = withBase(raw);
-
-    const res = await fetch(finalUrl, {
+    const userId = localStorage.getItem("userId");
+    const headers: Record<string, string> = {};
+    
+    if (userId) {
+      headers['x-user-id'] = userId;
+    }
+    
+    const res = await fetch(queryKey[0] as string, {
       credentials: "include",
+      headers,
+      cache: 'no-store',
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null as unknown as T;
+      return null;
     }
 
     await throwIfResNotOk(res);
-
+    
+    // Verificar se a resposta tem conteúdo antes de parsear JSON
     const text = await res.text();
     if (!text || text.trim() === '') {
-      return null as unknown as T;
+      return null;
     }
-
+    
     try {
       return JSON.parse(text);
     } catch (error) {

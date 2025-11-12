@@ -15,8 +15,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import PsicoMonthlyReport from "@/components/psico/PsicoMonthlyReport";
+import PsicoDashboard from "@/components/psico/PsicoDashboard";
 import { 
-  Users, 
+  Users,
+  User,
   BookOpen, 
   Calendar, 
   FileText, 
@@ -44,6 +46,7 @@ import {
 export default function CoordenadorPsicoPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSection, setActiveSection] = useState('dashboard');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showFamiliaModal, setShowFamiliaModal] = useState(false);
@@ -168,9 +171,12 @@ export default function CoordenadorPsicoPage() {
     observacoes: ''
   });
   
-  // Obter dados do usuário do localStorage
-  const userId = localStorage.getItem("userId");
-  const userName = localStorage.getItem("userName") || "Coordenador";
+  // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
+  // Pegar ID do coordenador do sessionStorage (login de coordenador)
+  const coordenadorData = sessionStorage.getItem("coordenador_data");
+  const coordenadorId = coordenadorData ? JSON.parse(coordenadorData).id : null;
+  const userId = coordenadorId ? coordenadorId.toString() : null;
+  const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
 
   // Query para buscar dados do dashboard do coordenador
@@ -475,25 +481,66 @@ export default function CoordenadorPsicoPage() {
   // Query para buscar famílias
   const { data: familias = [], isLoading: isLoadingFamilias } = useQuery<any[]>({
     queryKey: ['/api/psico/familias'],
-    enabled: !!userId
+    queryFn: async () => {
+      const response = await fetch('/api/psico/familias', {
+        headers: { 'x-user-id': userId || '' }
+      });
+      if (!response.ok) throw new Error('Erro ao buscar famílias');
+      return response.json();
+    },
+    enabled: !!userId,
+    select: (data: any) => data?.familias || []
   });
 
   // Query para buscar casos
   const { data: casos = [], isLoading: isLoadingCasos } = useQuery({
     queryKey: ['/api/psico/casos'],
-    enabled: !!userId
+    queryFn: async () => {
+      const response = await fetch('/api/psico/casos', {
+        headers: { 'x-user-id': userId || '' }
+      });
+      if (!response.ok) throw new Error('Erro ao buscar casos');
+      return response.json();
+    },
+    enabled: !!userId,
+    select: (data: any) => data?.casos || []
   });
 
   // Query para buscar atendimentos
   const { data: atendimentos = [], isLoading: isLoadingAtendimentos } = useQuery({
     queryKey: ['/api/psico/atendimentos'],
-    enabled: !!userId
+    queryFn: async () => {
+      const response = await fetch('/api/psico/atendimentos', {
+        headers: { 'x-user-id': userId || '' }
+      });
+      if (!response.ok) throw new Error('Erro ao buscar atendimentos');
+      const result = await response.json();
+      console.log('🔍 [ATENDIMENTOS DEBUG] Dados recebidos:', result);
+      console.log('🔍 [ATENDIMENTOS DEBUG] Array de atendimentos:', result?.atendimentos);
+      console.log('🔍 [ATENDIMENTOS DEBUG] Quantidade:', result?.atendimentos?.length);
+      return result;
+    },
+    enabled: !!userId,
+    select: (data: any) => {
+      const atends = data?.atendimentos || [];
+      console.log('🔍 [ATENDIMENTOS DEBUG] Após select:', atends);
+      console.log('🔍 [ATENDIMENTOS DEBUG] Após select - quantidade:', atends.length);
+      return atends;
+    }
   });
 
   // Query para buscar planos
   const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     queryKey: ['/api/psico/planos'],
-    enabled: !!userId
+    queryFn: async () => {
+      const response = await fetch('/api/psico/planos', {
+        headers: { 'x-user-id': userId || '' }
+      });
+      if (!response.ok) throw new Error('Erro ao buscar planos');
+      return response.json();
+    },
+    enabled: !!userId,
+    select: (data: any) => data?.planos || []
   });
 
   // Handlers para salvar dados
@@ -597,7 +644,7 @@ export default function CoordenadorPsicoPage() {
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso."
     });
-    setTimeout(() => window.location.href = "/entrar", 500);
+    setTimeout(() => window.location.href = "/login/coordenador", 500);
   };
 
   const handleExportReport = () => {
@@ -660,6 +707,47 @@ export default function CoordenadorPsicoPage() {
     }
   };
 
+  const handleExportCSV = (data: any[], filename: string) => {
+    if (!data || data.length === 0) {
+      toast({
+        title: "Sem dados para exportar",
+        description: "Não há dados disponíveis para exportação.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Converter dados para CSV
+    const headers = Object.keys(data[0]);
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => {
+        const value = row[header];
+        // Escapar vírgulas e aspas
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      }).join(','))
+    ].join('\n');
+
+    // Criar e baixar arquivo
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Exportação concluída!",
+      description: `Arquivo ${filename} baixado com sucesso.`
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -684,7 +772,7 @@ export default function CoordenadorPsicoPage() {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
                 Coordenação Psicossocial
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Bem-vindo, {userName}</p>
+              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -726,37 +814,251 @@ export default function CoordenadorPsicoPage() {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          
-          {/* Indicadores da Área */}
-          <Card data-testid="card-indicadores">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Target className="w-5 h-5 text-purple-500" />
-                Indicadores da Área
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Famílias Atendidas:</span>
-                <span className="font-semibold" data-testid="text-familias-atendidas">
-                  {dashboardData?.familiasAtendidas || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Casos em Acompanhamento:</span>
-                <span className="font-semibold" data-testid="text-casos-acompanhamento">
-                  {dashboardData?.casosAcompanhamento || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Taxa de Resolutividade:</span>
-                <span className="font-semibold text-purple-600" data-testid="text-taxa-resolutividade">
-                  {dashboardData?.taxaResolutividade || 0}%
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Tabs Principais */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="dashboard" data-testid="tab-dashboard">
+              <Heart className="w-4 h-4 mr-2" />
+              Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="participantes" data-testid="tab-participantes">
+              <Users className="w-4 h-4 mr-2" />
+              Participantes
+            </TabsTrigger>
+            <TabsTrigger value="casos" data-testid="tab-casos">
+              <FileText className="w-4 h-4 mr-2" />
+              Casos
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Aba Dashboard */}
+          <TabsContent value="dashboard" className="space-y-6">
+            <PsicoDashboard
+              familias={familias}
+              casos={casos}
+              atendimentos={atendimentos}
+              participantes={participantesData || []}
+              encaminhamentos={[]}
+              onViewDetails={(caso: any) => {
+                setActiveTab('casos');
+                setActiveSection('casos');
+              }}
+              onExportCSV={handleExportCSV}
+            />
+          </TabsContent>
+
+          {/* Aba Participantes */}
+          <TabsContent value="participantes" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Participantes (Inclusão Produtiva e PEC)</span>
+                  <Badge variant="outline" className="text-lg">
+                    {participantesData?.length || 0} participantes
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600 mb-6">
+                  Lista de participantes da Inclusão Produtiva e PEC (Esporte e Cultura) vinculados automaticamente como atendidos do Psicossocial.
+                </p>
+                
+                {participantesData && participantesData.length === 0 && (
+                  <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-yellow-900">Nenhum participante encontrado</h3>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Os alunos já cadastrados no sistema ainda não foram vinculados. Clique no botão abaixo para sincronizar automaticamente.
+                        </p>
+                        <Button 
+                          className="mt-3" 
+                          onClick={() => syncParticipantesMutation.mutate()}
+                          disabled={syncParticipantesMutation.isPending}
+                          data-testid="button-sync-participantes"
+                        >
+                          {syncParticipantesMutation.isPending ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                              Sincronizando...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Sincronizar Alunos Existentes
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="mb-4 flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input 
+                      placeholder="Buscar participante por nome..." 
+                      className="pl-10" 
+                      data-testid="input-search-participante"
+                    />
+                  </div>
+                  {participantesData && participantesData.length > 0 && (
+                    <Button 
+                      variant="outline"
+                      onClick={() => syncParticipantesMutation.mutate()}
+                      disabled={syncParticipantesMutation.isPending}
+                      data-testid="button-sync-participantes-header"
+                    >
+                      {syncParticipantesMutation.isPending ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Sincronizando
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Sincronizar
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+
+                {isLoadingParticipantes ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">Carregando participantes...</p>
+                  </div>
+                ) : participantesData && participantesData.length > 0 ? (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Programa</TableHead>
+                          <TableHead>Gênero</TableHead>
+                          <TableHead>Idade</TableHead>
+                          <TableHead>Família Vinculada</TableHead>
+                          <TableHead>Papel</TableHead>
+                          <TableHead>Contato</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {participantesData.map((participante: any) => (
+                          <TableRow key={participante.id} data-testid={`row-participante-${participante.id}`}>
+                            <TableCell className="font-medium">{participante.nome}</TableCell>
+                            <TableCell>
+                              <Badge 
+                                className={participante.programa_origem === 'pec' 
+                                  ? 'bg-blue-100 text-blue-800' 
+                                  : 'bg-green-100 text-green-800'}
+                              >
+                                {participante.programa_origem === 'pec' ? '🏃 PEC' : '🎓 Inclusão'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">
+                                {participante.genero || '-'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{participante.idade ? `${participante.idade} anos` : '-'}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{participante.familia_nome}</span>
+                                <span className="text-xs text-gray-500">ID: {participante.familia_id}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {participante.papel ? (
+                                <Badge className="bg-indigo-100 text-indigo-800">
+                                  {participante.papel}
+                                </Badge>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col text-sm">
+                                {participante.telefone && (
+                                  <span>{participante.telefone}</span>
+                                )}
+                                {participante.email && (
+                                  <span className="text-xs text-gray-500">{participante.email}</span>
+                                )}
+                                {!participante.telefone && !participante.email && (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedParticipante(participante);
+                                    setShowHistoricoModal(true);
+                                  }}
+                                  data-testid={`button-historico-participante-${participante.id}`}
+                                  title="Ver histórico de atendimentos"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 border rounded-lg bg-gray-50">
+                    <UserCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-600 font-medium">Nenhum participante vinculado</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Participantes cadastrados na Inclusão Produtiva ou PEC aparecerão aqui automaticamente
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Aba Casos - Conteúdo Atual */}
+          <TabsContent value="casos" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              
+              {/* Indicadores da Área */}
+              <Card data-testid="card-indicadores">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Target className="w-5 h-5 text-purple-500" />
+                    Indicadores da Área
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Famílias Atendidas:</span>
+                    <span className="font-semibold" data-testid="text-familias-atendidas">
+                      {dashboardData?.familiasAtendidas || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Casos em Acompanhamento:</span>
+                    <span className="font-semibold" data-testid="text-casos-acompanhamento">
+                      {dashboardData?.casosAcompanhamento || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Taxa de Resolutividade:</span>
+                    <span className="font-semibold text-purple-600" data-testid="text-taxa-resolutividade">
+                      {dashboardData?.taxaResolutividade || 0}%
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
 
           {/* Gestão de Famílias */}
           <Card data-testid="card-familias">
@@ -788,15 +1090,6 @@ export default function CoordenadorPsicoPage() {
                 >
                   <UserCheck className="w-4 h-4 mr-2" />
                   Casos Ativos
-                </Button>
-                <Button 
-                  className="w-full" 
-                  variant={activeSection === 'relatorios' ? 'default' : 'outline'}
-                  data-testid="button-relatorios"
-                  onClick={() => setActiveSection('relatorios')}
-                >
-                  <FileText className="w-4 h-4 mr-2" />
-                  Relatórios
                 </Button>
               </div>
             </CardContent>
@@ -1287,7 +1580,7 @@ export default function CoordenadorPsicoPage() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="text-sm font-medium text-gray-600">Total Ativos</p>
-                                <p className="text-2xl font-bold text-blue-600">24</p>
+                                <p className="text-2xl font-bold text-blue-600">{casos.filter(c => c.status === 'aberto').length}</p>
                               </div>
                               <Activity className="h-8 w-8 text-blue-600" />
                             </div>
@@ -1298,7 +1591,7 @@ export default function CoordenadorPsicoPage() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="text-sm font-medium text-gray-600">Críticos</p>
-                                <p className="text-2xl font-bold text-red-600">8</p>
+                                <p className="text-2xl font-bold text-red-600">{casos.filter(c => c.prioridade === 'alta').length}</p>
                               </div>
                               <AlertTriangle className="h-8 w-8 text-red-600" />
                             </div>
@@ -1309,7 +1602,14 @@ export default function CoordenadorPsicoPage() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="text-sm font-medium text-gray-600">Novos (Semana)</p>
-                                <p className="text-2xl font-bold text-green-600">5</p>
+                                <p className="text-2xl font-bold text-green-600">
+                                  {casos.filter(c => {
+                                    const casoDate = new Date(c.dataAbertura);
+                                    const weekAgo = new Date();
+                                    weekAgo.setDate(weekAgo.getDate() - 7);
+                                    return casoDate >= weekAgo;
+                                  }).length}
+                                </p>
                               </div>
                               <Plus className="h-8 w-8 text-green-600" />
                             </div>
@@ -1331,60 +1631,62 @@ export default function CoordenadorPsicoPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            <TableRow>
-                              <TableCell>
-                                <div>
-                                  <div className="font-medium">#C001</div>
-                                  <div className="text-sm text-gray-500">Aberto 20/09/2025</div>
-                                </div>
-                              </TableCell>
-                              <TableCell>Família Silva</TableCell>
-                              <TableCell>Violência Doméstica</TableCell>
-                              <TableCell>
-                                <Badge className="bg-red-100 text-red-800">Alta</Badge>
-                              </TableCell>
-                              <TableCell>Dra. Ana Lima</TableCell>
-                              <TableCell>
-                                <Badge className="bg-blue-100 text-blue-800">Em Atendimento</Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Button variant="ghost" size="sm" data-testid="button-view-case">
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="sm" data-testid="button-edit-case">
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                            <TableRow>
-                              <TableCell>
-                                <div>
-                                  <div className="font-medium">#C002</div>
-                                  <div className="text-sm text-gray-500">Aberto 18/09/2025</div>
-                                </div>
-                              </TableCell>
-                              <TableCell>João Santos</TableCell>
-                              <TableCell>Dependência Química</TableCell>
-                              <TableCell>
-                                <Badge className="bg-orange-100 text-orange-800">Média</Badge>
-                              </TableCell>
-                              <TableCell>Dr. João Costa</TableCell>
-                              <TableCell>
-                                <Badge className="bg-green-100 text-green-800">Acompanhamento</Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Button variant="ghost" size="sm" data-testid="button-view-case">
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="sm" data-testid="button-edit-case">
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                            {casos.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                                  Nenhum caso cadastrado
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              casos.map((caso: any) => {
+                                const familia = familias.find((f: any) => f.id === caso.familiaId);
+                                return (
+                                  <TableRow key={caso.id}>
+                                    <TableCell>
+                                      <div>
+                                        <div className="font-medium">#C{String(caso.id).padStart(3, '0')}</div>
+                                        <div className="text-sm text-gray-500">
+                                          Aberto {new Date(caso.dataAbertura).toLocaleDateString('pt-BR')}
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>{familia ? familia.nomeResponsavel : 'Não especificado'}</TableCell>
+                                    <TableCell>{caso.tipo}</TableCell>
+                                    <TableCell>
+                                      <Badge className={
+                                        caso.prioridade === 'alta' ? 'bg-red-100 text-red-800' :
+                                        caso.prioridade === 'media' ? 'bg-orange-100 text-orange-800' :
+                                        'bg-yellow-100 text-yellow-800'
+                                      }>
+                                        {caso.prioridade === 'alta' ? 'Alta' : caso.prioridade === 'media' ? 'Média' : 'Baixa'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>{caso.responsavelNome || '-'}</TableCell>
+                                    <TableCell>
+                                      <Badge className={
+                                        caso.status === 'aberto' ? 'bg-blue-100 text-blue-800' :
+                                        caso.status === 'em_atendimento' ? 'bg-purple-100 text-purple-800' :
+                                        'bg-green-100 text-green-800'
+                                      }>
+                                        {caso.status === 'aberto' ? 'Em Atendimento' : 
+                                         caso.status === 'em_atendimento' ? 'Acompanhamento' : 
+                                         'Fechado'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <Button variant="ghost" size="sm" data-testid="button-view-case">
+                                          <Eye className="h-4 w-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm" data-testid="button-edit-case">
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
+                            )}
                           </TableBody>
                         </Table>
                       </Card>
@@ -1830,6 +2132,12 @@ export default function CoordenadorPsicoPage() {
                     
                     <TabsContent value="historico" className="space-y-4">
                       <Card>
+                        {(() => {
+                          console.log('🔍 [RENDER DEBUG] atendimentos:', atendimentos);
+                          console.log('🔍 [RENDER DEBUG] atendimentos.length:', atendimentos?.length);
+                          console.log('🔍 [RENDER DEBUG] Condição:', atendimentos && atendimentos.length > 0);
+                          return null;
+                        })()}
                         {atendimentos && atendimentos.length > 0 ? (
                           <Table>
                             <TableHeader>
@@ -2665,6 +2973,8 @@ export default function CoordenadorPsicoPage() {
             </Card>
           )}
         </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Modal de Importação */}

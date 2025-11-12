@@ -34,7 +34,9 @@ import {
   User,
   BarChart3,
   Filter,
-  TrendingUp
+  TrendingUp,
+  BookOpen,
+  Award
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -784,13 +786,63 @@ export default function PatrocinadorDashboard() {
             </div>
           </div>
 
+          {/* Setores que Você Apoia */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">
+              Com seu apoio, o impacto é imenso!
+            </h2>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              {/* PEC */}
+              <div 
+                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
+                data-testid="setor-pec"
+              >
+                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
+                  <BookOpen className="w-8 h-8 text-yellow-800" />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">PEC</span>
+              </div>
+
+              {/* Inclusão Produtiva */}
+              <div 
+                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
+                data-testid="setor-inclusao"
+              >
+                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
+                  <Award className="w-8 h-8 text-yellow-800" />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">Inclusão<br />Produtiva</span>
+              </div>
+
+              {/* Psicossocial */}
+              <div 
+                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
+                data-testid="setor-psicossocial"
+              >
+                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
+                  <Heart className="w-8 h-8 text-yellow-800" />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">Psicossocial</span>
+              </div>
+
+              {/* F3D */}
+              <div 
+                className="flex flex-col items-center p-4 rounded-2xl bg-purple-100 cursor-default"
+                data-testid="setor-f3d"
+              >
+                <div className="w-16 h-16 rounded-full bg-purple-300 flex items-center justify-center mb-3">
+                  <UsersRound className="w-8 h-8 text-purple-800" />
+                </div>
+                <span className="text-sm font-semibold text-gray-900">F3D</span>
+              </div>
+            </div>
+          </div>
+
           {/* Acompanhe o Progresso */}
           <div className="mb-8">
             <Card>
               <CardContent className="pt-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">
-                  Com seu apoio, o impacto é imenso!
-                </h2>
                 <p className="text-gray-600 text-center mb-6">
                   Acompanhe o progresso dos programas que você apoia
                 </p>

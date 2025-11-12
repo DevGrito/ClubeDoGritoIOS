@@ -419,9 +419,16 @@ export default function Entrar() {
       localStorage.setItem("isVerified", "true");
       localStorage.setItem("userData", JSON.stringify(userData));
 
+      // ✅ Salvar status de doador no localStorage
+      if (userData.donationStatus?.isDonor || userData.papel === "doador" || userData.user?.papel === "doador") {
+        localStorage.setItem("isDonor", "true");
+        localStorage.setItem("userType", "doador");
+      }
+
       const hasActiveSubscription =
         preserveSubscription === "true" ||
         userData.hasActiveSubscription ||
+        userData.donationStatus?.hasActiveSubscription ||
         false;
       localStorage.setItem(
         "hasActiveSubscription",

@@ -25,6 +25,8 @@ import Welcome from "@/pages/welcome";
 import Sorteio from "@/pages/sorteio";
 import Noticias from "@/pages/noticias";
 import Perfil from "@/pages/perfil";
+import LinkIndicacao from "@/pages/link-indicacao";
+import LinkAfiliadoCadastro from "@/pages/link-afiliado-cadastro";
 import DadosCadastrais from "@/pages/dados-cadastrais";
 import Pagamentos from "@/pages/pagamentos";
 import Configuracoes from "@/pages/configuracoes";
@@ -72,8 +74,11 @@ import PagamentoAprovado from "@/pages/pagamento-aprovado";
 import PagamentoReprovado from "@/pages/pagamento-reprovado";
 import ScannerPage from "@/pages/scanner";
 import ScannerLogin from "@/pages/scanner-login";
+import CoordenadorLogin from "@/pages/coordenador-login";
 import AdminConciliarPix from "@/pages/admin-conciliar-pix";
 import AdminManualSubscription from "@/pages/admin-manual-subscription";
+import AdminMigrateDonors from "@/pages/admin-migrate-donors";
+import AdminRelatorioAssinaturas from "@/pages/admin-relatorio-assinaturas";
 import Subscriptions from "@/pages/Subscriptions";
 import IngressosEsgotados from "@/pages/ingressos-esgotados";
 
@@ -85,23 +90,6 @@ import CoordenadorPECPage from "@/pages/rbac/coordenador-pec";
 import CoordenadorPsicoPage from "@/pages/rbac/coordenador-psico";
 
 import NotFound from "@/pages/not-found";
-
-import { Capacitor } from "@capacitor/core";
-
-const VITE_API_BASE =
-  (import.meta as any)?.env?.VITE_API_BASE ||
-  (Capacitor.isNativePlatform()
-    ? "https://clubedogrito.institutoogrito.com.br"
-    : "");
-
-if (Capacitor.isNativePlatform()) {
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    let url = typeof input === "string" ? input : input.toString();
-    if (url.startsWith("/")) url = VITE_API_BASE + url; // "/api/..." -> "https://.../api/..."
-    return originalFetch(url as any, init);
-  };
-}
 
 // Componente para redirecionamento
 function RedirectComponent({ to }: { to: string }) {
@@ -356,6 +344,20 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+      <Route path="/link-indicacao">
+        {() => (
+          <ProtectedRoute allowedRoles={['doador', 'user']} routeName="/link-indicacao">
+            <LinkIndicacao />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/link-afiliado-cadastro">
+        {() => (
+          <ProtectedRoute allowedRoles={['doador', 'user']} routeName="/link-afiliado-cadastro">
+            <LinkAfiliadoCadastro />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/dados-cadastrais">
         {() => (
           <ProtectedRoute allowedRoles={['doador', 'user', 'patrocinador']} routeName="/dados-cadastrais">
@@ -487,10 +489,29 @@ function Router() {
         )}
       </Route>
 
+      <Route path="/admin/migrate-donors">
+        {() => (
+          <ProtectedRoute allowedRoles={['leo', 'desenvolvedor', 'super_admin', 'admin']} routeName="/admin/migrate-donors">
+            <AdminMigrateDonors />
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/admin/relatorio-assinaturas">
+        {() => (
+          <ProtectedRoute allowedRoles={['leo', 'desenvolvedor', 'super_admin', 'admin']} routeName="/admin/relatorio-assinaturas">
+            <AdminRelatorioAssinaturas />
+          </ProtectedRoute>
+        )}
+      </Route>
+
       {/* Scanner Login - Rota pública */}
       <Route path="/scanner-login" component={ScannerLogin} />
       
       <Route path="/scanner" component={ScannerPage} />
+
+      {/* Coordenador Login - Rota pública */}
+      <Route path="/login/coordenador" component={CoordenadorLogin} />
 
       <Route path="/pagamento/ingresso" component={IngressosEsgotados} />
       <Route path="/pagamento-ingresso" component={IngressosEsgotados} />
@@ -506,7 +527,14 @@ function Router() {
       <Route path="/ingresso/visualizar/:id" component={IngressoPage} />
       <Route path="/pagamento/aprovado" component={PagamentoAprovado} />
       <Route path="/pagamento/reprovado" component={PagamentoReprovado} />
-      <Route path="/dev" component={DevPage} />
+      
+      <Route path="/dev">
+        {() => (
+          <ProtectedRoute allowedRoles={['desenvolvedor', 'dev']} routeName="/dev">
+            <DevPage />
+          </ProtectedRoute>
+        )}
+      </Route>
       {/* Fallback para SPAs - todas as rotas não encontradas vão para / */}
       <Route>
         {() => <SplashGate />}

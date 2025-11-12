@@ -682,7 +682,7 @@ export default function Impacto() {
 
         {/* Gestão à Vista - PRIMEIRO */}
         <div className="mb-6">
-          <ImpactGestaoVista />
+          <ImpactGestaoVista mostrarAlunosEmFormacao={userData.telefone === "31998783003"} />
         </div>
 
         {/* Título da Página */}
@@ -842,122 +842,183 @@ export default function Impacto() {
               div::-webkit-scrollbar {
                 display: none;
               }
+              .recharts-legend-item-text {
+                color: #000 !important;
+                white-space: nowrap !important;
+              }
+              .recharts-default-legend {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                max-width: 280px !important;
+                gap: 4px 6px !important;
+              }
+              .recharts-legend-item {
+                margin-right: 6px !important;
+                flex: 0 0 auto !important;
+                white-space: nowrap !important;
+              }
             `}</style>
             <div className="flex gap-6 px-4" style={{width: 'fit-content'}}>
                 {/* Pizza 1: Gênero */}
-                <div className="flex-shrink-0 bg-white rounded-3xl p-6 shadow-lg snap-center flex flex-col" style={{width: '380px', height: '380px'}}>
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 text-center font-sans">
+                <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                     Gênero
                   </h3>
                   {loadingDemograficos ? (
-                    <div className="flex items-center justify-center h-64">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400"></div>
+                    <div className="flex items-center justify-center h-full">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-400"></div>
                     </div>
                   ) : dadosDemograficos?.genero && dadosDemograficos.genero.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <RechartsPie>
-                          <Pie
-                            data={dadosDemograficos.genero}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={(entry) => `${entry.percentage}%`}
-                            outerRadius={60}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {dadosDemograficos.genero.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS_GENERO[index % COLORS_GENERO.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                        </RechartsPie>
-                      </ResponsiveContainer>
-                      <div className="text-center mt-2">
-                        <div className="text-3xl font-extrabold text-gray-900 font-sans">
-                          1.000
-                        </div>
-                        <div className="text-xs font-medium text-gray-600 mt-1 font-sans">
-                          Total de participantes
-                        </div>
-                      </div>
-                    </>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPie>
+                        <Pie
+                          data={dadosDemograficos.genero}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ cx, cy, midAngle, outerRadius, percentage }: any) => {
+                            const RADIAN = Math.PI / 180;
+                            const radius = outerRadius + 25;
+                            const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                            const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                            return (
+                              <text x={x} y={y} fill="#000" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="14px" fontWeight="500">
+                                {`${percentage}%`}
+                              </text>
+                            );
+                          }}
+                          outerRadius={50}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {dadosDemograficos.genero.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS_GENERO[index % COLORS_GENERO.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                        <Legend 
+                          wrapperStyle={{ 
+                            fontSize: '11px', 
+                            color: '#000', 
+                            paddingLeft: '10px',
+                            paddingTop: '15px'
+                          }} 
+                          iconType="square"
+                          align="left"
+                          verticalAlign="bottom"
+                        />
+                      </RechartsPie>
+                    </ResponsiveContainer>
                   ) : (
                     <div className="text-center text-gray-500">Sem dados disponíveis</div>
                   )}
                 </div>
 
                 {/* Pizza 2: Raça/Cor */}
-                <div className="flex-shrink-0 bg-white rounded-3xl p-6 shadow-lg snap-center flex flex-col" style={{width: '380px', height: '380px'}}>
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 text-center font-sans">
+                <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                     Raça/Cor
                   </h3>
                   {loadingDemograficos ? (
-                    <div className="flex items-center justify-center h-64">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400"></div>
+                    <div className="flex items-center justify-center h-full">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-400"></div>
                     </div>
                   ) : dadosDemograficos?.racaCor && dadosDemograficos.racaCor.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <RechartsPie>
-                          <Pie
-                            data={dadosDemograficos.racaCor}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={(entry) => `${entry.percentage}%`}
-                            outerRadius={60}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {dadosDemograficos.racaCor.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS_RACA[index % COLORS_RACA.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                        </RechartsPie>
-                      </ResponsiveContainer>
-                    </>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPie>
+                        <Pie
+                          data={dadosDemograficos.racaCor}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ cx, cy, midAngle, outerRadius, percentage }: any) => {
+                            const RADIAN = Math.PI / 180;
+                            const radius = outerRadius + 25;
+                            const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                            const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                            return (
+                              <text x={x} y={y} fill="#000" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="14px" fontWeight="500">
+                                {`${percentage}%`}
+                              </text>
+                            );
+                          }}
+                          outerRadius={50}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {dadosDemograficos.racaCor.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS_RACA[index % COLORS_RACA.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                        <Legend 
+                          wrapperStyle={{ 
+                            fontSize: '11px', 
+                            color: '#000', 
+                            paddingLeft: '10px',
+                            paddingTop: '15px'
+                          }} 
+                          iconType="square"
+                          align="left"
+                          verticalAlign="bottom"
+                        />
+                      </RechartsPie>
+                    </ResponsiveContainer>
                   ) : (
                     <div className="text-center text-gray-500">Sem dados disponíveis</div>
                   )}
                 </div>
 
                 {/* Pizza 3: Faixas Etárias */}
-                <div className="flex-shrink-0 bg-white rounded-3xl p-6 shadow-lg snap-center flex flex-col" style={{width: '380px', height: '380px'}}>
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 text-center font-sans">
+                <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                     Faixas Etárias
                   </h3>
                   {loadingDemograficos ? (
-                    <div className="flex items-center justify-center h-64">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400"></div>
+                    <div className="flex items-center justify-center h-full">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-400"></div>
                     </div>
                   ) : dadosDemograficos?.idade && dadosDemograficos.idade.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <RechartsPie>
-                          <Pie
-                            data={dadosDemograficos.idade}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={(entry) => `${entry.percentage}%`}
-                            outerRadius={60}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {dadosDemograficos.idade.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS_IDADE[index % COLORS_IDADE.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
-                          <Legend wrapperStyle={{ fontSize: '12px' }} />
-                        </RechartsPie>
-                      </ResponsiveContainer>
-                    </>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPie>
+                        <Pie
+                          data={dadosDemograficos.idade}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ cx, cy, midAngle, outerRadius, percentage }: any) => {
+                            const RADIAN = Math.PI / 180;
+                            const radius = outerRadius + 25;
+                            const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                            const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                            return (
+                              <text x={x} y={y} fill="#000" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" fontSize="14px" fontWeight="500">
+                                {`${percentage}%`}
+                              </text>
+                            );
+                          }}
+                          outerRadius={50}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {dadosDemograficos.idade.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS_IDADE[index % COLORS_IDADE.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                        <Legend 
+                          wrapperStyle={{ 
+                            fontSize: '11px', 
+                            color: '#000', 
+                            paddingLeft: '10px',
+                            paddingTop: '15px'
+                          }} 
+                          iconType="square"
+                          align="left"
+                          verticalAlign="bottom"
+                        />
+                      </RechartsPie>
+                    </ResponsiveContainer>
                   ) : (
                     <div className="text-center text-gray-500">Sem dados disponíveis</div>
                   )}
@@ -972,7 +1033,7 @@ export default function Impacto() {
                 key={index}
                 onClick={() => {
                   if (graficosScrollRef.current) {
-                    const cardWidth = 380 + 24; // largura do card (380px) + gap (24px)
+                    const cardWidth = 300 + 24; // largura do card (300px) + gap (24px)
                     graficosScrollRef.current.scrollTo({
                       left: cardWidth * index,
                       behavior: 'smooth'
@@ -987,6 +1048,13 @@ export default function Impacto() {
                 aria-label={`Ir para gráfico ${index + 1}`}
               />
             ))}
+          </div>
+          
+          {/* Legenda dos dados demográficos */}
+          <div className="px-4 mt-3">
+            <p className="text-xs text-gray-500 text-center font-sans">
+              1.000 participantes • PEC e Inclusão Produtiva
+            </p>
           </div>
         </div>
 

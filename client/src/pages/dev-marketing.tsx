@@ -31,10 +31,238 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { BenefitImageUploader } from '@/components/BenefitImageUploader';
+import { MarketingLinksSection } from '@/components/MarketingLinksSection';
 import { useUserData } from '@/hooks/useUserData';
 import { useToast } from '@/hooks/use-toast';
 import Logo from '@/components/logo';
 import { StripeKeyManager } from '@/components/StripeKeyManager';
+
+function ConverterDoacoesSection({ queryClient }: { queryClient: any }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const { toast } = useToast();
+
+  const handleConvert = async () => {
+    if (!confirm('Tem certeza que deseja converter todas as doações antigas em assinaturas?\n\nIsso criará subscriptions no Stripe para todos os doadores que ainda não têm uma.')) {
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const response = await apiRequest('/api/admin/convert-donations-to-subscriptions', {
+        method: 'POST',
+      });
+
+      setResult(response);
+      
+      if (response.success) {
+        toast({
+          title: "✅ Conversão Concluída",
+          description: `${response.sucessos} doações convertidas com sucesso!`,
+        });
+        queryClient.invalidateQueries({ queryKey: ['/api/doadores'] });
+      }
+    } catch (error: any) {
+      setResult({
+        success: false,
+        error: error.message || 'Erro ao converter doações'
+      });
+      
+      toast({
+        title: "❌ Erro na Conversão",
+        description: error.message || 'Erro ao converter doações',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <RefreshCw className="w-7 h-7 text-purple-600" />
+            Converter Doações em Assinaturas
+          </h2>
+          <p className="text-gray-600">Transforme doações únicas em assinaturas recorrentes mensais</p>
+        </div>
+      </div>
+
+      <Card className="border-purple-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-purple-600" />
+            ⚙️ Converter Doações Antigas
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-2 text-sm text-yellow-800">
+                <p className="font-semibold">⚠️ ATENÇÃO - Leia antes de executar:</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>Esta ação criará <strong>subscriptions recorrentes mensais</strong> no Stripe</li>
+                  <li>Apenas doações que ainda <strong>NÃO têm subscription</strong> serão convertidas</li>
+                  <li>Cada doador receberá um <strong>PaymentIntent</strong> que precisará ser pago</li>
+                  <li>O valor da subscription será o mesmo da doação original</li>
+                  <li>Após conversão, o Stripe cobrará <strong>automaticamente TODO MÊS</strong></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleConvert}
+            disabled={loading}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-6"
+            size="lg"
+            data-testid="button-convert-donations"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                Convertendo doações...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-5 w-5" />
+                🔄 Converter Todas as Doações
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {result && (
+        <Card className={result.success ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {result.success ? (
+                <>
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="text-green-700">✅ Conversão Concluída</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                  <span className="text-red-700">❌ Erro na Conversão</span>
+                </>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {result.success ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <Card className="bg-white">
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-blue-600">{result.total}</div>
+                        <div className="text-sm text-gray-600">Total Encontrados</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-green-500 bg-white">
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-green-600">{result.sucessos}</div>
+                        <div className="text-sm text-gray-600">✅ Convertidos</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-red-500 bg-white">
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-red-600">{result.erros}</div>
+                        <div className="text-sm text-gray-600">❌ Erros</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {result.detalhes?.sucessos && result.detalhes.sucessos.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold text-green-700 mb-2 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" />
+                      Subscriptions Criadas com Sucesso:
+                    </h3>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {result.detalhes.sucessos.map((item: any, idx: number) => (
+                        <Card key={idx} className="bg-white">
+                          <CardContent className="p-4">
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><strong>Doador ID:</strong> #{item.doadorId}</div>
+                              <div><strong>Usuário ID:</strong> #{item.userId}</div>
+                              <div><strong>Plano:</strong> {item.plano}</div>
+                              <div><strong>Valor:</strong> R$ {item.valor.toFixed(2)}</div>
+                              <div className="col-span-2">
+                                <strong>Subscription ID:</strong>
+                                <code className="ml-2 text-xs bg-gray-100 px-2 py-1 rounded">
+                                  {item.subscriptionId}
+                                </code>
+                              </div>
+                              <div className="col-span-2">
+                                <Badge variant="secondary" className="text-xs">
+                                  PaymentIntent: {item.paymentIntentId}
+                                </Badge>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {result.detalhes?.erros && result.detalhes.erros.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold text-red-700 mb-2 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      Erros Encontrados:
+                    </h3>
+                    <div className="space-y-2">
+                      {result.detalhes.erros.map((item: any, idx: number) => (
+                        <div key={idx} className="bg-red-100 border border-red-300 rounded p-3">
+                          <p className="text-sm text-red-800">
+                            <strong>Doador #{item.doadorId}:</strong> {item.error}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-red-100 border border-red-300 rounded p-4">
+                <p className="text-red-800">
+                  <strong>Erro:</strong> {result.error}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>ℹ️ Informações Importantes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-gray-600">
+          <p>✅ <strong>Periodicidade:</strong> O sistema agora suporta mensal, trimestral, semestral e anual</p>
+          <p>✅ <strong>Conversão:</strong> Doações antigas serão convertidas em subscriptions mensais</p>
+          <p>✅ <strong>Status:</strong> Após conversão, as pessoas precisam completar o pagamento</p>
+          <p>✅ <strong>Stripe:</strong> Todas as subscriptions serão criadas no Stripe com cobrança recorrente</p>
+          <p>⚠️ <strong>Atenção:</strong> Apenas admin pode executar esta ação</p>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
 
 function EstatisticasIngressosSection({ queryClient }: { queryClient: any }) {
   const { data: stats, isLoading } = useQuery<{
@@ -2216,7 +2444,7 @@ export default function DevMarketing() {
                 </TabsTrigger>
               </TabsList>
               
-              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-7 gap-2 bg-transparent h-auto mt-2">
+              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-8 gap-2 bg-transparent h-auto mt-2">
                 <TabsTrigger 
                   value="donors" 
                   className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:border-indigo-200" 
@@ -2280,6 +2508,25 @@ export default function DevMarketing() {
                 >
                   <BarChart3 className="w-5 h-5" />
                   <span className="text-center leading-tight">Estatísticas Ingressos</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="marketing-links" 
+                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:border-indigo-200" 
+                  data-testid="tab-marketing-links"
+                >
+                  <ExternalLink className="w-5 h-5" />
+                  <span className="text-center leading-tight">Marketing Links</span>
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsList className="grid w-full grid-cols-1 lg:grid-cols-4 gap-2 bg-transparent h-auto mt-2">
+                <TabsTrigger 
+                  value="converter-doacoes" 
+                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-purple-50 data-[state=active]:text-purple-700 data-[state=active]:border-purple-200" 
+                  data-testid="tab-converter-doacoes"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  <span className="text-center leading-tight">🔄 Converter Doações</span>
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -4204,9 +4451,19 @@ export default function DevMarketing() {
               <EstatisticasIngressosSection queryClient={queryClient} />
             </TabsContent>
 
+            {/* Nova aba: Marketing Links */}
+            <TabsContent value="marketing-links" className="space-y-6 mt-6">
+              <MarketingLinksSection queryClient={queryClient} />
+            </TabsContent>
+
             {/* Nova aba: Compradores Avulsos */}
             <TabsContent value="compradores-avulsos" className="space-y-6 mt-6">
               <CompradoresAvulsosSection queryClient={queryClient} />
+            </TabsContent>
+
+            {/* Nova aba: Converter Doações em Assinaturas */}
+            <TabsContent value="converter-doacoes" className="space-y-6 mt-6">
+              <ConverterDoacoesSection queryClient={queryClient} />
             </TabsContent>
           </Tabs>
         </div>

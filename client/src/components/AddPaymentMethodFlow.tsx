@@ -97,7 +97,7 @@ function AppleGooglePayAdd({ userId, onSuccess }: AppleGooglePayAddProps) {
     <div className="mb-6">
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-4 shadow-lg">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center">
+          <div className="w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center">
             <Smartphone className="w-5 h-5 text-white" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900">Adicionar Rápido</h3>
@@ -247,7 +247,7 @@ function ManualCardAdd({ userId, onSuccess }: ManualCardAddProps) {
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-lg">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center">
+          <div className="w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center">
             <CreditCard className="w-5 h-5 text-white" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900">Dados do Cartão</h3>
@@ -291,7 +291,7 @@ function ManualCardAdd({ userId, onSuccess }: ManualCardAddProps) {
       <Button
         type="submit"
         disabled={!stripe || isProcessing || !setupIntentReady}
-        className="w-full h-14 bg-gradient-to-r from-yellow-400 to-red-500 hover:from-yellow-500 hover:to-red-600 text-white font-semibold text-lg rounded-2xl shadow-lg transition-all duration-200"
+        className="w-full h-14 bg-yellow-400 hover:bg-yellow-500 text-white font-semibold text-lg rounded-2xl shadow-lg transition-all duration-200"
       >
         {isProcessing ? (
           <div className="flex items-center gap-2">

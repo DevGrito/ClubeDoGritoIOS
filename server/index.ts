@@ -46,6 +46,13 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+// 🔐 WEBHOOKS: Capturar corpo RAW (Buffer) ANTES do JSON parser
+// Necessário para validação de assinatura do Stripe e Typeform
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
+app.use('/api/typeform/webhook', express.raw({ type: 'application/json' }));
+
+// JSON parser para o resto da aplicação
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 

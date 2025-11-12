@@ -11,12 +11,18 @@ import {
   ingressos,
   // Sistema de cotas de empresas
   cotasEmpresas,
+  // Sistema de indicação (referral)
+  indicacoes, indicacaoPontosLedger, stripeEvents,
+  // Sistema de marketing (Dev Marketing)
+  marketingCampaigns, marketingLinks, mktClicks,
   // Novas tabelas PEC
   projects, pecActivities, activityInstances, staffAssignments, enrollments, sessions, attendance, photos,
   // Novas tabelas EDUCADORES
   educadores, educadorPrograma, alunoPrograma,
   // Tabelas de Inclusão Produtiva
   programasInclusao, turmasInclusao, participantesTurmas, cursosInclusao, cursosTurmas, participantesInclusao,
+  // Tabelas Psicossociais
+  psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos,
   type User, type InsertUser, type Aluno, type InsertAluno,
   type Pai, type InsertPai, type Mae, type InsertMae, type Responsavel, type InsertResponsavel,
   type Turma, type InsertTurma, type AlunoTurma, type InsertAlunoTurma,
@@ -41,6 +47,10 @@ import {
   type Ingresso, type InsertIngresso,
   // Tipos para sistema de cotas
   type CotaEmpresa, type InsertCotaEmpresa,
+  // Tipos para sistema de indicação
+  type Indicacao, type InsertIndicacao, type IndicacaoPontos, type InsertIndicacaoPontos,
+  // Tipos para sistema de marketing
+  type MarketingCampaign, type InsertMarketingCampaign, type MarketingLink, type InsertMarketingLink, type MktClick, type InsertMktClick,
   // Novos tipos PEC
   type Project, type InsertProject, type Activity, type InsertActivity,
   type ActivityInstance, type InsertActivityInstance, type StaffAssignment, type InsertStaffAssignment,
@@ -269,9 +279,53 @@ export interface IStorage {
   checkAndCompleteProfileMission(userId: number): Promise<void>;
   autoCompleteReferralMissions(userId: number): Promise<void>;
   updateUserStreak(userId: number, diasConsecutivos: number, ultimoCheckin: string): Promise<void>;
+
+  // ===== MÓDULO INDICAÇÃO (REFERRAL) =====
+  generateRefCode(): Promise<string>; // Gera código único GRITO-XXXXXX
+  getUserByRefCode(refCode: string): Promise<User | undefined>; // Busca usuário por refCode
+  ensureUserHasRefCode(userId: number): Promise<string>; // Garante que user tem refCode
+  updateUserRefCodeCadastro(userId: number, refCode: string): Promise<void>; // Atualiza ref_code_cadastro do user
+  populateAllUserRefCodes(): Promise<{ total: number; created: number }>; // Popula codes para todos users
+  
+  // Sistema de link personalizado (slug)
+  generateSlugFromName(nome: string, sobrenome?: string): Promise<string>; // Gera slug baseado no nome
+  ensureUserHasRefSlug(userId: number): Promise<string>; // Garante que user tem refSlug
+  getMeuLinkIndicacao(userId: number): Promise<string>; // Retorna link completo de indicação
+  getUserByRefSlug(refSlug: string): Promise<User | undefined>; // Busca usuário por refSlug
+  updateUserRefSlugCadastro(userId: number, refSlug: string): Promise<void>; // Atualiza ref_code_cadastro do user com slug
+  
+  createIndicacao(indicouId: number, indicadoId: number, refCode: string): Promise<Indicacao>; // Cria indicação PENDENTE
+  getIndicacaoByIndicado(indicadoId: number): Promise<Indicacao | undefined>; // Busca indicação do indicado
+  confirmarIndicacao(indicacaoId: number): Promise<{ indicacao: Indicacao; pontos: IndicacaoPontos }>; // Confirma e credita pontos
+  getMinhasIndicacoes(userId: number): Promise<Array<Indicacao & { indicado?: User }>>; // Lista indicações do usuário
+  getSaldoPontosIndicacao(userId: number): Promise<number>; // Saldo de pontos de indicação
+  getLedgerPontosIndicacao(userId: number): Promise<IndicacaoPontos[]>; // Histórico de pontos
+  markStripeEventProcessed(eventId: string, eventType: string): Promise<void>; // Marca evento Stripe como processado
+  isStripeEventProcessed(eventId: string): Promise<boolean>; // Verifica se evento já foi processado
   doCheckinWithStreak(userId: number): Promise<{success: boolean; gritosGanhos: number; diaAtual: number}>;
   checkAndResetStreakIfBroken(userId: number): Promise<{streakResetada: boolean; diasConsecutivos: number}>;
   getPersonalizedCheckinStatus(userId: number): Promise<{canCheckin: boolean; diasConsecutivos: number; diaAtual: number; cicloCompleto: boolean; ultimoCheckin: string | null}>;
+
+  // ===== MÓDULO DEV MARKETING =====
+  // Campanhas
+  createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign>;
+  getMarketingCampaigns(filters?: { isActive?: boolean }): Promise<MarketingCampaign[]>;
+  getMarketingCampaign(id: number): Promise<MarketingCampaign | undefined>;
+  updateMarketingCampaign(id: number, campaign: Partial<InsertMarketingCampaign>): Promise<MarketingCampaign>;
+
+  // Links
+  createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink>;
+  createMarketingLinks(links: InsertMarketingLink[]): Promise<MarketingLink[]>; // Bulk creation
+  getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean }): Promise<MarketingLink[]>;
+  getMarketingLink(id: number): Promise<MarketingLink | undefined>;
+  getMarketingLinkByCode(code: string): Promise<MarketingLink | undefined>;
+  updateMarketingLink(id: number, link: Partial<InsertMarketingLink>): Promise<MarketingLink>;
+  getMarketingLinkStats(linkId: number): Promise<{ clicks: number; cadastros: number; conversoes: number; taxa: number }>;
+  linkUserToActiveCampaign(userId: number): Promise<MarketingLink | null>; // Vincula automaticamente à campanha ativa
+
+  // Tracking
+  createMktClick(click: InsertMktClick): Promise<MktClick>;
+  getMarketingCampaignStats(campaignId: number): Promise<{ totalLinks: number; totalClicks: number; totalCadastros: number; totalConversoes: number; taxaConversao: number }>;
   
   // Gritos baseados em plano (async para suportar Platinum dinâmico)
   getGritosIniciaisPorPlano(plano: string, userId?: number): Promise<number>;
@@ -647,6 +701,23 @@ export interface IStorage {
   removeParticipanteFromTurma(participanteId: number, turmaId: number): Promise<void>;
   getTurmasByParticipante(participanteId: number): Promise<TurmaInclusao[]>;
   getParticipantesByTurma(turmaId: number): Promise<ParticipanteInclusao[]>;
+
+  // ===== MÓDULO PSICOSSOCIAL =====
+  listPsicoFamilias(): Promise<any[]>;
+  listPsicoCasos(): Promise<any[]>;
+  listPsicoAtendimentos(): Promise<any[]>;
+  listPsicoPlanos(): Promise<any[]>;
+  createPsicoFamilia(data: any): Promise<any>;
+
+  // ===== SISTEMA DE MARKETING (CAMPANHAS E LINKS) =====
+  getAllMarketingCampaigns(): Promise<MarketingCampaign[]>;
+  createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign>;
+  getAllMarketingLinks(): Promise<MarketingLink[]>;
+  createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink>;
+  updateMarketingLink(id: number, data: Partial<InsertMarketingLink>): Promise<MarketingLink>;
+  marketingLinkCodeExists(code: string): Promise<boolean>;
+  getMarketingLinkStats(code: string): Promise<{ cliques: number; conversoes: number; taxa_conversao: number }>;
+
 }
 
 // Nova implementação do DatabaseStorage
@@ -693,71 +764,80 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByTelefone(telefone: string): Promise<User | undefined> {
-    // ✅ BUSCA NORMAL - Sem lógica especial para interceptar telefones
-
-    // Busca normal para outros usuários - busca flexível com diferentes formatos
     console.log(`🔍 [PHONE SEARCH] Buscando telefone: ${telefone}`);
 
-    // Normalizar o telefone de entrada
-    const phoneClean = telefone.replace(/\D/g, ''); // Remove tudo que não é número
+    if (!telefone || typeof telefone !== 'string') {
+      console.log(`❌ [PHONE INVALID] Telefone inválido: ${telefone}`);
+      return undefined;
+    }
 
-    // Tentar diferentes formatos possíveis
+    const phoneClean = telefone.replace(/\D/g, '');
+    
+    if (phoneClean.length < 8) {
+      console.log(`❌ [PHONE TOO SHORT] Telefone muito curto: ${phoneClean} (${phoneClean.length} dígitos)`);
+      return undefined;
+    }
+    
     const possibleFormats = [
-      telefone, // Formato original
-      phoneClean, // Só números
-      `+${phoneClean}`, // Com +
-      `+55${phoneClean}`, // Com +55 se não tiver
-      phoneClean.startsWith('55') ? phoneClean : `55${phoneClean}`, // Com 55 se não tiver
-      phoneClean.startsWith('55') ? `+${phoneClean}` : `+55${phoneClean}`, // Com +55 se não tiver
-      phoneClean.startsWith('55') ? phoneClean.substring(2) : phoneClean, // ✅ ADICIONAR: Remover 55 se tiver (para casos como 31986631203 no banco)
-      phoneClean.startsWith('5531') ? phoneClean.substring(2) : phoneClean // ✅ ADICIONAR: Remover 55 se for 5531...
-    ];
+      telefone,
+      phoneClean,
+      `+${phoneClean}`,
+      `+55${phoneClean}`,
+      phoneClean.startsWith('55') ? phoneClean : `55${phoneClean}`,
+      phoneClean.startsWith('55') ? `+${phoneClean}` : `+55${phoneClean}`,
+      phoneClean.startsWith('55') ? phoneClean.substring(2) : phoneClean,
+      phoneClean.startsWith('5531') ? phoneClean.substring(2) : phoneClean
+    ].filter((format, index, self) => format && format.length >= 8 && self.indexOf(format) === index);
 
     console.log(`🔍 [PHONE SEARCH] Formatos testados: ${possibleFormats.join(', ')}`);
 
-    // Buscar por qualquer um dos formatos
-    for (const format of possibleFormats) {
-      const [user] = await db.select({
-        id: users.id,
-        cpf: users.cpf,
-        nome: users.nome,
-        sobrenome: users.sobrenome,
-        telefone: users.telefone,
-        email: users.email,
-        fotoPerfil: users.fotoPerfil,
-        verificado: users.verificado,
-        ativo: users.ativo,
-        plano: users.plano,
-        stripeCustomerId: users.stripeCustomerId,
-        stripeSubscriptionId: users.stripeSubscriptionId,
-        subscriptionStatus: users.subscriptionStatus,
-        role: users.role,
-        tipo: users.tipo,
-        fonte: users.fonte,
-        professorTipo: users.professorTipo,
-        formacao: users.formacao,
-        especializacao: users.especializacao,
-        experiencia: users.experiencia,
-        disciplinas: users.disciplinas,
-        conselhoStatus: users.conselhoStatus,
-        conselhoApprovedBy: users.conselhoApprovedBy,
-        conselhoApprovedAt: users.conselhoApprovedAt,
-        gritosTotal: users.gritosTotal,
-        nivelAtual: users.nivelAtual,
-        proximoNivel: users.proximoNivel,
-        gritosParaProximoNivel: users.gritosParaProximoNivel,
-        diasConsecutivos: users.diasConsecutivos,
-        ultimoCheckin: users.ultimoCheckin,
-        semanaAtual: users.semanaAtual,
-        projetosApoiados: users.projetosApoiados,
-        dataCadastro: users.dataCadastro,
-        createdAt: users.createdAt
-      }).from(users).where(eq(users.telefone, format));
+    if (possibleFormats.length === 0) {
+      console.log(`❌ [NO VALID FORMATS] Nenhum formato válido gerado`);
+      return undefined;
+    }
 
-      if (user) {
-        console.log(`✅ [PHONE FOUND] Usuário encontrado com formato: ${format} -> ${user.nome}`);
-        return user;
-      }
+    const [user] = await db.select({
+      id: users.id,
+      cpf: users.cpf,
+      nome: users.nome,
+      sobrenome: users.sobrenome,
+      telefone: users.telefone,
+      email: users.email,
+      fotoPerfil: users.fotoPerfil,
+      verificado: users.verificado,
+      ativo: users.ativo,
+      plano: users.plano,
+      stripeCustomerId: users.stripeCustomerId,
+      stripeSubscriptionId: users.stripeSubscriptionId,
+      subscriptionStatus: users.subscriptionStatus,
+      role: users.role,
+      tipo: users.tipo,
+      fonte: users.fonte,
+      professorTipo: users.professorTipo,
+      formacao: users.formacao,
+      especializacao: users.especializacao,
+      experiencia: users.experiencia,
+      disciplinas: users.disciplinas,
+      conselhoStatus: users.conselhoStatus,
+      conselhoApprovedBy: users.conselhoApprovedBy,
+      conselhoApprovedAt: users.conselhoApprovedAt,
+      gritosTotal: users.gritosTotal,
+      nivelAtual: users.nivelAtual,
+      proximoNivel: users.proximoNivel,
+      gritosParaProximoNivel: users.gritosParaProximoNivel,
+      diasConsecutivos: users.diasConsecutivos,
+      ultimoCheckin: users.ultimoCheckin,
+      semanaAtual: users.semanaAtual,
+      projetosApoiados: users.projetosApoiados,
+      dataCadastro: users.dataCadastro,
+      createdAt: users.createdAt
+    }).from(users).where(
+      inArray(users.telefone, possibleFormats)
+    );
+
+    if (user) {
+      console.log(`✅ [PHONE FOUND] Usuário encontrado: ${user.nome} (telefone no banco: ${user.telefone})`);
+      return user;
     }
 
     console.log(`❌ [PHONE NOT FOUND] Nenhum usuário encontrado para: ${telefone}`);
@@ -2905,6 +2985,612 @@ export class DatabaseStorage implements IStorage {
       throw error; // Re-throw para ver o erro nos logs
     }
   }
+
+  // ===== MÓDULO INDICAÇÃO (REFERRAL) =====
+
+  async generateRefCode(): Promise<string> {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (attempts < maxAttempts) {
+      let code = 'GRITO-';
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // Verificar se código já existe
+      const [existing] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.refCode, code))
+        .limit(1);
+
+      if (!existing) {
+        return code;
+      }
+
+      attempts++;
+    }
+
+    throw new Error('Não foi possível gerar código único após 10 tentativas');
+  }
+
+  async getUserByRefCode(refCode: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.refCode, refCode))
+      .limit(1);
+    
+    return user;
+  }
+
+  async ensureUserHasRefCode(userId: number): Promise<string> {
+    const [user] = await db
+      .select({ refCode: users.refCode })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (user?.refCode) {
+      return user.refCode;
+    }
+
+    // Gerar novo código
+    const newCode = await this.generateRefCode();
+
+    await db
+      .update(users)
+      .set({ refCode: newCode })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ [REF-CODE] Código gerado para usuário ${userId}: ${newCode}`);
+    return newCode;
+  }
+
+  async populateAllUserRefCodes(): Promise<{ total: number; created: number }> {
+    const usersWithoutCode = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`${users.refCode} IS NULL`);
+
+    let created = 0;
+    for (const user of usersWithoutCode) {
+      try {
+        await this.ensureUserHasRefCode(user.id);
+        created++;
+      } catch (error) {
+        console.error(`❌ [REF-CODE] Erro ao gerar código para usuário ${user.id}:`, error);
+      }
+    }
+
+    console.log(`✅ [REF-CODE] Populado ${created}/${usersWithoutCode.length} códigos`);
+    return { total: usersWithoutCode.length, created };
+  }
+
+
+  async updateUserRefCodeCadastro(userId: number, refCode: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ ref_code_cadastro: refCode })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ [UPDATE-REF-CADASTRO] Usuário ${userId} agora tem ref_code_cadastro: ${refCode}`);
+  }
+
+  // ===== SISTEMA DE LINK PERSONALIZADO (SLUG) =====
+  
+  async generateSlugFromName(nome: string, sobrenome?: string): Promise<string> {
+    // Normalizar texto: remover acentos, converter para minúsculas, substituir espaços por hífen
+    const normalizeText = (text: string) => {
+      return text
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, '') // Remove caracteres especiais
+        .replace(/\s+/g, '-') // Substitui espaços por hífen
+        .replace(/-+/g, '-'); // Remove hífens duplicados
+    };
+
+    const fullName = sobrenome ? `${nome} ${sobrenome}` : nome;
+    let baseSlug = normalizeText(fullName);
+    
+    // Verificar se slug já existe
+    let slug = baseSlug;
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    while (attempts < maxAttempts) {
+      const [existing] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.refSlug, slug))
+        .limit(1);
+
+      if (!existing) {
+        return slug;
+      }
+
+      // Se já existe, adicionar número
+      attempts++;
+      slug = `${baseSlug}-${attempts}`;
+    }
+
+    throw new Error('Não foi possível gerar slug único após 20 tentativas');
+  }
+
+  async ensureUserHasRefSlug(userId: number): Promise<string> {
+    const [user] = await db
+      .select({ refSlug: users.refSlug, nome: users.nome, sobrenome: users.sobrenome })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (user?.refSlug) {
+      return user.refSlug;
+    }
+
+    if (!user?.nome) {
+      throw new Error(`Usuário ${userId} não tem nome cadastrado para gerar slug`);
+    }
+
+    // Gerar novo slug baseado no nome
+    const newSlug = await this.generateSlugFromName(user.nome, user.sobrenome || undefined);
+
+    await db
+      .update(users)
+      .set({ refSlug: newSlug })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ [REF-SLUG] Slug gerado para usuário ${userId}: ${newSlug}`);
+    return newSlug;
+  }
+
+  async getMeuLinkIndicacao(userId: number): Promise<string> {
+    // Buscar link de marketing da campanha "Indique e Ganhe" (campaign_id = 1)
+    const [marketingLink] = await db
+      .select({ code: marketingLinks.code })
+      .from(marketingLinks)
+      .where(
+        and(
+          eq(marketingLinks.rewardToUserId, userId),
+          eq(marketingLinks.campaignId, 1),
+          eq(marketingLinks.isActive, true)
+        )
+      )
+      .limit(1);
+    
+    if (marketingLink) {
+      const baseURL = 'https://clubedogrito.institutoogrito.com.br';
+      return `${baseURL}/plans?ref=${marketingLink.code}`;
+    }
+    
+    // Fallback: se não tem link de marketing, usar refSlug (para retrocompatibilidade)
+    const refSlug = await this.ensureUserHasRefSlug(userId);
+    const baseURL = 'https://clubedogrito.institutoogrito.com.br';
+    return `${baseURL}/plans?ref=${refSlug}`;
+  }
+
+  async getUserByRefSlug(refSlug: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.refSlug, refSlug))
+      .limit(1);
+    
+    return user;
+  }
+
+  async updateUserRefSlugCadastro(userId: number, refSlug: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ refCodeCadastro: refSlug })
+      .where(eq(users.id, userId));
+
+    console.log(`✅ [UPDATE-REF-SLUG-CADASTRO] Usuário ${userId} agora tem ref_code_cadastro: ${refSlug}`);
+  }
+
+  // ===== FIM SISTEMA DE LINK PERSONALIZADO =====
+
+  async createIndicacao(indicouId: number, indicadoId: number, refCode: string): Promise<Indicacao> {
+    const validade = new Date();
+    validade.setDate(validade.getDate() + 30); // 30 dias de validade
+
+    const [indicacao] = await db
+      .insert(indicacoes)
+      .values({
+        indicouId,
+        indicadoId,
+        refCode,
+        status: 'PENDENTE',
+        validade: validade, // Date object
+      })
+      .returning();
+
+    console.log(`✅ [INDICAÇÃO] Criada indicação PENDENTE: ${indicouId} indicou ${indicadoId} com código ${refCode}`);
+    return indicacao;
+  }
+
+  async getIndicacaoByIndicado(indicadoId: number): Promise<Indicacao | undefined> {
+    const [indicacao] = await db
+      .select()
+      .from(indicacoes)
+      .where(eq(indicacoes.indicadoId, indicadoId))
+      .limit(1);
+
+    return indicacao;
+  }
+
+  async confirmarIndicacao(indicacaoId: number): Promise<{ indicacao: Indicacao; pontos: IndicacaoPontos }> {
+    // Atualizar indicação para CONFIRMADA
+    const [indicacao] = await db
+      .update(indicacoes)
+      .set({ 
+        status: 'CONFIRMADA',
+        confirmadaEm: new Date() // Date object
+      })
+      .where(eq(indicacoes.id, indicacaoId))
+      .returning();
+
+    if (!indicacao) {
+      throw new Error(`Indicação ${indicacaoId} não encontrada`);
+    }
+
+    // Creditar 1 ponto para quem indicou (com idempotência)
+    const [pontos] = await db
+      .insert(indicacaoPontosLedger)
+      .values({
+        userId: indicacao.indicouId,
+        indicacaoId: indicacao.id,
+        pontos: 1,
+        motivo: 'indicacao_confirmada'
+      })
+      .onConflictDoNothing() // Idempotência: não duplica se já existir
+      .returning();
+
+    console.log(`✅ [INDICAÇÃO] Confirmada indicação ${indicacaoId}: +1 ponto para usuário ${indicacao.indicouId}`);
+    
+    return { indicacao, pontos };
+  }
+
+  async getMinhasIndicacoes(userId: number): Promise<Array<Indicacao & { indicado?: User }>> {
+    const result = await db
+      .select({
+        id: indicacoes.id,
+        indicouId: indicacoes.indicouId,
+        indicadoId: indicacoes.indicadoId,
+        refCode: indicacoes.refCode,
+        status: indicacoes.status,
+        criadaEm: indicacoes.criadaEm,
+        confirmadaEm: indicacoes.confirmadaEm,
+        validade: indicacoes.validade,
+        indicadoNome: users.nome,
+        indicadoSobrenome: users.sobrenome,
+        indicadoTelefone: users.telefone,
+      })
+      .from(indicacoes)
+      .leftJoin(users, eq(indicacoes.indicadoId, users.id))
+      .where(eq(indicacoes.indicouId, userId))
+      .orderBy(desc(indicacoes.criadaEm));
+
+    return result.map(row => ({
+      id: row.id,
+      indicouId: row.indicouId,
+      indicadoId: row.indicadoId,
+      refCode: row.refCode,
+      status: row.status,
+      criadaEm: row.criadaEm,
+      confirmadaEm: row.confirmadaEm,
+      validade: row.validade,
+      indicado: row.indicadoNome ? {
+        nome: row.indicadoNome,
+        sobrenome: row.indicadoSobrenome,
+        telefone: row.indicadoTelefone,
+      } as any : undefined
+    }));
+  }
+
+  async getSaldoPontosIndicacao(userId: number): Promise<number> {
+    const [result] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${indicacaoPontosLedger.pontos}), 0)` })
+      .from(indicacaoPontosLedger)
+      .where(eq(indicacaoPontosLedger.userId, userId));
+
+    return result?.total || 0;
+  }
+
+  async getLedgerPontosIndicacao(userId: number): Promise<IndicacaoPontos[]> {
+    return await db
+      .select()
+      .from(indicacaoPontosLedger)
+      .where(eq(indicacaoPontosLedger.userId, userId))
+      .orderBy(desc(indicacaoPontosLedger.criadoEm));
+  }
+
+  async markStripeEventProcessed(eventId: string, eventType: string): Promise<void> {
+    await db
+      .insert(stripeEvents)
+      .values({ id: eventId, type: eventType })
+      .onConflictDoNothing();
+  }
+
+  async isStripeEventProcessed(eventId: string): Promise<boolean> {
+    const [event] = await db
+      .select()
+      .from(stripeEvents)
+      .where(eq(stripeEvents.id, eventId))
+      .limit(1);
+
+    return !!event;
+  }
+
+  // ==================== MÓDULO DEV MARKETING ====================
+
+  async createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
+    const [newCampaign] = await db
+      .insert(marketingCampaigns)
+      .values(campaign)
+      .returning();
+    
+    console.log(`✅ [MARKETING] Campanha criada: ${newCampaign.name} (ID: ${newCampaign.id})`);
+    return newCampaign;
+  }
+
+  async getMarketingCampaigns(filters?: { isActive?: boolean }): Promise<MarketingCampaign[]> {
+    let query = db.select().from(marketingCampaigns);
+    
+    if (filters?.isActive !== undefined) {
+      query = query.where(eq(marketingCampaigns.isActive, filters.isActive)) as any;
+    }
+    
+    return await query.orderBy(desc(marketingCampaigns.createdAt));
+  }
+
+  async getMarketingCampaign(id: number): Promise<MarketingCampaign | undefined> {
+    const [campaign] = await db
+      .select()
+      .from(marketingCampaigns)
+      .where(eq(marketingCampaigns.id, id))
+      .limit(1);
+    
+    return campaign;
+  }
+
+  async updateMarketingCampaign(id: number, campaign: Partial<InsertMarketingCampaign>): Promise<MarketingCampaign> {
+    const [updated] = await db
+      .update(marketingCampaigns)
+      .set(campaign)
+      .where(eq(marketingCampaigns.id, id))
+      .returning();
+    
+    if (!updated) {
+      throw new Error(`Campanha ${id} não encontrada`);
+    }
+    
+    console.log(`✅ [MARKETING] Campanha atualizada: ${updated.name} (ID: ${id})`);
+    return updated;
+  }
+
+  async createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink> {
+    const [newLink] = await db
+      .insert(marketingLinks)
+      .values(link)
+      .returning();
+    
+    console.log(`✅ [MARKETING] Link criado: ${newLink.code} para campanha ${newLink.campaignId}`);
+    return newLink;
+  }
+
+  async createMarketingLinks(links: InsertMarketingLink[]): Promise<MarketingLink[]> {
+    const newLinks = await db
+      .insert(marketingLinks)
+      .values(links)
+      .returning();
+    
+    console.log(`✅ [MARKETING] ${newLinks.length} links criados em bulk`);
+    return newLinks;
+  }
+
+  async getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean }): Promise<MarketingLink[]> {
+    let conditions = [];
+    
+    if (filters?.campaignId !== undefined) {
+      conditions.push(eq(marketingLinks.campaignId, filters.campaignId));
+    }
+    if (filters?.isActive !== undefined) {
+      conditions.push(eq(marketingLinks.isActive, filters.isActive));
+    }
+    
+    let query = db.select().from(marketingLinks);
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    
+    return await query.orderBy(desc(marketingLinks.createdAt));
+  }
+
+  async getMarketingLink(id: number): Promise<MarketingLink | undefined> {
+    const [link] = await db
+      .select()
+      .from(marketingLinks)
+      .where(eq(marketingLinks.id, id))
+      .limit(1);
+    
+    return link;
+  }
+
+  async getMarketingLinkByCode(code: string): Promise<MarketingLink | undefined> {
+    const [link] = await db
+      .select()
+      .from(marketingLinks)
+      .where(eq(marketingLinks.code, code))
+      .limit(1);
+    
+    return link;
+  }
+
+  async updateMarketingLink(id: number, link: Partial<InsertMarketingLink>): Promise<MarketingLink> {
+    const [updated] = await db
+      .update(marketingLinks)
+      .set(link)
+      .where(eq(marketingLinks.id, id))
+      .returning();
+    
+    if (!updated) {
+      throw new Error(`Link ${id} não encontrado`);
+    }
+    
+    console.log(`✅ [MARKETING] Link atualizado: ${updated.code} (ID: ${id})`);
+    return updated;
+  }
+
+  async getMarketingLinkStats(linkId: number): Promise<{ clicks: number; cadastros: number; conversoes: number; taxa: number }> {
+    // Cliques
+    const [clicksResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(mktClicks)
+      .where(eq(mktClicks.linkId, linkId));
+    
+    const clicks = Number(clicksResult?.count) || 0;
+    
+    // Buscar código do link
+    const link = await this.getMarketingLink(linkId);
+    if (!link) {
+      return { clicks: 0, cadastros: 0, conversoes: 0, taxa: 0 };
+    }
+    
+    // Cadastros (total de indicações criadas com este ref_code)
+    const [cadastrosResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(indicacoes)
+      .where(eq(indicacoes.refCode, link.code));
+    
+    const cadastros = Number(cadastrosResult?.count) || 0;
+    
+    // Conversões (indicações confirmadas)
+    const [conversoesResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(indicacoes)
+      .where(and(
+        eq(indicacoes.refCode, link.code),
+        eq(indicacoes.status, 'CONFIRMADA')
+      ));
+    
+    const conversoes = Number(conversoesResult?.count) || 0;
+    
+    // Taxa de conversão
+    const taxa = cadastros > 0 ? (conversoes / cadastros) * 100 : 0;
+    
+    return { clicks, cadastros, conversoes, taxa };
+  }
+
+  async createMktClick(click: InsertMktClick): Promise<MktClick> {
+    const [newClick] = await db
+      .insert(mktClicks)
+      .values(click)
+      .returning();
+    
+    return newClick;
+  }
+
+
+  async linkUserToActiveCampaign(userId: number): Promise<MarketingLink | null> {
+    // Buscar campanha ativa
+    const activeCampaigns = await this.getMarketingCampaigns({ isActive: true });
+    
+    if (activeCampaigns.length === 0) {
+      console.log(`⚠️ [AUTO-LINK] Nenhuma campanha ativa encontrada para vincular usuário ${userId}`);
+      return null;
+    }
+    
+    const activeCampaign = activeCampaigns[0];
+    
+    // Garantir que o usuário tem um ref_slug
+    const refSlug = await this.ensureUserHasRefSlug(userId);
+    
+    // Verificar se já existe um link para este usuário nesta campanha
+    const existingLink = await this.getMarketingLinkByCode(refSlug);
+    
+    if (existingLink) {
+      console.log(`ℹ️ [AUTO-LINK] Link já existe para usuário ${userId}: ${refSlug}`);
+      return existingLink;
+    }
+    
+    // Criar link de marketing vinculado à campanha ativa
+    const newLink = await this.createMarketingLink({
+      campaignId: activeCampaign.id,
+      code: refSlug,
+      medium: 'referral',
+      source: 'organic',
+      utmCampaign: activeCampaign.name,
+      utmMedium: 'referral',
+      utmSource: 'donor-link',
+      rewardToUserId: userId,
+      isActive: true,
+    });
+    
+    console.log(`✅ [AUTO-LINK] Link criado para usuário ${userId} na campanha "${activeCampaign.name}": ${refSlug}`);
+    return newLink;
+  }
+  async getMarketingCampaignStats(campaignId: number): Promise<{ totalLinks: number; totalClicks: number; totalCadastros: number; totalConversoes: number; taxaConversao: number }> {
+    // Total de links da campanha
+    const [linksResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(marketingLinks)
+      .where(eq(marketingLinks.campaignId, campaignId));
+    
+    const totalLinks = linksResult?.count || 0;
+    
+    // Buscar todos os codes da campanha
+    const links = await db
+      .select({ code: marketingLinks.code })
+      .from(marketingLinks)
+      .where(eq(marketingLinks.campaignId, campaignId));
+    
+    const codes = links.map(l => l.code);
+    
+    if (codes.length === 0) {
+      return { totalLinks: 0, totalClicks: 0, totalCadastros: 0, totalConversoes: 0, taxaConversao: 0 };
+    }
+    
+    // Total de cliques
+    const [clicksResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(mktClicks)
+      .innerJoin(marketingLinks, eq(mktClicks.linkId, marketingLinks.id))
+      .where(eq(marketingLinks.campaignId, campaignId));
+    
+    const totalClicks = clicksResult?.count || 0;
+    
+    // Total de cadastros
+    const [cadastrosResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(indicacoes)
+      .where(inArray(indicacoes.refCode, codes));
+    
+    const totalCadastros = cadastrosResult?.count || 0;
+    
+    // Total de conversões
+    const [conversoesResult] = await db
+      .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
+      .from(indicacoes)
+      .where(and(
+        inArray(indicacoes.refCode, codes),
+        eq(indicacoes.status, 'CONFIRMADA')
+      ));
+    
+    const totalConversoes = conversoesResult?.count || 0;
+    
+    // Taxa de conversão
+    const taxaConversao = totalCadastros > 0 ? (totalConversoes / totalCadastros) * 100 : 0;
+    
+    return { totalLinks, totalClicks, totalCadastros, totalConversoes, taxaConversao };
+  }
+
+  // ==================== FIM MÓDULO DEV MARKETING ====================
 
   async getPersonalizedCheckinStatus(userId: number): Promise<{ canCheckin: boolean; diasConsecutivos: number; diaAtual: number; cicloCompleto: boolean; ultimoCheckin: string | null }> {
     const agora = new Date();
@@ -6367,6 +7053,112 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(participantesInclusao, eq(participantesTurmas.participanteId, participantesInclusao.id))
       .where(eq(participantesTurmas.turmaId, turmaId));
     return result.map(r => r.participante);
+  }
+
+  // ===== MÓDULO PSICOSSOCIAL =====
+  async listPsicoFamilias(): Promise<any[]> {
+    const familias = await db.select().from(psicoFamilias).orderBy(desc(psicoFamilias.createdAt));
+    return familias;
+  }
+
+  async listPsicoCasos(): Promise<any[]> {
+    const casos = await db.select().from(psicoCasos).orderBy(desc(psicoCasos.createdAt));
+    return casos;
+  }
+
+  async listPsicoAtendimentos(): Promise<any[]> {
+    const atendimentos = await db.select().from(psicoAtendimentos).orderBy(desc(psicoAtendimentos.dataAtendimento));
+    return atendimentos;
+  }
+
+  async listPsicoPlanos(): Promise<any[]> {
+    const planos = await db.select().from(psicoPlanos).orderBy(desc(psicoPlanos.createdAt));
+    return planos;
+  }
+
+  async createPsicoFamilia(data: any): Promise<any> {
+    const [familia] = await db.insert(psicoFamilias).values(data).returning();
+    console.log(`✅ [PSICO] Família criada: ${familia.id}`);
+    return familia;
+  }
+
+
+  // ===== SISTEMA DE MARKETING (CAMPANHAS E LINKS) =====
+  async getAllMarketingCampaigns(): Promise<MarketingCampaign[]> {
+    const campaigns = await db
+      .select()
+      .from(marketingCampaigns)
+      .orderBy(desc(marketingCampaigns.createdAt));
+    return campaigns.map(c => ({
+      ...c,
+      name: c.name,
+      description: c.description || null,
+      createdBy: c.ownerUserId || 0,
+      isActive: c.isActive,
+      createdAt: c.createdAt.toISOString(),
+    })) as any;
+  }
+
+  async createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
+    const [newCampaign] = await db
+      .insert(marketingCampaigns)
+      .values(campaign)
+      .returning();
+    return newCampaign;
+  }
+
+  async getAllMarketingLinks(): Promise<MarketingLink[]> {
+    const links = await db
+      .select({
+        link: marketingLinks,
+        campaign: marketingCampaigns,
+      })
+      .from(marketingLinks)
+      .leftJoin(marketingCampaigns, eq(marketingLinks.campaignId, marketingCampaigns.id))
+      .orderBy(desc(marketingLinks.createdAt));
+    
+    return links.map(({ link, campaign }) => ({
+      ...link,
+      targetUrl: link.metadata?.targetUrl || "/",
+      campaign: campaign ? { name: campaign.name } : null,
+    })) as any;
+  }
+
+  async createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink> {
+    const metadata = {
+      targetUrl: (link as any).targetUrl || "/",
+    };
+    
+    const [newLink] = await db
+      .insert(marketingLinks)
+      .values({
+        ...link,
+        metadata: metadata as any,
+      })
+      .returning();
+    
+    return {
+      ...newLink,
+      targetUrl: metadata.targetUrl,
+    } as any;
+  }
+
+  async updateMarketingLink(id: number, data: Partial<InsertMarketingLink>): Promise<MarketingLink> {
+    const [updated] = await db
+      .update(marketingLinks)
+      .set(data)
+      .where(eq(marketingLinks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async marketingLinkCodeExists(code: string): Promise<boolean> {
+    const [exists] = await db
+      .select({ id: marketingLinks.id })
+      .from(marketingLinks)
+      .where(eq(marketingLinks.code, code))
+      .limit(1);
+    return !!exists;
   }
 
 }

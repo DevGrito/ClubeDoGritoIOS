@@ -21,6 +21,12 @@ export const AutoRedirect: React.FC = () => {
     const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
     const devSession = sessionStorage.getItem('dev_session') === 'active';
     
+    // Verificar se é um coordenador autenticado - bypass total
+    const isCoordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
+    if (isCoordenadorAuth) {
+      return; // Coordenadores têm seu próprio sistema de auth
+    }
+    
     // Verificar se usuário está logado
     const userPapel = localStorage.getItem('userPapel');
     const isVerified = localStorage.getItem('isVerified') === 'true';
@@ -38,7 +44,7 @@ export const AutoRedirect: React.FC = () => {
     // Usuários devem passar pelo fluxo normal de autenticação
 
     // Se não está logado e não está em páginas públicas, redirecionar para login
-    const publicRoutes = ['/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/dev', '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias', '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso', '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado', '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso', '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar', '/ingresso/resgate/confirmar', '/scanner', '/scanner-login', '/ingressos/compras/extras', '/ingressos-esgotados'];
+    const publicRoutes = ['/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/dev', '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias', '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso', '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado', '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso', '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar', '/ingresso/resgate/confirmar', '/scanner', '/scanner-login', '/login/coordenador', '/ingressos/compras/extras', '/ingressos-esgotados'];
     
     if (!userPapel || !isVerified) {
       if (!publicRoutes.includes(location) && !location.startsWith('/checkout/') && !location.startsWith('/ingresso/visualizar/') && !location.startsWith('/ingresso/lista-cota/')) {

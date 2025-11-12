@@ -7,7 +7,6 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import { storage } from "./storage";
 import { getOrCreateStripeCustomer, attachPaymentMethodSafely, normalizePhoneToE164, getPhoneSearchVariants } from "./stripeHelpers";
-import { keysToCamelCase } from "./utils/caseConversion";
 import { initCronJobs } from "./jobs/cronJobs";
 import { registerAdminManualSubscription } from "./adminManualSubscription";
 import * as fs from 'node:fs';
@@ -4202,130 +4201,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
       case 'invoice.paid':
         const paidInvoice = event.data.object;
         console.log('💰 [WEBHOOK invoice.paid] Invoice:', paidInvoice.id);
-        
         try {
           const subscriptionId = paidInvoice.subscription as string;
           if (!subscriptionId) { console.log('⚠️ [WEBHOOK] Sem subscription'); break; }
           
-          // 🔐 MUTEX: Tentar inserir com processing=true, timestamp agora
-          let lock = await db.insert(billingEvents).values({
-            userId: 0,
+          // 🔐 IDEMPOTÊNCIA ATÔMICA: Tentar inserir billing_event primeiro
+          const [billingEventRow] = await db.insert(billingEvents).values({
+            userId: 0, // placeholder, será atualizado depois
             eventType: 'invoice.paid',
             invoiceId: paidInvoice.id,
             stripeSubscriptionId: subscriptionId,
             amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : null,
             currency: paidInvoice.currency,
             status: 'paid',
-            processing: true,
-            processingStartedAt: new Date(),
             processed: false,
             createdAt: new Date()
-          }).onConflictDoNothing().returning().then(rows => rows[0]);
+          }).onConflictDoNothing().returning();
           
-          if (!lock) {
-            // Buscar registro existente
-            const existing = await db.select().from(billingEvents).where(eq(billingEvents.invoiceId, paidInvoice.id)).limit(1).then(rows => rows[0]);
-            if (!existing) { console.error('❌ [WEBHOOK] Conflito sem registro'); break; }
-            if (existing.processed) { console.log('⚠️ [WEBHOOK DUPLICATE] Invoice já processada'); break; }
-            
-            // Verificar idade do lock
-            const now = new Date();
-            const lockAge = existing.processingStartedAt ? (now.getTime() - existing.processingStartedAt.getTime()) / 1000 : Infinity;
-            const isStale = lockAge > 300; // 5 minutos
-            
-            // OPTIMISTIC LOCKING: UPDATE só funciona se timestamp NÃO MUDOU
-            const whereConditions = isStale 
-              ? and(
-                  eq(billingEvents.invoiceId, paidInvoice.id),
-                  eq(billingEvents.processed, false),
-                  eq(billingEvents.processing, true),
-                  existing.processingStartedAt 
-                    ? eq(billingEvents.processingStartedAt, existing.processingStartedAt)
-                    : sql`processing_started_at IS NULL`
-                )
-              : and(
-                  eq(billingEvents.invoiceId, paidInvoice.id),
-                  eq(billingEvents.processed, false),
-                  eq(billingEvents.processing, false)
-                );
-            
-            const [acquired] = await db.update(billingEvents)
-              .set({ processing: true, processingStartedAt: now })
-              .where(whereConditions)
-              .returning();
-            
-            if (!acquired) { 
-              console.log(`⚠️ [WEBHOOK] Lock não disponível (${isStale ? 'outro webhook assumiu stale lock' : 'em processamento'})`); 
-              break; 
-            }
-            lock = acquired;
-            console.log(`🔄 [WEBHOOK RETRY] Adquiriu lock (${isStale ? 'assumiu stale lock' : 'lock livre'})`);
+          if (!billingEventRow) {
+            console.log(`⚠️ [WEBHOOK DUPLICATE] Invoice ${paidInvoice.id} já sendo processada - ignorando`);
+            break;
+          }
+          
+          const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const metadata = stripeSubscription.metadata || {};
+          const { nome = '', telefone = '', email = '', plano = '', valor = '0', periodicidade = 'mensal', refCode = '' } = metadata;
+          
+          if (!nome || !telefone || !plano) {
+            console.error('❌ [WEBHOOK] Metadata incompleto:', { nome, telefone, plano });
+            await db.update(billingEvents).set({ errorMessage: 'Metadata incompleto', processed: true }).where(eq(billingEvents.id, billingEventRow.id));
+            break;
+          }
+          
+          let user = await db.select().from(users).where(eq(users.telefone, telefone)).limit(1).then(rows => rows[0]);
+          if (user) {
+            await db.update(users).set({ nome, email: email || user.email, plano, tipo: 'doador', fonte: 'doacao', ativo: true, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).where(eq(users.id, user.id));
+            console.log(`✅ [WEBHOOK] Usuário ${user.id} atualizado`);
+          } else {
+            const [newUser] = await db.insert(users).values({ nome, telefone, email: email || null, tipo: 'doador', fonte: 'doacao', plano, ativo: true, dataCadastro: new Date(), stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).returning();
+            user = newUser;
+            console.log(`✅ [WEBHOOK] Usuário ${user.id} criado`);
+          }
+          
+          let doador = await db.select().from(doadores).where(eq(doadores.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
+          if (doador) {
+            await db.update(doadores).set({ status: 'paid', ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000) }).where(eq(doadores.id, doador.id));
+          } else {
+            const [newDoador] = await db.insert(doadores).values({ userId: user.id, plano, valor, periodicidade, status: 'paid', dataDoacaoInicial: new Date(paidInvoice.status_transitions.paid_at! * 1000), ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000), stripeSubscriptionId: subscriptionId, stripeCustomerId: stripeSubscription.customer as string, stripePaymentIntentId: paidInvoice.payment_intent as string }).returning();
+            doador = newDoador;
+            console.log(`✅ [WEBHOOK] Doador ${doador.id} criado`);
+          }
+          
+          let donorSub = await db.select().from(donorSubscriptions).where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
+          if (donorSub) {
+            await db.update(donorSubscriptions).set({ status: 'active', lastError: null, nextPaymentAttempt: null, updatedAt: new Date() }).where(eq(donorSubscriptions.id, donorSub.id));
+          } else {
+            const [newSub] = await db.insert(donorSubscriptions).values({ userId: user.id, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, status: 'active', billingCycleAnchor: new Date(stripeSubscription.billing_cycle_anchor * 1000), currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000), currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000), planPriceId: stripeSubscription.items.data[0]?.price?.id || '', planName: plano, collectionMethod: 'charge_automatically', createdAt: new Date(), updatedAt: new Date() }).returning();
+            donorSub = newSub;
+          }
+          
+          // Atualizar billing_event com userId correto e marcar como processado
+          await db.update(billingEvents).set({
+            userId: user.id,
+            subscriptionId: donorSub.id,
+            paymentIntentId: paidInvoice.payment_intent as string,
+            processed: true
+          }).where(eq(billingEvents.id, billingEventRow.id));
+          
+          if (refCode && /^GRITO-[A-Z0-9]{6}$/.test(refCode)) {
+            try {
+              const indicador = await storage.getUserByRefCode(refCode);
+              if (indicador && indicador.id !== user.id) {
+                const indicacaoExistente = await storage.getIndicacaoByIndicado(user.id);
+                if (!indicacaoExistente) {
+                  await storage.createIndicacao(indicador.id, user.id, refCode);
+                  console.log(`✅ [WEBHOOK] Indicação: ${indicador.id} → ${user.id}`);
+                }
+              }
+            } catch (refError) { console.error('⚠️ [WEBHOOK] Erro indicação:', refError); }
           }
           
           try {
-            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
-            const metadata = stripeSubscription.metadata || {};
-            const { nome = '', telefone = '', email = '', plano = '', valor = '0', periodicidade = 'mensal', refCode = '' } = metadata;
-            
-            if (!nome || !telefone || !plano) {
-              console.error('❌ [WEBHOOK] Metadata incompleto:', { nome, telefone, plano });
-              await db.update(billingEvents).set({ errorMessage: 'Metadata incompleto', processed: true, processing: false }).where(eq(billingEvents.id, lock.id));
-              break;
+            const existingLink = await storage.getMarketingLinks({ campaignId: 1, isActive: true });
+            if (!existingLink.some(link => link.rewardToUserId === user.id)) {
+              await storage.linkUserToActiveCampaign(user.id);
+              console.log(`✅ [WEBHOOK] Link marketing criado para ${user.id}`);
             }
-            
-            let user = await db.select().from(users).where(eq(users.telefone, telefone)).limit(1).then(rows => rows[0]);
-            if (user) {
-              await db.update(users).set({ nome, email: email || user.email, plano, tipo: 'doador', fonte: 'doacao', ativo: true, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).where(eq(users.id, user.id));
-            } else {
-              const [newUser] = await db.insert(users).values({ nome, telefone, email: email || null, tipo: 'doador', fonte: 'doacao', plano, ativo: true, dataCadastro: new Date(), stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).returning();
-              user = newUser;
-            }
-            
-            let doador = await db.select().from(doadores).where(eq(doadores.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
-            if (doador) {
-              await db.update(doadores).set({ status: 'paid', ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000) }).where(eq(doadores.id, doador.id));
-            } else {
-              const [newDoador] = await db.insert(doadores).values({ userId: user.id, plano, valor, periodicidade, status: 'paid', dataDoacaoInicial: new Date(paidInvoice.status_transitions.paid_at! * 1000), ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000), stripeSubscriptionId: subscriptionId, stripeCustomerId: stripeSubscription.customer as string, stripePaymentIntentId: paidInvoice.payment_intent as string }).returning();
-              doador = newDoador;
-            }
-            
-            let donorSub = await db.select().from(donorSubscriptions).where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
-            if (donorSub) {
-              await db.update(donorSubscriptions).set({ status: 'active', lastError: null, nextPaymentAttempt: null, updatedAt: new Date() }).where(eq(donorSubscriptions.id, donorSub.id));
-            } else {
-              const [newSub] = await db.insert(donorSubscriptions).values({ userId: user.id, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, status: 'active', billingCycleAnchor: new Date(stripeSubscription.billing_cycle_anchor * 1000), currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000), currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000), planPriceId: stripeSubscription.items.data[0]?.price?.id || '', planName: plano, collectionMethod: 'charge_automatically', createdAt: new Date(), updatedAt: new Date() }).returning();
-              donorSub = newSub;
-            }
-            
-            if (refCode && /^GRITO-[A-Z0-9]{6}$/.test(refCode)) {
-              try {
-                const indicador = await storage.getUserByRefCode(refCode);
-                if (indicador && indicador.id !== user.id) {
-                  const indicacaoExistente = await storage.getIndicacaoByIndicado(user.id);
-                  if (!indicacaoExistente) await storage.createIndicacao(indicador.id, user.id, refCode);
-                }
-              } catch (refError) { console.error('⚠️ [WEBHOOK] Erro indicação:', refError); }
-            }
-            
-            try {
-              const existingLink = await storage.getMarketingLinks({ campaignId: 1, isActive: true });
-              if (!existingLink.some(link => link.rewardToUserId === user.id)) await storage.linkUserToActiveCampaign(user.id);
-            } catch (linkError) { console.error('⚠️ [WEBHOOK] Erro link:', linkError); }
-            
-            // ✅ Marcar como processado E destravar
-            await db.update(billingEvents).set({ userId: user.id, subscriptionId: donorSub.id, paymentIntentId: paidInvoice.payment_intent as string, status: 'succeeded', processed: true, processing: false }).where(eq(billingEvents.id, lock.id));
-            console.log(`✅ [WEBHOOK] Completo - User ${user.id}, Doador ${doador.id}`);
-          } catch (processingError) {
-            console.error('❌ [WEBHOOK] Erro no processamento:', processingError);
-            // ⚠️ CRITICAL: Destravar em caso de erro (permite retry)
-            await db.update(billingEvents).set({ processing: false, errorMessage: String(processingError) }).where(eq(billingEvents.id, lock.id));
-            throw processingError;
-          }
+          } catch (linkError) { console.error('⚠️ [WEBHOOK] Erro link:', linkError); }
+          
+          console.log(`✅ [WEBHOOK] Completo - User ${user.id}, Doador ${doador.id}`);
         } catch (error) {
-          console.error('❌ [WEBHOOK] Erro geral:', error);
+          console.error('❌ [WEBHOOK] Erro:', error);
         }
         break;
-        break;
+          try {
+            const existingLink = await storage.getMarketingLinks({ campaignId: 1, isActive: true });
+            if (!existingLink.some(link => link.rewardToUserId === user.id)) {
+              await storage.linkUserToActiveCampaign(user.id);
+              console.log(`✅ [WEBHOOK] Link marketing criado para ${user.id}`);
+            }
+          } catch (linkError) { console.error('⚠️ [WEBHOOK] Erro link:', linkError); }
+          
+          console.log(`✅ [WEBHOOK] Completo - User ${user.id}, Doador ${doador.id}`);
+        } catch (error) {
+          console.error('❌ [WEBHOOK] Erro:', error);
+        }
         break;
       case 'invoice.payment_failed':
         const failedInvoice = event.data.object;
@@ -27079,18 +27059,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   // ============================================
 
   // POST /api/psico/familias - Criar nova família
-  
-  // 🚫 MIDDLEWARE: Desabilitar cache para endpoints psico
-  app.use('/api/psico/*', (req, res, next) => {
-    res.set({
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Surrogate-Control': 'no-store'
-    });
-    next();
-  });
-
   app.post('/api/psico/familias', requireAuth, async (req, res) => {
     try {
       const validatedData = insertPsicoFamiliaSchema.parse(req.body);
@@ -27168,8 +27136,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       const familias = await query.orderBy(desc(psicoFamilias.createdAt));
 
       console.log(`✅ [PSICO] ${familias.length} famílias retornadas`);
-      const camelCaseFamilias = keysToCamelCase(familias);
-      res.json({ success: true, familias: camelCaseFamilias });
+      res.json({ success: true, familias });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar famílias:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -27214,8 +27181,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
       const casos = await query.orderBy(desc(psicoCasos.createdAt));
       console.log(`✅ [PSICO] ${casos.length} casos retornados`);
-      const camelCaseCasos = keysToCamelCase(casos);
-      res.json({ success: true, casos: camelCaseCasos });
+      res.json({ success: true, casos });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar casos:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -27255,9 +27221,9 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
 
       const atendimentos = await query.orderBy(desc(psicoAtendimentos.createdAt));
-      const camelCaseAtendimentos = keysToCamelCase(atendimentos);
+
       console.log(`✅ [PSICO] ${atendimentos.length} atendimentos retornados`);
-      res.json({ success: true, atendimentos: camelCaseAtendimentos });
+      res.json({ success: true, atendimentos });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar atendimentos:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -27424,8 +27390,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
 
       console.log(`✅ [PSICO] ${atendimentos.length} atendimentos do participante (${programaOrigem})`);
-      const camelCaseAtendimentosParticipante = keysToCamelCase(atendimentos);
-      res.json({ success: true, atendimentos: camelCaseAtendimentosParticipante });
+      res.json({ success: true, atendimentos });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao buscar atendimentos do participante:', error);
       res.status(500).json({ success: false, error: error.message });

@@ -101,9 +101,9 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
   return (
     <>
       {/* Card de progresso do check-in - Design unificado */}
-      <div className="bg-gradient-to-br from-orange-400 to-yellow-400 rounded-2xl p-4 text-white mb-6">
-        <h2 className="text-lg font-bold mb-1 text-white">Progresso do check-in diário</h2>
-        <p className="text-xs mb-3 opacity-90">
+      <div className="bg-yellow-400 rounded-2xl p-4 mb-6">
+        <h2 className="text-lg font-bold mb-1 text-black">Progresso do check-in diário</h2>
+        <p className="text-xs mb-3 text-black">
           Você ganhará pontos extras na sétima vez que fizer check-in a cada semana.
         </p>
         
@@ -133,13 +133,13 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
               <div key={dia} className="flex flex-col items-center min-w-0 flex-1">
                 <div className={`w-10 h-10 rounded-2xl flex flex-col items-center justify-center text-xs font-bold mb-1 ${
                   isCompleted 
-                    ? 'bg-white/90 text-orange-500' 
-                    : 'bg-white/30 text-white'
+                    ? 'bg-white/90 text-yellow-500' 
+                    : 'bg-white/30 text-black'
                 }`}>
                   <span className="text-xs">{isDay7 ? '+20' : '+10'}</span>
                 </div>
                 <span className={`text-xs font-medium truncate ${
-                  isToday ? 'text-yellow-200 font-bold' : 'text-white'
+                  isToday ? 'text-black font-bold' : 'text-black'
                 }`}>
                   {isToday ? 'Hoje' : `Dia ${dia}`}
                 </span>
@@ -150,7 +150,7 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
 
         {/* Botão de check-in */}
         <button 
-          className="w-full bg-white text-orange-500 font-bold py-3 rounded-full text-base"
+          className="w-full bg-white text-yellow-500 font-bold py-3 rounded-full text-base"
           onClick={handleCheckin}
           disabled={!podeCheckin}
         >

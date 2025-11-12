@@ -41,10 +41,10 @@ const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
 // Rotas públicas que não precisam de autenticação
 const PUBLIC_ROUTES = [
   '/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', 
-  '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/dev', '/perfil',
+  '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/perfil',
   '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias',
-  '/termos-servicos', '/politica-privacidade',   '/pagamento/ingresso',
-  '/pagamento/sucesso'
+  '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso',
+  '/pagamento/sucesso', '/login/coordenador', '/scanner-login'
 ];
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
@@ -55,6 +55,16 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const devAccess = useDevAccess();
+
+  // ⭐ CRÍTICO: Verificar coordenadores ANTES de qualquer useEffect (render imediato)
+  const coordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
+  const coordenadorDataStr = sessionStorage.getItem('coordenador_data');
+  const coordRoutes = ['/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial'];
+  
+  if (coordenadorAuth && coordenadorDataStr && coordRoutes.includes(routeName)) {
+    console.log('✅ [COORDENADOR ACCESS] Acesso de coordenador autenticado - BYPASS TOTAL');
+    return <>{children}</>;
+  }
 
   useEffect(() => {
     // ⭐ PRIORIDADE 1: Verificar parâmetros dev PRIMEIRO (antes de qualquer validação)
@@ -94,12 +104,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       }
     }
     
-    // Desenvolvedores têm acesso universal
+    // Desenvolvedores têm acesso universal (APENAS SE JÁ AUTENTICADOS)
     if (devAccess.isDeveloper || 
         devAccess.isGlobalDevMode || 
         userPapel === 'desenvolvedor' ||
-        userPapel === 'dev' ||
-        window.location.pathname === '/dev') {
+        userPapel === 'dev') {
       console.log('✅ [DEV ACCESS] Acesso dev concedido - bypass de autenticação');
       return;
     }

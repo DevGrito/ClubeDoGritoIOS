@@ -30,13 +30,7 @@ export function useUserData() {
     queryFn: async () => {
       const response = await fetch(`/api/user/${userId}?t=${Date.now()}`);
       if (!response.ok) throw new Error('Failed to fetch user data');
-      const data = await response.json();
-      console.log('🔄 [useUserData] Dados buscados do servidor:', {
-        gritos_total: data.gritos_total,
-        dias_consecutivos: data.dias_consecutivos,
-        ultimo_checkin: data.ultimo_checkin
-      });
-      return data;
+      return response.json();
     },
     enabled: !!userId && !isDevMode, // Desabilitar query se for dev mode
     staleTime: 0, // SEM CACHE - sempre buscar dados frescos
@@ -50,7 +44,6 @@ export function useUserData() {
   const userData: UserData = (() => {
     // Se é dev mode, retornar dados mock do Leo
     if (isDevMode) {
-      console.log('✅ [useUserData] Modo dev detectado - usando dados do Leo');
       return {
         id: 24,
         nome: "Leo",
@@ -70,13 +63,6 @@ export function useUserData() {
       const nameParts = fullName.split(" ");
       const nome = nameParts[0] || "";
       const sobrenome = nameParts.slice(1).join(" ") || "";
-      
-      console.log('📊 [useUserData] Processando dados da API:', {
-        nome: fullName,
-        gritos_total: data.gritos_total,
-        dias_consecutivos: data.dias_consecutivos,
-        ultimo_checkin: data.ultimo_checkin
-      });
       
       return {
         id: data.id,

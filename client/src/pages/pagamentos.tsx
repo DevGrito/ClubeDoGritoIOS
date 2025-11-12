@@ -20,6 +20,11 @@ import DonationHistoryDashboard from "@/components/DonationHistoryDashboard";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 
+// Helper para garantir que userId seja sempre número
+const getUserId = (userData?: any): number => {
+  const id = userData?.id || parseInt(localStorage.getItem("userId") || "0");
+  return typeof id === 'number' ? id : parseInt(String(id));
+};
 
 // Estado global para sincronização dos cartões entre instâncias
 // let globalCards: any[] = [];
@@ -40,8 +45,6 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
   const { toast } = useToast();
   const { userData } = useUserData();
   const queryClient = useQueryClient();
-  
-  console.log(`🏷️ [${instanceId}] Iniciando SwipeableCardSelector`);
 
   // Função para toggle da visibilidade do cartão
   const toggleCardVisibility = (cardId: string) => {
@@ -51,36 +54,33 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
     }));
   };
 
-  // 5 gradientes diferentes para os cartões
-  const cardGradients = [
-    "linear-gradient(135deg, #FCD34D 0%, #F59E0B 50%, #D97706 100%)", // Amarelo
-    "linear-gradient(135deg, #374151 0%, #1F2937 50%, #111827 100%)", // Preto
-    "linear-gradient(135deg, #dc2626 0%, #e11d48 25%, #be185d 50%, #9d174d 75%, #7c2d12 100%)", // Bordô
-    "linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)", // Roxo
-    "linear-gradient(135deg, #3B82F6 0%, #1D4ED8 50%, #1E40AF 100%)", // Azul
+  // Cores sólidas para os cartões (SEM GRADIENTE)
+  const cardColors = [
+    "#FFC107", // Amarelo (Clube do Grito)
+    "#374151", // Cinza escuro
+    "#7c2d12", // Bordô
+    "#7C3AED", // Roxo
+    "#1D4ED8", // Azul
   ];
 
-  // Log para debug
-  console.log('🔍 [CARD SELECTOR] userData:', userData);
-  console.log('🔍 [CARD SELECTOR] userId para query:', (userData as any)?.id);
+  // Buscar cartões reais do usuário - usar getUserId para garantir número
+  const userId = getUserId(userData);
 
-  // Buscar cartões reais do usuário - usar localStorage como fallback
-  const userId = (userData as any)?.id;
-  console.log('🔍 [CARD SELECTOR] userId final:', userId);
-
-  // TRECHO ALTERADO
+  // TRECHO ALTERADO - Query para buscar métodos de pagamento
   const { data: paymentMethodsData, isLoading: isLoadingCards, error: paymentMethodsError, refetch: refetchCards } = useQuery({
       queryKey: ['/api/users', userId, 'payment-methods'],
-      enabled: typeof userId === 'number' || typeof userId === 'string',
+      queryFn: async () => {
+        if (!userId) throw new Error('userId não definido');
+        const response = await fetch(`/api/users/${userId}/payment-methods`);
+        if (!response.ok) throw new Error('Erro ao buscar payment methods');
+        return response.json();
+      },
+      enabled: !!userId && (typeof userId === 'number' || typeof userId === 'string'),
       retry: 1,
       staleTime: 30_000,
       gcTime: 60_000,
     });
 
-  // Debug da resposta da API
-  console.log('🔍 [CARD SELECTOR] paymentMethodsData:', paymentMethodsData);
-  console.log('🔍 [CARD SELECTOR] isLoading:', isLoadingCards);
-  console.log('🔍 [CARD SELECTOR] error:', paymentMethodsError);
 
   // Função para atualizar estado local e global
  /* const updateCardsGlobally = (newCards: any[]) => {
@@ -124,20 +124,20 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
         const methods: any[] = Array.isArray(pmRaw) ? pmRaw : [];
 
         if (methods.length > 0) {
-          console.log(`📊 [${instanceId ?? 'pagamentos'}] Cartões recebidos da API (já filtrados e ordenados):`, methods);
+          // Ordenar: cartão padrão (em uso) primeiro
+          const sortedMethods = [...methods].sort((a, b) => {
+            if (a.isDefault && !b.isDefault) return -1;
+            if (!a.isDefault && b.isDefault) return 1;
+            return 0;
+          });
 
-          const defaultCard = methods.find((m) => m.isDefault);
-          if (defaultCard) {
-            console.log(`👑 [${instanceId ?? 'pagamentos'}] Cartão padrão: ${defaultCard.brand} ••••${defaultCard.last4} (ID: ${defaultCard.id})`);
-          }
-
-          const realCards = methods.map((pm: any, index: number) => ({
+          const realCards = sortedMethods.map((pm: any, index: number) => ({
             id: pm.id,
             name: (userData as any)?.nome || 'TITULAR',
             number: `•••• •••• •••• ${pm.last4}`,
             type: pm.brand?.toUpperCase() || 'CARD',
             currency: 'BRL',
-            gradient: cardGradients[index % cardGradients.length],
+            color: cardColors[index % cardColors.length], // COR SÓLIDA
             expiry: `${String(pm.exp_month).padStart(2, '0')}/${String(pm.exp_year).slice(-2)}`,
             funding: pm.funding,
             isDefault: pm.isDefault,
@@ -146,16 +146,17 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
             exp_month: pm.exp_month,
             exp_year: pm.exp_year,
           }));
-
-          console.log(`🎨 [${instanceId ?? 'pagamentos'}] Cards processados:`, realCards);
           
-          setCards(realCards);
-          setCurrentIndex(0);
-          return;
+          // Só atualiza se a lista de IDs dos cartões mudou
+          const newIds = realCards.map(c => c.id).join(',');
+          const oldIds = cards.map(c => c.id).join(',');
+          
+          if (newIds !== oldIds) {
+            setCards(realCards);
+            setCurrentIndex(0); // Só reseta index se cartões realmente mudaram
+          }
         }
-
-        console.log(`❌ [${instanceId ?? 'pagamentos'}] Nenhum payment method encontrado:`, paymentMethodsData);
-  }, [paymentMethodsData, userId, userData]);
+  }, [paymentMethodsData, userId]);
 
   // Sincronização automática com Stripe quando não há cartões
   useEffect(() => {
@@ -177,7 +178,6 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
         return;
       }
 
-      console.log('🔄 [AUTO-SYNC] Iniciando sincronização automática com Stripe...');
       setAutoSyncAttempted(true);
 
       try {
@@ -185,17 +185,11 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
           method: 'POST'
         });
 
-        console.log('✅ [AUTO-SYNC] Resposta:', response);
-
         if (response.paymentMethods && response.paymentMethods.length > 0) {
-          console.log(`✅ [AUTO-SYNC] ${response.paymentMethods.length} cartão(ões) sincronizado(s)`);
-          // Recarregar cartões
           await refetchCards();
-        } else {
-          console.log('ℹ️ [AUTO-SYNC] Nenhum cartão encontrado no Stripe');
         }
       } catch (error: any) {
-        console.error('❌ [AUTO-SYNC] Erro:', error);
+        // Silently fail auto-sync
       }
     };
 
@@ -215,6 +209,8 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
   const [startX, setStartX] = useState(0);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     setIsDragging(true);
     setStartX(e.clientX);
     setDragOffset(0);
@@ -368,59 +364,15 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
     );
   }
 
-  // AUTO-EXIBIR CARTÃO DE EXEMPLO quando não há cartões reais
+  // REMOVIDO CARTÃO DE EXEMPLO - Sempre buscar do Stripe
   if (cards.length === 0 && !isLoadingCards) {
-    // Retornar array com 1 cartão visual de exemplo
     return (
       <div className="space-y-6 py-4 relative">
-        {/* Header */}
         <div className="text-center">
-          <h3 className="text-lg font-bold text-white mb-1">Seu Cartão</h3>
-          <p className="text-xs text-gray-400">Cartão visual de exemplo - Adicione um real abaixo</p>
-        </div>
-
-        {/* Cartão Visual de Exemplo */}
-        <div className="relative h-56 mx-auto max-w-sm">
-          <div
-            className="absolute inset-0 w-full h-full rounded-2xl shadow-lg"
-            style={{
-              background: "linear-gradient(135deg, #FCD34D 0%, #F59E0B 50%, #D97706 100%)",
-            }}
-          >
-            <div className="p-6 text-white h-full flex flex-col justify-between">
-              {/* Chip e Logo */}
-              <div className="flex justify-between items-start">
-                <div className="w-12 h-10 bg-yellow-200 rounded-lg opacity-80"></div>
-                <span className="text-lg font-bold">VISA</span>
-              </div>
-
-              {/* Número do Cartão */}
-              <div>
-                <div className="text-2xl font-mono tracking-wider mb-2">
-                  •••• •••• •••• 4653
-                </div>
-              </div>
-
-              {/* Nome e Validade */}
-              <div className="flex justify-between items-end">
-                <div>
-                  <div className="text-xs opacity-75 mb-1">TITULAR</div>
-                  <div className="font-semibold text-sm">{(userData as any)?.nome?.toUpperCase() || 'NOME DO TITULAR'}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs opacity-75 mb-1">VALIDADE</div>
-                  <div className="font-semibold text-sm">12/29</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Badge informativo */}
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 bg-yellow-100 text-yellow-800 px-4 py-2 rounded-full text-xs font-medium">
-            <CreditCard className="w-4 h-4" />
-            <span>Exemplo Visual - Nenhum cartão real cadastrado</span>
+          <h3 className="text-lg font-bold text-white mb-4">Nenhum Cartão Cadastrado</h3>
+          <p className="text-sm text-gray-400 mb-6">Adicione um cartão para continuar</p>
+          <div className="w-16 h-16 mx-auto bg-gray-700 rounded-full flex items-center justify-center mb-4">
+            <CreditCard className="w-8 h-8 text-gray-400" />
           </div>
         </div>
       </div>
@@ -428,35 +380,36 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
   }
 
   return (
-    <div className="space-y-6 py-4 relative">
+    <div className="space-y-2 py-2 relative">
       {/* Header */}
       <div className="text-center">
-        <h3 className="text-lg font-bold text-white mb-2">Seus Cartões</h3>
-        <p className="text-sm text-gray-400">Arraste para ver outros cartões</p>
+        <h3 className="text-lg font-bold text-white mb-1">Seus Cartões</h3>
       </div>
 
       {/* Botão olhinho - Canto superior direito, fora do cartão */}
-      <div className="absolute top-4 right-4 z-20">
+      <div className="absolute top-0 right-4 z-20">
         <Button
           onClick={() => toggleCardVisibility(cards[currentIndex]?.id)}
-          className="w-10 h-10 p-0 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg"
+          className="w-10 h-10 p-0 bg-transparent hover:bg-gray-200/10 text-black dark:text-white rounded-full"
           size="sm"
         >
-          {visibleCards[cards[currentIndex]?.id] ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+          {visibleCards[cards[currentIndex]?.id] ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
         </Button>
       </div>
 
       {/* Stack de cartões */}
       <div 
-        className="relative h-56 mx-auto max-w-sm cursor-grab active:cursor-grabbing touch-none"
+        className="relative h-56 mx-auto max-w-sm cursor-grab active:cursor-grabbing"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onPointerLeave={handlePointerUp}
+        style={{ touchAction: 'pan-y' }}
       >
         {cards.map((card, index) => {
           const isActive = index === currentIndex;
-          const offset = (index - currentIndex) * 8;
+          const offset = (index - currentIndex) * 8; // 8px para efeito de empilhamento
           const scale = isActive ? 1 : 0.95;
           const opacity = isActive ? 1 : 0.7;
           
@@ -466,18 +419,18 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
           return (
             <div
               key={card.id}
-              className="absolute inset-0 w-full h-full rounded-2xl shadow-lg transition-all duration-300 select-none"
+              className="absolute inset-0 w-full h-full rounded-2xl shadow-md transition-all duration-300"
               style={{
-                background: card.gradient,
+                backgroundColor: card.color, // COR SÓLIDA (sem gradiente)
                 transform: `translateX(${offset + (isActive ? dragOffset : 0)}px) scale(${scale})`,
                 opacity: opacity,
                 zIndex: zIndex,
               }}
             >
-              <div className="p-6 text-white h-full flex flex-col justify-between relative">
+              <div className="p-6 text-white h-full flex flex-col justify-between relative select-none" style={{ pointerEvents: 'none' }}>
                 {/* Ícone de deletar - só no modal e só se houver mais de 1 cartão */}
                 {showSelectButton && cards.length > 1 && isActive && (
-                  <div className="absolute top-2 right-2 z-10">
+                  <div className="absolute top-2 right-2 z-10 pointer-events-auto">
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -491,44 +444,71 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
                   </div>
                 )}
                 
-                {/* Header do cartão */}
-                <div className="flex justify-between items-start">
-                  <div className="flex space-x-1">
-                    <div className="w-8 h-8 bg-red-500 rounded-full opacity-90" />
-                    <div className="w-8 h-8 bg-yellow-400 rounded-full opacity-90 -ml-3" />
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs opacity-75">EUR</div>
-                    <div className="text-sm font-bold">{card.currency}</div>
-                  </div>
-                </div>
+                {visibleCards[card.id] ? (
+                  // CARTÃO VISÍVEL - Mostrar informações reais
+                  <>
+                    {/* Header do cartão */}
+                    <div className="flex justify-between items-start">
+                      <div className="flex space-x-1">
+                        <div className="w-8 h-8 bg-red-500 rounded-full opacity-90" />
+                        <div className="w-8 h-8 bg-yellow-400 rounded-full opacity-90 -ml-3" />
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs opacity-75">EUR</div>
+                        <div className="text-sm font-bold">{card.currency}</div>
+                      </div>
+                    </div>
 
-                {/* Número do cartão */}
-                <div className="text-xl font-mono tracking-wider">
-                  {visibleCards[card.id] 
-                    ? `**** **** **** ${card.last4 || card.number?.slice(-4)}`
-                    : `${card.brand?.toUpperCase() || 'CARD'} •••• •••• •••• ${card.last4 || card.number?.slice(-4)}`
-                  }
-                </div>
+                    {/* Número do cartão */}
+                    <div className="text-xl font-mono tracking-wider">
+                      **** **** **** {card.last4 || card.number?.slice(-4)}
+                    </div>
 
-                {/* Nome do titular e dados adicionais */}
-                <div>
-                  <div className="text-sm font-semibold">{card.name}</div>
-                  <div className="text-xs opacity-75">
-                    {visibleCards[card.id] 
-                      ? card.type
-                      : `${card.type} • Exp: ${String(card.exp_month || '12').padStart(2, '0')}/${String(card.exp_year || '28').slice(-2)}`
-                    }
-                  </div>
-                </div>
+                    {/* Nome do titular e dados adicionais */}
+                    <div>
+                      <div className="text-sm font-semibold">{card.name?.toUpperCase()}</div>
+                      <div className="text-xs opacity-75">
+                        {card.type} • Exp: {String(card.exp_month || '12').padStart(2, '0')}/{String(card.exp_year || '28').slice(-2)}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  // CARTÃO OCULTO - Não mostrar NENHUMA informação
+                  <>
+                    {/* Header vazio */}
+                    <div className="flex justify-between items-start">
+                      <div className="flex space-x-1">
+                        <div className="w-8 h-8 bg-white/20 rounded-full" />
+                        <div className="w-8 h-8 bg-white/20 rounded-full -ml-3" />
+                      </div>
+                      <div className="text-right opacity-0">
+                        <div className="text-xs">•</div>
+                        <div className="text-sm font-bold">•</div>
+                      </div>
+                    </div>
+
+                    {/* Número oculto */}
+                    <div className="text-xl font-mono tracking-wider">
+                      •••• •••• •••• ••••
+                    </div>
+
+                    {/* Nome e dados ocultos */}
+                    <div>
+                      <div className="text-sm font-semibold">••••••••••</div>
+                      <div className="text-xs opacity-75">
+                        •••• • Exp: ••/••
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Indicadores */}
-      <div className="flex justify-center space-x-2">
+      {/* Indicadores (bolinhas) - APENAS VISUAL, não clicáveis */}
+      <div className="flex justify-center space-x-2 mt-4">
         {cards.map((_, index) => (
           <div
             key={index}
@@ -569,7 +549,7 @@ function StripeCardForm() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { userData } = useUserData();
-  const userId = (userData as any)?.id; 
+  const userId = getUserId(userData); // Usar helper para garantir número
   const [isLoading, setIsLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
@@ -583,7 +563,6 @@ function StripeCardForm() {
     setIsLoading(true);
 
     try {
-      const userId = localStorage.getItem("userId");
       if (!userId) {
         throw new Error("Usuário não encontrado");
       }
@@ -622,7 +601,7 @@ function StripeCardForm() {
 
         // Invalidar cache para atualizar lista de cartões
         await queryClient.invalidateQueries({ 
-          queryKey: [`/api/users/${userId}/payment-methods`] 
+          queryKey: ['/api/users', userId, 'payment-methods'] 
         });
 
         // Limpar formulário (PaymentElement não tem método clear)
@@ -1077,7 +1056,7 @@ function AddCardFormOld() {
               
               // Invalidar cache para atualizar lista de cartões
               await queryClient.invalidateQueries({ 
-                queryKey: [`/api/users/${userId}/payment-methods`] 
+                queryKey: ['/api/users', userId, 'payment-methods'] 
               });
               
               // Limpar formulário
@@ -1137,7 +1116,8 @@ function ImpactProgressBar({
   valueContributed, 
   annualValue, 
   color, 
-  currentMonth 
+  currentMonth,
+  periodicidade = 'monthly'
 }: { 
   causaName: string; 
   progressPercentage: number; 
@@ -1145,7 +1125,11 @@ function ImpactProgressBar({
   annualValue: number; 
   color: string;
   currentMonth: number;
+  periodicidade?: string;
 }) {
+  // Calcular meses faltando baseado na periodicidade
+  const mesesFaltando = 12 - currentMonth;
+  
   return (
     <div className="space-y-3">
       {/* Nome da Causa e Porcentagem Animada */}
@@ -1180,7 +1164,7 @@ function ImpactProgressBar({
       
       {/* Informação do Mês */}
       <div className="text-xs text-gray-500 text-center">
-        Mês {currentMonth}/12 • Faltam {12 - currentMonth} meses para completar o ano
+        Mês {currentMonth}/12 • Faltam {mesesFaltando} {mesesFaltando === 1 ? 'mês' : 'meses'} para completar o ano
       </div>
     </div>
   );
@@ -1259,6 +1243,7 @@ export default function Pagamentos() {
   const { userData } = useUserData();
   const { profileImage } = useProfileImage();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   // ✅ CORREÇÃO: Declarar userId PRIMEIRO
   const userId = localStorage.getItem("userId");
@@ -1345,7 +1330,7 @@ export default function Pagamentos() {
     saude: '#EC4899' // rosa
   };
   
-  // Buscar dados de impacto dinâmicos do backend
+  // Buscar dados de impacto dinâmicos do backend (endpoint antigo)
   const { data: backendImpactData, isLoading: impactLoading, error: impactError } = useQuery({
     queryKey: [`/api/users/${userId}/impact-data`],
     enabled: !!userId,
@@ -1353,16 +1338,43 @@ export default function Pagamentos() {
     staleTime: 0, // Sempre buscar dados frescos
   });
 
+  // 💰 NOVO: Buscar estatísticas de doações do Stripe
+  const { data: donationStats, isLoading: donationStatsLoading } = useQuery({
+    queryKey: [`/api/users/${userId}/donation-stats`],
+    enabled: !!userId,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    staleTime: 0, // SEMPRE buscar dados frescos (bug fix)
+  });
+
+  console.log('💰 [DONATION STATS] Dados do Stripe RAW:', JSON.stringify(donationStats, null, 2));
+  console.log('💰 [DONATION STATS] totalDoado:', (donationStats as any)?.totalDoado);
 
   // Combinar dados do backend com causas do usuário
+  // PRIORIDADE: Usar dados do Stripe (donationStats) se disponível, senão usar backend antigo
+  const periodicidade = (donationStats as any)?.periodicidade || 'monthly';
+  
+  // Mapear periodicidade para quantidade de períodos no ano e label
+  const periodicidadeInfo = {
+    monthly: { periodos: 12, label: 'meses' },
+    quarterly: { periodos: 4, label: 'trimestres' },
+    semiannual: { periodos: 2, label: 'semestres' },
+    annual: { periodos: 1, label: 'ano' }
+  };
+  
+  const periodoInfo = periodicidadeInfo[periodicidade as keyof typeof periodicidadeInfo] || periodicidadeInfo.monthly;
+  
   const impactData = {
     mainCausa: userCausas.length > 0 ? userCausas[0] : 'cultura',
-    annualValue: (backendImpactData as any)?.annualValue || 118.80,
-    monthlyValue: (backendImpactData as any)?.monthlyContribution || 9.90,
-    valueContributed: (backendImpactData as any)?.realDonationsTotal || 0,
-    valueRemaining: (backendImpactData as any)?.valueRemaining || (118.80 - ((backendImpactData as any)?.realDonationsTotal || 0)),
-    progressPercentage: (backendImpactData as any)?.progressPercentage || 0,
-    currentMonth: (backendImpactData as any)?.currentMonth || 9
+    annualValue: (donationStats as any)?.metaAnual || (backendImpactData as any)?.annualValue || 118.80,
+    monthlyValue: (donationStats as any)?.valorMensal || (backendImpactData as any)?.monthlyContribution || 9.90,
+    valueContributed: (donationStats as any)?.totalDoado || (backendImpactData as any)?.realDonationsTotal || 0,
+    valueRemaining: ((donationStats as any)?.metaAnual || (backendImpactData as any)?.annualValue || 118.80) - ((donationStats as any)?.totalDoado || (backendImpactData as any)?.realDonationsTotal || 0),
+    progressPercentage: (donationStats as any)?.progresso || (backendImpactData as any)?.progressPercentage || 0,
+    currentMonth: (donationStats as any)?.mesesFaltando !== undefined ? (12 - (donationStats as any).mesesFaltando) : ((backendImpactData as any)?.currentMonth || 9),
+    periodicidade: periodicidade,
+    periodosPorAno: periodoInfo.periodos,
+    periodoLabel: periodoInfo.label
   };
 
   // ✅ DEBUG: Log do valor final sendo exibido
@@ -1455,7 +1467,7 @@ export default function Pagamentos() {
       <main className="max-w-4xl mx-auto px-4 py-4 md:px-8 md:py-8">
         <div className="space-y-4">
             {/* Nome do Usuário */}
-            <div className="mb-6">
+            <div className="mb-2">
               <h1 className="text-xl font-bold text-gray-900 tracking-wide">
                 {userData.nome.toUpperCase() || "USUÁRIO"}
               </h1>
@@ -1463,7 +1475,7 @@ export default function Pagamentos() {
 
             {/* Carrossel de Cartões - OCULTAR quando modais estão abertos */}
             {!showAddCardFlow && !showChangeCardModal && (
-              <div className="mb-6">
+              <div className="mb-4">
                 <SwipeableCardSelector 
                   instanceId="main-carousel"
                   onCardSelect={(cardId) => {
@@ -1517,9 +1529,6 @@ export default function Pagamentos() {
                             description: "Usuário não identificado. Tente recarregar a página.",
                             variant: "destructive"
                           });
-                           await queryClient.invalidateQueries({
-                              queryKey: ['/api/users', userId, 'payment-methods']
-                            });
                           return;
                         }
                         
@@ -1534,17 +1543,23 @@ export default function Pagamentos() {
                             // Fechar modal
                             setShowChangeCardModal(false);
                             
-                            // Encontrar cartão selecionado nos dados globais
-                            const selectedCard = globalCards.find(card => card.id === cardId);
+                            // Buscar cartão selecionado dos dados de payment methods
+                            const pmData = paymentMethods as any[];
+                            const selectedCard = pmData.find((pm: any) => pm.id === cardId);
                             
                             if (selectedCard) {
                               toast({
                                 title: "Cartão Principal Alterado",
-                                description: `${selectedCard.type} ••${selectedCard.number.slice(-4)} é agora seu cartão principal!`,
+                                description: `${selectedCard.brand?.toUpperCase()} ••${selectedCard.last4} é agora seu cartão principal!`,
                               });
                               
                               console.log('🎉 [MODAL] Cartão alterado com sucesso:', cardId);
                             }
+                            
+                            // Invalidar cache para atualizar
+                            await queryClient.invalidateQueries({
+                              queryKey: ['payment-methods']
+                            });
                           } else {
                             throw new Error('Falha na resposta da API');
                           }
@@ -1589,7 +1604,7 @@ export default function Pagamentos() {
                   R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}
                 </div>
                 <div className="mt-2 text-xs text-black/70">
-                  Meta anual: R$ {impactData.annualValue.toFixed(2).replace('.', ',')} (R$ {impactData.monthlyValue.toFixed(2).replace('.', ',')} × 12 meses)
+                  Meta anual: R$ {impactData.annualValue.toFixed(2).replace('.', ',')} (R$ {impactData.monthlyValue.toFixed(2).replace('.', ',')} × {impactData.periodosPorAno} {impactData.periodoLabel})
                 </div>
               </div>
 
@@ -1602,6 +1617,7 @@ export default function Pagamentos() {
                   annualValue={impactData.annualValue}
                   color={causaColors[impactData.mainCausa as keyof typeof causaColors] || '#FFD700'}
                   currentMonth={impactData.currentMonth}
+                  periodicidade={impactData.periodicidade}
                 />
               </div>
 
@@ -1620,7 +1636,7 @@ export default function Pagamentos() {
                   <div className="text-sm text-gray-800 leading-relaxed">
                     <span className="font-bold text-gray-900">Progresso do ano:</span> Seu impacto atual é de{' '}
                     <span className="font-semibold text-gray-900">R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}</span>{' '}
-                    em {impactData.currentMonth} meses. Faltam{' '}
+                    em {impactData.currentMonth} {impactData.currentMonth === 1 ? 'mês' : 'meses'}. Faltam{' '}
                     <span className="font-semibold text-gray-900">R$ {impactData.valueRemaining.toFixed(2).replace('.', ',')}</span>{' '}
                     para completar sua meta anual.
                   </div>

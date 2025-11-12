@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, RefreshCw, TrendingUp, Target, BarChart3, Activity, PieChart, Filter } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loader2, RefreshCw, TrendingUp, Target, BarChart3, Activity, PieChart, Filter, Gauge } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { useMutation } from '@tanstack/react-query';
@@ -27,6 +28,59 @@ import {
   Area,
   Legend
 } from 'recharts';
+
+// Componente para barra de progresso visual (aba Impacto)
+function ProgressBar({ indicator }: { indicator: GVIndicatorData }) {
+  const percentage = Math.min(100, indicator.atingimento_percentual);
+  const ragColor = indicator.status_rag === 'Verde' ? 'green' : 
+                   indicator.status_rag === 'Amarelo' ? 'yellow' : 
+                   indicator.status_rag === 'Vermelho' ? 'red' : 'gray';
+  
+  const barColorClass = ragColor === 'green' ? 'bg-gradient-to-r from-green-500 to-green-600' :
+                        ragColor === 'yellow' ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                        ragColor === 'red' ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                        'bg-gradient-to-r from-gray-400 to-gray-500';
+  
+  const bgColorClass = ragColor === 'green' ? 'bg-green-50' :
+                       ragColor === 'yellow' ? 'bg-yellow-50' :
+                       ragColor === 'red' ? 'bg-red-50' :
+                       'bg-gray-50';
+  
+  return (
+    <div className={`py-5 px-4 mb-3 rounded-lg ${bgColorClass} border-l-4 ${
+      ragColor === 'green' ? 'border-green-600' :
+      ragColor === 'yellow' ? 'border-yellow-500' :
+      ragColor === 'red' ? 'border-red-600' :
+      'border-gray-400'
+    }`}>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-base font-bold text-gray-900">{indicator.indicador_nome}</h4>
+        <div className="flex items-center gap-2">
+          {indicator.is_primary && (
+            <Badge variant="secondary" className="text-xs">
+              <Target className="w-3 h-3 mr-1" />
+              Principal
+            </Badge>
+          )}
+        </div>
+      </div>
+      
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm text-gray-600">{indicator.realizado} / {indicator.meta}</span>
+        <span className="text-sm font-semibold text-gray-700">{percentage.toFixed(1)}%</span>
+      </div>
+      
+      <div className="relative">
+        <div className="w-full bg-gray-200 rounded-full h-6 overflow-hidden shadow-inner">
+          <div 
+            className={`${barColorClass} h-full rounded-full transition-all duration-700 ease-out shadow-md`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Componente para renderizar indicador individual
 function IndicatorRow({ indicator }: { indicator: GVIndicatorData }) {
@@ -530,50 +584,116 @@ export default function GestaoVistaScreen() {
         </div>
       </div>
 
-      {/* Content */}
+      {/* Content com Abas */}
       <main className="max-w-6xl mx-auto px-4 py-6">
-        <div className="space-y-8">
-          {Object.entries(groupedBySector).map(([sectorSlug, sector]) => (
-            <div key={sectorSlug} className="space-y-4">
-              <div className="bg-white rounded-lg border p-4">
-                <h2 className="text-2xl font-bold text-gray-900 mb-1">
-                  {sector.sectorName}
-                </h2>
-                <p className="text-gray-600 text-sm">
-                  {Object.keys(sector.projects).length} projeto{Object.keys(sector.projects).length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(sector.projects).map(([projectSlug, project]) => (
-                  <ProjectCard 
-                    key={projectSlug} 
-                    projectName={project.projectName} 
-                    indicators={project.indicators} 
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <Tabs defaultValue="visao-geral" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+            <TabsTrigger value="visao-geral" data-testid="tab-visao-geral">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Visão Geral
+            </TabsTrigger>
+            <TabsTrigger value="impacto" data-testid="tab-impacto">
+              <Gauge className="w-4 h-4 mr-2" />
+              Impacto
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Empty state */}
-        {data.data.length === 0 && (
-          <Card className="text-center p-8">
-            <CardContent>
-              <TrendingUp className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Nenhum indicador encontrado
-              </h3>
-              <p className="text-gray-600 mb-4">
-                Configure seus indicadores para visualizar os dados aqui.
-              </p>
-              <Button onClick={() => window.location.reload()}>
-                Atualizar dados
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+          {/* Aba: Visão Geral */}
+          <TabsContent value="visao-geral" className="space-y-8">
+            {Object.entries(groupedBySector).map(([sectorSlug, sector]) => (
+              <div key={sectorSlug} className="space-y-4">
+                <div className="bg-white rounded-lg border p-4">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                    {sector.sectorName}
+                  </h2>
+                  <p className="text-gray-600 text-sm">
+                    {Object.keys(sector.projects).length} projeto{Object.keys(sector.projects).length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Object.entries(sector.projects).map(([projectSlug, project]) => (
+                    <ProjectCard 
+                      key={projectSlug} 
+                      projectName={project.projectName} 
+                      indicators={project.indicators} 
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {/* Empty state */}
+            {data.data.length === 0 && (
+              <Card className="text-center p-8">
+                <CardContent>
+                  <TrendingUp className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Nenhum indicador encontrado
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    Configure seus indicadores para visualizar os dados aqui.
+                  </p>
+                  <Button onClick={() => window.location.reload()}>
+                    Atualizar dados
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Aba: Impacto - Barras de Progresso */}
+          <TabsContent value="impacto" className="space-y-6">
+            {Object.entries(groupedBySector).map(([sectorSlug, sector]) => (
+              <Card key={sectorSlug}>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Gauge className="w-5 h-5" />
+                      {sector.sectorName}
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {Object.values(sector.projects).flatMap(p => p.indicators).length} indicadores
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {Object.entries(sector.projects).map(([projectSlug, project]) => (
+                    <div key={projectSlug} className="mb-6 last:mb-0">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4" />
+                        {project.projectName}
+                      </h3>
+                      <div className="space-y-2">
+                        {project.indicators.map((indicator, idx) => (
+                          <ProgressBar key={`prog-${idx}`} indicator={indicator} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+
+            {/* Empty state */}
+            {data.data.length === 0 && (
+              <Card className="text-center p-8">
+                <CardContent>
+                  <Gauge className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Nenhum indicador de impacto encontrado
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    Configure seus indicadores para visualizar o impacto aqui.
+                  </p>
+                  <Button onClick={() => window.location.reload()}>
+                    Atualizar dados
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

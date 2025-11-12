@@ -108,17 +108,13 @@ export function useGV(period = '2025-08', scope = 'monthly') {
   const { data: rawData, isLoading, error } = useQuery<GVMetaRealizadoResponse>({
     queryKey: ['/api/gestao-vista/meta-realizado', { period, scope }],
     queryFn: () => apiRequest(`/api/gestao-vista/meta-realizado?period=${period}&scope=${scope}`),
-    staleTime: 0, // Sem cache para debug
+    staleTime: 0,
   });
   console.log('📊 [useGV] rawData:', rawData);
 
-  // Transform data to GV format
-  const transformedData = rawData ? transformMetaRealizadoToGV(rawData) : null;
-  console.log('🎯 [useGV] transformedData:', transformedData);
-
   return { 
-    data: transformedData, 
+    data: rawData, 
     loading: isLoading, 
-    error: error?.message || null 
+    err: error?.message || null 
   };
 }

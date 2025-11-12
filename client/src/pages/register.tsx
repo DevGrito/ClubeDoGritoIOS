@@ -19,6 +19,7 @@ const registerSchema = z.object({
   telefone: z.string().min(10, "Telefone deve ter pelo menos 10 dígitos"),
   email: z.string().email("Email inválido").optional(),
   plano: z.string(),
+  referralCode: z.string().optional(),
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
@@ -38,6 +39,9 @@ export default function Register() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Get referral code from URL params
+  const referralCodeParam = urlParams.get("ref") || urlParams.get("refCode") || "";
+
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -46,6 +50,7 @@ export default function Register() {
       telefone: "",
       email: "",
       plano: selectedPlan,
+      referralCode: referralCodeParam,
     },
   });
 
@@ -207,6 +212,28 @@ export default function Register() {
                   {form.formState.errors.email && (
                     <p className="text-sm text-red-600 mt-1">
                       {form.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="referralCode" className="text-sm font-medium text-gray-700">
+                    Código de Indicação (opcional)
+                  </Label>
+                  <Input
+                    id="referralCode"
+                    type="text"
+                    placeholder="Ex: GRITO-123456 ou link de amigo"
+                    {...form.register("referralCode")}
+                    className="mt-1"
+                    data-testid="input-referral-code"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    Tem um código de quem te indicou? Cole aqui!
+                  </p>
+                  {form.formState.errors.referralCode && (
+                    <p className="text-sm text-red-600 mt-1">
+                      {form.formState.errors.referralCode.message}
                     </p>
                   )}
                 </div>

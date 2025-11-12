@@ -31,6 +31,8 @@ import StoriesViewer from "@/components/StoriesViewer";
 import { logger } from "@/utils/logger";
 import { CheckinCard } from "@/components/CheckinCard";
 import ImpactGestaoVista from "@/components/ImpactGestaoVista";
+import { IndiqueGanhe } from "@/components/IndiqueGanhe";
+import { isLeoMartins } from "@shared/conselho";
 
 import outletLogo from "@assets/7f1ea56f-9e4c-4d9a-8f13-a744dc9538a6_1754683715214.png";
 import griffteLogo from "@assets/c735de54-82fe-432d-876d-508c7a28ca87_1754683710836.png";
@@ -47,6 +49,7 @@ import {
   HelpCircle,
   Award,
   DollarSign,
+  Crown,
   ShoppingBag,
   Shirt,
   Smartphone,
@@ -490,58 +493,132 @@ export default function Welcome() {
     staleTime: 5 * 60 * 1000, // Cache por 5 minutos
   });
 
-  // Dados dos programas (placeholder - será substituído por dados reais futuramente)
+  // Dados detalhados dos programas (placeholder - será substituído por dados reais futuramente)
   const programasData: Record<string, {
     nome: string;
     cor: string;
-    metricas: Array<{ icone: any; label: string; valor: string; }>
+    corTexto: string;
+    categorias: Array<{
+      titulo: string;
+      dados: Array<{ label: string; valor: string; }>;
+    }>;
   }> = {
+    f3d: {
+      nome: "F3D",
+      cor: "bg-purple-600",
+      corTexto: "text-purple-600",
+      categorias: [
+        {
+          titulo: "Decolagem",
+          dados: [
+            { label: "Famílias atendidas", valor: "89" },
+            { label: "Atividades realizadas", valor: "24" },
+          ]
+        },
+        {
+          titulo: "Moradia e Urbanismo",
+          dados: [
+            { label: "Reformas concluídas", valor: "12" },
+            { label: "Famílias beneficiadas", valor: "45" },
+          ]
+        },
+        {
+          titulo: "Des. Social",
+          dados: [
+            { label: "Projetos ativos", valor: "8" },
+            { label: "Pessoas impactadas", valor: "156" },
+          ]
+        }
+      ]
+    },
     pec: {
       nome: "PEC",
       cor: "bg-yellow-400",
-      metricas: [
-        { icone: Utensils, label: "Alimentações", valor: "1.250" },
-        { icone: Clock, label: "Horas de aula", valor: "850h" },
-        { icone: Users, label: "Crianças", valor: gestaoVistaData?.indicadores?.criancasAtendidas?.valor?.toString() || "120" },
-        { icone: Bus, label: "Viagens", valor: "45" },
+      corTexto: "text-yellow-600",
+      categorias: [
+        {
+          titulo: "Alunos por Atividade",
+          dados: [
+            { label: "Cultura", valor: "42 alunos" },
+            { label: "Esporte", valor: "58 alunos" },
+            { label: "Contraturno", valor: "120 alunos" },
+          ]
+        },
+        {
+          titulo: "Métricas Gerais",
+          dados: [
+            { label: "Atendimentos", valor: "320" },
+            { label: "Refeições servidas", valor: "1.250" },
+            { label: "Horas aulas", valor: "850h" },
+          ]
+        }
       ]
     },
     inclusao: {
       nome: "Inclusão Produtiva",
       cor: "bg-orange-500",
-      metricas: [
-        { icone: Users, label: "Jovens atendidos", valor: "85" },
-        { icone: BookOpen, label: "Cursos oferecidos", valor: "12" },
-        { icone: Award, label: "Certificados emitidos", valor: "67" },
-        { icone: TrendingUp, label: "Taxa de empregabilidade", valor: "78%" },
+      corTexto: "text-orange-600",
+      categorias: [
+        {
+          titulo: "Cursos por Área",
+          dados: [
+            { label: "Beleza", valor: "18 alunos" },
+            { label: "Manuais", valor: "24 alunos" },
+            { label: "Tecnologia", valor: "32 alunos" },
+            { label: "Adm. e Operacional", valor: "15 alunos" },
+          ]
+        },
+        {
+          titulo: "Resultados",
+          dados: [
+            { label: "Empregados", valor: "45 pessoas" },
+            { label: "Empreendedores", valor: "23 pessoas" },
+          ]
+        },
+        {
+          titulo: "Modalidade",
+          dados: [
+            { label: "Presencial", valor: "58 alunos" },
+            { label: "EAD", valor: "31 alunos" },
+          ]
+        }
       ]
     },
     psicossocial: {
       nome: "Psicossocial",
       cor: "bg-yellow-500",
-      metricas: [
-        { icone: Heart, label: "Visitas em domicílio", valor: gestaoVistaData?.indicadores?.visitas?.valor?.toString() || "3174" },
-        { icone: Calendar, label: "Atendimentos psicossociais", valor: gestaoVistaData?.indicadores?.atendimentos?.valor?.toString() || "324" },
-      ]
-    },
-    f3d: {
-      nome: "F3D",
-      cor: "bg-purple-600",
-      metricas: [
-        { icone: Users, label: "Famílias acompanhadas", valor: gestaoVistaData?.indicadores?.familiasAtivas?.valor?.toString() || "217" },
-        { icone: Target, label: "Atividades", valor: "18" },
-        { icone: Award, label: "Eventos realizados", valor: "15" },
-        { icone: TrendingUp, label: "Taxa de participação", valor: "92%" },
+      corTexto: "text-yellow-600",
+      categorias: [
+        {
+          titulo: "Atividades",
+          dados: [
+            { label: "Atendimentos", valor: gestaoVistaData?.indicadores?.atendimentos?.valor?.toString() || "324" },
+            { label: "Visitas", valor: gestaoVistaData?.indicadores?.visitas?.valor?.toString() || "3174" },
+            { label: "Encontros Coletivos", valor: "48" },
+          ]
+        }
       ]
     },
     negocios: {
       nome: "Negócios Sociais",
       cor: "bg-yellow-600",
-      metricas: [
-        { icone: DollarSign, label: "Renda gerada", valor: "R$ 45.800" },
-        { icone: Users, label: "Empreendedores", valor: "32" },
-        { icone: ShoppingBag, label: "Negócios criados", valor: "14" },
-        { icone: TrendingUp, label: "Crescimento", valor: "+35%" },
+      corTexto: "text-yellow-700",
+      categorias: [
+        {
+          titulo: "Outlet",
+          dados: [
+            { label: "Itens doados", valor: "1.245 itens" },
+            { label: "Vendas", valor: "R$ 12.800" },
+            { label: "Pessoas impactadas", valor: "89" },
+          ]
+        },
+        {
+          titulo: "Griffte",
+          dados: [
+            { label: "Peças confeccionadas", valor: "156 peças" },
+            { label: "Clientes atendidos", valor: "67" },
+          ]
+        }
       ]
     }
   };
@@ -1287,73 +1364,71 @@ export default function Welcome() {
 
         {/* 5. Seção Com seu apoio, o impacto é imenso! - Cards de Programas */}
         <div ref={impactSectionRef} className="mb-6 px-4">
-          <h2 className="text-xl font-bold text-gray-900 mb-2 font-sans">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 font-sans">
             Com seu apoio, o impacto é imenso!
           </h2>
-          <p className="text-sm text-gray-600 mb-4 font-sans">
-            Conheça nossos programas
-          </p>
           
-          {/* Grid de Cards dos Programas - 3 em cima, 2 embaixo */}
-          <div className="flex flex-col gap-3 items-center">
-            {/* Primeira linha - 3 cards */}
-            <div className="flex gap-3 justify-center">
+          {/* Carrossel horizontal com todos os cards */}
+          <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+            <div className="flex gap-4 w-max items-start">
               {/* Card PEC */}
               <button
-                onClick={() => setProgramaAberto('pec')}
-                className="w-24 h-24 bg-yellow-400 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 flex items-center justify-center"
+                disabled
+                className="flex flex-col items-center pointer-events-none outline-none focus:outline-none"
                 data-testid="card-programa-pec"
               >
-                <h3 className="text-sm font-bold text-white text-center font-sans">
-                  PEC
-                </h3>
+                <div className="w-20 h-20 bg-yellow-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                  <BookOpen className="w-10 h-10 text-yellow-700" />
+                </div>
+                <span className="text-sm text-gray-800 font-semibold text-center">PEC</span>
               </button>
 
               {/* Card Inclusão Produtiva */}
               <button
-                onClick={() => setProgramaAberto('inclusao')}
-                className="w-24 h-24 bg-orange-500 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 flex items-center justify-center"
+                disabled
+                className="flex flex-col items-center pointer-events-none outline-none focus:outline-none"
                 data-testid="card-programa-inclusao"
               >
-                <h3 className="text-xs font-bold text-white text-center font-sans px-1 leading-tight">
-                  Inclusão Produtiva
-                </h3>
+                <div className="w-20 h-20 bg-yellow-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                  <Award className="w-10 h-10 text-yellow-700" />
+                </div>
+                <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Inclusão Produtiva</span>
               </button>
 
               {/* Card Psicossocial */}
               <button
-                onClick={() => setProgramaAberto('psicossocial')}
-                className="w-24 h-24 bg-yellow-500 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 flex items-center justify-center"
+                disabled
+                className="flex flex-col items-center pointer-events-none outline-none focus:outline-none"
                 data-testid="card-programa-psicossocial"
               >
-                <h3 className="text-sm font-bold text-white text-center font-sans">
-                  Psicossocial
-                </h3>
+                <div className="w-20 h-20 bg-yellow-400 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                  <Heart className="w-10 h-10 text-yellow-800" />
+                </div>
+                <span className="text-sm text-gray-800 font-semibold text-center leading-tight">Psicossocial</span>
               </button>
-            </div>
 
-            {/* Segunda linha - 2 cards centralizados */}
-            <div className="flex gap-3 justify-center">
               {/* Card F3D */}
               <button
-                onClick={() => setProgramaAberto('f3d')}
-                className="w-24 h-24 bg-purple-600 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 flex items-center justify-center"
+                disabled
+                className="flex flex-col items-center pointer-events-none outline-none focus:outline-none"
                 data-testid="card-programa-f3d"
               >
-                <h3 className="text-sm font-bold text-white text-center font-sans">
-                  F3D
-                </h3>
+                <div className="w-20 h-20 bg-purple-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                  <Users className="w-10 h-10 text-purple-700" />
+                </div>
+                <span className="text-sm text-gray-800 font-semibold text-center">F3D</span>
               </button>
 
               {/* Card Negócios Sociais */}
               <button
-                onClick={() => setProgramaAberto('negocios')}
-                className="w-24 h-24 bg-yellow-600 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 flex items-center justify-center"
+                disabled
+                className="flex flex-col items-center pointer-events-none outline-none focus:outline-none"
                 data-testid="card-programa-negocios"
               >
-                <h3 className="text-xs font-bold text-white text-center font-sans px-1 leading-tight">
-                  Negócios Sociais
-                </h3>
+                <div className="w-20 h-20 bg-yellow-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                  <ShoppingBag className="w-10 h-10 text-yellow-800" />
+                </div>
+                <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Negócios Sociais</span>
               </button>
             </div>
           </div>
@@ -1581,6 +1656,11 @@ export default function Welcome() {
               />
             ))}
           </div>
+        </div>
+
+        {/* 10. Indique e Ganhe */}
+        <div className="mb-6">
+          <IndiqueGanhe />
         </div>
 
         {/* Modal de edição */}
@@ -1854,6 +1934,63 @@ export default function Welcome() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              {/* Administrador - Apenas para Leo Martins */}
+              {(() => {
+                // Verificar se é Leo por email OU telefone
+                const isLeoByEmail = isLeoMartins(userData.email || '');
+                const normalizedPhone = (userData.telefone || '').replace(/\D/g, '');
+                // Telefones do Leo: 31998783003, 31987830003, 31993741556
+                const isLeoByPhone = normalizedPhone === '31998783003' || 
+                                     normalizedPhone === '5531998783003' ||
+                                     normalizedPhone === '31987830003' || 
+                                     normalizedPhone === '5531987830003' ||
+                                     normalizedPhone === '31993741556' ||
+                                     normalizedPhone === '5531993741556';
+                const isLeo = isLeoByEmail || isLeoByPhone;
+                
+                console.log('🔍 [LEO CHECK] Email:', userData.email, 'isLeoByEmail:', isLeoByEmail);
+                console.log('🔍 [LEO CHECK] Phone:', userData.telefone, 'normalized:', normalizedPhone, 'isLeoByPhone:', isLeoByPhone);
+                console.log('🔍 [LEO CHECK] Final isLeo:', isLeo);
+                
+                return isLeo;
+              })() && (
+                <div>
+                  <div
+                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-purple-50"
+                    onClick={() => {
+                      setShowHelpMenu(false);
+                      setTimeout(() => setLocation("/administrador"), 150);
+                    }}
+                  >
+                    <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Crown className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3
+                        className="font-semibold text-gray-900 text-base"
+                        style={{
+                          fontFamily:
+                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                        }}
+                      >
+                        Administrador
+                      </h3>
+                      <p
+                        className="text-sm text-gray-600 mt-1 leading-relaxed"
+                        style={{
+                          fontFamily:
+                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                        }}
+                      >
+                        Painel executivo e gestão institucional.
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  </div>
+                  <div className="border-b border-gray-100 mx-4"></div>
+                </div>
+              )}
+
               {/* Benefícios */}
               <div>
                 <div
@@ -2072,35 +2209,43 @@ export default function Welcome() {
 
       {/* Modal de Dados dos Programas */}
       <Dialog open={programaAberto !== null} onOpenChange={(open) => !open && setProgramaAberto(null)}>
-        <DialogContent className="max-w-sm rounded-2xl">
+        <DialogContent className="max-w-md rounded-2xl max-h-[80vh] overflow-y-auto">
           {programaAberto && programasData[programaAberto] && (
             <>
               <DialogHeader>
-                <DialogTitle className="text-xl font-bold font-sans">
+                <DialogTitle className={`text-2xl font-bold font-sans ${programasData[programaAberto].corTexto}`}>
                   {programasData[programaAberto].nome}
                 </DialogTitle>
               </DialogHeader>
 
-              {/* Grid de Métricas */}
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                {programasData[programaAberto].metricas.map((metrica, index) => {
-                  const IconeComponente = metrica.icone;
-                  return (
-                    <div
-                      key={index}
-                      className={`${programasData[programaAberto].cor} rounded-xl p-4 text-white`}
-                      data-testid={`metrica-${index}`}
-                    >
-                      <IconeComponente className="w-6 h-6 mb-2 opacity-90" />
-                      <div className="text-2xl font-bold mb-1 font-sans">
-                        {metrica.valor}
-                      </div>
-                      <div className="text-xs opacity-90 font-sans">
-                        {metrica.label}
-                      </div>
+              {/* Categorias e Dados */}
+              <div className="mt-4 space-y-6">
+                {programasData[programaAberto].categorias.map((categoria, catIndex) => (
+                  <div key={catIndex} className="space-y-3">
+                    {/* Título da Categoria */}
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                      {categoria.titulo}
+                    </h3>
+                    
+                    {/* Lista de Dados */}
+                    <div className="space-y-2">
+                      {categoria.dados.map((dado, dadoIndex) => (
+                        <div 
+                          key={dadoIndex}
+                          className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                          data-testid={`dado-${catIndex}-${dadoIndex}`}
+                        >
+                          <span className="text-sm text-gray-700 font-medium">
+                            {dado.label}
+                          </span>
+                          <span className={`text-base font-bold ${programasData[programaAberto].corTexto}`}>
+                            {dado.valor}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </>
           )}
