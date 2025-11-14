@@ -28,8 +28,8 @@
         };
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-LV4ShgWc.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Be5usema.css">
+    <script type="module" crossorigin src="/assets/index-C9xreWuJ.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CtB5HtHJ.css">
   <link rel="manifest" href="/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/registerSW.js"></script></head>
   <body>
     <div id="root"></div>
@@ -44,11 +44,24 @@
       }
     </script>
     <script>
+      // DESABILITAR SERVICE WORKER COMPLETAMENTE
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/service-worker.js")
-          .then(() => console.log("Service Worker registrado com sucesso!"))
-          .catch((err) => console.error("Erro ao registrar o Service Worker:", err));
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => {
+            console.log('🔥 FORÇANDO DESREGISTRO DO SW...');
+            registration.unregister();
+          });
+        });
       }
+      // Limpar TODOS os caches
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          console.log('🗑️ DELETANDO TODOS OS CACHES:', names);
+          names.forEach(name => caches.delete(name));
+        });
+      }
+      // FORÇA HARD REFRESH
+      console.log('🚀 VERSÃO DO CÓDIGO: 3.0.0-PLAN-FIX-' + Date.now());
     </script>
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/assets/logo192.png" />
