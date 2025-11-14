@@ -74,9 +74,17 @@ const DynamicIcon = ({ iconName, className = "w-6 h-6" }: { iconName: string; cl
 const capitalizeFirstLetter = (str: string) => {
   return str.charAt(0).toUpperCase() + str.slice(1);
 };
+function getBeneficioImageSrc(b: any): string {
+  if (!b) return "/assets/placeholder-beneficio.png";
+  return (
+    b.imagemCardUrl ||      // /api/beneficios/:id/imagem?tipo=card
+    b.imagemUrl    ||       // /api/beneficios/:id/imagem (fallback)
+    b.imagem       ||       // compat legado (backend já preenche /api/…)
+    "/assets/placeholder-beneficio.png"
+  );
+}
 
 // Dados serão carregados via useUserData hook
-
 export default function Beneficios() {
   const [, setLocation] = useLocation();
   const [isStoriesOpen, setIsStoriesOpen] = useState(false);
@@ -334,8 +342,13 @@ export default function Beneficios() {
   useEffect(() => {
     console.log('🔍 BENEFÍCIOS CARREGADOS:', beneficios);
     beneficios.forEach((b: any) => {
-      console.log(`🔍 Benefício ${b.id}: ${b.titulo} - imagem: ${b.imagem}`);
+    console.log(`🔍 Benefício ${b.id}: ${b.titulo}`, {
+      imagemCardUrl: b.imagemCardUrl,
+      imagemUrl: b.imagemUrl,
+      imagem: b.imagem,
+      chosen: getBeneficioImageSrc(b),
     });
+  });
   }, [beneficios]);
 
   // Para compatibilidade com o resto do código, adicionar campos extras que são necessários  
@@ -678,24 +691,22 @@ export default function Beneficios() {
                       }}
                     >
                       {/* Imagem de fundo se houver - Otimizada para cards pequenos */}
-                      {(beneficio as any).imagemUrl && (
-                        <img 
-                          src={beneficio.imagemUrl}
-                          alt={beneficio.titulo}
-                          className="absolute inset-0 w-full h-full object-cover"
-                          style={{ 
-                            imageRendering: 'crisp-edges',
-                            filter: 'contrast(1.05) saturate(1.1)',
-                            backfaceVisibility: 'hidden'
-                          }}
-                          loading="lazy"
-                          decoding="async"
-                          onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            img.style.display = 'none';
-                          }}
-                        />
-                      )}
+                   {/* Imagem de fundo - prioriza /api/beneficios/:id/imagem */}
+                    <img 
+                      src={getBeneficioImageSrc(beneficio)}
+                      alt={beneficio.titulo}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      style={{ 
+                        imageRendering: 'crisp-edges',
+                        filter: 'contrast(1.05) saturate(1.1)',
+                        backfaceVisibility: 'hidden'
+                      }}
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "/assets/placeholder-beneficio.png";
+                      }}
+                    />
                       
                       {/* Overlay escuro para melhor legibilidade */}
                       <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
@@ -1165,16 +1176,15 @@ export default function Beneficios() {
                     >
                       {/* Imagem de fundo se houver */}
                       {(beneficio as any).imagemUrl && (
-                        <img
-                          src={(beneficio as any).imagemUrl}
+                       <img
+                          src={getBeneficioImageSrc(beneficio)}
                           alt={beneficio.titulo}
                           className="absolute inset-0 w-full h-full object-cover"
                           loading="lazy"
                           onError={(e) => {
-                            const img = e.target as HTMLImageElement;
-                            img.style.display = 'none';
+                            (e.target as HTMLImageElement).src = "/assets/placeholder-beneficio.png";
                           }}
-                        />
+                      />
                       )}
                       
                       {/* Overlay */}

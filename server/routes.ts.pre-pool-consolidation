@@ -6,10 +6,8 @@ import Stripe from "stripe";
 import pkg from 'pg';
 const { Pool } = pkg;
 import { storage } from "./storage";
-import { bucket, extractFilePathFromUrl, normalizeObjectKey, streamObjectToResponse, streamSignedObjectToResponse  } from './gcsService';
 import { getOrCreateStripeCustomer, attachPaymentMethodSafely, normalizePhoneToE164, getPhoneSearchVariants } from "./stripeHelpers";
 import { keysToCamelCase } from "./utils/caseConversion";
-import { HttpError } from "./utils/httpError";
 import { initCronJobs } from "./jobs/cronJobs";
 import { registerAdminManualSubscription } from "./adminManualSubscription";
 import * as fs from 'node:fs';
@@ -18,7 +16,7 @@ import * as path from 'node:path';
 import { uploadToGCS, deleteObject, extractFilePathFromUrl, getSignedUrl, fileExists as gcsFileExists } from "./gcsService";
 import crypto from 'crypto';
 import {
-  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins, marketingLinks,
+  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins,
   // 📊 GESTÃO À VISTA - Tabelas
   gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues,
   beneficioImagens,
@@ -62,9 +60,6 @@ import {
   insertPsicoCasoSchema,
   insertPsicoAtendimentoSchema,
   insertPsicoPlanoSchema,
-  psicoIdSchema,
-  updatePsicoFamiliaSchema,
-  updatePsicoCasoSchema,
   type PsicoFamilia,
   type InsertPsicoFamilia,
   type PsicoCaso,
@@ -93,7 +88,7 @@ import {
   dadosDemograficos
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne } from "drizzle-orm";
 import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
 import { z } from "zod";
 import multer from "multer";
@@ -114,6 +109,22 @@ import XLSX from 'xlsx';
 // KPI color rules for Gestão à Vista
 import { getKpiColor } from './utils/kpiColors';
 
+// Initialize Digital Ocean PostgreSQL Pool (shared)
+let doPool: any = null;
+
+function getDigitalOceanPool() {
+  if (!doPool) {
+    doPool = new Pool({
+      host: process.env.DO_DB_HOST,
+      port: parseInt(process.env.DO_DB_PORT || '5433'),
+      database: process.env.DO_DB_NAME,
+      user: process.env.DO_DB_USER,
+      password: process.env.DO_DB_PASSWORD,
+      ssl: false
+    });
+  }
+  return doPool;
+}
 
 import { toE164BR,  } from "../client/src/utils/phone";
 
@@ -151,8 +162,8 @@ function getTwilioClient() {
   }
 
   try {
-   // console.log(`🔐 [TWILIO] Inicializando com SID: ${process.env.TWILIO_ACCOUNT_SID?.substring(0, 8)}...`);
-   // console.log(`🔐 [TWILIO] Token length: ${process.env.TWILIO_AUTH_TOKEN?.length} caracteres`);
+    console.log(`🔐 [TWILIO] Inicializando com SID: ${process.env.TWILIO_ACCOUNT_SID?.substring(0, 8)}...`);
+    console.log(`🔐 [TWILIO] Token length: ${process.env.TWILIO_AUTH_TOKEN?.length} caracteres`);
     
     twilioClient = twilio(
       process.env.TWILIO_ACCOUNT_SID,
@@ -166,9 +177,9 @@ function getTwilioClient() {
 }
 
 // Stripe setup
-// console.log('🔍 [STRIPE] Verificando chaves Stripe...');
-// console.log('🔍 [STRIPE] STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? '✅ encontrada' : '❌ ausente');
-// console.log('🔍 [STRIPE] STRIPE_WEBHOOK_SECRET:', process.env.STRIPE_WEBHOOK_SECRET ? '✅ encontrada' : '❌ ausente');
+console.log('🔍 [STRIPE] Verificando chaves Stripe...');
+console.log('🔍 [STRIPE] STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? '✅ encontrada' : '❌ ausente');
+console.log('🔍 [STRIPE] STRIPE_WEBHOOK_SECRET:', process.env.STRIPE_WEBHOOK_SECRET ? '✅ encontrada' : '❌ ausente');
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
@@ -177,8 +188,8 @@ if (!process.env.STRIPE_SECRET_KEY) {
 // Verificar modo teste vs produção
 const isTestMode = process.env.STRIPE_SECRET_KEY.startsWith('sk_test_');
 const isLiveMode = process.env.STRIPE_SECRET_KEY.startsWith('sk_live_');
-// console.log('🔍 [STRIPE] Modo:', isTestMode ? 'TESTE (sk_test_)' : isLiveMode ? 'PRODUÇÃO (sk_live_)' : '❓ DESCONHECIDO');
-// console.log('🔍 [STRIPE] Chave termina com:', '...' + process.env.STRIPE_SECRET_KEY.slice(-6));
+console.log('🔍 [STRIPE] Modo:', isTestMode ? 'TESTE (sk_test_)' : isLiveMode ? 'PRODUÇÃO (sk_live_)' : '❓ DESCONHECIDO');
+console.log('🔍 [STRIPE] Chave termina com:', '...' + process.env.STRIPE_SECRET_KEY.slice(-6));
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 console.log('✅ [STRIPE] Cliente Stripe inicializado com sucesso');
@@ -313,22 +324,6 @@ function normalizePhoneToE164(phone: string): string {
 // Legacy function for backward compatibility
 function normalizePhoneForSMS(phone: string): string {
   return normalizePhoneToE164(phone);
-}
-function buildInternalBase() {
-  const port = process.env.PORT || '5000';   // mesma porta do seu Express
-  return `http://127.0.0.1:${port}`;
-}
-
-async function safeJson(url: string, ms = 4000) {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), ms);
-  try {
-    const r = await fetch(url, { signal: ac.signal });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    return await r.json();
-  } finally {
-    clearTimeout(t);
-  }
 }
 
 const planPrices = {
@@ -1238,35 +1233,6 @@ async function obterMetasDepartamento(departamento: string, ano: number = 2025):
   }
 }
 
-
-async function findExistingDonor({ 
-  subscriptionId, 
-  customerId 
-}: { 
-  subscriptionId?: string | null; 
-  customerId?: string | null;
-}) {
-  const conditions = [];
-  
-  if (subscriptionId) {
-    conditions.push(eq(doadores.stripeSubscriptionId, subscriptionId));
-  }
-  
-  if (customerId) {
-    conditions.push(eq(doadores.stripeCustomerId, customerId));
-  }
-  
-  if (conditions.length === 0) {
-    return null;
-  }
-  
-  const query = conditions.length === 1 
-    ? db.select().from(doadores).where(conditions[0])
-    : db.select().from(doadores).where(or(...conditions));
-  
-  const result = await query.limit(1);
-  return result[0] || null;
-}
 export async function registerRoutes(app: Express): Promise<Server> {
   // TRECHO ADICIONADO
   app.post('/api/log-client-error', express.json(), (req, res) => {
@@ -1424,43 +1390,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
-            // ✅ Verificar duplicação antes de criar doador
-            const existingDoador = await findExistingDonor({
-              subscriptionId: subscription.id,
-              customerId: typeof customer === 'string' ? customer : customer?.id
+            // Criar doador
+            await db.insert(doadores).values({
+              userId,
+              plano,
+              valor: amountInReais,
+              periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
+              status,
+              dataDoacaoInicial: new Date(subscription.created * 1000),
+              ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+              stripeCustomerId: typeof customer === 'string' ? customer : customer?.id,
+              stripeSubscriptionId: subscription.id,
+              ativo: status === 'paid'
             });
-            
-            if (existingDoador) {
-              // Atualizar doador existente com dados completos
-              await db.update(doadores)
-                .set({
-                  plano,
-                  valor: amountInReais,
-                  periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
-                  status,
-                  ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
-                  userId: userId || existingDoador.userId,
-                  ativo: status === 'paid'
-                })
-                .where(eq(doadores.id, existingDoador.id));
-              console.log(`♻️ [STRIPE SYNC] Doador existente atualizado: ${customerName} (${customerEmail})`);
-              syncResults.updated++;
-            } else {
-              await db.insert(doadores).values({
-                userId,
-                plano,
-                valor: amountInReais,
-                periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
-                status,
-                dataDoacaoInicial: new Date(subscription.created * 1000),
-                ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
-                stripeCustomerId: typeof customer === 'string' ? customer : customer?.id,
-                stripeSubscriptionId: subscription.id,
-                ativo: status === 'paid'
-              });
-              console.log(`✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`);
-              syncResults.created++;
-            }
+
+            console.log(`✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`);
+            syncResults.created++;
           }
 
         } catch (error) {
@@ -2266,7 +2211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ========= Create payment for new user after SMS verification =========
-   app.post('/api/payments/create-for-new-user', async (req, res) => {
+  app.post('/api/payments/create-for-new-user', async (req, res) => {
     try {
       const { phone, nome, email, plan, amount, periodicity } = req.body;
       console.log(`🔄 [NEW USER PAYMENT] Creating payment for: ${phone}, plan: ${plan}, amount: ${amount}, periodicity: ${periodicity}`);
@@ -3176,7 +3121,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Validar nome da empresa e verificar disponibilidade
   app.post("/api/cotas/validar-empresa", async (req, res) => {
     try {
-      const { nomeEmpresa, email } = req.body;
+      const { nomeEmpresa } = req.body;
 
       if (!nomeEmpresa || typeof nomeEmpresa !== 'string' || nomeEmpresa.trim() === '') {
         return res.status(400).json({
@@ -3185,16 +3130,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (!email || typeof email !== 'string' || email.trim() === '') {
-        return res.status(400).json({
-          valida: false,
-          error: "E-mail da empresa é obrigatório"
-        });
-      }
+      console.log('🏢 [API] Validando empresa:', nomeEmpresa);
 
-      const resultado = await storage.validarEmpresa(nomeEmpresa.trim(), email.trim());
+      const resultado = await storage.validarEmpresa(nomeEmpresa.trim());
+
+      console.log('✅ [API] Resultado da validação:', resultado);
 
       res.json(resultado);
+
     } catch (error: any) {
       console.error("❌ [API] Erro ao validar empresa:", error);
       res.status(500).json({
@@ -3743,7 +3686,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // 🔒 WEBHOOK SEGURO - Verificação de assinatura obrigatória
- app.post('/api/webhook/stripe',  express.raw({ type: 'application/json' }), async (req, res) => {
+  app.post('/api/webhook/stripe', async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -4997,7 +4940,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-
   // Reativar assinatura expirada (incomplete_expired/void/unpaid)
   app.post('/api/billing/reactivate', requireAuth, async (req, res) => {
     try {
@@ -5943,61 +5885,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Return original if format is unclear
     return phone;
   }
- 
-  // LOGIN DE COORDENADORES
- app.post("/auth/login-coordenador", async (req, res) => {
-  try {
-    const raw = String(req.body?.email || "").trim();
-    if (!raw) return res.status(400).json({ error: "E-mail é obrigatório" });
-
-    // normaliza
-    const email = raw.toLowerCase();
-
-    // busca coordenador ativo por email
-    const [coord] = await db
-      .select()
-      .from(coordenadores)
-      .where(and(ilike(coordenadores.email, email), eq(coordenadores.ativo, true)))
-      .limit(1);
-
-    if (!coord) return res.status(401).json({ error: "E-mail não autorizado" });
-
-    // opcional: carregar dados do usuário vinculado
-    let user: any = null;
-    if (coord.userId) {
-      const [u] = await db.select().from(users).where(eq(users.id, coord.userId)).limit(1);
-      user = u || null;
-    }
-
-    return res.json({
-      success: true,
-      role: "coordenador",
-      setor: coord.setor,
-      redirectPath: coord.redirectPath, // já vem da tabela (vide sua screenshot)
-      user: user
-        ? {
-            id: user.id,
-            nome: user.nome || "Coordenador",
-            email: user.email || email,
-            telefone: user.telefone || "",
-            papel: "coordenador",
-            role: "coordenador",
-          }
-        : {
-            id: 0,
-            nome: "Coordenador",
-            email,
-            telefone: "",
-            papel: "coordenador",
-            role: "coordenador",
-          },
-    });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "Erro interno" });
-  }
-});
-
 
   // Send login code via SMS
   app.post("/api/send-login-code", async (req, res) => {
@@ -8915,7 +8802,14 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   app.get("/api/conselho/kpis", async (req, res) => {
     try {
       // Conectar ao Digital Ocean PostgreSQL para dados reais
-      // Usando pool do server/db.ts
+      const doPool = new Pool({
+        host: process.env.DO_DB_HOST,
+        port: parseInt(process.env.DO_DB_PORT || '5433'),
+        database: process.env.DO_DB_NAME,
+        user: process.env.DO_DB_USER,
+        password: process.env.DO_DB_PASSWORD,
+        ssl: false
+      });
 
       let alunosFormados = 0;
       let criancasPec = 0;
@@ -8924,7 +8818,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       try {
         // 1. Alunos formados (Inclusão Produtiva) - Total de alunos cadastrados
-        const alunosFormadosResult = await pool.query(`
+        const alunosFormadosResult = await doPool.query(`
           SELECT COUNT(*) as total_alunos
           FROM aluno
         `);
@@ -8938,7 +8832,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       try {
         // 2. Crianças atendidas (PEC) - Total de enrollments ativos
-        const criancasPecResult = await pool.query(`
+        const criancasPecResult = await doPool.query(`
           SELECT COUNT(DISTINCT person_id) as total_estudantes
           FROM enrollments
           WHERE active = true
@@ -8959,7 +8853,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       familiasAtivas = 0;
 
       // Fechar conexão
-      // Pool compartilhado não deve ser encerrado
+      await doPool.end();
 
       console.log('📊 [CONSELHO KPIs] KPIs retornados:', {
         alunosFormados,
@@ -8988,7 +8882,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
   // 📊 ENDPOINT: Gestão à Vista - Indicadores de desempenho (ANUAL)
   app.get("/api/gestao-vista", async (req, res) => {
-    const base = process.env.INTERNAL_API_BASE || buildInternalBase();
     let responseSent = false; // Flag para evitar enviar resposta duplicada
 
     try {
@@ -9014,10 +8907,10 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       // Buscar dados mensais dos programas para agregar
       const [dadosInclusao, dadosPEC, dadosPsicossocial, dadosFavela3D] = await Promise.all([
-        safeJson(`${base}/api/inclusao-produtiva/dados-mensais`).catch(err => (console.error('Inclusão falhou:', err), null)),
-        safeJson(`${base}/api/pec/dados-mensais`).catch(err => (console.error('PEC falhou:', err), null)),
-        safeJson(`${base}/api/psicossocial/dados-mensais`).catch(err => (console.error('Psicossocial falhou:', err), null)),
-        safeJson(`${base}/api/favela-3d/dados-mensais`).catch(err => (console.error('Favela3D falhou:', err), null)),
+        fetch(`http://localhost:5000/api/inclusao-produtiva/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/pec/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/psicossocial/dados-mensais`).then(r => r.json()).catch(() => null),
+        fetch(`http://localhost:5000/api/favela-3d/dados-mensais`).then(r => r.json()).catch(() => null)
       ]);
 
       console.log(`📊 [GESTÃO VISTA] Dados dos programas carregados:`, {
@@ -9138,7 +9031,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       };
 
       // Conectar ao Digital Ocean PostgreSQL (usar pool compartilhado)
-      // Usando pool do server/db.ts
+      const doPool = getDigitalOceanPool();
 
       try {
         // ==================================================================
@@ -9528,12 +9421,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
         // Pessoas Ativas (Inclusão + PEC)
         const pessoasAtivas = {
-          inclusaoProdutiva: { emFormacao: alunosEmFormacaoValor },
-          pec: { criancasAtendidas: criancasAtendidasValor },
+          inclusaoProdutiva: {
+            formados: alunosFormadosValor,
+            emFormacao: alunosEmFormacaoValor
+          },
+          pec: {
+            criancasAtendidas: criancasAtendidasValor
+          },
           totais: {
-            inclusao: alunosEmFormacaoValor,
+            inclusao: alunosFormadosValor + alunosEmFormacaoValor,
             pec: criancasAtendidasValor,
-            geral: alunosEmFormacaoValor + criancasAtendidasValor
+            geral: alunosFormadosValor + alunosEmFormacaoValor + criancasAtendidasValor
           }
         };
 
@@ -9581,6 +9479,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       } catch (dbError: any) {
         console.error('❌ [GESTÃO VISTA] Erro ao buscar dados:', dbError);
 
+        // Retornar dados com valores zero e cores cinza em caso de erro
         const indicadoresErro = {
           frequencia: { valor: 0, meta: 90, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
           evasao: { valor: 0, meta: 8, tipo: 'percent' as const, color: 'gray' as const, progress: 0 },
@@ -9608,133 +9507,15 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       } finally {
         // Pool compartilhado - não fechar
       }
-
     } catch (error: any) {
       console.error('❌ [GESTÃO VISTA] Erro fatal:', error);
+
       if (!responseSent) {
         res.status(500).json({ error: "Erro ao buscar dados de gestão à vista" });
       }
     }
   });
 
-  app.get('/api/dados-demograficos', async (req, res) => {
-    try {
-      console.log('📊 [DEMOGRAFICOS] Buscando dados agregados...');
-
-      // Buscar dados de ambos os programas
-      const dados = await db
-        .select()
-        .from(dadosDemograficos);
-
-      if (!dados || dados.length === 0) {
-        return res.json({
-          success: false,
-          error: 'Dados demográficos não encontrados'
-        });
-      }
-
-      // Separar dados por programa
-      const dadosPEC = dados.find(d => d.programa === 'pec');
-      const dadosInclusao = dados.find(d => d.programa === 'inclusao');
-
-      // Calcular totais agregados
-      const totalParticipantes = (dadosPEC?.totalParticipantes || 0) + (dadosInclusao?.totalParticipantes || 0);
-
-      // Agregar gênero
-      const generoFeminino = (dadosPEC?.generoFeminino || 0) + (dadosInclusao?.generoFeminino || 0);
-      const generoMasculino = (dadosPEC?.generoMasculino || 0) + (dadosInclusao?.generoMasculino || 0);
-      const generoNaoInformado = (dadosPEC?.generoNaoInformado || 0) + (dadosInclusao?.generoNaoInformado || 0);
-
-      // Agregar cor/raça
-      const corBranca = (dadosPEC?.corBranca || 0) + (dadosInclusao?.corBranca || 0);
-      const corParda = (dadosPEC?.corParda || 0) + (dadosInclusao?.corParda || 0);
-      const corPreta = (dadosPEC?.corPreta || 0) + (dadosInclusao?.corPreta || 0);
-
-      // Preparar dados com porcentagens
-      const genero = [
-        {
-          name: 'Feminino',
-          value: generoFeminino,
-          percentage: totalParticipantes > 0 ? Math.round((generoFeminino / totalParticipantes) * 100) : 0
-        },
-        {
-          name: 'Masculino',
-          value: generoMasculino,
-          percentage: totalParticipantes > 0 ? Math.round((generoMasculino / totalParticipantes) * 100) : 0
-        },
-        ...(generoNaoInformado > 0 ? [{
-          name: 'Não informado',
-          value: generoNaoInformado,
-          percentage: totalParticipantes > 0 ? Math.round((generoNaoInformado / totalParticipantes) * 100) : 0
-        }] : [])
-      ];
-
-      const racaCor = [
-        {
-          name: 'Parda',
-          value: corParda,
-          percentage: totalParticipantes > 0 ? Math.round((corParda / totalParticipantes) * 100) : 0
-        },
-        {
-          name: 'Preta',
-          value: corPreta,
-          percentage: totalParticipantes > 0 ? Math.round((corPreta / totalParticipantes) * 100) : 0
-        },
-        {
-          name: 'Branca',
-          value: corBranca,
-          percentage: totalParticipantes > 0 ? Math.round((corBranca / totalParticipantes) * 100) : 0
-        }
-      ];
-
-      // Calcular faixas etárias agregadas
-      // PEC: 6-12 anos
-      const pecIdade = (dadosPEC?.idade6 || 0) + (dadosPEC?.idade7 || 0) + (dadosPEC?.idade8 || 0) +
-        (dadosPEC?.idade9 || 0) + (dadosPEC?.idade10 || 0) + (dadosPEC?.idade11 || 0) +
-        (dadosPEC?.idade12 || 0);
-
-      const idade = [
-        {
-          name: '6 a 12 anos',
-          value: pecIdade,
-          percentage: totalParticipantes > 0 ? Math.round((pecIdade / totalParticipantes) * 100) : 0
-        },
-        {
-          name: '13-18 anos',
-          value: dadosInclusao?.idade13a18 || 0,
-          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade13a18 || 0) / totalParticipantes) * 100) : 0
-        },
-        {
-          name: '19-30 anos',
-          value: dadosInclusao?.idade19a30 || 0,
-          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade19a30 || 0) / totalParticipantes) * 100) : 0
-        },
-        {
-          name: '31-39 anos',
-          value: dadosInclusao?.idade31a39 || 0,
-          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade31a39 || 0) / totalParticipantes) * 100) : 0
-        },
-        {
-          name: '40+ anos',
-          value: dadosInclusao?.idade40mais || 0,
-          percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade40mais || 0) / totalParticipantes) * 100) : 0
-        }
-      ];
-
-      console.log(`✅ [DEMOGRAFICOS] Dados agregados: ${totalParticipantes} participantes`);
-
-      res.json({
-        success: true,
-        totalParticipantes,
-        genero,
-        racaCor,
-        idade
-      });
-    } catch (error) {
-      console.error('❌ [DEMOGRAFICOS] Erro:', error);
-      res.status(500).json({ success: false, error: 'Erro ao buscar dados demográficos' });
-    }
-  });
 
   // Rota para verificar se a meta de doações coletivas foi alcançada (DEVE VIR ANTES DE ROTAS COM PARÂMETROS)
   app.get("/api/collective-donations-total", async (req, res) => {
@@ -12107,53 +11888,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // GET /api/coordenadores/:id - Buscar dados do coordenador
-  app.get("/api/coordenadores/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      
-      const coordenador = await storage.getCoordenador(id);
-      
-      if (!coordenador) {
-        return res.status(404).json({ error: "Coordenador não encontrado" });
-      }
-
-      console.log(`✅ [GET /api/coordenadores/${id}] Coordenador encontrado: ${coordenador.nome}`);
-      res.json(coordenador);
-    } catch (error: any) {
-      console.error(`❌ [GET /api/coordenadores/:id] Erro:`, error);
-      res.status(500).json({ error: error.message || "Erro ao buscar coordenador" });
-    }
-  });
-
-  // PUT /api/coordenadores/:id - Atualizar perfil do coordenador
-  app.put("/api/coordenadores/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { nome, email, telefone, formacao } = req.body;
-
-      // Buscar coordenador existente
-      const coordenador = await storage.getCoordenador(id);
-      if (!coordenador) {
-        return res.status(404).json({ error: "Coordenador não encontrado" });
-      }
-
-      // Atualizar com dados fornecidos
-      const updated = await storage.updateCoordenador(id, {
-        nome,
-        email,
-        telefone,
-        formacao
-      });
-
-      console.log(`✅ [PUT /api/coordenadores/${id}] Perfil atualizado com sucesso`);
-      res.json(updated);
-    } catch (error: any) {
-      console.error(`❌ [PUT /api/coordenadores/:id] Erro:`, error);
-      res.status(500).json({ error: error.message || "Erro ao atualizar coordenador" });
-    }
-  });
-
   // ==== DEVELOPER API ROUTES ====
 
   // Get all users for developer panel - UNIFIED STRUCTURE (Supabase Migration)
@@ -14293,111 +14027,36 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   // Check-in diário com sistema de streak
   app.post("/api/users/:userId/checkin", async (req, res) => {
     try {
-      // Não cachear
+      // FORÇA NO-CACHE - NUNCA cachear esta resposta
       res.set({
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
-        Pragma: "no-cache",
-        Expires: "0",
-        "Surrogate-Control": "no-store",
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
       });
 
-      const userIdParam = req.params.userId;
-      const userId = Number(userIdParam);
-      if (!Number.isFinite(userId)) {
-        return res.status(400).json({ error: "userId inválido" });
-      }
+      const { userId } = req.params;
 
-      // Busca usuário
-      const [user] = await db
-        .select({
-          id: users.id,
-          streak: users.diasConsecutivos,   // int
-          lastCheckin: users.ultimoCheckin, // datetime
-        })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
+      // Usar novo sistema de checkin com streak
+      const resultado = await storage.doCheckinWithStreak(parseInt(userId));
 
-      if (!user) {
-        return res.status(404).json({ error: "Usuário não encontrado" });
-      }
-
-      // Helpers de data no fuso de SP (sem libs externas)
-      const TZ = "America/Sao_Paulo";
-      const fmtDia = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: TZ });
-
-      const agora = new Date();
-      const hoje = fmtDia(agora);
-
-      const last = user.lastCheckin ? new Date(user.lastCheckin) : null;
-      const lastDia = last ? fmtDia(last) : null;
-
-      // Já fez hoje?
-      if (lastDia === hoje) {
+      if (!resultado.success) {
         return res.status(400).json({ error: "Check-in já realizado hoje" });
       }
 
-      // É ontem? (mantém streak)
-      const ontemDate = new Date(agora);
-      ontemDate.setDate(ontemDate.getDate() - 1);
-      const ontem = fmtDia(ontemDate);
+      const isDay7 = resultado.diaAtual === 7;
+      const message = `Check-in realizado! +${resultado.gritosGanhos} Gritos${isDay7 ? ' (Bônus do 7º dia!)' : ` (Dia ${resultado.diaAtual}/7)`}`;
 
-      let newStreak: number;
-      if (lastDia === ontem) {
-        newStreak = (user.streak ?? 0) + 1;
-      } else {
-        newStreak = 1;
-      }
-
-      // Dia no ciclo de 7
-      const diaAtual = ((newStreak - 1) % 7) + 1;
-      const gritosGanhos = diaAtual === 7 ? 20 : 10;
-      const isDay7 = diaAtual === 7;
-
-      await db.transaction(async (tx) => {
-        // 1) marca check-in de hoje
-        await tx
-          .update(users)
-          .set({
-            diasConsecutivos: newStreak,
-            ultimoCheckin: agora,
-          })
-          .where(eq(users.id, userId));
-
-        // 2) histórico
-        await tx.insert(gritosHistorico).values({
-          userId,
-          tipo: "checkin_diario",
-          gritosGanhos: gritosGanhos,
-          createdAt: agora,
-        });
-
-        // 3) soma NO CAMPO CERTO
-        await tx
-          .update(users)
-          .set({ gritosTotal: sql`${users.gritosTotal} + ${gritosGanhos}` })
-          .where(eq(users.id, userId));
-      });
-
-      // pega total atualizado do campo CERTO
-      const [tot] = await db
-        .select({ gritosTotal: users.gritosTotal })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      return res.json({
+      res.json({
         success: true,
-        userId,
-        gritosGanhos,
-        diaAtual,
-        isDay7,
-        gritosTotal: tot?.gritosTotal ?? null,
-        message: `Check-in realizado! +${gritosGanhos} Gritos${isDay7 ? " (Bônus do 7º dia!)" : ` (Dia ${diaAtual}/7)`}`,
+        gritosGanhos: resultado.gritosGanhos,
+        diaAtual: resultado.diaAtual,
+        isDay7: isDay7,
+        message: message
       });
     } catch (error) {
       console.error("Error doing checkin:", error);
-      return res.status(500).json({ error: "Erro interno do servidor" });
+      res.status(500).json({ error: "Erro interno do servidor" });
     }
   });
 
@@ -14463,80 +14122,35 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  const TZ = "America/Sao_Paulo";
-  const fmtDia = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: TZ });
-  const isoDateBR2YYYYMMDD = (s: string) => s.split("/").reverse().join("-"); 
-
   // Verificar se pode fazer check-in hoje + informações de streak
-
-// Verificar se PODE fazer check-in hoje (NÃO muda estado)
   app.get("/api/users/:userId/can-checkin", async (req, res) => {
-  try {
-    const userId = Number(req.params.userId);
-    if (!Number.isFinite(userId)) return res.status(400).json({ error: "userId inválido" });
+    try {
+      // FORÇA NO-CACHE - NUNCA cachear esta resposta
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+      });
 
-    // Busca usuário
-    const [user] = await db
-      .select({
-        id: users.id,
-        streak: users.diasConsecutivos,
-        lastCheckin: users.ultimoCheckin,
-      })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+      const { userId } = req.params;
 
-    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+      // Usar novo sistema personalizado baseado na data de cadastro
+      const checkinStatus = await storage.getPersonalizedCheckinStatus(parseInt(userId));
 
-    // Cálculo de "pode fazer?" e previsão do dia
-    const TZ = "America/Sao_Paulo";
-    const fmtDia = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: TZ });
-
-    const agora = new Date();
-    const hoje = fmtDia(agora);
-
-    const last = user.lastCheckin ? new Date(user.lastCheckin) : null;
-    const lastDia = last ? fmtDia(last) : null;
-
-    const ontemDate = new Date(agora);
-    ontemDate.setDate(ontemDate.getDate() - 1);
-    const ontem = fmtDia(ontemDate);
-
-    let newStreak: number;
-    if (lastDia === hoje) {
-      // ✅ se já fez hoje, mantém o streak
-      newStreak = user.streak ?? 0;
-    } else if (lastDia === ontem) {
-      newStreak = (user.streak ?? 0) + 1;
-    } else {
-      newStreak = 1;
+      res.json({
+        canCheckin: checkinStatus.canCheckin,
+        diasConsecutivos: checkinStatus.diasConsecutivos,
+        diaAtual: checkinStatus.diaAtual,
+        cicloCompleto: checkinStatus.cicloCompleto,
+        ultimoCheckin: checkinStatus.ultimoCheckin,
+        lastCheckin: checkinStatus.ultimoCheckin
+      });
+    } catch (error) {
+      console.error("Error checking checkin status:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
     }
-
-    const canCheckin = lastDia !== hoje;
-    const diaAtual = ((newStreak - 1) % 7) + 1;
-    const gritosSeFizer = diaAtual === 7 ? 20 : 10; // ✅ define a variável
-
-    // Evita cache
-    res.set({
-      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
-      Pragma: "no-cache",
-      Expires: "0",
-      "Surrogate-Control": "no-store",
-    });
-
-    return res.json({
-      canCheckin,
-      diaAtual,
-      gritosSeFizer,          // ✅ agora
-      isDay7: diaAtual === 7,
-      lastCheckin: user.lastCheckin,
-      today: hoje,
-    });
-  } catch (e) {
-    console.error("Error can-checkin:", e);
-    return res.status(500).json({ error: "Erro interno do servidor" });
-  }
-});
+  });
 
   // Histórico de gritos
   app.get("/api/users/:userId/gritos-history", async (req, res) => {
@@ -15363,25 +14977,21 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       console.log(`🎯 [API /api/beneficios] Retornando ${beneficios.length} benefícios (IDs: ${beneficios.map(b => b.id).join(', ')})`);
 
       // Para cada benefício, buscar todas as imagens
-     const beneficiosComImagens = await Promise.all(
+      const beneficiosComImagens = await Promise.all(
         beneficios.map(async (beneficio) => {
           const imagens = await storage.getBeneficioImagensByBeneficio(beneficio.id);
 
-          const imagemCard = imagens.find(img => (img.tipo ?? '').toLowerCase() === 'card');
-          const imagemDetalhes = imagens.find(img => (img.tipo ?? '').toLowerCase() === 'detalhes');
-          const primeiraImagem = imagemCard || imagens[0] || null;
-
-          // sempre exponha 'imagem' apontando para a rota /api (compat com componentes legados)
-          const imagemApi =
-            imagemCard
-              ? `/api/beneficios/${beneficio.id}/imagem?tipo=card`
-              : (primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null);
+          // Separar imagens por tipo
+          const imagemCard = imagens.find(img => img.tipo === 'card');
+          const imagemDetalhes = imagens.find(img => img.tipo === 'detalhes');
+          const primeiraImagem = imagemCard || imagens[0]; // Backward compatibility
 
           return {
             ...beneficio,
-            imagem: imagemApi, // 👈 força componentes antigos a usarem a rota certa
+            // URLs específicas por tipo
             imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
             imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
+            // Backward compatibility - primeira imagem ou card
             imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null
           };
         })
@@ -15443,37 +15053,34 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
 
       // Buscar todas as imagens do benefício
-    const imagens = await storage.getBeneficioImagensByBeneficio(parseInt(id));
+      const imagens = await storage.getBeneficioImagensByBeneficio(parseInt(id));
 
-      const imagemCard = imagens.find((img: any) => (img.tipo ?? "").toLowerCase() === "card");
-      const imagemDetalhes = imagens.find((img: any) => (img.tipo ?? "").toLowerCase() === "detalhes");
-      const primary = imagemCard || imagens[0] || null;
+      // Separar imagens por tipo
+      const imagemCard = imagens.find(img => img.tipo === 'card');
+      const imagemDetalhes = imagens.find(img => img.tipo === 'detalhes');
+      const primeiraImagem = imagemCard || imagens[0]; // Backward compatibility
 
-      let signedUrl: string | null = null;
-      if (primary) {
-        const objectKey = resolveObjectKeyFromRow(primary);
-        if (objectKey) signedUrl = await getSignedUrl(objectKey);
-      }
-
-     const imagemApi =
-        imagemCard
-          ? `/api/beneficios/${beneficio.id}/imagem?tipo=card`
-          : (primary ? `/api/beneficios/${beneficio.id}/imagem` : null);
+      const { nomeArquivo } = imagens[0] as any;
+      const signedUrl = await getSignedUrl(`uploads/beneficios/${nomeArquivo}`)
 
       const beneficioComImagens = {
         ...beneficio,
-        imagem: imagemApi, // 👈 compatibilidade + caminho certo
+        imagem: signedUrl,
+        // URLs específicas por tipo
         imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
         imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
-        imagemUrl: primary ? `/api/beneficios/${beneficio.id}/imagem` : null,
-        _imagensInfo: imagens.map((img: any) => ({
+        // Backward compatibility - primeira imagem ou card
+        imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null,
+        // Informações das imagens para debug/admin
+        _imagensInfo: imagens.map(img => ({
           id: img.id,
-          tipo: img.tipo ?? null,
-          largura: img.largura ?? null,
-          altura: img.altura ?? null,
-          tamanhoBytes: img.tamanhoBytes ?? img.tamanho_bytes ?? null
+          tipo: img.tipo,
+          largura: img.largura,
+          altura: img.altura,
+          tamanhoBytes: img.tamanhoBytes
         }))
       };
+
       res.json(beneficioComImagens);
     } catch (error) {
       console.error("Error fetching beneficio:", error);
@@ -15686,17 +15293,13 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       // 4.2) arquivos de beneficio_imagens
       for (const img of imagens) {
-          const nomeArq = (img as any).nomeArquivo ?? (img as any).nome_arquivo ?? undefined;
-              let caminho: string | undefined =
-                (img as any).caminhoCompleto ?? (img as any).caminho_completo ?? undefined;
+        const nomeArq = (img as any).nomeArquivo as string | undefined;
+        const caminho =
+          (img as any).caminhoCompleto ??
+          (img as any).caminho_completo ??
+          (nomeArq ? `uploads/beneficios/${nomeArq}` : undefined);
 
-              if (!caminho && nomeArq) {
-                caminho = `uploads/beneficios/${nomeArq}`;
-              }
-              if (caminho) {
-                const objectKey = caminho.startsWith("http") ? extractFilePathFromUrl(caminho) : caminho;
-                try { await deleteObject(objectKey); } catch {}
-}
+        if (caminho) { try { await deleteObject(String(caminho)); } catch { } }
       }
 
       return res.status(200).json({ ok: true, id: beneficioId, message: "Benefício deletado com sucesso" });
@@ -15774,26 +15377,23 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       });
 
       // ✅ CORRIGIR: Criar automaticamente o registro na tabela beneficio_imagens
-          if (imagemUrl && novoBeneficio.id) {
-      const caminho = imagemUrl.startsWith("http")
-        ? extractFilePathFromUrl(imagemUrl)
-        : imagemUrl;
-
-      const fileName = caminho.split("/").pop() || "unknown";
-
-      await storage.createBeneficioImagem({
-        beneficioId: novoBeneficio.id,
-        tipo: "card",
-        nomeArquivo: fileName,
-        caminhoCompleto: caminho, // ex.: "uploads/beneficios/beneficios-xxx.png"
-        nomeOriginal: fileName,
-        tipoMime: "image/jpeg",
-        tamanhoBytes: 0,
-        largura: null,
-        altura: null,
-        ativo: true
-      });
-}
+      if (imagemUrl && novoBeneficio.id) {
+        try {
+          const fileName = imagemUrl.split('/').pop() || 'unknown';
+          await storage.createBeneficioImagem({
+            beneficioId: novoBeneficio.id,
+            nomeArquivo: fileName,
+            caminhoCompleto: imagemUrl,
+            nomeOriginal: fileName,
+            tipoMime: 'image/jpeg', // Assumir JPEG por padrão
+            tamanhoBytes: 0, // Tamanho desconhecido
+            ativo: true
+          });
+          console.log(`📸 [ADMIN CREATE] Imagem vinculada ao benefício ${novoBeneficio.id}`);
+        } catch (imageError) {
+          console.error(`❌ [ADMIN CREATE] Erro ao vincular imagem:`, imageError);
+        }
+      }
 
       console.log(`✅ [ADMIN CREATE] Benefício criado:`, novoBeneficio);
 
@@ -17061,25 +16661,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  app.get("/uploads/beneficios/:file", async (req, res) => {
-    try {
-      const fileName = req.params.file; // ex: beneficios-1761836303824-xyz.jpeg
-      const row = await storage.getBeneficioImagemByNome(fileName); // implemente essa query
-
-      if (!row) return res.status(404).send("Not Found");
-
-      // Se você guarda a key/objPath no banco:
-      const objectKey = resolveObjectKeyFromRow(row);
-      if (!objectKey) return res.status(404).send("Not Found");
-
-      const signed = await getSignedUrl(objectKey, 15);
-      return res.redirect(302, signed);
-    } catch (e) {
-      console.error("compat /uploads error:", e);
-      return res.status(500).send("Erro interno");
-    }
-  });
-
   // 🌍 ENDPOINT PARA SERVIR OBJETOS PÚBLICOS DO OBJECT STORAGE
   app.get("/public-objects/:filePath(*)", async (req, res) => {
     try {
@@ -17161,56 +16742,60 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     </svg>`;
   };
 
-    function resolveObjectKeyFromRow(row: any): string | null {
-    const caminhoCompleto = row.caminhoCompleto ?? row.caminho_completo ?? null;
-    const nomeArquivo     = row.nomeArquivo     ?? row.nome_arquivo     ?? null;
-
-    if (caminhoCompleto) {
-      // se veio URL completa, transforma em chave "uploads/beneficios/arquivo.png"
-      return caminhoCompleto.startsWith("http")
-        ? extractFilePathFromUrl(caminhoCompleto)
-        : caminhoCompleto;
-    }
-    if (nomeArquivo) {
-      return `uploads/beneficios/${nomeArquivo}`;
-    }
-    return null;
-  }
-
-
   // 🖼️ ENDPOINT PARA SERVIR IMAGENS DOS BENEFÍCIOS (PÚBLICO E PRIVADO)
   // TRECHO ALTERADO
-    // ...
-    app.get("/api/beneficios/:id/imagem", async (req, res) => {
-      try {
-        const beneficioId = Number(req.params.id);
-        const tipoReq = String(req.query.tipo || "").toLowerCase();
+  app.get("/api/beneficios/:id/imagem", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { tipo } = req.query || "card";
+      const beneficioId = parseInt(id);
+      const expiresSingedURL = Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 dias
 
+      // 1) Tenta pegar imagem pelo tipo; se não achar e o tipo for "card", faz fallback para 'detalhes' (ou vice-versa)
+      let imagem = await storage.getBeneficioImagem(beneficioId, tipo as string);
+
+      const { nomeArquivo } = imagem as any;
+
+      if (!imagem) {
         const imagens = await storage.getBeneficioImagensByBeneficio(beneficioId);
-        if (!imagens?.length) return res.status(404).send("Imagem não encontrada");
-
-        let chosen: any =
-          (tipoReq && imagens.find((i: any) => (i.tipo ?? "").toLowerCase() === tipoReq)) ||
-          imagens.find((i: any) => (i.tipo ?? "").toLowerCase() === "card") ||
-          imagens[0];
-
-        const bruto =
-          chosen?.caminhoCompleto ?? chosen?.caminho_completo ??
-          chosen?.nomeArquivo     ?? chosen?.nome_arquivo     ??
-          chosen?.imagem ?? "";
-
-        const key = normalizeObjectKey(String(bruto));
-        if (!key) return res.status(404).send("Imagem não encontrada");
-
-        console.log("[IMG] bruto=", bruto, "-> key=", key);
-
-        // ⬇️ Em vez de createReadStream(), use o proxy via Signed URL:
-        await streamSignedObjectToResponse(key, res, 300);
-      } catch (e) {
-        console.error("❌ [/api/beneficios/:id/imagem] erro:", e);
-        res.status(500).send("Erro interno");
+        imagem =
+          imagens.find(i => i.ativo && i.tipo === tipo) ||
+          imagens.find(i => i.ativo && i.tipo === "detalhes") ||
+          imagens.find(i => i.ativo && i.tipo === "card") ||
+          undefined;
       }
-    });
+
+      if (!imagem) {
+        return res.status(404).json({ error: "Imagem não encontrada" });
+      }
+
+      // 2) Extrai campos do seu schema atual
+      const rawCompleto =
+        (imagem as any).caminhoCompleto ??
+        (imagem as any).caminho_completo ??
+        "";
+
+      // 3) Decide a "fonte" (preferir caminho_completo; senão nome_arquivo)
+      let src = String(rawCompleto || "").trim();
+
+      if (!src && nomeArquivo) {
+        // Só veio o nome do arquivo -> constrói caminho padrão do bucket
+        // Ex.: uploads/beneficios/<nome_arquivo>
+        src = `uploads/beneficios/${String(nomeArquivo).replace(/^\/+/, "")}`;
+      }
+
+      if (!src) {
+        return res.status(404).json({ error: "Imagem sem caminho" });
+      }
+
+      const signedUrl = await getSignedUrl(src)
+      return res.redirect(302, signedUrl);
+    } catch (e) {
+      console.error("❌ Erro ao gerar Signed URL:", e);
+      return res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
   // ✨ ENDPOINT SEGURO PARA SALVAR REFERÊNCIA DA IMAGEM APÓS UPLOAD COMPLETADO
   // REQUER AUTENTICAÇÃO E PRIVILÉGIOS ADMINISTRATIVOS
   app.post("/api/beneficios/:id/imagem-object-storage", requireAuth, requireAdmin, async (req, res) => {
@@ -19274,6 +18859,10 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       'Painel de Emprego e Renda': {
         slug: 'favela-3d',
         workstreams: ['emprego-renda']
+      },
+      'Painel de Emprego e Renda': {
+        slug: 'favela-3d',
+        workstreams: ['emprego-renda']
       }
     };
 
@@ -20131,23 +19720,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error) {
       console.error('❌ Error updating project:', error);
       res.status(500).json({ error: 'Erro ao atualizar projeto' });
-    }
-  });
-
-
-  // DELETE /api/projects/:id - Excluir projeto
-  app.delete("/api/projects/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
-
-      await storage.deleteProject(id);
-      res.json({ success: true, message: 'Projeto excluído com sucesso' });
-    } catch (error) {
-      console.error('❌ Error deleting project:', error);
-      res.status(500).json({ error: 'Erro ao excluir projeto' });
     }
   });
 
@@ -21419,32 +20991,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // DELETE /api/pec/activities/:id - Excluir oficina PEC
-  app.delete('/api/pec/activities/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
-
-      // Verificar se há turmas (instances) relacionadas
-      const relatedInstances = await storage.getActivityInstancesByActivity(id);
-      if (relatedInstances.length > 0) {
-        return res.status(400).json({ 
-          error: 'Não é possível excluir esta oficina',
-          message: `Esta oficina possui ${relatedInstances.length} turma(s) relacionada(s). Exclua as turmas primeiro.`
-        });
-      }
-
-      await storage.deleteActivity(id);
-      console.log('✅ Oficina excluída:', id);
-      res.status(204).send();
-    } catch (error) {
-      console.error('❌ Error deleting PEC activity:', error);
-      res.status(500).json({ error: 'Erro ao excluir oficina PEC' });
-    }
-  });
-
   // GET /api/pec/instances - Listar todas as turmas/instâncias PEC com filtros opcionais
   app.get('/api/pec/instances', async (req, res) => {
     try {
@@ -21516,74 +21062,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // PUT /api/pec/instances/:id - Atualizar turma
-  app.put('/api/pec/instances/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const instanceData = req.body;
-      console.log(`📋 Updating PEC instance ${id}:`, instanceData);
-
-      // Verificar se a turma existe
-      const existing = await db.select().from(activityInstances).where(eq(activityInstances.id, id)).limit(1);
-      if (existing.length === 0) {
-        return res.status(404).json({ error: 'Turma não encontrada' });
-      }
-
-      // Atualizar turma
-      const [updated] = await db
-        .update(activityInstances)
-        .set({
-          title: instanceData.title,
-          code: instanceData.code,
-          location: instanceData.location,
-          situation: instanceData.situation,
-          period_label: instanceData.period_label,
-          start_time: instanceData.start_time,
-          end_time: instanceData.end_time,
-          age_min: instanceData.age_min,
-          age_max: instanceData.age_max,
-          occurrence_start: instanceData.occurrence_start,
-          occurrence_end: instanceData.occurrence_end,
-          expected_total_hours: instanceData.expected_total_hours,
-          notes: instanceData.notes,
-          control_mode: instanceData.control_mode,
-          intelbras_group_id: instanceData.intelbras_group_id,
-          updated_at: new Date()
-        })
-        .where(eq(activityInstances.id, id))
-        .returning();
-
-      console.log(`✅ PEC instance ${id} updated successfully`);
-      res.json({ success: true, message: 'Turma atualizada com sucesso', instance: updated });
-    } catch (error: any) {
-      console.error('❌ Error updating PEC instance:', error);
-      res.status(500).json({ error: 'Erro ao atualizar turma', details: error.message });
-    }
-  });
-
-  // DELETE /api/pec/instances/:id - Excluir turma
-  app.delete('/api/pec/instances/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      console.log(`🗑️ Deleting PEC instance ${id}`);
-
-      // Verificar se a turma existe
-      const existing = await db.select().from(activityInstances).where(eq(activityInstances.id, id)).limit(1);
-      if (existing.length === 0) {
-        return res.status(404).json({ error: 'Turma não encontrada' });
-      }
-
-      // Excluir turma
-      await db.delete(activityInstances).where(eq(activityInstances.id, id));
-
-      console.log(`✅ PEC instance ${id} deleted successfully`);
-      res.json({ success: true, message: 'Turma excluída com sucesso' });
-    } catch (error: any) {
-      console.error('❌ Error deleting PEC instance:', error);
-      res.status(500).json({ error: 'Erro ao excluir turma', details: error.message });
-    }
-  });
-
   // ================ ENDPOINTS EDUCADORES ================
 
   // GET /api/educadores - Listar todos os educadores
@@ -21631,67 +21109,10 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       const educador = await storage.createEducador(educadorData);
       console.log('✅ Educador created:', educador.id);
-
-      // Vincular educador ao programa PEC automaticamente
-      try {
-        const vinculo = await storage.createEducadorPrograma({
-          educador_id: educador.id,
-          programa: 'pec',
-          cargo: educadorData.especialidades?.[0] || 'educador',
-          status: 'ativo'
-        });
-        console.log('✅ Educador vinculado ao programa PEC:', vinculo.id);
-        
-        res.status(201).json({
-          ...educador,
-          vinculo_programa: vinculo
-        });
-      } catch (vinculoError) {
-        // Se falhar ao criar o vínculo, logar erro mas retornar o educador criado
-        console.error('⚠️ Erro ao vincular educador ao programa PEC:', vinculoError);
-        res.status(201).json({
-          ...educador,
-          warning: 'Educador criado mas não foi possível vincular ao programa PEC automaticamente'
-        });
-      }
+      res.status(201).json(educador);
     } catch (error) {
       console.error('❌ Error creating educador:', error);
       res.status(500).json({ error: 'Erro ao criar educador', details: error.message });
-    }
-  });
-
-  // PUT /api/educadores/:id - Atualizar educador
-  app.put('/api/educadores/:id', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const educadorData = req.body;
-      console.log(`👨‍🏫 Updating educador ${id}:`, { nome: educadorData.nome_completo, cpf: educadorData.cpf });
-
-      // Validar campos obrigatórios
-      if (!educadorData.nome_completo || !educadorData.telefone) {
-        return res.status(400).json({
-          error: 'Campos obrigatórios: nome_completo, telefone'
-        });
-      }
-
-      // Verificar se educador existe
-      const educadorExistente = await storage.getEducadorById(id);
-      if (!educadorExistente) {
-        return res.status(404).json({ error: 'Educador não encontrado' });
-      }
-
-      // Atualizar educador
-      const educadorAtualizado = await storage.updateEducador(id, educadorData);
-      console.log(`✅ Educador ${id} atualizado com sucesso`);
-
-      res.json({
-        success: true,
-        message: 'Educador atualizado com sucesso',
-        educador: educadorAtualizado
-      });
-    } catch (error: any) {
-      console.error('❌ Error updating educador:', error);
-      res.status(500).json({ error: 'Erro ao atualizar educador', details: error.message });
     }
   });
 
@@ -23296,7 +22717,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   app.get('/api/dados-demograficos', async (req, res) => {
     try {
       console.log('📊 [DEMOGRAFICOS] Buscando dados agregados...');
-
+      
       // Buscar dados de ambos os programas
       const dados = await db
         .select()
@@ -23328,31 +22749,31 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       // Preparar dados com porcentagens (excluindo "Não informado")
       const genero = [
-        {
-          name: 'Feminino',
+        { 
+          name: 'Feminino', 
           value: generoFeminino,
           percentage: totalParticipantes > 0 ? Math.round((generoFeminino / totalParticipantes) * 100) : 0
         },
-        {
-          name: 'Masculino',
+        { 
+          name: 'Masculino', 
           value: generoMasculino,
           percentage: totalParticipantes > 0 ? Math.round((generoMasculino / totalParticipantes) * 100) : 0
         }
       ];
 
       const racaCor = [
-        {
-          name: 'Parda',
+        { 
+          name: 'Parda', 
           value: corParda,
           percentage: totalParticipantes > 0 ? Math.round((corParda / totalParticipantes) * 100) : 0
         },
-        {
-          name: 'Preta',
+        { 
+          name: 'Preta', 
           value: corPreta,
           percentage: totalParticipantes > 0 ? Math.round((corPreta / totalParticipantes) * 100) : 0
         },
-        {
-          name: 'Branca',
+        { 
+          name: 'Branca', 
           value: corBranca,
           percentage: totalParticipantes > 0 ? Math.round((corBranca / totalParticipantes) * 100) : 0
         }
@@ -23360,13 +22781,13 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       // Calcular faixas etárias agregadas
       // PEC: 6-12 anos
-      const pecIdade = (dadosPEC?.idade6 || 0) + (dadosPEC?.idade7 || 0) + (dadosPEC?.idade8 || 0) +
-        (dadosPEC?.idade9 || 0) + (dadosPEC?.idade10 || 0) + (dadosPEC?.idade11 || 0) +
-        (dadosPEC?.idade12 || 0);
+      const pecIdade = (dadosPEC?.idade6 || 0) + (dadosPEC?.idade7 || 0) + (dadosPEC?.idade8 || 0) + 
+                       (dadosPEC?.idade9 || 0) + (dadosPEC?.idade10 || 0) + (dadosPEC?.idade11 || 0) + 
+                       (dadosPEC?.idade12 || 0);
 
       const idade = [
-        {
-          name: '6 a 12 anos',
+        { 
+          name: '6 a 12 anos', 
           value: pecIdade,
           percentage: totalParticipantes > 0 ? Math.round((pecIdade / totalParticipantes) * 100) : 0
         },
@@ -23385,8 +22806,8 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           value: dadosInclusao?.idade31a39 || 0,
           percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade31a39 || 0) / totalParticipantes) * 100) : 0
         },
-        {
-          name: '40+ anos',
+        { 
+          name: '40+ anos', 
           value: dadosInclusao?.idade40mais || 0,
           percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade40mais || 0) / totalParticipantes) * 100) : 0
         }
@@ -24395,41 +23816,11 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       const activeCampaign = campaigns[0];
 
-      // Buscar APENAS links de usuários que já pagaram pelo menos uma vez
-      // FIX: Usar subquery para evitar duplicatas quando usuário tem múltiplas doações
-      
-      // Pegar IDs únicos de usuários que pagaram
-      const paidUserIds = await db
-        .selectDistinct({ userId: doadores.userId })
-        .from(doadores)
-        .where(eq(doadores.status, 'paid'));
-
-      const paidIds = paidUserIds.map(row => row.userId).filter(id => id !== null);
-
-      // Buscar links apenas desses usuários (sem duplicatas)
-      const linksData = await db
-        .select({
-          id: marketingLinks.id,
-          campaignId: marketingLinks.campaignId,
-          code: marketingLinks.code,
-          medium: marketingLinks.medium,
-          source: marketingLinks.source,
-          utmSource: marketingLinks.utmSource,
-          utmMedium: marketingLinks.utmMedium,
-          utmCampaign: marketingLinks.utmCampaign,
-          isActive: marketingLinks.isActive,
-          rewardToUserId: marketingLinks.rewardToUserId,
-          createdAt: marketingLinks.createdAt,
-        })
-        .from(marketingLinks)
-        .where(and(
-          eq(marketingLinks.campaignId, activeCampaign.id),
-          inArray(marketingLinks.rewardToUserId, paidIds)
-        ))
-        .orderBy(desc(marketingLinks.createdAt));
+      // Buscar TODOS os links da campanha ativa (doadores + Dev-Marketing)
+      const marketingLinks = await storage.getMarketingLinks({ campaignId: activeCampaign.id });
 
       // Enriquecer com dados do dono e estatísticas
-      const linksWithDetails = await Promise.all(linksData.map(async (link) => {
+      const linksWithDetails = await Promise.all(marketingLinks.map(async (link) => {
         let ownerName = "Sistema";
         let ownerPhone = null;
         
@@ -24821,44 +24212,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
                     fonte: 'doacao'
                   }).returning();
                   
-                  // ✅ Verificar duplicação antes de inserir doador
-                  const existingDoador = await findExistingDonor({
-                    subscriptionId: subscription?.id,
-                    customerId: successInvoice.customer as string
+                  await db.insert(doadores).values({
+                    userId: newUser[0].id,
+                    plano: planName,
+                    valor: planValue,
+                    status: 'paid',
+                    ativo: true,
+                    stripeCustomerId: successInvoice.customer as string,
+                    stripeSubscriptionId: subscription?.id || null,
+                    dataDoacaoInicial: new Date(successInvoice.created * 1000),
+                    ultimaDoacao: new Date(successInvoice.created * 1000)
                   });
-                  
-                  if (existingDoador) {
-                    // Determinar periodicidade do subscription
-                    const interval = subscription?.items.data[0]?.price?.recurring?.interval || 'month';
-                    const periodicidade = interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral';
-                    
-                    // Atualizar doador existente com dados completos e vincular ao novo user
-                    await db.update(doadores)
-                      .set({
-                        plano: planName,
-                        valor: planValue,
-                        periodicidade,
-                        status: 'paid',
-                        ultimaDoacao: new Date(successInvoice.created * 1000),
-                        userId: newUser[0].id,
-                        ativo: true
-                      })
-                      .where(eq(doadores.id, existingDoador.id));
-                    console.log(`♻️ [WEBHOOK-AUTO-CREATE] Doador existente atualizado e vinculado ao user ${newUser[0].id}`);
-                  } else {
-                    // Criar novo doador
-                    await db.insert(doadores).values({
-                      userId: newUser[0].id,
-                      plano: planName,
-                      valor: planValue,
-                      status: 'paid',
-                      ativo: true,
-                      stripeCustomerId: successInvoice.customer as string,
-                      stripeSubscriptionId: subscription?.id || null,
-                      dataDoacaoInicial: new Date(successInvoice.created * 1000),
-                      ultimaDoacao: new Date(successInvoice.created * 1000)
-                    });
-                  }
                   
                   console.log(`✅ [WEBHOOK-AUTO-CREATE] Usuário criado: ${newUser[0].nome} (ID: ${newUser[0].id}) - Plano: ${planName} - 50 Gritos creditados`);
                   
@@ -25535,7 +24899,9 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-
+  app.post("/api/activity/batch", express.raw({ type: '*/*', limit: '1kb' }), (req, res) => {
+    res.sendStatus(204);
+  });
   // ==================== ROTAS DE PROGRAMAS DE INCLUSÃO PRODUTIVA ====================
 
   // Listar todos os programas
@@ -27927,12 +27293,11 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       let query = db.select().from(psicoCasos)
         .where(eq(psicoCasos.coordenadorId, parseInt(userId)));
+
       if (status) {
         query = query.where(eq(psicoCasos.status, status as any));
-      } else {
-        // Por padrão, não mostrar casos fechados/arquivados
-        query = query.where(not(eq(psicoCasos.status, 'fechado')));
       }
+
       if (prioridade) {
         query = query.where(eq(psicoCasos.prioridade, prioridade as any));
       }
@@ -27943,84 +27308,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar casos:', error);
       res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // PUT /api/psico/familias/:id - Atualizar família
-  app.put('/api/psico/familias/:id', requireAuth, async (req, res) => {
-    try {
-      const { id } = psicoIdSchema.parse(req.params);
-      const data = updatePsicoFamiliaSchema.parse(req.body);
-      const result = await storage.updatePsicoFamilia(id, data);
-      console.log(`✅ [PSICO] Família ${id} atualizada`);
-      res.json(result);
-    } catch (error: any) {
-      if (error instanceof HttpError) {
-        return res.status(error.statusCode).json({ error: error.message });
-      }
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
-      }
-      console.error('[PSICO] Erro PUT familia:', error);
-      return res.status(500).json({ error: 'Erro interno' });
-    }
-  });
-
-  // DELETE /api/psico/familias/:id - Excluir família
-  app.delete('/api/psico/familias/:id', requireAuth, async (req, res) => {
-    try {
-      const { id } = psicoIdSchema.parse(req.params);
-      await storage.deletePsicoFamilia(id);
-      console.log(`✅ [PSICO] Família ${id} excluída`);
-      res.json({ success: true, message: 'Família excluída com sucesso' });
-    } catch (error: any) {
-      if (error instanceof HttpError) {
-        return res.status(error.statusCode).json({ error: error.message });
-      }
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
-      }
-      console.error('[PSICO] Erro DELETE familia:', error);
-      return res.status(500).json({ error: 'Erro interno' });
-    }
-  });
-
-  // PUT /api/psico/casos/:id - Atualizar caso
-  app.put('/api/psico/casos/:id', requireAuth, async (req, res) => {
-    try {
-      const { id } = psicoIdSchema.parse(req.params);
-      const data = updatePsicoCasoSchema.parse(req.body);
-      const result = await storage.updatePsicoCaso(id, data);
-      console.log(`✅ [PSICO] Caso ${id} atualizado`);
-      res.json(result);
-    } catch (error: any) {
-      if (error instanceof HttpError) {
-        return res.status(error.statusCode).json({ error: error.message });
-      }
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
-      }
-      console.error('[PSICO] Erro PUT caso:', error);
-      return res.status(500).json({ error: 'Erro interno' });
-    }
-  });
-
-  // DELETE /api/psico/casos/:id - Excluir caso (soft delete)
-  app.delete('/api/psico/casos/:id', requireAuth, async (req, res) => {
-    try {
-      const { id } = psicoIdSchema.parse(req.params);
-      await storage.deletePsicoCaso(id);
-      console.log(`✅ [PSICO] Caso ${id} excluído (soft delete)`);
-      res.json({ success: true, message: 'Caso excluído com sucesso' });
-    } catch (error: any) {
-      if (error instanceof HttpError) {
-        return res.status(error.statusCode).json({ error: error.message });
-      }
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
-      }
-      console.error('[PSICO] Erro DELETE caso:', error);
-      return res.status(500).json({ error: 'Erro interno' });
     }
   });
 

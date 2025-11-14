@@ -3443,7 +3443,7 @@ export default function CoordenadorInclusaoPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="planejado">Planejado</SelectItem>
-                      <SelectItem value="emandamento">Em andamento</SelectItem>
+                      <SelectItem value="em_andamento">Em andamento</SelectItem>
                       <SelectItem value="concluido">Concluído</SelectItem>
                       <SelectItem value="cancelado">Cancelado</SelectItem>
                     </SelectContent>
@@ -4571,7 +4571,7 @@ export default function CoordenadorInclusaoPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="planejado">Planejado</SelectItem>
-                    <SelectItem value="emandamento">Em andamento</SelectItem>
+                    <SelectItem value="em_andamento">Em andamento</SelectItem>
                     <SelectItem value="concluido">Concluído</SelectItem>
                   </SelectContent>
                 </Select>

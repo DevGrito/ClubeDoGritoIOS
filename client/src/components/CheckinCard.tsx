@@ -14,7 +14,8 @@ interface CheckinCardProps {
 export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: CheckinCardProps) {
   const [, setLocation] = useLocation();
   const [showCheckinModal, setShowCheckinModal] = useState(false);
-  const [checkinResult, setCheckinResult] = useState<{gritosGanhos: number, isDay7: boolean} | null>(null);
+  const [checkinResult, setCheckinResult] = useState<{gritosGanhos: number, isDay7: boolean} | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Query para verificar se pode fazer check-in - SEM CACHE
   const { data: checkinData, refetch, isLoading } = useQuery({
@@ -27,11 +28,11 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
         const response = await apiRequest(`/api/users/${userId}/can-checkin?t=${timestamp}`, {
           method: "GET",
         });
-        console.log('🔍 [CHECKIN QUERY] Resposta do backend:', response);
+        //console.log('🔍 [CHECKIN QUERY] Resposta do backend:', response);
         return response;
       } catch (error) {
         console.error('❌ [CHECKIN QUERY] Erro:', error);
-        return { canCheckin: false, diasConsecutivos: 0, diaAtual: 1 };
+      return { canCheckin: true, diasConsecutivos: 0, diaAtual: 1, __erro: true };
       }
     },
     enabled: !!userId,
@@ -44,59 +45,33 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
   });
 
   // NUNCA assumir false durante loading - usar dados reais do backend
-  const podeCheckin = checkinData?.canCheckin ?? true;
+  const podeCheckin = checkinData?.canCheckin ?? true; 
 
-  const handleCheckin = async () => {
-    if (!userId || isLoading) return;
-    
-    try {
-      // Executar o check-in
-      const result = await apiRequest(`/api/users/${userId}/checkin`, {
-        method: "POST",
-      });
-      
-      if (result.success) {
-        console.log('✅ [CHECKIN] Sucesso! Invalidando queries específicas...');
-        console.log('📊 [CHECKIN] Resultado:', result);
-        
-        // INVALIDAR QUERIES ESPECÍFICAS - síncrono e imediato
-        await queryClient.invalidateQueries({ queryKey: ["checkin-status", userId] });
-        await queryClient.invalidateQueries({ queryKey: ["/api/user", userId] });
-        await queryClient.invalidateQueries({ queryKey: ["/api/users", userId] });
-        await queryClient.invalidateQueries({ queryKey: [`/api/user/${userId}`] }); // Formato alternativo
-        
-        // Forçar refetch imediato da query local
-        await refetch();
-        
-        console.log('🔄 [CHECKIN] Queries invalidadas! Aguardando atualização...');
-        
-        // Pequeno delay para garantir que as queries foram refetchadas
-        setTimeout(() => {
-          console.log('✅ [CHECKIN] Atualização concluída');
-        }, 500);
-        
-        // Salvar resultado do checkin para usar na mensagem
-        setCheckinResult({
-          gritosGanhos: result.gritosGanhos,
-          isDay7: result.isDay7
-        });
-        
-        // Mostrar modal de parabéns
-        setShowCheckinModal(true);
-        
-        // Fechar automaticamente após 4 segundos
-        setTimeout(() => {
-          setShowCheckinModal(false);
-        }, 4000);
+ const handleCheckin = async () => {
+  if (!userId || isLoading || isSubmitting) return;
+  setIsSubmitting(true);
+  try {
+    const result = await apiRequest(`/api/users/${userId}/checkin`, { method: "POST" });
+    if (result.success) {
+      queryClient.setQueryData(["checkin-status", userId], (old:any) => ({
+        ...(old || {}),
+        canCheckin: false,
+        diasConsecutivos: (old?.diasConsecutivos ?? 0) + 1,
+        diaAtual: result.diaAtual,
+      }));
 
-        // Chamar callback se fornecido
-        onCheckinComplete?.();
-      }
-    } catch (error) {
-      console.error("Erro ao fazer check-in:", error);
-      alert("Erro ao fazer check-in. Tente novamente.");
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["checkin-status", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["user-profile", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["gritos", userId] }), // ✅ se existir
+    ]);
     }
-  };
+  } catch (e) {
+    alert("Erro ao fazer check-in. Tente novamente.");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   return (
     <>
@@ -147,12 +122,11 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
             );
           })}
         </div>
-
         {/* Botão de check-in */}
         <button 
           className="w-full bg-white text-yellow-500 font-bold py-3 rounded-full text-base"
           onClick={handleCheckin}
-          disabled={!podeCheckin}
+          disabled={isLoading || isSubmitting || checkinData?.canCheckin === false}
         >
           {podeCheckin ? "Fazer Check-in" : "Check-in realizado hoje"}
         </button>

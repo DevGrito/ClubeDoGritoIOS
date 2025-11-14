@@ -284,8 +284,10 @@ export const users = pgTable("users", {
   ultimoCheckin: timestamp("ultimo_checkin", { withTimezone: true, mode: "string" }), // String ISO para evitar conversão automática
   semanaAtual: integer("semana_atual").default(1), // para reset semanal
   
-  // Sistema de Controle de Primeira Entrada e Onboarding
-  beneficiosOnboardingVisto: boolean("beneficios_onboarding_visto").default(false),
+  // Sistema de Controle de Primeira Entrada e Onboarding - REMOVIDO TEMPORARIAMENTE
+  // primeiraEntradaCompleta: boolean("primeira_entrada_completa").default(false),
+  // beneficiosOnboardingVisto: boolean("beneficios_onboarding_visto").default(false),
+  // dataPrimeiraEntrada: timestamp("data_primeira_entrada"),
   
   // Campos para Stripe Subscription Schedules (REMOVIDO TEMPORARIAMENTE)
   // subscriptionScheduleId: text("subscription_schedule_id"),
@@ -432,15 +434,12 @@ export const billingEvents = pgTable("billing_events", {
   payloadSummary: json("payload_summary"), // Dados resumidos do evento
   errorMessage: text("error_message"),
   processed: boolean("processed").default(false),
-  processing: boolean("processing").default(false),
-  processingStartedAt: timestamp("processing_started_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   userIdx: index("billing_events_user_idx").on(table.userId),
   subscriptionIdx: index("billing_events_subscription_idx").on(table.subscriptionId),
   typeIdx: index("billing_events_type_idx").on(table.eventType),
   createdIdx: index("billing_events_created_idx").on(table.createdAt),
-  invoiceIdUnique: uniqueIndex("billing_events_invoice_id_unique").on(table.invoiceId),
 }));
 
 // Relations
@@ -2619,7 +2618,6 @@ export const projects = pgTable("projects", {
   who_can_participate: text("who_can_participate"),                     // Qualquer atendido
   period_start: date("period_start"),
   period_end: date("period_end"),
-  status: varchar("status", { length: 20 }).default("ativo"),          // ativo, inativo
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow()
 });
@@ -2794,29 +2792,7 @@ export type InsertPhoto = typeof photos.$inferInsert;
 export type InsertPhysicalAssessment = typeof physicalAssessments.$inferInsert;
 
 // Schemas Zod para validação
-export const insertProjectSchema = createInsertSchema(projects)
-  .omit({ id: true, created_at: true, updated_at: true })
-  .extend({
-    period_start: z.coerce.date().nullable().optional(),
-    period_end: z.coerce.date().nullable().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.period_end != null) {
-      if (data.period_start == null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['period_start'],
-          message: 'Data de início é obrigatória quando data de término é informada.',
-        });
-      } else if (data.period_end < data.period_start) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['period_end'],
-          message: 'Data de término deve ser igual ou posterior à data de início.',
-        });
-      }
-    }
-  });
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, created_at: true, updated_at: true });
 export const insertActivitySchema = createInsertSchema(pecActivities).omit({ id: true, created_at: true, updated_at: true });
 export const insertActivityInstanceSchema = createInsertSchema(activityInstances).omit({ id: true, created_at: true, updated_at: true });
 export const insertStaffAssignmentSchema = createInsertSchema(staffAssignments).omit({ id: true });
@@ -3977,41 +3953,6 @@ export const insertPsicoPlanoSchema = createInsertSchema(psicoPlanos).omit({
   updatedAt: true 
 });
 
-// Schemas para update (parciais)
-export const updatePsicoFamiliaSchema = insertPsicoFamiliaSchema
-  .pick({
-    nomeResponsavel: true,
-    numeroMembros: true,
-    telefone: true,
-    endereco: true,
-    status: true,
-    observacoes: true
-  })
-  .partial();
-
-export const updatePsicoCasoSchema = insertPsicoCasoSchema
-  .pick({
-    familiaId: true,
-    titulo: true,
-    tipo: true,
-    prioridade: true,
-    status: true,
-    responsavelNome: true,
-    descricao: true,
-    dataEncerramento: true,
-    resultado: true
-  })
-  .partial();
-
-// Schema para validação de ID
-export const psicoIdSchema = z.object({
-  id: z.coerce.number().int().positive()
-});
-
-// Types para update
-export type UpdatePsicoFamilia = z.infer<typeof updatePsicoFamiliaSchema>;
-export type UpdatePsicoCaso = z.infer<typeof updatePsicoCasoSchema>;
-
 // ================ TABELAS DE VINCULAÇÃO: COMPARTILHAMENTO DE ALUNOS ================
 // Vincular participantes da Inclusão Produtiva com famílias Psicossociais
 export const psicoInclusaoVinculo = pgTable("psico_inclusao_vinculo", {
@@ -4126,8 +4067,6 @@ export const coordenadores = pgTable("coordenadores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(), // "Coordenador Psico", "Coordenador PEC", "Coordenador Inclusão Produtiva"
   email: text("email").unique().notNull(),
-  telefone: text("telefone"),
-  formacao: text("formacao"), // Registro profissional
   setor: text("setor").notNull(), // 'psicossocial', 'esporte_cultura', 'inclusao_produtiva'
   redirectPath: text("redirect_path").notNull().default("/coordenador"), // rota de redirecionamento
   ativo: boolean("ativo").default(true),
@@ -4145,3 +4084,5 @@ export const insertCoordenadorSchema = createInsertSchema(coordenadores).omit({
   createdAt: true,
   updatedAt: true,
 });
+
+

@@ -1,67 +1,71 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
+import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
+
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { setupVite, log } from "./vite";
 import { testDatabaseConnection } from "./db";
 import { checkDevAccess } from "./middleware/devAccess";
 import { healthRouter } from "./health";
-import * as path from 'node:path'; // quando usar path
-
 
 const app = express();
 
 // estamos atrás de proxy (Traefik/nginx)
 app.set("trust proxy", 1);
 
-// CORS production
-if (process.env.NODE_ENV === "production") {
-  app.use((req, res, next) => {
-    const allowedOrigins = [
-      "http://frontend:80",
-      "http://localhost:80",
-      "http://localhost:3000",
-      "https://localhost",
-      process.env.FRONTEND_URL,
-      process.env.CORS_ORIGIN,
-    ].filter(Boolean) as string[];
+/**
+ * CORS – aceita:
+ * - App publicado (domínios oficiais)
+ * - WebView/Capacitor (origin null / capacitor://localhost / ionic://localhost)
+ * - Dev local
+ */
+const ALLOW_LIST = [
+  "https://clubedogrito.institutoogrito.com.br",
+  "https://app.clubedogrito.com.br",
+  "http://localhost",
+  "http://localhost:80",
+  "http://localhost:3000",
+  "http://localhost:8100",
+  "capacitor://localhost",
+  "ionic://localhost",
+  process.env.FRONTEND_URL,
+  process.env.CORS_ORIGIN,
+].filter(Boolean) as string[];
 
-    const origin = req.headers.origin as string | undefined;
-    if (!origin || allowedOrigins.includes(origin)) {
-      res.header("Access-Control-Allow-Origin", origin || "*");
-    }
+app.use(
+  cors({
+    origin(origin, cb) {
+      // iOS WebView/TestFlight muitas vezes vem sem Origin -> permitir
+      if (!origin) return cb(null, true);
 
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
+      if (ALLOW_LIST.includes(origin)) return cb(null, true);
+      if (ALLOW_LIST.some((o) => origin.startsWith(o))) return cb(null, true);
+
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+    allowedHeaders:
       "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Dev-Access",
-    );
-    res.header("Access-Control-Allow-Credentials", "true");
+  })
+);
 
-    if (req.method === "OPTIONS") {
-      res.sendStatus(200);
-    } else {
-      next();
-    }
-  });
-}
+// responde rápido preflight
+app.options("*", cors());
 
-// 🔐 WEBHOOKS: Capturar corpo RAW (Buffer) ANTES do JSON parser
-// Necessário para validação de assinatura do Stripe e Typeform
-app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
-app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
-app.use('/api/typeform/webhook', express.raw({ type: 'application/json' }));
-
-// JSON parser para o resto da aplicação
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 // estáticos — uploads (persistentes no volume)
-app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), {
-  fallthrough: false,
-  etag: true,
-  maxAge: "7d",
-}));
+app.use(
+  "/uploads",
+  express.static(path.resolve(process.cwd(), "uploads"), {
+    fallthrough: false,
+    etag: true,
+    maxAge: "7d",
+  }),
+);
 
 // estáticos — attached_assets (bind mount do host -> container)
 app.use(
@@ -78,11 +82,11 @@ app.use(
       if (/\.svg$/i.test(filePath)) res.setHeader("Content-Type", "image/svg+xml");
       if (/\.json$/i.test(filePath)) res.setHeader("Content-Type", "application/json");
     },
-  })
+  }),
 );
 
 /**
- * 🔐 Guard de DEV **somente** em /api/dev
+ * 🔐 Guard de DEV *somente* em /api/dev
  *   - /api/dev/login e /api/dev/status são livres
  *   - demais paths de /api/dev exigem X-Dev-Access: <token>
  */
@@ -99,7 +103,7 @@ app.use((req, res, next) => {
   let captured: unknown;
 
   const originalJson = res.json;
-  // @ts-ignore sobrescreve só pra capturar em log
+  // @ts-ignore — sobrescreve só pra capturar em log
   res.json = function (body, ...args) {
     captured = body;
     return originalJson.apply(res, [body, ...args]);
@@ -110,7 +114,9 @@ app.use((req, res, next) => {
       const took = Date.now() - start;
       let line = `${req.method} ${pathName} ${res.statusCode} in ${took}ms`;
       if (captured !== undefined) {
-        try { line += ` :: ${JSON.stringify(captured)}`; } catch {}
+        try {
+          line += ` :: ${JSON.stringify(captured)}`;
+        } catch {}
       }
       if (line.length > 80) line = line.slice(0, 79) + "…";
       log(line);
@@ -123,9 +129,9 @@ app.use((req, res, next) => {
 (async () => {
   try {
     await testDatabaseConnection();
-    
+
     // Iniciar jobs programados de assinaturas
-    const { startSubscriptionReconciliation, startAutomaticDunning } = await import('./jobs/subscriptions');
+    const { startSubscriptionReconciliation, startAutomaticDunning } = await import("./jobs/subscriptions");
     startSubscriptionReconciliation();
     startAutomaticDunning();
   } catch (error) {
@@ -199,26 +205,28 @@ app.use((req, res, next) => {
   // Verificar se o frontend foi buildado
   const distPath = path.resolve(process.cwd(), "dist", "public");
   const frontendBuildExists = fs.existsSync(distPath);
-  
+
   // Se frontend buildado existe, sempre usa ele (desenvolvimento ou produção)
   // Se não existe, usa Vite em desenvolvimento
   if (frontendBuildExists) {
     log("🚀 Serving built frontend from " + distPath);
-    
+
     // Serve arquivos estáticos do build
-    app.use(express.static(distPath, {
-      etag: true,
-      maxAge: app.get("env") === "production" ? "1d" : "0",
-      index: false // não servir index.html automaticamente aqui
-    }));
-    
+    app.use(
+      express.static(distPath, {
+        etag: true,
+        maxAge: app.get("env") === "production" ? "1d" : "0",
+        index: false, // não servir index.html automaticamente aqui
+      }),
+    );
+
     // Fallback para SPA - qualquer rota que não seja /api/* vai para index.html
     app.use("*", (req, res) => {
       // Se for rota da API, não intercepta
       if (req.originalUrl.startsWith("/api/")) {
         return res.status(404).json({ message: "API route not found" });
       }
-      
+
       // Para todas as outras rotas, serve o index.html (SPA)
       res.sendFile(path.resolve(distPath, "index.html"));
     });
@@ -228,7 +236,7 @@ app.use((req, res, next) => {
   } else {
     log("❌ Frontend build not found at " + distPath);
     log("Run 'npm run build' to generate the frontend build");
-    
+
     // Fallback básico para mostrar que o servidor está funcionando
     app.get("*", (req, res) => {
       if (req.originalUrl.startsWith("/api/")) {
@@ -250,6 +258,7 @@ app.use((req, res, next) => {
   const port = Number(process.env.PORT) || 5000;
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
+
   });
 
   server.on("error", (err: any) => {

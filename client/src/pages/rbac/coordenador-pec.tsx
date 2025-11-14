@@ -4,11 +4,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
-import type { Project, Activity as PECActivity, ActivityInstance, User as UserType } from "@shared/schema";
+import type { Project, Activity as PECActivity, ActivityInstance, User as UserType, Educador } from "@shared/schema";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { 
   Users, 
   BookOpen, 
@@ -28,7 +34,9 @@ import {
   Search,
   User,
   Edit,
-  Eye
+  Eye,
+  Trash2,
+  X
 } from "lucide-react";
 import { InstanceForm, ActivityForm } from "@/components/pec/forms";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
@@ -46,6 +54,56 @@ export default function CoordenadorPECPage() {
   const [showNovaAvaliacaoModal, setShowNovaAvaliacaoModal] = useState(false);
   const [showNovoPlanoModal, setShowNovoPlanoModal] = useState(false);
   const [showNovaApresentacaoModal, setShowNovaApresentacaoModal] = useState(false);
+  const [showNovoProjetoModal, setShowNovoProjetoModal] = useState(false);
+  const [showEditarProjetoModal, setShowEditarProjetoModal] = useState(false);
+  const [showDetalhesProjetoModal, setShowDetalhesProjetoModal] = useState(false);
+  const [showExcluirProjetoModal, setShowExcluirProjetoModal] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<any>(null);
+  
+  // Estados para modais de oficinas
+  const [showVisualizarOficinaModal, setShowVisualizarOficinaModal] = useState(false);
+  const [showEditarOficinaModal, setShowEditarOficinaModal] = useState(false);
+  const [showExcluirOficinaModal, setShowExcluirOficinaModal] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  
+  // Estados para modais de educadores
+  const [showNovoEducadorModal, setShowNovoEducadorModal] = useState(false);
+  const [showVisualizarEducadorModal, setShowVisualizarEducadorModal] = useState(false);
+  const [showEditarEducadorModal, setShowEditarEducadorModal] = useState(false);
+  const [selectedEducador, setSelectedEducador] = useState<any>(null);
+  
+  // Estados para turmas
+  const [showVisualizarTurmaModal, setShowVisualizarTurmaModal] = useState(false);
+  const [showEditarTurmaModal, setShowEditarTurmaModal] = useState(false);
+  const [showExcluirTurmaModal, setShowExcluirTurmaModal] = useState(false);
+  const [selectedInstance, setSelectedInstance] = useState<any>(null);
+  
+  // State do formulário de projetos
+  const [projetoForm, setProjetoForm] = useState({
+    name: '',
+    description: '',
+    period_start: '',
+    period_end: '',
+    status: 'ativo',
+    tempoIndeterminado: false
+  });
+  
+  // Filtro de status para projetos
+  const [statusFilter, setStatusFilter] = useState<string>('todos');
+  
+  // Filtro de projeto para oficinas
+  const [projetoFilterOficinas, setProjetoFilterOficinas] = useState<string>('todos');
+  
+  // State do formulário de educadores
+  const [educadorForm, setEducadorForm] = useState({
+    cpf: '',
+    nome_completo: '',
+    telefone: '',
+    email: '',
+    formacao: '',
+    especialidades: '',
+    status: 'ativo'
+  });
   
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   const userId = localStorage.getItem("userId");
@@ -99,6 +157,319 @@ export default function CoordenadorPECPage() {
     setShowNovaApresentacaoModal(true);
   };
 
+  const handleNovoProjeto = () => {
+    setShowNovoProjetoModal(true);
+  };
+
+  const handleVerDetalhes = (projeto: any) => {
+    setSelectedProject(projeto);
+    setShowDetalhesProjetoModal(true);
+  };
+
+  const handleEditarProjeto = (projeto: any) => {
+    setSelectedProject(projeto);
+    setProjetoForm({
+      name: projeto.name || '',
+      description: projeto.description || '',
+      period_start: projeto.period_start || '',
+      period_end: projeto.period_end || '',
+      status: projeto.status || 'ativo',
+      tempoIndeterminado: projeto.period_end === null
+    });
+    setShowEditarProjetoModal(true);
+  };
+
+  const handleExcluirProjeto = (projeto: any) => {
+    setSelectedProject(projeto);
+    setShowExcluirProjetoModal(true);
+  };
+
+  // Handlers para oficinas
+  const handleVisualizarOficina = (activity: any) => {
+    setSelectedActivity(activity);
+    setShowVisualizarOficinaModal(true);
+  };
+
+  const handleEditarOficina = (activity: any) => {
+    setSelectedActivity(activity);
+    setShowEditarOficinaModal(true);
+  };
+
+  const handleExcluirOficina = (activity: any) => {
+    setSelectedActivity(activity);
+    setShowExcluirOficinaModal(true);
+  };
+
+  const handleVisualizarEducador = (educador: any) => {
+    setSelectedEducador(educador);
+    setShowVisualizarEducadorModal(true);
+  };
+
+  const handleEditarEducador = (educador: any) => {
+    setSelectedEducador(educador);
+    setEducadorForm({
+      cpf: educador.cpf || '',
+      nome_completo: educador.nome_completo || '',
+      telefone: educador.telefone || '',
+      email: educador.email || '',
+      formacao: educador.formacao || '',
+      especialidades: Array.isArray(educador.especialidades) ? educador.especialidades.join(', ') : '',
+      status: educador.vinculo?.status || 'ativo'
+    });
+    setShowEditarEducadorModal(true);
+  };
+
+  // Handlers de turmas
+  const handleViewTurma = (instance: any) => {
+    setSelectedInstance(instance);
+    setShowVisualizarTurmaModal(true);
+  };
+
+  const handleEditTurma = (instance: any) => {
+    setSelectedInstance(instance);
+    setShowEditarTurmaModal(true);
+  };
+
+  const handleDeleteTurma = (instance: any) => {
+    setSelectedInstance(instance);
+    setShowExcluirTurmaModal(true);
+  };
+
+  // Mutation para criar projeto
+  const createProjectMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const payload = {
+        name: data.name,
+        description: data.description || null,
+        period_start: data.period_start || null,
+        period_end: data.tempoIndeterminado ? null : (data.period_end || null),
+        status: data.status || 'ativo'
+      };
+      return apiRequest('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/projects'] });
+      toast({ title: "Sucesso!", description: "Projeto criado com sucesso!" });
+      setShowNovoProjetoModal(false);
+      setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
+    },
+    onError: (error: any) => {
+      toast({ title: "Erro", description: error.message || "Erro ao criar projeto", variant: "destructive" });
+    }
+  });
+
+  // Mutation para atualizar projeto
+  const updateProjectMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number, data: any }) => {
+      const payload = {
+        name: data.name,
+        description: data.description || null,
+        period_start: data.period_start || null,
+        period_end: data.tempoIndeterminado ? null : (data.period_end || null),
+        status: data.status || 'ativo'
+      };
+      return apiRequest(`/api/projects/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/projects'] });
+      toast({ title: "Sucesso!", description: "Projeto atualizado com sucesso!" });
+      setShowEditarProjetoModal(false);
+      setSelectedProject(null);
+      setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
+    },
+    onError: (error: any) => {
+      toast({ title: "Erro", description: error.message || "Erro ao atualizar projeto", variant: "destructive" });
+    }
+  });
+
+  // Mutation para excluir projeto
+  const excluirProjetoMutation = useMutation({
+    mutationFn: async (projectId: number) => {
+      return await apiRequest(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/projects'] });
+      toast({
+        title: "Projeto excluído",
+        description: `O projeto "${selectedProject?.name}" foi excluído com sucesso.`,
+      });
+      setShowExcluirProjetoModal(false);
+      setSelectedProject(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao excluir",
+        description: error?.message || "Não foi possível excluir o projeto.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const confirmarExclusao = () => {
+    if (selectedProject?.id) {
+      excluirProjetoMutation.mutate(selectedProject.id);
+    }
+  };
+
+  // Mutation para excluir oficina
+  const excluirOficinaMutation = useMutation({
+    mutationFn: async (activityId: number) => {
+      return await apiRequest(`/api/pec/activities/${activityId}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/activities'] });
+      toast({
+        title: "Oficina excluída",
+        description: `A oficina "${selectedActivity?.name}" foi excluída com sucesso.`,
+      });
+      setShowExcluirOficinaModal(false);
+      setSelectedActivity(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao excluir",
+        description: error?.message || "Não foi possível excluir a oficina.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const confirmarExclusaoOficina = () => {
+    if (selectedActivity?.id) {
+      excluirOficinaMutation.mutate(selectedActivity.id);
+    }
+  };
+  
+  // Mutation para cadastrar educador
+  const criarEducadorMutation = useMutation({
+    mutationFn: async (data: any) => {
+      // Processar especialidades usando função helper
+      const especialidadesArray = processarEspecialidades(data.especialidades);
+      
+      // Validar que pelo menos uma especialidade foi informada
+      if (especialidadesArray.length === 0) {
+        throw new Error('Informe pelo menos uma especialidade válida');
+      }
+      
+      const payload = {
+        ...data,
+        especialidades: especialidadesArray
+      };
+      
+      return await apiRequest('/api/educadores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/educadores/pec'] });
+      toast({
+        title: "Educador cadastrado!",
+        description: "O educador foi cadastrado com sucesso."
+      });
+      setShowNovoEducadorModal(false);
+      setEducadorForm({
+        cpf: '',
+        nome_completo: '',
+        telefone: '',
+        email: '',
+        formacao: '',
+        especialidades: '',
+        status: 'ativo'
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao cadastrar educador",
+        description: error.message || "Não foi possível cadastrar o educador.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const atualizarEducadorMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const especialidadesArray = processarEspecialidades(data.especialidades);
+      
+      return await apiRequest(`/api/educadores/${selectedEducador.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          cpf: data.cpf,
+          nome_completo: data.nome_completo,
+          telefone: data.telefone,
+          email: data.email || null,
+          formacao: data.formacao || null,
+          especialidades: especialidadesArray,
+          status: data.status
+        })
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/educadores/pec'] });
+      toast({
+        title: "Educador atualizado!",
+        description: "Os dados do educador foram atualizados com sucesso."
+      });
+      setShowEditarEducadorModal(false);
+      setSelectedEducador(null);
+      setEducadorForm({ cpf: '', nome_completo: '', telefone: '', email: '', formacao: '', especialidades: '', status: 'ativo' });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao atualizar educador",
+        description: error.message || "Tente novamente.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Mutation para excluir turma
+  const deleteInstanceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(`/api/pec/instances/${id}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
+      setShowExcluirTurmaModal(false);
+      toast({ title: 'Sucesso', description: 'Turma excluída com sucesso' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro', description: error.message || 'Erro ao excluir turma', variant: 'destructive' });
+    },
+  });
+  
+  const handleNovoEducador = () => {
+    setShowNovoEducadorModal(true);
+  };
+  
+  // Helper para processar e validar especialidades
+  const processarEspecialidades = (especialidadesStr: string): string[] => {
+    if (!especialidadesStr) return [];
+    return especialidadesStr
+      .split(',')
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
+  };
+  
+  // Validar se educador form tem especialidades válidas
+  const educadorTemEspecialidadesValidas = (): boolean => {
+    const especialidades = processarEspecialidades(educadorForm.especialidades);
+    return especialidades.length > 0;
+  };
+
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
     queryKey: [`/api/coordenador/dashboard/${userId}`, { area: 'pec' }],
@@ -115,6 +486,18 @@ export default function CoordenadorPECPage() {
     queryKey: ['/api/pec/activities'],
   });
 
+  // Filtrar projetos baseado no status selecionado
+  const projetosFiltrados = projects.filter((projeto: any) => {
+    if (statusFilter === 'todos') return true;
+    return projeto.status === statusFilter;
+  });
+
+  // Filtrar oficinas baseado no projeto selecionado
+  const oficinasFiltradas = activities.filter((activity: any) => {
+    if (projetoFilterOficinas === 'todos') return true;
+    return activity.project_id?.toString() === projetoFilterOficinas;
+  });
+
   // Query para buscar turmas/instâncias do PEC (usando fetcher padrão)
   const { data: instances = [] } = useQuery<ActivityInstance[]>({
     queryKey: ['/api/pec/instances'],
@@ -123,6 +506,12 @@ export default function CoordenadorPECPage() {
   // Query para buscar dados de usuários
   const { data: usersData = [] } = useQuery<UserType[]>({
     queryKey: ['/api/users'],
+  });
+  
+  // Query para buscar educadores do PEC
+  const { data: educadores = [] } = useQuery<Educador[]>({
+    queryKey: ['/api/educadores/pec'],
+    enabled: activeSection === 'educadores'
   });
 
   // Filtrar apenas alunos
@@ -418,6 +807,29 @@ export default function CoordenadorPECPage() {
             </CardContent>
           </Card>
 
+          {/* Gestão de Educadores */}
+          <Card data-testid="card-educadores">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <UserCheck className="w-5 h-5 text-purple-500" />
+                Gestão de Educadores
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Gerencie educadores, cadastre profissionais e acompanhe especialidades.
+              </p>
+              <Button 
+                className="w-full bg-purple-500 hover:bg-purple-600 text-white" 
+                data-testid="button-educadores"
+                onClick={() => changeSection('educadores')}
+              >
+                <UserCheck className="w-4 h-4 mr-2" />
+                Educadores
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Relatórios Gerenciais */}
           <Card data-testid="card-relatorios">
             <CardHeader className="pb-3">
@@ -479,7 +891,7 @@ export default function CoordenadorPECPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Gestão de Alunos</CardTitle>
-                <Button size="sm" className="bg-blue-500 hover:bg-blue-600" onClick={handleAdicionarAluno}>
+                <Button size="sm" className="bg-blue-500 hover:bg-blue-600" onClick={handleAdicionarAluno} data-testid="button-adicionar-aluno">
                   <Plus className="w-4 h-4 mr-2" />
                   Adicionar Aluno
                 </Button>
@@ -551,6 +963,96 @@ export default function CoordenadorPECPage() {
             </Card>
           )}
 
+          {activeSection === 'educadores' && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Gestão de Educadores</CardTitle>
+                <Button size="sm" className="bg-purple-500 hover:bg-purple-600" onClick={handleNovoEducador} data-testid="button-novo-educador">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Cadastrar Educador
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex gap-4">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Buscar educadores..." className="pl-10" data-testid="input-buscar-educadores" />
+                    </div>
+                  </div>
+                  
+                  {educadores.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      Nenhum educador encontrado. Clique em "Cadastrar Educador" para adicionar.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>CPF</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Especialidades</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {educadores.map((educador: any) => (
+                          <TableRow key={educador.id}>
+                            <TableCell className="flex items-center gap-2">
+                              <UserCheck className="w-4 h-4 text-purple-400" />
+                              {educador.nome_completo || 'Sem nome'}
+                            </TableCell>
+                            <TableCell>{educador.cpf || 'Não informado'}</TableCell>
+                            <TableCell>{educador.telefone || 'Não informado'}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {Array.isArray(educador.especialidades) && educador.especialidades.length > 0 
+                                  ? educador.especialidades.map((esp: string, idx: number) => (
+                                      <Badge key={idx} variant="outline" className="text-xs">
+                                        {esp}
+                                      </Badge>
+                                    ))
+                                  : <span className="text-gray-400 text-sm">Nenhuma</span>
+                                }
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={educador.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                                {educador.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => handleVisualizarEducador(educador)}
+                                  data-testid={`button-view-educador-${educador.id}`}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => handleEditarEducador(educador)}
+                                  data-testid={`button-edit-educador-${educador.id}`}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {activeSection === 'avaliacoes' && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -601,7 +1103,12 @@ export default function CoordenadorPECPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Gestão de Projetos</CardTitle>
-                <Button size="sm" className="bg-blue-500 hover:bg-blue-600">
+                <Button 
+                  size="sm" 
+                  className="bg-blue-500 hover:bg-blue-600"
+                  onClick={handleNovoProjeto}
+                  data-testid="button-novo-projeto"
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Novo Projeto
                 </Button>
@@ -613,54 +1120,71 @@ export default function CoordenadorPECPage() {
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar projetos..." className="pl-10" />
                     </div>
-                    <Select>
-                      <SelectTrigger className="w-40">
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-40" data-testid="select-status-filter">
                         <SelectValue placeholder="Status" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
                         <SelectItem value="ativo">Ativo</SelectItem>
-                        <SelectItem value="planejamento">Planejamento</SelectItem>
-                        <SelectItem value="concluido">Concluído</SelectItem>
+                        <SelectItem value="inativo">Inativo</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   
                   <div className="grid gap-4">
-                    {projects.length === 0 ? (
+                    {projetosFiltrados.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
-                        Nenhum projeto encontrado. Clique em "Novo Projeto" para adicionar.
+                        {projects.length === 0 
+                          ? 'Nenhum projeto encontrado. Clique em "Novo Projeto" para adicionar.'
+                          : `Nenhum projeto ${statusFilter === 'todos' ? '' : statusFilter} encontrado.`
+                        }
                       </div>
                     ) : (
-                      projects.map((projeto: any) => (
+                      projetosFiltrados.map((projeto: any) => (
                         <div key={projeto.id} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="font-semibold flex items-center gap-2">
                               <Target className="w-4 h-4 text-blue-500" />
                               {projeto.name}
                             </h3>
-                            <Badge className={projeto.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                              {projeto.status === 'active' ? 'Ativo' : 'Inativo'}
+                            <Badge className={projeto.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                              {projeto.status === 'ativo' ? 'Ativo' : 'Inativo'}
                             </Badge>
                           </div>
                           <p className="text-sm text-gray-600 mb-3">{projeto.description || 'Sem descrição'}</p>
                           <div className="flex items-center gap-4 text-sm text-gray-500">
                             <span className="flex items-center gap-1">
                               <Calendar className="w-4 h-4" />
-                              {projeto.startDate ? new Date(projeto.startDate).toLocaleDateString('pt-BR') : 'Data não informada'}
+                              {projeto.period_start ? new Date(projeto.period_start).toLocaleDateString('pt-BR') : 'Data não informada'}
                             </span>
-                            {projeto.endDate && (
+                            {projeto.period_end ? (
                               <span className="flex items-center gap-1">
-                                até {new Date(projeto.endDate).toLocaleDateString('pt-BR')}
+                                até {new Date(projeto.period_end).toLocaleDateString('pt-BR')}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-orange-600 font-medium">
+                                Tempo Indeterminado
                               </span>
                             )}
                           </div>
                           <div className="flex gap-2 mt-3">
-                            <Button size="sm" variant="outline" className="flex-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="flex-1"
+                              onClick={() => handleVerDetalhes(projeto)}
+                              data-testid={`button-ver-detalhes-${projeto.id}`}
+                            >
                               <Eye className="w-4 h-4 mr-1" />
                               Ver Detalhes
                             </Button>
-                            <Button size="sm" variant="outline">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => handleEditarProjeto(projeto)}
+                              data-testid={`button-editar-projeto-${projeto.id}`}
+                            >
                               <Edit className="w-4 h-4" />
                             </Button>
                           </div>
@@ -736,11 +1260,30 @@ export default function CoordenadorPECPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button size="sm" variant="outline">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => handleViewTurma(instance)}
+                                  data-testid={`button-view-turma-${instance.id}`}
+                                >
                                   <Eye className="w-4 h-4" />
                                 </Button>
-                                <Button size="sm" variant="outline">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => handleEditTurma(instance)}
+                                  data-testid={`button-edit-turma-${instance.id}`}
+                                >
                                   <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => handleDeleteTurma(instance)}
+                                  data-testid={`button-delete-turma-${instance.id}`}
+                                  className="hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
                                 </Button>
                               </div>
                             </TableCell>
@@ -1041,63 +1584,73 @@ export default function CoordenadorPECPage() {
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar oficinas culturais..." className="pl-10" />
                     </div>
-                    <Select>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Área Cultural" />
+                    <Select value={projetoFilterOficinas} onValueChange={setProjetoFilterOficinas}>
+                      <SelectTrigger className="w-48" data-testid="select-projeto-filter">
+                        <SelectValue placeholder="Filtrar por Projeto" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="todas">Todas</SelectItem>
-                        <SelectItem value="musica">Música</SelectItem>
-                        <SelectItem value="danca">Dança</SelectItem>
-                        <SelectItem value="teatro">Teatro</SelectItem>
-                        <SelectItem value="artes">Artes Plásticas</SelectItem>
+                        <SelectItem value="todos">Todos os Projetos</SelectItem>
+                        {projects.map((projeto: any) => (
+                          <SelectItem key={projeto.id} value={projeto.id.toString()}>
+                            {projeto.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   
                   <div className="grid gap-4">
-                    {activities.length === 0 ? (
+                    {oficinasFiltradas.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
-                        Nenhuma oficina encontrada. Clique em "Nova Oficina" para adicionar.
+                        {activities.length === 0 
+                          ? 'Nenhuma oficina encontrada. Clique em "Nova Oficina" para adicionar.'
+                          : 'Nenhuma oficina encontrada para este projeto.'
+                        }
                       </div>
                     ) : (
-                      activities.map((activity: any) => (
+                      oficinasFiltradas.map((activity: any) => (
                         <div key={activity.id} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="font-semibold flex items-center gap-2">
                               <Music className="w-4 h-4 text-pink-500" />
                               {activity.name}
                             </h3>
-                            <Badge className={activity.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                              {activity.status === 'active' ? 'Ativo' : 'Inativo'}
+                            <Badge className={activity.status === 'ativa' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                              {activity.status === 'ativa' ? 'Ativo' : 'Inativo'}
                             </Badge>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm mb-3">
-                            <div>
-                              <span className="text-gray-500">Tipo:</span>
-                              <p className="font-medium">{activity.type || 'Não especificado'}</p>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Descrição:</span>
-                              <p className="font-medium">{activity.description || 'Sem descrição'}</p>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Projeto:</span>
-                              <p className="font-medium">ID: {activity.project_id}</p>
-                            </div>
+                          <div className="text-sm mb-3">
+                            <span className="text-gray-500">Descrição:</span>
+                            <p className="font-medium">{activity.description || 'Sem descrição'}</p>
                           </div>
                           <div className="flex gap-2">
-                            <Button size="sm" variant="outline">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => handleVisualizarOficina(activity)}
+                              data-testid={`button-visualizar-oficina-${activity.id}`}
+                            >
                               <Eye className="w-4 h-4 mr-1" />
                               Visualizar
                             </Button>
-                            <Button size="sm" variant="outline">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => handleEditarOficina(activity)}
+                              data-testid={`button-editar-oficina-${activity.id}`}
+                            >
                               <Edit className="w-4 h-4 mr-1" />
                               Editar
                             </Button>
-                            <Button size="sm" variant="outline">
-                              <Users className="w-4 h-4 mr-1" />
-                              Participantes
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="text-red-600 hover:text-red-700 hover:border-red-600"
+                              onClick={() => handleExcluirOficina(activity)}
+                              data-testid={`button-excluir-oficina-${activity.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 mr-1" />
+                              Excluir
                             </Button>
                           </div>
                         </div>
@@ -1695,6 +2248,837 @@ export default function CoordenadorPECPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Novo Projeto */}
+      {showNovoProjetoModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowNovoProjetoModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Novo Projeto</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowNovoProjetoModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Nome do Projeto</label>
+                <Input 
+                  placeholder="Ex: Programa Esporte e Cultura 2025"
+                  value={projetoForm.name}
+                  onChange={(e) => setProjetoForm(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Descrição</label>
+                <Input 
+                  placeholder="Breve descrição do projeto"
+                  value={projetoForm.description}
+                  onChange={(e) => setProjetoForm(prev => ({ ...prev, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Status</label>
+                <Select
+                  value={projetoForm.status}
+                  onValueChange={(value) => setProjetoForm(prev => ({ ...prev, status: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ativo">Ativo</SelectItem>
+                    <SelectItem value="inativo">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Data Início</label>
+                  <Input 
+                    type="date"
+                    value={projetoForm.period_start}
+                    onChange={(e) => setProjetoForm(prev => ({ ...prev, period_start: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Data Fim</label>
+                  <Input 
+                    type="date"
+                    value={projetoForm.period_end}
+                    onChange={(e) => setProjetoForm(prev => ({ ...prev, period_end: e.target.value }))}
+                    disabled={projetoForm.tempoIndeterminado}
+                    className={projetoForm.tempoIndeterminado ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="tempo-indeterminado" 
+                  checked={projetoForm.tempoIndeterminado}
+                  onCheckedChange={(checked) => {
+                    setProjetoForm(prev => ({
+                      ...prev,
+                      tempoIndeterminado: Boolean(checked),
+                      period_end: Boolean(checked) ? '' : prev.period_end
+                    }));
+                  }}
+                />
+                <label htmlFor="tempo-indeterminado" className="text-sm font-medium cursor-pointer">
+                  Tempo Indeterminado
+                </label>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  className="flex-1 bg-blue-500 hover:bg-blue-600" 
+                  onClick={() => createProjectMutation.mutate(projetoForm)}
+                  disabled={createProjectMutation.isPending}
+                >
+                  {createProjectMutation.isPending ? 'Criando...' : 'Criar Projeto'}
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  setShowNovoProjetoModal(false);
+                  setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
+                }}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detalhes do Projeto */}
+      {showDetalhesProjetoModal && selectedProject && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowDetalhesProjetoModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Detalhes do Projeto</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowDetalhesProjetoModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-semibold text-xl text-blue-600">{selectedProject.name}</h4>
+                <Badge className={selectedProject.status === 'ativo' ? 'bg-green-100 text-green-800 mt-2' : 'bg-red-100 text-red-800 mt-2'}>
+                  {selectedProject.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                </Badge>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Descrição</label>
+                <p className="text-gray-700 mt-1">{selectedProject.description || 'Sem descrição disponível'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Data de Início</label>
+                  <p className="text-gray-700 mt-1">{selectedProject.period_start ? new Date(selectedProject.period_start).toLocaleDateString('pt-BR') : 'Não informada'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Data de Término</label>
+                  <p className="text-gray-700 mt-1">
+                    {selectedProject.period_end ? new Date(selectedProject.period_end).toLocaleDateString('pt-BR') : 'Tempo Indeterminado'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button className="flex-1" onClick={() => {
+                  setShowDetalhesProjetoModal(false);
+                  handleEditarProjeto(selectedProject);
+                }}>
+                  <Edit className="w-4 h-4 mr-2" />
+                  Editar Projeto
+                </Button>
+                <Button variant="outline" className="border-red-500 text-red-600 hover:bg-red-50" onClick={() => {
+                  setShowDetalhesProjetoModal(false);
+                  handleExcluirProjeto(selectedProject);
+                }}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Excluir
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Projeto */}
+      {showEditarProjetoModal && selectedProject && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowEditarProjetoModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Editar Projeto</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowEditarProjetoModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Nome do Projeto</label>
+                <Input 
+                  value={projetoForm.name}
+                  onChange={(e) => setProjetoForm(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Descrição</label>
+                <Input 
+                  value={projetoForm.description}
+                  onChange={(e) => setProjetoForm(prev => ({ ...prev, description: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Status</label>
+                <Select
+                  value={projetoForm.status}
+                  onValueChange={(value) => setProjetoForm(prev => ({ ...prev, status: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ativo">Ativo</SelectItem>
+                    <SelectItem value="inativo">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Data Início</label>
+                  <Input 
+                    type="date" 
+                    value={projetoForm.period_start}
+                    onChange={(e) => setProjetoForm(prev => ({ ...prev, period_start: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Data Fim</label>
+                  <Input 
+                    type="date" 
+                    value={projetoForm.period_end}
+                    onChange={(e) => setProjetoForm(prev => ({ ...prev, period_end: e.target.value }))}
+                    disabled={projetoForm.tempoIndeterminado}
+                    className={projetoForm.tempoIndeterminado ? 'bg-gray-100 cursor-not-allowed' : ''}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="tempo-indeterminado-edit" 
+                  checked={projetoForm.tempoIndeterminado}
+                  onCheckedChange={(checked) => {
+                    setProjetoForm(prev => ({
+                      ...prev,
+                      tempoIndeterminado: Boolean(checked),
+                      period_end: Boolean(checked) ? '' : prev.period_end
+                    }));
+                  }}
+                />
+                <label htmlFor="tempo-indeterminado-edit" className="text-sm font-medium cursor-pointer">
+                  Tempo Indeterminado
+                </label>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  className="flex-1 bg-blue-500 hover:bg-blue-600" 
+                  onClick={() => updateProjectMutation.mutate({ id: selectedProject.id, data: projetoForm })}
+                  disabled={updateProjectMutation.isPending}
+                >
+                  {updateProjectMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  setShowEditarProjetoModal(false);
+                  setSelectedProject(null);
+                  setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
+                }}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Excluir Projeto */}
+      {showExcluirProjetoModal && selectedProject && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowExcluirProjetoModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-red-600">Confirmar Exclusão</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowExcluirProjetoModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg">
+                <Trash2 className="w-8 h-8 text-red-500" />
+                <div>
+                  <p className="font-medium text-gray-900">Tem certeza que deseja excluir?</p>
+                  <p className="text-sm text-gray-600">Projeto: <strong>{selectedProject.name}</strong></p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Esta ação não pode ser desfeita. Todos os dados relacionados a este projeto serão permanentemente removidos.
+              </p>
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  className="flex-1 bg-red-500 hover:bg-red-600" 
+                  onClick={confirmarExclusao}
+                  disabled={excluirProjetoMutation.isPending}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {excluirProjetoMutation.isPending ? 'Excluindo...' : 'Sim, Excluir'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowExcluirProjetoModal(false);
+                    setSelectedProject(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Excluir Oficina */}
+      {showExcluirOficinaModal && selectedActivity && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowExcluirOficinaModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-red-600">Confirmar Exclusão</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowExcluirOficinaModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg">
+                <Trash2 className="w-8 h-8 text-red-500" />
+                <div>
+                  <p className="font-medium text-gray-900">Tem certeza que deseja excluir?</p>
+                  <p className="text-sm text-gray-600">Oficina: <strong>{selectedActivity.name}</strong></p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Esta ação não pode ser desfeita. A oficina será permanentemente removida.
+              </p>
+              <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded">
+                <strong>Atenção:</strong> Se esta oficina possuir turmas relacionadas, a exclusão será bloqueada.
+              </p>
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  className="flex-1 bg-red-500 hover:bg-red-600" 
+                  onClick={confirmarExclusaoOficina}
+                  disabled={excluirOficinaMutation.isPending}
+                  data-testid="button-confirmar-excluir-oficina"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {excluirOficinaMutation.isPending ? 'Excluindo...' : 'Sim, Excluir'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowExcluirOficinaModal(false);
+                    setSelectedActivity(null);
+                  }}
+                  data-testid="button-cancelar-excluir-oficina"
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Detalhes da Oficina */}
+      {showVisualizarOficinaModal && selectedActivity && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowVisualizarOficinaModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Detalhes da Oficina</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowVisualizarOficinaModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-semibold text-xl text-pink-600 flex items-center gap-2">
+                  <Music className="w-6 h-6" />
+                  {selectedActivity.name}
+                </h4>
+                <Badge className={selectedActivity.status === 'ativa' ? 'bg-green-100 text-green-800 mt-2' : 'bg-gray-100 text-gray-800 mt-2'}>
+                  {selectedActivity.status === 'ativa' ? 'Ativo' : 'Inativo'}
+                </Badge>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Descrição</label>
+                <p className="text-gray-700 mt-1">{selectedActivity.description || 'Sem descrição disponível'}</p>
+              </div>
+              
+              {/* Turmas vinculadas a esta oficina */}
+              <div className="border-t pt-4 mt-4">
+                <h5 className="font-semibold mb-3 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-500" />
+                  Turmas desta Oficina
+                </h5>
+                {instances.filter((inst: any) => inst.activity_id === selectedActivity.id).length === 0 ? (
+                  <p className="text-gray-500 text-sm">Nenhuma turma vinculada a esta oficina ainda.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {instances
+                      .filter((inst: any) => inst.activity_id === selectedActivity.id)
+                      .map((turma: any) => (
+                        <div key={turma.id} className="border rounded-lg p-3 hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">{turma.title}</p>
+                              <p className="text-sm text-gray-500">
+                                {turma.period_label} • {turma.location || 'Local não informado'}
+                              </p>
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setShowVisualizarOficinaModal(false);
+                                changeSection('turmas');
+                              }}
+                            >
+                              Ver participantes
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-4 border-t mt-4">
+                <Button className="flex-1" onClick={() => {
+                  setShowVisualizarOficinaModal(false);
+                  handleEditarOficina(selectedActivity);
+                }}>
+                  <Edit className="w-4 h-4 mr-2" />
+                  Editar Oficina
+                </Button>
+                <Button variant="outline" onClick={() => setShowVisualizarOficinaModal(false)}>
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Oficina */}
+      {showEditarOficinaModal && selectedActivity && (
+        <ActivityForm
+          open={showEditarOficinaModal}
+          onClose={() => {
+            setShowEditarOficinaModal(false);
+            setSelectedActivity(null);
+          }}
+          activity={selectedActivity}
+        />
+      )}
+
+      {/* Modal Cadastrar Educador */}
+      {showNovoEducadorModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowNovoEducadorModal(false)}>
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-purple-600">Cadastrar Novo Educador</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowNovoEducadorModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">CPF *</label>
+                <Input 
+                  placeholder="000.000.000-00"
+                  value={educadorForm.cpf}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, cpf: e.target.value }))}
+                  data-testid="input-educador-cpf"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Nome Completo *</label>
+                <Input 
+                  placeholder="Ex: João Silva Santos"
+                  value={educadorForm.nome_completo}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, nome_completo: e.target.value }))}
+                  data-testid="input-educador-nome"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Telefone *</label>
+                <Input 
+                  placeholder="(31) 99999-9999"
+                  value={educadorForm.telefone}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, telefone: e.target.value }))}
+                  data-testid="input-educador-telefone"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Email</label>
+                <Input 
+                  placeholder="educador@example.com"
+                  type="email"
+                  value={educadorForm.email}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, email: e.target.value }))}
+                  data-testid="input-educador-email"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Formação</label>
+                <Input 
+                  placeholder="Ex: Licenciatura em Educação Física"
+                  value={educadorForm.formacao}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, formacao: e.target.value }))}
+                  data-testid="input-educador-formacao"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Especialidades *</label>
+                <Input 
+                  placeholder="Ex: Futebol, Vôlei, Basquete (separados por vírgula)"
+                  value={educadorForm.especialidades}
+                  onChange={(e) => setEducadorForm(prev => ({ ...prev, especialidades: e.target.value }))}
+                  data-testid="input-educador-especialidades"
+                />
+                <p className="text-xs text-gray-500 mt-1">Separe múltiplas especialidades por vírgula</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Status</label>
+                <Select
+                  value={educadorForm.status}
+                  onValueChange={(value) => setEducadorForm(prev => ({ ...prev, status: value }))}
+                >
+                  <SelectTrigger data-testid="select-educador-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ativo">Ativo</SelectItem>
+                    <SelectItem value="inativo">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  className="flex-1 bg-purple-500 hover:bg-purple-600" 
+                  onClick={() => criarEducadorMutation.mutate(educadorForm)}
+                  disabled={
+                    criarEducadorMutation.isPending || 
+                    !educadorForm.cpf || 
+                    !educadorForm.nome_completo || 
+                    !educadorForm.telefone ||
+                    !educadorTemEspecialidadesValidas()
+                  }
+                  data-testid="button-salvar-educador"
+                >
+                  {criarEducadorMutation.isPending ? 'Cadastrando...' : 'Cadastrar Educador'}
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  setShowNovoEducadorModal(false);
+                  setEducadorForm({
+                    cpf: '',
+                    nome_completo: '',
+                    telefone: '',
+                    email: '',
+                    formacao: '',
+                    especialidades: '',
+                    status: 'ativo'
+                  });
+                }} data-testid="button-cancelar-educador">
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Visualizar Educador */}
+      {showVisualizarEducadorModal && selectedEducador && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Detalhes do Educador</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowVisualizarEducadorModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-500">Nome Completo</label>
+                <p className="text-gray-700 mt-1">{selectedEducador.nome_completo}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">CPF</label>
+                  <p className="text-gray-700 mt-1">{selectedEducador.cpf}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Telefone</label>
+                  <p className="text-gray-700 mt-1">{selectedEducador.telefone}</p>
+                </div>
+              </div>
+              {selectedEducador.email && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500">E-mail</label>
+                  <p className="text-gray-700 mt-1">{selectedEducador.email}</p>
+                </div>
+              )}
+              {selectedEducador.formacao && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Formação</label>
+                  <p className="text-gray-700 mt-1">{selectedEducador.formacao}</p>
+                </div>
+              )}
+              <div>
+                <label className="text-sm font-medium text-gray-500">Especialidades</label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {Array.isArray(selectedEducador.especialidades) && selectedEducador.especialidades.length > 0 
+                    ? selectedEducador.especialidades.map((esp: string, idx: number) => (
+                        <Badge key={idx} variant="outline">
+                          {esp}
+                        </Badge>
+                      ))
+                    : <span className="text-gray-400 text-sm">Nenhuma especialidade cadastrada</span>
+                  }
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Status</label>
+                <div className="mt-1">
+                  <Badge className={selectedEducador.vinculo?.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                    {selectedEducador.vinculo?.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-4 border-t mt-4">
+              <Button className="flex-1" onClick={() => {
+                setShowVisualizarEducadorModal(false);
+                handleEditarEducador(selectedEducador);
+              }}>
+                <Edit className="w-4 h-4 mr-2" />
+                Editar Educador
+              </Button>
+              <Button variant="outline" onClick={() => setShowVisualizarEducadorModal(false)}>
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Educador */}
+      {showEditarEducadorModal && selectedEducador && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Editar Educador</h3>
+              <Button variant="ghost" size="sm" onClick={() => {
+                setShowEditarEducadorModal(false);
+                setSelectedEducador(null);
+              }}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">CPF</label>
+                <Input
+                  value={educadorForm.cpf}
+                  onChange={(e) => setEducadorForm({ ...educadorForm, cpf: e.target.value })}
+                  placeholder="000.000.000-00"
+                  disabled
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Nome Completo *</label>
+                <Input
+                  value={educadorForm.nome_completo}
+                  onChange={(e) => setEducadorForm({ ...educadorForm, nome_completo: e.target.value })}
+                  placeholder="Nome completo do educador"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Telefone *</label>
+                  <Input
+                    value={educadorForm.telefone}
+                    onChange={(e) => setEducadorForm({ ...educadorForm, telefone: e.target.value })}
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">E-mail</label>
+                  <Input
+                    value={educadorForm.email}
+                    onChange={(e) => setEducadorForm({ ...educadorForm, email: e.target.value })}
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Formação</label>
+                <Input
+                  value={educadorForm.formacao}
+                  onChange={(e) => setEducadorForm({ ...educadorForm, formacao: e.target.value })}
+                  placeholder="Ex: Pedagogia, Artes, etc."
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Especialidades</label>
+                <Input
+                  value={educadorForm.especialidades}
+                  onChange={(e) => setEducadorForm({ ...educadorForm, especialidades: e.target.value })}
+                  placeholder="Ex: dança, música, teatro (separar por vírgula)"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Status</label>
+                <Select 
+                  value={educadorForm.status} 
+                  onValueChange={(value) => setEducadorForm({ ...educadorForm, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ativo">Ativo</SelectItem>
+                    <SelectItem value="inativo">Inativo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-4">
+              <Button 
+                className="flex-1 bg-purple-500 hover:bg-purple-600" 
+                onClick={() => atualizarEducadorMutation.mutate(educadorForm)}
+                disabled={
+                  atualizarEducadorMutation.isPending || 
+                  !educadorForm.nome_completo || 
+                  !educadorForm.telefone
+                }
+              >
+                {atualizarEducadorMutation.isPending ? "Salvando..." : "Salvar Alterações"}
+              </Button>
+              <Button variant="outline" onClick={() => {
+                setShowEditarEducadorModal(false);
+                setSelectedEducador(null);
+              }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Visualizar Turma */}
+      <Dialog open={showVisualizarTurmaModal} onOpenChange={setShowVisualizarTurmaModal}>
+        <DialogContent className="max-w-2xl" data-testid="modal-visualizar-turma">
+          <DialogHeader>
+            <DialogTitle>Detalhes da Turma</DialogTitle>
+          </DialogHeader>
+          {selectedInstance && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Título</label>
+                  <p className="text-sm" data-testid="text-turma-title">{selectedInstance.title}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Código</label>
+                  <p className="text-sm" data-testid="text-turma-code">{selectedInstance.code}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Local</label>
+                  <p className="text-sm" data-testid="text-turma-location">{selectedInstance.location || 'Não especificado'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Situação</label>
+                  <p className="text-sm" data-testid="text-turma-situation">{selectedInstance.situation}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Período</label>
+                  <p className="text-sm" data-testid="text-turma-period">{selectedInstance.period_label || 'Não especificado'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Horário</label>
+                  <p className="text-sm" data-testid="text-turma-schedule">
+                    {selectedInstance.start_time && selectedInstance.end_time 
+                      ? `${selectedInstance.start_time} - ${selectedInstance.end_time}`
+                      : 'A definir'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Faixa Etária</label>
+                  <p className="text-sm" data-testid="text-turma-age-range">
+                    {selectedInstance.age_min && selectedInstance.age_max
+                      ? `${selectedInstance.age_min} - ${selectedInstance.age_max} anos`
+                      : 'Não especificado'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Modo de Controle</label>
+                  <p className="text-sm" data-testid="text-turma-control-mode">
+                    {selectedInstance.control_mode === 'manual' ? 'Manual' : 'Intelbras'}
+                  </p>
+                </div>
+              </div>
+              {selectedInstance.notes && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Observações</label>
+                  <p className="text-sm" data-testid="text-turma-notes">{selectedInstance.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Editar Turma */}
+      <InstanceForm
+        open={showEditarTurmaModal}
+        onClose={() => {
+          setShowEditarTurmaModal(false);
+          setSelectedInstance(null);
+        }}
+        instance={selectedInstance}
+        activityId={selectedInstance?.activity_id || null}
+      />
+
+      {/* Modal Excluir Turma */}
+      <AlertDialog open={showExcluirTurmaModal} onOpenChange={setShowExcluirTurmaModal}>
+        <AlertDialogContent data-testid="modal-excluir-turma">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir a turma "{selectedInstance?.title}"? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-confirm-delete"
+              onClick={() => selectedInstance && deleteInstanceMutation.mutate(selectedInstance.id)}
+              disabled={deleteInstanceMutation.isPending}
+              className="bg-red-500 hover:bg-red-600"
+            >
+              {deleteInstanceMutation.isPending ? 'Excluindo...' : 'Excluir'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -6,14 +6,15 @@ import PatrocinadoresCarousel from "@/components/PatrocinadoresCarousel";
 export default function IngressoResgateIdentificar() {
   const [, setLocation] = useLocation();
   const [nomeEmpresa, setNomeEmpresa] = useState("");
+  const [emailEmpresa, setEmailEmpresa] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [erro, setErro] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!nomeEmpresa.trim()) {
-      setErro("Por favor, digite o nome da empresa");
+    if (!nomeEmpresa.trim() || !emailEmpresa.trim()) {
+      setErro('Por favor, preencha nome e e-mail da empresa');
       return;
     }
 
@@ -26,11 +27,13 @@ export default function IngressoResgateIdentificar() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ nomeEmpresa: nomeEmpresa.trim() }),
+        body: JSON.stringify({ 
+          nomeEmpresa: nomeEmpresa.trim(),
+          email: emailEmpresa.trim()  
+        }),
       });
 
       const resultado = await response.json();
-
       if (resultado.valida && resultado.cota) {
         // Empresa validada! Redirecionar para página de resgate com dados da cota
         // Armazenar dados da cota no localStorage para usar na próxima página
@@ -38,8 +41,7 @@ export default function IngressoResgateIdentificar() {
         setLocation('/ingresso/resgate/confirmar');
       } else {
         setErro(resultado.mensagem || "Empresa não encontrada");
-      }
-      
+      }      
     } catch (error) {
       console.error('❌ Erro ao validar empresa:', error);
       setErro("Erro ao validar empresa. Tente novamente.");
@@ -103,6 +105,20 @@ export default function IngressoResgateIdentificar() {
               />
             </div>
 
+            <div>
+              <label htmlFor="emailEmpresa" className="block text-white font-semibold mb-2">Insira e-mail cadastrado *</label>
+              <input
+                type="email"
+                id="emailEmpresa"
+                value={emailEmpresa}
+                onChange={(e) => setEmailEmpresa(e.target.value)}
+                placeholder="Digite o e-mail cadastrado"
+                className="w-full px-4 py-3 rounded-xl text-black"
+                data-testid="input-email-empresa"
+                disabled={isValidating}
+              />
+            </div>
+
             {/* Mensagem de Erro */}
             {erro && (
               <div className="p-4 bg-red-500 bg-opacity-20 border border-red-500 rounded-lg" data-testid="mensagem-erro">
@@ -115,7 +131,7 @@ export default function IngressoResgateIdentificar() {
             {/* Botão Validar */}
             <button
               type="submit"
-              disabled={isValidating || !nomeEmpresa.trim()}
+              disabled={isValidating || (!nomeEmpresa.trim() && !emailEmpresa.trim())}
               className="w-full bg-yellow-500 text-black py-4 rounded-xl hover:bg-yellow-600 transition font-semibold text-lg disabled:bg-gray-300"
               data-testid="button-validar-empresa"
             >

@@ -72,6 +72,7 @@ export default function Impacto() {
     refetchInterval: 300000, // Atualiza a cada 5 minutos
   });
   
+  
   // Hook para buscar dados completos de Gestão à Vista (incluindo pizzas, idade, counters)
   const ano = new Date().getFullYear();
   const mesAtual = new Date().getMonth() + 1; // Janeiro = 1, Dezembro = 12
@@ -630,6 +631,8 @@ export default function Impacto() {
     }
   };
 
+
+
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Header */}
@@ -829,7 +832,7 @@ export default function Impacto() {
               }
             </div>
           </div>
-        </div>
+                  </div>
 
         {/* Carrossel de Gráficos e Métricas */}
         <div className="mb-8 mt-12">

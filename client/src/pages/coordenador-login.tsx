@@ -46,6 +46,11 @@ export default function CoordenadorLogin() {
       // Salvar sessão do coordenador
       sessionStorage.setItem("coordenador_auth", "true");
       sessionStorage.setItem("coordenador_data", JSON.stringify(data.coordenador));
+      
+      // Salvar no localStorage para apiRequest funcionar
+      localStorage.setItem("userId", data.coordenador.id.toString());
+      localStorage.setItem("papel", "coordenador");
+      localStorage.setItem("isVerified", "true");
 
       console.log("✅ Login bem-sucedido:", data.coordenador);
 

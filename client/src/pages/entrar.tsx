@@ -47,7 +47,8 @@ export default function Entrar() {
   const [isLoading, setIsLoading] = useState(false);
   const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
   const [telefoneError, setTelefoneError] = useState("");
-  const [devUsuario, setDevUsuario] = useState<string | null>(null); // <<< NOVO
+  const [devUsuario, setDevUsuario] = useState<string | null>(null);
+  const [modoCoordenador, setModoCoordenador] = useState(false); // <<< NOVO
 
   // helper: detecta se é fluxo DEV
   const isDevKeyword = (v: string) => {
@@ -73,85 +74,79 @@ export default function Entrar() {
   };
 
   // Nova função para login por e-mail (conselho)
-  const handleEmailLogin = async () => {
-    if (!email.trim()) {
-      toast({
-        title: "Erro",
-        description: "Por favor, digite seu e-mail",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch("/api/auth/login-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "E-mail não autorizado");
+      const handleEmailLogin = async () => {
+      if (!email.trim()) {
+        toast({ title: "Erro", description: "Por favor, digite seu e-mail", variant: "destructive" });
+        return;
       }
 
-      const userData = await response.json();
+      setIsLoading(true);
+      try {
+        // escolhe endpoint por modo
+        const endpoint = modoCoordenador
+          ? "/api/auth/login-coordenador"
+          : "/api/auth/login-email"; // mantém o que você já usa para conselho/patrocinador
 
-      // Limpar dados anteriores (preservando hasActiveSubscription)
-      const preserveSubscription = localStorage.getItem(
-        "hasActiveSubscription"
-      );
-      localStorage.removeItem("userId");
-      localStorage.removeItem("userName");
-      localStorage.removeItem("userEmail");
-      localStorage.removeItem("userTelefone");
-      localStorage.removeItem("userPhone");
-      localStorage.removeItem("userPapel");
-      localStorage.removeItem("userData");
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim() }),
+        });
 
-      // Salvar novos dados
-      localStorage.setItem("userId", userData.user.id.toString());
-      localStorage.setItem("userName", userData.user.nome);
-      localStorage.setItem("userEmail", userData.user.email);
-      localStorage.setItem("userTelefone", userData.user.telefone || "");
-      localStorage.setItem("userPhone", userData.user.telefone || "");
-      localStorage.setItem("userPapel", userData.user.papel);
-      localStorage.setItem("isVerified", "true");
-      localStorage.setItem("userData", JSON.stringify(userData));
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || "E-mail não autorizado");
+        }
 
-      // Restaurar hasActiveSubscription se existia antes
-      if (preserveSubscription) {
-        localStorage.setItem("hasActiveSubscription", preserveSubscription);
+        const data = await response.json();
+
+        // limpa e preserva subscription
+        const preserveSubscription = localStorage.getItem("hasActiveSubscription");
+        ["userId","userName","userEmail","userTelefone","userPhone","userPapel","userData"].forEach(k=>localStorage.removeItem(k));
+
+        // salva user
+        localStorage.setItem("userId", String(data.user?.id ?? 0));
+        localStorage.setItem("userName", data.user?.nome ?? "Coordenador");
+        localStorage.setItem("userEmail", data.user?.email ?? email.trim());
+        localStorage.setItem("userTelefone", data.user?.telefone ?? "");
+        localStorage.setItem("userPhone", data.user?.telefone ?? "");
+        localStorage.setItem("userPapel", data.role ?? data.user?.papel ?? "user");
+        localStorage.setItem("isVerified", "true");
+        localStorage.setItem("userData", JSON.stringify(data));
+
+        if (preserveSubscription) localStorage.setItem("hasActiveSubscription", preserveSubscription);
+
+        window.dispatchEvent(new CustomEvent("localStorageChanged"));
+
+        toast({ title: "Login realizado", description: `Bem-vindo, ${data.user?.nome ?? "Coordenador"}!` });
+
+        // redirecionamento:
+        if (modoCoordenador) {
+          const path = data.redirectPath || "/coordenador"; // fallback
+          setLocation(path);
+          return;
+        }
+
+        // já existente (conselho/patrocinador)
+        if (data.user?.papel === "patrocinador" || data.role === "patrocinador") {
+          setLocation("/patrocinador");
+        } else {
+          setLocation("/conselho");
+        }
+      } catch (error: any) {
+        toast({
+          title: "Erro no login",
+          description: error.message || "E-mail não autorizado ou erro interno",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
       }
-
-      window.dispatchEvent(new CustomEvent("localStorageChanged"));
-
-      toast({
-        title: "Login realizado",
-        description: `Bem-vindo, ${userData.user.nome}!`,
-      });
-
-      // Redirecionar para dashboard correto baseado no papel
-      if (userData.user.papel === "patrocinador") {
-        setLocation("/patrocinador");
-      } else {
-        setLocation("/conselho");
-      }
-    } catch (error: any) {
-      toast({
-        title: "Erro no login",
-        description: error.message || "E-mail não autorizado ou erro interno",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
   const handleEnviarCodigo = async () => {
     // Se está no modo conselho ou patrocinador e tem e-mail, fazer login por e-mail
-    if ((modoConselho || modoPatrocinador) && email.trim()) {
+    if ((modoConselho || modoPatrocinador || modoCoordenador) && email.trim()) {
       await handleEmailLogin();
       return;
     }
@@ -477,9 +472,9 @@ export default function Entrar() {
         });
         setLocation("/perfil");
       } else if (userData.papel === "doador") {
-        console.log(
+        /* console.log(
           `🔄 ENTRAR.TSX: Doador - redirecionando para dashboard (hasActiveSubscription: ${hasActiveSubscription})`
-        );
+        ); */
         setLocation("/tdoador");
       } else if (
         userData.needsCouncilApproval ||
@@ -523,14 +518,12 @@ export default function Entrar() {
           <Logo size="lg" className="mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-black mb-2">Entrar</h1>
           <p className="text-gray-600">
-            {etapa === "telefone"
-              ? modoConselho || modoPatrocinador
-                ? "Digite seu e-mail para acessar"
-                : "Digite seu telefone para receber o código de acesso"
-              : isDevFlow
-              ? `Digite a senha de desenvolvedor${
-                  devUsuario ? ` para ${devUsuario}` : ""
-                }`
+          {etapa === "telefone"
+            ? (modoConselho || modoPatrocinador || modoCoordenador)
+              ? "Digite seu e-mail para acessar"
+              : "Digite seu telefone para receber o código de acesso"
+            : isDevFlow
+              ? `Digite a senha de desenvolvedor${devUsuario ? ` para ${devUsuario}` : ""}`
               : "Digite o código recebido por SMS"}
           </p>
         </div>

@@ -36,28 +36,7 @@ interface GestaoVistaData {
   };
 }
 
-// Hook para buscar dados da Gestão à Vista
-function useGestaoVista(ano: number, mes: number | null, programa?: string) {
-  return useQuery<GestaoVistaData>({
-    queryKey: ['gestao-vista', ano, mes, programa],
-    queryFn: async () => {
-      const params = new URLSearchParams({ ano: ano.toString() });
-      if (mes !== null) {
-        params.append('mes', mes.toString());
-      }
-      if (programa) {
-        params.append('programa', programa);
-      }
-      
-      const response = await fetch(`/api/gestao-vista?${params}`);
-      if (!response.ok) {
-        throw new Error('Erro ao buscar dados de gestão à vista');
-      }
-      return response.json();
-    },
-    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
-  });
-}
+// Hook para buscar dados da Gestão à Vista 
 
 // Função para mapear cor do backend para classe CSS do Tailwind
 function getBarColorClass(color: 'green' | 'yellow' | 'red' | 'gray' | 'blue'): string {
@@ -96,11 +75,24 @@ interface IndicadorLineProps {
   prefersReducedMotion?: boolean;
 }
 
+function useGestaoVista(ano: number) {
+  return useQuery<GestaoVistaData>({
+    queryKey: ['gestao-vista', ano],
+    queryFn: async () => {
+      const res = await fetch(`/api/gestao-vista?ano=${ano}`);
+      if (!res.ok) throw new Error('Erro ao buscar gestão à vista');
+      // O backend já retorna exatamente { periodo, indicadores, ... }
+      return (await res.json()) as GestaoVistaData;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false }: IndicadorLineProps) {
   const { valor, meta, tipo, color, progress } = indicador;
   const isSemMeta = tipo === 'count' && !meta;
   
-  console.log('🎨 [INDICADOR v2.0]', label, { valor, meta, tipo });
+  // console.log('🎨 [INDICADOR v2.0]', label, { valor, meta, tipo });
   
   // Calcular percentual em relação à meta
   const percentualDaMeta = meta && meta > 0 ? (valor / meta) * 100 : progress;

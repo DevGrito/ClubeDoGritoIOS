@@ -53,7 +53,8 @@ const activitySchema = z.object({
   }),
   start_time: z.string().optional(),
   end_time: z.string().optional(),
-  control_presence: z.boolean().default(true)
+  control_presence: z.boolean().default(true),
+  status: z.enum(['ativa', 'inativa']).default('ativa')
 }).refine(data => {
   if (data.start_time && data.end_time) {
     return data.start_time < data.end_time;
@@ -87,7 +88,7 @@ const instanceSchema = z.object({
   control_mode: z.enum(['manual', 'intelbras']).default('manual'),
   intelbras_group_id: z.string().optional(),
   professor_id: z.number().min(1, "Professor responsável é obrigatório"),
-  selected_students: z.array(z.string()).min(1, "Pelo menos um aluno deve ser selecionado")
+  selected_students: z.array(z.string()).optional().default([])
 }).refine(data => {
   if (data.start_time && data.end_time) {
     return data.start_time < data.end_time;
@@ -543,7 +544,8 @@ export function ActivityForm({
       period: 'matutino',
       start_time: '',
       end_time: '',
-      control_presence: true
+      control_presence: true,
+      status: 'ativa'
     }
   });
 
@@ -557,7 +559,8 @@ export function ActivityForm({
         period: activity.period || activity.day_period || 'matutino',
         start_time: activity.start_time || '',
         end_time: activity.end_time || '',
-        control_presence: activity.control_presence ?? activity.requires_attendance ?? true
+        control_presence: activity.control_presence ?? activity.requires_attendance ?? true,
+        status: activity.status || 'ativa'
       } : {
         project_id: projectId || 0,
         name: '',
@@ -565,7 +568,8 @@ export function ActivityForm({
         period: 'matutino',
         start_time: '',
         end_time: '',
-        control_presence: true
+        control_presence: true,
+        status: 'ativa'
       };
       
       form.reset(values);
@@ -602,10 +606,11 @@ export function ActivityForm({
       project_id: data.project_id,
       name: data.name,
       description: data.description,
-      day_period: data.period,
+      period: data.period,
       start_time: data.start_time,
       end_time: data.end_time,
-      requires_attendance: data.control_presence
+      control_presence: data.control_presence,
+      status: data.status
     };
 
     if (activity) {
@@ -770,6 +775,28 @@ export function ActivityForm({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-activity-status">
+                        <SelectValue placeholder="Selecione o status" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="ativa">Ativo</SelectItem>
+                      <SelectItem value="inativa">Inativo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="flex justify-end gap-3">
               <Button type="button" variant="outline" onClick={onClose} data-testid="btn-cancel-activity">
                 Cancelar
@@ -896,7 +923,7 @@ export function InstanceForm({
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: any) => apiRequest(`/api/pec/instances/${instance?.id}`, { method: 'PUT', body: data }),
+    mutationFn: (data: any) => apiRequest(`/api/pec/instances/${instance?.id}`, { method: 'PUT', body: JSON.stringify(data) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
       toast({ title: "Turma atualizada com sucesso!" });
@@ -1397,10 +1424,10 @@ export function InstanceForm({
 
                   return (
                     <FormItem>
-                      <FormLabel>Alunos Matriculados *</FormLabel>
+                      <FormLabel>Alunos Matriculados (opcional)</FormLabel>
                       <div className="border rounded-lg p-4">
                         <p className="text-sm text-gray-600 mb-3">
-                          Selecione pelo menos um aluno para matricular na turma:
+                          Selecione alunos para matricular na turma (você pode adicionar depois):
                         </p>
                         
                         {/* Campo de busca */}

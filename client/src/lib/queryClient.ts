@@ -3,7 +3,13 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    try {
+      const json = JSON.parse(text);
+      const message = json.error || json.message || text;
+      throw new Error(message);
+    } catch (e) {
+      throw new Error(text || res.statusText);
+    }
   }
 }
 
@@ -14,12 +20,19 @@ export async function apiRequest(url: string, options?: {
 }): Promise<any> {
   const { method = 'GET', body, headers = {} } = options || {};
   
+  const userId = localStorage.getItem("userId");
+  const requestHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...headers,
+  };
+  
+  if (userId) {
+    requestHeaders['x-user-id'] = userId;
+  }
+  
   const res = await fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
+    headers: requestHeaders,
     body,
     credentials: 'include',
     cache: 'no-store',
@@ -29,14 +42,18 @@ export async function apiRequest(url: string, options?: {
   
   // Verificar se a resposta tem conteúdo antes de parsear JSON
   const text = await res.text();
+  console.log('[DEBUG apiRequest]', method, url, 'Response text:', text);
+  
   if (!text || text.trim() === '') {
     return null;
   }
   
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    console.log('[DEBUG apiRequest]', method, url, 'Parsed successfully:', parsed);
+    return parsed;
   } catch (error) {
-    console.error('Erro ao parsear JSON:', error, 'Resposta:', text);
+    console.error('[ERROR apiRequest]', method, url, 'Erro ao parsear JSON:', error, 'Resposta:', text);
     throw new Error('Resposta inválida do servidor');
   }
 }

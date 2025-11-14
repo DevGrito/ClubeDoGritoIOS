@@ -16,14 +16,18 @@ import {
   // Sistema de marketing (Dev Marketing)
   marketingCampaigns, marketingLinks, mktClicks,
   // Novas tabelas PEC
-  projects, pecActivities, activityInstances, staffAssignments, enrollments, sessions, attendance, photos,
+  projects, pecActivities, activityInstances, staffAssignments, enrollments, sessions, attendance, photos, physicalAssessments,
   // Novas tabelas EDUCADORES
   educadores, educadorPrograma, alunoPrograma,
   // Tabelas de Inclusão Produtiva
   programasInclusao, turmasInclusao, participantesTurmas, cursosInclusao, cursosTurmas, participantesInclusao,
   // Tabelas Psicossociais
   psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos,
+  // Coordenadores
+  coordenadores,
   type User, type InsertUser, type Aluno, type InsertAluno,
+  type PsicoFamilia, type PsicoCaso, type UpdatePsicoFamilia, type UpdatePsicoCaso,
+  type Coordenador, type InsertCoordenador,
   type Pai, type InsertPai, type Mae, type InsertMae, type Responsavel, type InsertResponsavel,
   type Turma, type InsertTurma, type AlunoTurma, type InsertAlunoTurma,
   type Chamada, type InsertChamada, type ChamadaAluno, type InsertChamadaAluno,
@@ -71,17 +75,18 @@ import { db } from "./db";
 import { eq, and, sql, desc, asc, or, ilike, like, inArray, gt, lt } from "drizzle-orm";
 import { RecommendationEngine } from "./recommendation-engine";
 import Stripe from "stripe";
+import { HttpError } from "./utils/httpError";
 
 // Função para normalizar telefones (remove +55, espaços, parênteses, etc)
 function normalizarTelefone(telefone: string): string {
   // Remove todos os caracteres não numéricos
   let normalizado = telefone.replace(/\D/g, '');
-  
+
   // Remove código do país (+55 ou 55) se presente
   if (normalizado.startsWith('55') && normalizado.length > 11) {
     normalizado = normalizado.substring(2);
   }
-  
+
   return normalizado;
 }
 
@@ -109,6 +114,11 @@ export interface IStorage {
   createTelaHistorico(data: any): Promise<any>;
   getDeveloperPanelHistory(): Promise<any[]>;
   createDeveloperPanelHistory(data: any): Promise<any>;
+
+  // ===== COORDENADORES =====
+  getCoordenador(id: number): Promise<Coordenador | undefined>;
+  getCoordenadorByEmail(email: string): Promise<Coordenador | undefined>;
+  updateCoordenador(id: number, data: Partial<Pick<Coordenador, "nome" | "email" | "telefone" | "formacao">>): Promise<Coordenador>;
 
   // ===== PATROCINADORES 2026 =====
   createPatrocinador2026(nome: string, telefone: string): Promise<User>;
@@ -316,7 +326,7 @@ export interface IStorage {
   // Links
   createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink>;
   createMarketingLinks(links: InsertMarketingLink[]): Promise<MarketingLink[]>; // Bulk creation
-  getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean }): Promise<MarketingLink[]>;
+  getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean; medium?: string }): Promise<MarketingLink[]>;
   getMarketingLink(id: number): Promise<MarketingLink | undefined>;
   getMarketingLinkByCode(code: string): Promise<MarketingLink | undefined>;
   updateMarketingLink(id: number, link: Partial<InsertMarketingLink>): Promise<MarketingLink>;
@@ -329,7 +339,7 @@ export interface IStorage {
   
   // Gritos baseados em plano (async para suportar Platinum dinâmico)
   getGritosIniciaisPorPlano(plano: string, userId?: number): Promise<number>;
-  
+
   // Gritos
   addGritosToUser(userId: number, gritos: number): Promise<void>;
   recalculateUserGritos(userId: number): Promise<number>;
@@ -708,6 +718,11 @@ export interface IStorage {
   listPsicoAtendimentos(): Promise<any[]>;
   listPsicoPlanos(): Promise<any[]>;
   createPsicoFamilia(data: any): Promise<any>;
+  updatePsicoFamilia(id: number, data: UpdatePsicoFamilia): Promise<PsicoFamilia>;
+  deletePsicoFamilia(id: number): Promise<void>;
+  createPsicoCaso(data: any): Promise<any>;
+  updatePsicoCaso(id: number, data: UpdatePsicoCaso): Promise<PsicoCaso>;
+  deletePsicoCaso(id: number): Promise<void>;
 
   // ===== SISTEMA DE MARKETING (CAMPANHAS E LINKS) =====
   getAllMarketingCampaigns(): Promise<MarketingCampaign[]>;
@@ -778,23 +793,24 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
     
-    const possibleFormats = [
-      telefone,
+    const possibleCleanDigits = [
       phoneClean,
-      `+${phoneClean}`,
-      `+55${phoneClean}`,
-      phoneClean.startsWith('55') ? phoneClean : `55${phoneClean}`,
-      phoneClean.startsWith('55') ? `+${phoneClean}` : `+55${phoneClean}`,
       phoneClean.startsWith('55') ? phoneClean.substring(2) : phoneClean,
-      phoneClean.startsWith('5531') ? phoneClean.substring(2) : phoneClean
-    ].filter((format, index, self) => format && format.length >= 8 && self.indexOf(format) === index);
+      phoneClean.startsWith('55') ? phoneClean : `55${phoneClean}`,
+      phoneClean.startsWith('5531') ? phoneClean.substring(2) : phoneClean,
+      phoneClean.startsWith('5531') ? phoneClean.substring(4) : phoneClean
+    ].filter((digits, index, self) => digits && digits.length >= 8 && self.indexOf(digits) === index);
 
-    console.log(`🔍 [PHONE SEARCH] Formatos testados: ${possibleFormats.join(', ')}`);
+    console.log(`🔍 [PHONE SEARCH] Dígitos testados (normalized): ${possibleCleanDigits.join(', ')}`);
 
-    if (possibleFormats.length === 0) {
+    if (possibleCleanDigits.length === 0) {
       console.log(`❌ [NO VALID FORMATS] Nenhum formato válido gerado`);
       return undefined;
     }
+
+    const conditions = possibleCleanDigits.map(digit => 
+      sql`regexp_replace(${users.telefone}, '[^0-9]', '', 'g') = ${digit}`
+    );
 
     const [user] = await db.select({
       id: users.id,
@@ -832,7 +848,7 @@ export class DatabaseStorage implements IStorage {
       dataCadastro: users.dataCadastro,
       createdAt: users.createdAt
     }).from(users).where(
-      inArray(users.telefone, possibleFormats)
+      or(...conditions)
     );
 
     if (user) {
@@ -2504,7 +2520,7 @@ export class DatabaseStorage implements IStorage {
           ))
           .orderBy(desc(doadores.createdAt))
           .limit(1);
-        
+
         if (platinumDonation.length > 0) {
           const valorDoacao = parseFloat(platinumDonation[0].valor);
           return Math.round(valorDoacao * 3); // Valor x 3
@@ -2513,7 +2529,7 @@ export class DatabaseStorage implements IStorage {
         console.error('Erro ao buscar valor Platinum:', error);
       }
     }
-    
+
     // Planos fixos
     const gritosPlanos: Record<string, number> = {
       'eco': 30,    // R$ 10 x 3
@@ -2523,7 +2539,7 @@ export class DatabaseStorage implements IStorage {
       'platina': 93,
       'diamante': 300  // R$ 100 x 3
     };
-    
+
     return gritosPlanos[plano.toLowerCase()] || 30; // Default para eco
   }
 
@@ -3393,7 +3409,7 @@ export class DatabaseStorage implements IStorage {
     return newLinks;
   }
 
-  async getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean }): Promise<MarketingLink[]> {
+  async getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean; medium?: string }): Promise<MarketingLink[]> {
     let conditions = [];
     
     if (filters?.campaignId !== undefined) {
@@ -3401,6 +3417,9 @@ export class DatabaseStorage implements IStorage {
     }
     if (filters?.isActive !== undefined) {
       conditions.push(eq(marketingLinks.isActive, filters.isActive));
+    }
+    if (filters?.medium !== undefined) {
+      conditions.push(eq(marketingLinks.medium, filters.medium));
     }
     
     let query = db.select().from(marketingLinks);
@@ -5820,7 +5839,64 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProject(id: number): Promise<void> {
-    await db.delete(projects).where(eq(projects.id, id));
+    await db.transaction(async (tx) => {
+      // 1. Buscar todas as atividades do projeto
+      const activities = await tx
+        .select({ id: pecActivities.id })
+        .from(pecActivities)
+        .where(eq(pecActivities.project_id, id));
+
+      if (activities.length > 0) {
+        const activityIds = activities.map(a => a.id);
+
+        // 2. Buscar todas as instâncias dessas atividades
+        const instances = await tx
+          .select({ id: activityInstances.id })
+          .from(activityInstances)
+          .where(inArray(activityInstances.activity_id, activityIds));
+
+        if (instances.length > 0) {
+          const instanceIds = instances.map(i => i.id);
+
+          // 3. Buscar todas as sessões dessas instâncias
+          const sessionsData = await tx
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(inArray(sessions.activity_instance_id, instanceIds));
+
+          if (sessionsData.length > 0) {
+            const sessionIds = sessionsData.map(s => s.id);
+
+            // 4. Deletar presenças (attendance)
+            await tx.delete(attendance).where(inArray(attendance.session_id, sessionIds));
+          }
+
+          // 5. Deletar fotos
+          await tx.delete(photos).where(inArray(photos.activity_instance_id, instanceIds));
+
+          // 6. Deletar avaliações físicas
+          await tx.delete(physicalAssessments).where(inArray(physicalAssessments.activity_instance_id, instanceIds));
+
+          // 7. Deletar sessões
+          await tx.delete(sessions).where(inArray(sessions.activity_instance_id, instanceIds));
+
+          // 8. Deletar matrículas (enrollments)
+          await tx.delete(enrollments).where(inArray(enrollments.activity_instance_id, instanceIds));
+
+          // 9. Deletar atribuições de equipe (staff_assignments)
+          await tx.delete(staffAssignments).where(inArray(staffAssignments.activity_instance_id, instanceIds));
+
+          // 10. Deletar instâncias
+          await tx.delete(activityInstances).where(inArray(activityInstances.id, instanceIds));
+        }
+
+        // 11. Deletar atividades
+        await tx.delete(pecActivities).where(inArray(pecActivities.id, activityIds));
+      }
+
+      // 12. Deletar o projeto
+      await tx.delete(projects).where(eq(projects.id, id));
+    });
   }
 
   // Atividades
@@ -6207,7 +6283,7 @@ export class DatabaseStorage implements IStorage {
   async getIngressosByContato(contato: string): Promise<Ingresso[]> {
     // Normalizar telefone de entrada
     const telefoneNormalizado = normalizarTelefone(contato);
-    
+
     // Buscar por telefone normalizado OU email
     // Se contato parece ser telefone (só números após normalização), buscar por telefone
     // Caso contrário, buscar por email
@@ -6291,6 +6367,23 @@ export class DatabaseStorage implements IStorage {
     return cota || undefined;
   }
 
+  async getCotaEmpresaByNomeEmail(
+    nomeEmpresa: string,
+    email: string
+  ): Promise<CotaEmpresa | undefined> {
+    const [cota] = await db
+      .select()
+      .from(cotasEmpresas)
+      .where(
+        and(
+          ilike(cotasEmpresas.nomeEmpresa, nomeEmpresa),
+          ilike(cotasEmpresas.email, email)
+        )
+      );
+
+    return cota || undefined;
+  }
+
   async getCotaEmpresaById(id: number): Promise<CotaEmpresa | undefined> {
     const [cota] = await db
       .select()
@@ -6300,20 +6393,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async validarEmpresa(nomeEmpresa: string, email?: string): Promise<{ valida: boolean; cota?: CotaEmpresa; mensagem: string }> {
-    const cota = await this.getCotaEmpresaByNome(nomeEmpresa);
+    const cota = await this.getCotaEmpresaByNomeEmail(nomeEmpresa, email);
 
     if (!cota) {
       return {
         valida: false,
-        mensagem: "Empresa não encontrada. Verifique o nome e tente novamente."
-      };
-    }
-
-    // Validar e-mail se fornecido
-    if (email && cota.email && cota.email.toLowerCase() !== email.toLowerCase()) {
-      return {
-        valida: false,
-        mensagem: "E-mail incorreto. Verifique os dados e tente novamente."
+        mensagem: "Empresa não encontrada. Verifique o nome e e-mail e tente novamente."
       };
     }
 
@@ -6650,6 +6735,53 @@ export class DatabaseStorage implements IStorage {
         lancesPorLeilao: [],
         topUsuarios: [],
       };
+    }
+  }
+
+  // ===== COORDENADORES =====
+  async getCoordenador(id: number): Promise<Coordenador | undefined> {
+    try {
+      const [coordenador] = await db.select().from(coordenadores).where(eq(coordenadores.id, id));
+      return coordenador;
+    } catch (error) {
+      console.error(`❌ [COORDENADOR] Erro ao buscar coordenador ${id}:`, error);
+      return undefined;
+    }
+  }
+
+  async getCoordenadorByEmail(email: string): Promise<Coordenador | undefined> {
+    try {
+      const [coordenador] = await db.select().from(coordenadores).where(eq(coordenadores.email, email));
+      return coordenador;
+    } catch (error) {
+      console.error(`❌ [COORDENADOR] Erro ao buscar coordenador por email ${email}:`, error);
+      return undefined;
+    }
+  }
+
+  async updateCoordenador(id: number, data: Partial<Pick<Coordenador, "nome" | "email" | "telefone" | "formacao">>): Promise<Coordenador> {
+    try {
+      // Normalizar telefone se fornecido
+      const updateData = { ...data };
+      if (updateData.telefone) {
+        updateData.telefone = normalizarTelefone(updateData.telefone);
+      }
+
+      const [updated] = await db
+        .update(coordenadores)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(coordenadores.id, id))
+        .returning();
+
+      if (!updated) {
+        throw new Error(`Coordenador ${id} não encontrado`);
+      }
+
+      console.log(`✅ [COORDENADOR] Coordenador ${id} atualizado com sucesso`);
+      return updated;
+    } catch (error) {
+      console.error(`❌ [COORDENADOR] Erro ao atualizar coordenador ${id}:`, error);
+      throw error;
     }
   }
 
@@ -7080,6 +7212,157 @@ export class DatabaseStorage implements IStorage {
     const [familia] = await db.insert(psicoFamilias).values(data).returning();
     console.log(`✅ [PSICO] Família criada: ${familia.id}`);
     return familia;
+  }
+
+  async updatePsicoFamilia(id: number, data: UpdatePsicoFamilia): Promise<PsicoFamilia> {
+    return await db.transaction(async (tx) => {
+      // Verificar se família existe
+      const [existing] = await tx.select().from(psicoFamilias).where(eq(psicoFamilias.id, id)).limit(1);
+      if (!existing) {
+        throw new HttpError(404, `Família ID ${id} não encontrada`);
+      }
+
+      // Normalizar telefone se fornecido
+      const updateData = { ...data };
+      if (updateData.telefone) {
+        updateData.telefone = normalizarTelefone(updateData.telefone);
+      }
+
+      // Se tentando inativar, verificar se tem casos ativos
+      if (updateData.status && updateData.status === 'inativo' && existing.status !== 'inativo') {
+        const casosAtivos = await tx
+          .select()
+          .from(psicoCasos)
+          .where(
+            and(
+              eq(psicoCasos.familiaId, id),
+              or(
+                eq(psicoCasos.status, 'aberto'),
+                eq(psicoCasos.status, 'em_atendimento')
+              )
+            )
+          );
+
+        if (casosAtivos.length > 0) {
+          throw new HttpError(409, `Família possui ${casosAtivos.length} caso(s) ativo(s) e não pode ser inativada`);
+        }
+      }
+
+      // Atualizar
+      const [updated] = await tx
+        .update(psicoFamilias)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(psicoFamilias.id, id))
+        .returning();
+
+      console.log(`✅ [PSICO] Família ${id} atualizada`);
+      return updated;
+    });
+  }
+
+  async deletePsicoFamilia(id: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Verificar se família existe
+      const [existing] = await tx.select().from(psicoFamilias).where(eq(psicoFamilias.id, id)).limit(1);
+      if (!existing) {
+        throw new HttpError(404, `Família ID ${id} não encontrada`);
+      }
+
+      // Verificar se tem casos ativos
+      const casosAtivos = await tx
+        .select()
+        .from(psicoCasos)
+        .where(
+          and(
+            eq(psicoCasos.familiaId, id),
+            or(
+              eq(psicoCasos.status, 'aberto'),
+              eq(psicoCasos.status, 'em_atendimento')
+            )
+          )
+        );
+
+      if (casosAtivos.length > 0) {
+        throw new HttpError(409, `Família possui ${casosAtivos.length} caso(s) ativo(s) e não pode ser excluída`);
+      }
+
+      // Excluir
+      await tx.delete(psicoFamilias).where(eq(psicoFamilias.id, id));
+      console.log(`✅ [PSICO] Família ${id} excluída`);
+    });
+  }
+
+  async createPsicoCaso(data: any): Promise<any> {
+    const [caso] = await db.insert(psicoCasos).values(data).returning();
+    console.log(`✅ [PSICO] Caso criado: ${caso.id}`);
+    return caso;
+  }
+
+  async updatePsicoCaso(id: number, data: UpdatePsicoCaso): Promise<PsicoCaso> {
+    return await db.transaction(async (tx) => {
+      // Verificar se caso existe
+      const [existing] = await tx.select().from(psicoCasos).where(eq(psicoCasos.id, id)).limit(1);
+      if (!existing) {
+        throw new HttpError(404, `Caso ID ${id} não encontrado`);
+      }
+
+      // Se forneceu familiaId, verificar se existe
+      if (data.familiaId !== undefined && data.familiaId !== null) {
+        const [familia] = await tx
+          .select()
+          .from(psicoFamilias)
+          .where(eq(psicoFamilias.id, data.familiaId))
+          .limit(1);
+
+        if (!familia) {
+          throw new HttpError(404, `Família ID ${data.familiaId} não encontrada`);
+        }
+      }
+
+      // Preparar dados de atualização
+      const updateData: any = { ...data, updatedAt: new Date() };
+
+      // Se fechando caso, adicionar data de encerramento
+      if (data.status === 'fechado' && existing.status !== 'fechado') {
+        updateData.dataEncerramento = new Date().toISOString().split('T')[0];
+      }
+
+      // Atualizar
+      const [updated] = await tx
+        .update(psicoCasos)
+        .set(updateData)
+        .where(eq(psicoCasos.id, id))
+        .returning();
+
+      console.log(`✅ [PSICO] Caso ${id} atualizado`);
+      return updated;
+    });
+  }
+
+  async deletePsicoCaso(id: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Verificar se caso existe
+      const [existing] = await tx.select().from(psicoCasos).where(eq(psicoCasos.id, id)).limit(1);
+      if (!existing) {
+        throw new HttpError(404, `Caso ID ${id} não encontrado`);
+      }
+
+      // Soft delete: atualizar status para 'fechado'
+      if (existing.status !== 'fechado') {
+        await tx
+          .update(psicoCasos)
+          .set({ 
+            status: 'fechado',
+            dataEncerramento: new Date().toISOString().split('T')[0],
+            resultado: 'Caso arquivado',
+            updatedAt: new Date()
+          })
+          .where(eq(psicoCasos.id, id));
+        console.log(`✅ [PSICO] Caso ${id} arquivado (soft delete)`);
+      } else {
+        console.log(`ℹ️ [PSICO] Caso ${id} já estava fechado`);
+      }
+    });
   }
 
 

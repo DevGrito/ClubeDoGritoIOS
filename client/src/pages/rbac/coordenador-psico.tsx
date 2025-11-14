@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import PsicoMonthlyReport from "@/components/psico/PsicoMonthlyReport";
 import PsicoDashboard from "@/components/psico/PsicoDashboard";
 import { 
@@ -60,8 +61,13 @@ export default function CoordenadorPsicoPage() {
   const [showServicoModal, setShowServicoModal] = useState(false);
   const [showEncaminhamentoModal, setShowEncaminhamentoModal] = useState(false);
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
+  const [showDeleteFamiliaDialog, setShowDeleteFamiliaDialog] = useState(false);
+  const [showDeleteCasoDialog, setShowDeleteCasoDialog] = useState(false);
+  const [showViewCasoModal, setShowViewCasoModal] = useState(false);
+  const [showEditCasoModal, setShowEditCasoModal] = useState(false);
   const [selectedParticipante, setSelectedParticipante] = useState<any>(null);
   const [selectedFamilia, setSelectedFamilia] = useState<any>(null);
+  const [selectedCaso, setSelectedCaso] = useState<any>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [buscaAtendido, setBuscaAtendido] = useState('');
@@ -84,7 +90,8 @@ export default function CoordenadorPsicoPage() {
     tipo: '', // Ex: "Violência Doméstica", "Dependência Química", etc
     prioridade: 'media' as 'baixa' | 'media' | 'alta' | 'urgente',
     status: 'aberto' as 'aberto' | 'em_atendimento' | 'em_acompanhamento' | 'finalizado',
-    descricao: ''
+    descricao: '',
+    responsavelNome: ''
   });
 
   const [atendimentoForm, setAtendimentoForm] = useState({
@@ -170,6 +177,13 @@ export default function CoordenadorPsicoPage() {
     profissionalResponsavel: '',
     observacoes: ''
   });
+
+  const [perfilForm, setPerfilForm] = useState({
+    nome: '',
+    email: '',
+    telefone: '',
+    formacao: '' // Registro Profissional
+  });
   
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   // Pegar ID do coordenador do sessionStorage (login de coordenador)
@@ -191,6 +205,29 @@ export default function CoordenadorPsicoPage() {
     },
     enabled: !!userId
   });
+
+  // Query para buscar dados do perfil do coordenador
+  const { data: userData } = useQuery({
+    queryKey: ['/api/coordenadores', coordenadorId],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenadores/${coordenadorId}`);
+      if (!response.ok) throw new Error('Failed to fetch coordinator data');
+      return response.json();
+    },
+    enabled: !!coordenadorId
+  });
+
+  // Atualizar form quando userData carregar
+  useEffect(() => {
+    if (userData) {
+      setPerfilForm({
+        nome: userData.nome || '',
+        email: userData.email || '',
+        telefone: userData.telefone || '',
+        formacao: userData.formacao || ''
+      });
+    }
+  }, [userData]);
 
   // Mutations para criar entidades psicossociais
   const createFamiliaMutation = useMutation({
@@ -422,6 +459,54 @@ export default function CoordenadorPsicoPage() {
     }
   });
 
+  const deleteFamiliaMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(`/api/psico/familias/${id}`, {
+        method: 'DELETE'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/familias'] });
+      toast({
+        title: "Família excluída!",
+        description: "A família foi excluída com sucesso."
+      });
+      setShowDeleteFamiliaDialog(false);
+      setSelectedFamilia(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao excluir família",
+        description: error.message || "Não foi possível excluir a família.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const deleteCasoMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(`/api/psico/casos/${id}`, {
+        method: 'DELETE'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/casos'] });
+      toast({
+        title: "Caso excluído!",
+        description: "O caso foi arquivado com sucesso."
+      });
+      setShowDeleteCasoDialog(false);
+      setSelectedCaso(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao excluir caso",
+        description: error.message || "Não foi possível excluir o caso.",
+        variant: "destructive"
+      });
+    }
+  });
+
   // Query para buscar participantes vinculados
   const { data: participantesData, isLoading: isLoadingParticipantes } = useQuery({
     queryKey: ['/api/psico/participantes'],
@@ -477,6 +562,36 @@ export default function CoordenadorPsicoPage() {
       });
     }
   });
+
+  const updatePerfilMutation = useMutation({
+    mutationFn: async (data: typeof perfilForm) => {
+      return await apiRequest(`/api/coordenadores/${coordenadorId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Perfil atualizado",
+        description: "Suas informações foram salvas com sucesso."
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenadores', coordenadorId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao atualizar perfil",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleSavePerfil = () => {
+    updatePerfilMutation.mutate(perfilForm);
+  };
 
   // Query para buscar famílias
   const { data: familias = [], isLoading: isLoadingFamilias } = useQuery<any[]>({
@@ -640,11 +755,7 @@ export default function CoordenadorPsicoPage() {
   const handleLogout = () => {
     localStorage.clear();
     sessionStorage.clear();
-    toast({
-      title: "Logout realizado",
-      description: "Você foi desconectado com sucesso."
-    });
-    setTimeout(() => window.location.href = "/login/coordenador", 500);
+    window.location.href = "/login/coordenador";
   };
 
   const handleExportReport = () => {
@@ -772,7 +883,9 @@ export default function CoordenadorPsicoPage() {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
                 Coordenação Psicossocial
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
+              <p className="text-gray-600" data-testid="text-username">
+                Olá {userData?.nome || 'Coordenador'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1410,12 +1523,25 @@ export default function CoordenadorPsicoPage() {
                                             telefone: familia.telefone || '',
                                             endereco: familia.endereco || '',
                                             status: familia.status,
-                                            observacoes: familia.observacoes || ''
+                                            observacoes: familia.observacoes || '',
+                                            atendidosSelecionados: []
                                           });
                                           setShowEditFamiliaModal(true);
                                         }}
                                       >
                                         <Edit className="h-4 w-4" />
+                                      </Button>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="text-red-600 hover:text-red-700"
+                                        data-testid={`button-delete-family-${familia.id}`}
+                                        onClick={() => {
+                                          setSelectedFamilia(familia);
+                                          setShowDeleteFamiliaDialog(true);
+                                        }}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
                                       </Button>
                                     </div>
                                   </TableCell>
@@ -1675,11 +1801,48 @@ export default function CoordenadorPsicoPage() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex items-center gap-2">
-                                        <Button variant="ghost" size="sm" data-testid="button-view-case">
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          data-testid="button-view-case"
+                                          onClick={() => {
+                                            setSelectedCaso(caso);
+                                            setShowViewCasoModal(true);
+                                          }}
+                                        >
                                           <Eye className="h-4 w-4" />
                                         </Button>
-                                        <Button variant="ghost" size="sm" data-testid="button-edit-case">
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          data-testid="button-edit-case"
+                                          onClick={() => {
+                                            setSelectedCaso(caso);
+                                            setCasoForm({
+                                              familiaId: caso.familiaId || null,
+                                              titulo: caso.titulo,
+                                              tipo: caso.tipo,
+                                              prioridade: caso.prioridade,
+                                              status: caso.status,
+                                              responsavelNome: caso.responsavelNome || '',
+                                              descricao: caso.descricao || ''
+                                            });
+                                            setShowEditCasoModal(true);
+                                          }}
+                                        >
                                           <Edit className="h-4 w-4" />
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="text-red-600 hover:text-red-700"
+                                          data-testid={`button-delete-case-${caso.id}`}
+                                          onClick={() => {
+                                            setSelectedCaso(caso);
+                                            setShowDeleteCasoDialog(true);
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
                                         </Button>
                                       </div>
                                     </TableCell>
@@ -2907,66 +3070,49 @@ export default function CoordenadorPsicoPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="nome">Nome Completo</Label>
-                        <Input id="nome" defaultValue="Coordenador Psicossocial" />
+                        <Input 
+                          id="nome" 
+                          value={perfilForm.nome} 
+                          onChange={(e) => setPerfilForm({...perfilForm, nome: e.target.value})}
+                          data-testid="input-nome-perfil"
+                        />
                       </div>
                       <div>
                         <Label htmlFor="email">Email</Label>
-                        <Input id="email" defaultValue="coordenador.psico@institutoogrito.org" />
+                        <Input 
+                          id="email" 
+                          value={perfilForm.email} 
+                          onChange={(e) => setPerfilForm({...perfilForm, email: e.target.value})}
+                          data-testid="input-email-perfil"
+                        />
                       </div>
                       <div>
                         <Label htmlFor="telefone">Telefone</Label>
-                        <Input id="telefone" defaultValue="(31) 98765-4321" />
+                        <Input 
+                          id="telefone" 
+                          value={perfilForm.telefone} 
+                          onChange={(e) => setPerfilForm({...perfilForm, telefone: e.target.value})}
+                          data-testid="input-telefone-perfil"
+                        />
                       </div>
                       <div>
                         <Label htmlFor="registro">Registro Profissional</Label>
-                        <Input id="registro" defaultValue="CRP 04/12345" />
+                        <Input 
+                          id="registro" 
+                          value={perfilForm.formacao} 
+                          onChange={(e) => setPerfilForm({...perfilForm, formacao: e.target.value})}
+                          data-testid="input-formacao-perfil"
+                        />
                       </div>
                     </div>
-                    <Button className="mt-4 bg-blue-500 hover:bg-blue-600">
-                      Salvar Alterações
+                    <Button 
+                      className="mt-4 bg-blue-500 hover:bg-blue-600"
+                      onClick={handleSavePerfil}
+                      disabled={updatePerfilMutation.isPending}
+                      data-testid="button-salvar-perfil"
+                    >
+                      {updatePerfilMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
                     </Button>
-                  </div>
-                  
-                  <div className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      Preferências do Sistema
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Notificações por Email</p>
-                          <p className="text-sm text-gray-500">Receber emails sobre casos críticos e atualizações</p>
-                        </div>
-                        <Checkbox defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Alertas de Casos Urgentes</p>
-                          <p className="text-sm text-gray-500">Notificações imediatas para situações de risco</p>
-                        </div>
-                        <Checkbox defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Relatórios Automáticos</p>
-                          <p className="text-sm text-gray-500">Envio automático de relatórios mensais</p>
-                        </div>
-                        <Checkbox />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-4 text-red-600">Zona de Perigo</h3>
-                    <div className="space-y-3">
-                      <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
-                        Alterar Senha
-                      </Button>
-                      <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50">
-                        Solicitar Transferência de Área
-                      </Button>
-                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -3079,15 +3225,15 @@ export default function CoordenadorPsicoPage() {
         setShowFamiliaModal(open);
         if (!open) setBuscaAtendidoFamilia('');
       }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>Cadastrar Nova Família</DialogTitle>
             <DialogDescription>
               Preencha os dados da família para cadastro no programa psicossocial.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto flex-1 px-4">
             <div className="space-y-2">
               <Label htmlFor="nome-responsavel">Nome do Responsável *</Label>
               <Input
@@ -3231,7 +3377,7 @@ export default function CoordenadorPsicoPage() {
             </div>
           </div>
 
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter className="sm:justify-between flex-shrink-0 pt-4">
             <Button
               variant="outline"
               onClick={() => {
@@ -4843,6 +4989,51 @@ export default function CoordenadorPsicoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de confirmação - Excluir Família */}
+      <AlertDialog open={showDeleteFamiliaDialog} onOpenChange={setShowDeleteFamiliaDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir a família {selectedFamilia?.nomeResponsavel}? Esta ação não pode ser desfeita.
+              {selectedFamilia && " A família não pode ter casos ativos."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => selectedFamilia && deleteFamiliaMutation.mutate(selectedFamilia.id)}
+              disabled={deleteFamiliaMutation.isPending}
+            >
+              {deleteFamiliaMutation.isPending ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de confirmação - Excluir Caso */}
+      <AlertDialog open={showDeleteCasoDialog} onOpenChange={setShowDeleteCasoDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o caso {selectedCaso?.titulo}? O caso será marcado como fechado/arquivado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => selectedCaso && deleteCasoMutation.mutate(selectedCaso.id)}
+              disabled={deleteCasoMutation.isPending}
+            >
+              {deleteCasoMutation.isPending ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

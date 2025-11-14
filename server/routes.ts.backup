@@ -7,6 +7,8 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import { storage } from "./storage";
 import { getOrCreateStripeCustomer, attachPaymentMethodSafely, normalizePhoneToE164, getPhoneSearchVariants } from "./stripeHelpers";
+import { keysToCamelCase } from "./utils/caseConversion";
+import { HttpError } from "./utils/httpError";
 import { initCronJobs } from "./jobs/cronJobs";
 import { registerAdminManualSubscription } from "./adminManualSubscription";
 import * as fs from 'node:fs';
@@ -15,7 +17,7 @@ import * as path from 'node:path';
 import { uploadToGCS, deleteObject, extractFilePathFromUrl, getSignedUrl, fileExists as gcsFileExists } from "./gcsService";
 import crypto from 'crypto';
 import {
-  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins,
+  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins, marketingLinks,
   // 📊 GESTÃO À VISTA - Tabelas
   gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues,
   beneficioImagens,
@@ -59,6 +61,9 @@ import {
   insertPsicoCasoSchema,
   insertPsicoAtendimentoSchema,
   insertPsicoPlanoSchema,
+  psicoIdSchema,
+  updatePsicoFamiliaSchema,
+  updatePsicoCasoSchema,
   type PsicoFamilia,
   type InsertPsicoFamilia,
   type PsicoCaso,
@@ -87,7 +92,7 @@ import {
   dadosDemograficos
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
 import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
 import { z } from "zod";
 import multer from "multer";
@@ -108,22 +113,6 @@ import XLSX from 'xlsx';
 // KPI color rules for Gestão à Vista
 import { getKpiColor } from './utils/kpiColors';
 
-// Initialize Digital Ocean PostgreSQL Pool (shared)
-let doPool: any = null;
-
-function getDigitalOceanPool() {
-  if (!doPool) {
-    doPool = new Pool({
-      host: process.env.DO_DB_HOST,
-      port: parseInt(process.env.DO_DB_PORT || '5433'),
-      database: process.env.DO_DB_NAME,
-      user: process.env.DO_DB_USER,
-      password: process.env.DO_DB_PASSWORD,
-      ssl: false
-    });
-  }
-  return doPool;
-}
 
 import { toE164BR,  } from "../client/src/utils/phone";
 
@@ -1232,6 +1221,35 @@ async function obterMetasDepartamento(departamento: string, ano: number = 2025):
   }
 }
 
+
+async function findExistingDonor({ 
+  subscriptionId, 
+  customerId 
+}: { 
+  subscriptionId?: string | null; 
+  customerId?: string | null;
+}) {
+  const conditions = [];
+  
+  if (subscriptionId) {
+    conditions.push(eq(doadores.stripeSubscriptionId, subscriptionId));
+  }
+  
+  if (customerId) {
+    conditions.push(eq(doadores.stripeCustomerId, customerId));
+  }
+  
+  if (conditions.length === 0) {
+    return null;
+  }
+  
+  const query = conditions.length === 1 
+    ? db.select().from(doadores).where(conditions[0])
+    : db.select().from(doadores).where(or(...conditions));
+  
+  const result = await query.limit(1);
+  return result[0] || null;
+}
 export async function registerRoutes(app: Express): Promise<Server> {
   // TRECHO ADICIONADO
   app.post('/api/log-client-error', express.json(), (req, res) => {
@@ -1389,22 +1407,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
-            // Criar doador
-            await db.insert(doadores).values({
-              userId,
-              plano,
-              valor: amountInReais,
-              periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
-              status,
-              dataDoacaoInicial: new Date(subscription.created * 1000),
-              ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
-              stripeCustomerId: typeof customer === 'string' ? customer : customer?.id,
-              stripeSubscriptionId: subscription.id,
-              ativo: status === 'paid'
+            // ✅ Verificar duplicação antes de criar doador
+            const existingDoador = await findExistingDonor({
+              subscriptionId: subscription.id,
+              customerId: typeof customer === 'string' ? customer : customer?.id
             });
-
-            console.log(`✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`);
-            syncResults.created++;
+            
+            if (existingDoador) {
+              // Atualizar doador existente com dados completos
+              await db.update(doadores)
+                .set({
+                  plano,
+                  valor: amountInReais,
+                  periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
+                  status,
+                  ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+                  userId: userId || existingDoador.userId,
+                  ativo: status === 'paid'
+                })
+                .where(eq(doadores.id, existingDoador.id));
+              console.log(`♻️ [STRIPE SYNC] Doador existente atualizado: ${customerName} (${customerEmail})`);
+              syncResults.updated++;
+            } else {
+              await db.insert(doadores).values({
+                userId,
+                plano,
+                valor: amountInReais,
+                periodicidade: interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral',
+                status,
+                dataDoacaoInicial: new Date(subscription.created * 1000),
+                ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+                stripeCustomerId: typeof customer === 'string' ? customer : customer?.id,
+                stripeSubscriptionId: subscription.id,
+                ativo: status === 'paid'
+              });
+              console.log(`✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`);
+              syncResults.created++;
+            }
           }
 
         } catch (error) {
@@ -1807,289 +1846,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Endpoint para criar doação e usuário (novo fluxo)
   // =========  /api/donation/create  =========
+  // =========  /api/donation/create  =========
   app.post('/api/donation/create', async (req, res) => {
     try {
-      // Aceita payload em PT/EN vindos do front
       const nome = (req.body.nome ?? req.body.name ?? '').toString().trim();
       const email = (req.body.email ?? '').toString().trim();
       const plano = (req.body.plano ?? req.body.plan ?? '').toString().trim();
-
       const rawPhone = (req.body.telefone ?? req.body.phone ?? '').toString();
       const onlyDigits = rawPhone.replace(/\D/g, '');
-      const telefone = onlyDigits
-        ? (onlyDigits.startsWith('55') ? `+${onlyDigits}` : `+55${onlyDigits}`)
-        : '';
-
+      const telefone = onlyDigits ? (onlyDigits.startsWith('55') ? `+${onlyDigits}` : `+55${onlyDigits}`) : '';
       const rawValor = req.body.valor ?? req.body.amount ?? req.body.value;
-      const valorNum = typeof rawValor === 'string'
-        ? Number(rawValor.replace(',', '.'))
-        : Number(rawValor);
-
-      // Pegar periodicidade do request (mensal, trimestral, semestral, anual)
+      const valorNum = typeof rawValor === 'string' ? Number(rawValor.replace(',', '.')) : Number(rawValor);
       const periodicity = req.body.periodicity || req.body.periodicidade || 'mensal';
+      const refCode = req.body.refCode || req.body.ref_code || req.body.ref || '';
 
-      // === validações básicas ===
       if (!nome || !telefone || !plano) {
-        return res.status(400).json({
-          success: false,
-          message: 'Dados obrigatórios faltando',
-        });
+        return res.status(400).json({ success: false, message: 'Dados obrigatórios faltando' });
       }
       if (!Number.isFinite(valorNum) || valorNum <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Valor inválido',
-        });
+        return res.status(400).json({ success: false, message: 'Valor inválido' });
       }
       const amountInCents = Math.round(valorNum * 100);
 
-      // === UPSERT de usuário sem usar consolidateUser/storage (evita o TypeError do Drizzle) ===
-      // 1) tenta por telefone; 2) se não existir e tiver e-mail, tenta por e-mail; 3) insere
-      let user = null as any;
+      console.log(`📝 [DONATION] Criando subscription para: ${nome} (${telefone})`);
 
-      const byPhone = await db.select().from(users)
-        .where(eq(users.telefone, telefone))
-        .limit(1);
-
-      if (byPhone[0]) {
-        user = byPhone[0];
-        // Atualiza dados básicos se necessário (nome/plano/tipo/fonte)
-        await db.update(users)
-          .set({
-            nome,
-            plano,           // mantém o nome do seu schema
-            tipo: 'doador',
-            fonte: 'doacao',
-            ativo: true,
-          })
-          .where(eq(users.id, user.id));
+      const existingCustomers = await stripe.customers.list({ limit: 1, email: email || undefined });
+      let stripeCustomerId: string;
+      if (existingCustomers.data.length > 0 && existingCustomers.data[0].phone === telefone) {
+        stripeCustomerId = existingCustomers.data[0].id;
       } else {
-        let byEmail: any[] = [];
-        if (email) {
-          byEmail = await db.select().from(users)
-            .where(eq(users.email, email))
-            .limit(1);
-        }
-        if (byEmail[0]) {
-          user = byEmail[0];
-          await db.update(users)
-            .set({
-              telefone,
-              nome,
-              plano,
-              tipo: 'doador',
-              fonte: 'doacao',
-              ativo: true,
-            })
-            .where(eq(users.id, user.id));
-        } else {
-          const inserted = await db.insert(users).values({
-            nome,
-            telefone,
-            email,
-            tipo: 'doador',
-            fonte: 'doacao',
-            plano,
-            ativo: true,
-            dataCadastro: new Date(),
-          }).returning();
-          user = inserted[0];
-        }
+        const customer = await stripe.customers.create({ name: nome, phone: telefone, email: email || undefined, metadata: { plano, fonte: 'doacao_web' }});
+        stripeCustomerId = customer.id;
       }
 
-      if (!user) {
-        return res.status(500).json({
-          success: false,
-          message: 'Falha ao consolidar usuário',
-        });
-      }
-
-      // ===  SISTEMA DE INDICAÇÃO: Criar indicação PENDENTE se refCode fornecido ===
-      const refCode = req.body.refCode || req.body.ref_code || req.body.ref;
-      if (refCode && typeof refCode === 'string') {
-        try {
-          // Validar formato
-          if (/^GRITO-[A-Z0-9]{6}$/.test(refCode)) {
-            // Buscar indicador
-            const indicador = await storage.getUserByRefCode(refCode);
-            
-            if (indicador) {
-              // Bloquear autoindicação
-              if (indicador.id !== user.id) {
-                // Verificar se usuário já tem indicação (apenas 1 permitida)
-                const indicacaoExistente = await storage.getIndicacaoByIndicado(user.id);
-                
-                if (!indicacaoExistente) {
-                  // Criar indicação PENDENTE
-                  await storage.createIndicacao(indicador.id, user.id, refCode);
-                  console.log(`✅ [REGISTER-INDICAÇÃO] Usuário ${user.id} indicado por ${indicador.id} via código ${refCode}`);
-                } else {
-                  console.log(`⚠️ [REGISTER-INDICAÇÃO] Usuário ${user.id} já possui indicação existente - ignorando`);
-                }
-              } else {
-                console.log(`⚠️ [REGISTER-INDICAÇÃO] Autoindicação bloqueada - usuário ${user.id} tentou usar próprio código`);
-              }
-            } else {
-              console.log(`⚠️ [REGISTER-INDICAÇÃO] Código ${refCode} não encontrado`);
-            }
-          }
-        } catch (error) {
-          console.error(`❌ [REGISTER-INDICAÇÃO] Erro ao processar indicação:`, error);
-          // Não falhar o registro por erro na indicação
-        }
-      }
-      // === Customer na Stripe (idempotente - função centralizada) ===
-      const stripeCustomerId = await getOrCreateStripeCustomer(user.id, {
-        nome: nome,
-        telefone: telefone,
-        email: email
-      });
-
-      // === Registro de doador ===
-      const doadorRows = await db.insert(doadores).values({
-        userId: user.id,
-        plano,
-        valor: valorNum.toFixed(2),
-        periodicidade: periodicity,
-        status: 'pending',
-        dataDoacaoInicial: new Date(),
-      }).returning();
-      const doador = doadorRows[0];
-
-      // === CONSTRUIR PRICE_DATA PARA SUBSCRIPTION ===
       const intervalMapping: { [key: string]: { interval: 'month' | 'year', interval_count?: number } } = {
-        'mensal': { interval: 'month' },
-        'trimestral': { interval: 'month', interval_count: 3 },
-        'semestral': { interval: 'month', interval_count: 6 },
-        'anual': { interval: 'year' }
+        'mensal': { interval: 'month' }, 'trimestral': { interval: 'month', interval_count: 3 },
+        'semestral': { interval: 'month', interval_count: 6 }, 'anual': { interval: 'year' }
       };
-      
       const intervalConfig = intervalMapping[periodicity] || { interval: 'month' };
-
-      // === BUSCAR PRODUTO FIXO DE DOAÇÃO ===
       const productId = await getOrCreateDonationProduct();
-
-      // === CRIAR SUBSCRIPTION COM PAYMENT_BEHAVIOR DEFAULT_INCOMPLETE ===
-      const idempotencyKey = `donation-sub-${user.id}-${doador.id}-${Date.now()}`;
-      
-      console.log(`🔄 [SUBSCRIPTION] Criando subscription para doador #${doador.id}...`);
+      const idempotencyKey = `donation-sub-${telefone.replace(/\D/g, '')}-${Date.now()}`;
       
       const subscription = await stripe.subscriptions.create({
-        customer: stripeCustomerId!,
-        items: [{
-          price_data: {
-            currency: 'brl',
-            product: productId,
-            unit_amount: amountInCents,
-            recurring: {
-              interval: intervalConfig.interval,
-              interval_count: intervalConfig.interval_count || 1,
-            },
-          }
-        }],
+        customer: stripeCustomerId,
+        items: [{ price_data: { currency: 'brl', product: productId, unit_amount: amountInCents, recurring: { interval: intervalConfig.interval, interval_count: intervalConfig.interval_count || 1 }}}],
         payment_behavior: 'default_incomplete',
         collection_method: 'charge_automatically',
-        payment_settings: {
-          save_default_payment_method: 'on_subscription'
-        },
+        payment_settings: { save_default_payment_method: 'on_subscription' },
         expand: ['latest_invoice.payment_intent', 'pending_setup_intent'],
-        metadata: {
-          userId: String(user.id),
-          doadorId: String(doador.id),
-          plano,
-          nome,
-          telefone,
-          email: email || '',
-          periodicity,
-          valor: valorNum.toFixed(2),
-        },
-      }, {
-        idempotencyKey
-      });
+        metadata: { nome, telefone, email: email || '', plano, valor: valorNum.toFixed(2), periodicidade: periodicity, refCode: refCode || '', fonte: 'doacao_web', flowVersion: '2.0' },
+      }, { idempotencyKey });
 
-      console.log(`✅ [SUBSCRIPTION] Subscription criada: ${subscription.id}, status: ${subscription.status}`);
-
-      // === EXTRAIR CLIENT_SECRET (PaymentIntent OU SetupIntent) ===
       const invoice = subscription.latest_invoice as any;
       const paymentIntent = invoice?.payment_intent;
       let setupIntent = subscription.pending_setup_intent;
-      
       let secretType: 'payment' | 'setup' | null = null;
       let clientSecret: string | null = null;
       
       if (paymentIntent?.client_secret) {
-        // Fluxo de pagamento direto (tem valor > 0)
         secretType = 'payment';
         clientSecret = paymentIntent.client_secret;
-        console.log(`✅ [SUBSCRIPTION] PaymentIntent encontrado: ${paymentIntent.id}`);
       } else if (setupIntent) {
-        // Fluxo de setup - Stripe criou SetupIntent automaticamente
         const setupIntentFull = await stripe.setupIntents.retrieve(setupIntent as string);
         secretType = 'setup';
         clientSecret = setupIntentFull.client_secret;
-        console.log(`✅ [SUBSCRIPTION] SetupIntent encontrado (automático): ${setupIntent}`);
       } else {
-        // 🔧 CRIAR SETUPINTENT MANUALMENTE (Stripe não criou automaticamente)
-        console.log(`⚠️ [SUBSCRIPTION] Nenhum PaymentIntent/SetupIntent encontrado - criando SetupIntent manualmente...`);
-        
-        const newSetupIntent = await stripe.setupIntents.create({
-          customer: stripeCustomerId!,
-          payment_method_types: ['card'],
-          usage: 'off_session',
-          metadata: {
-            subscriptionId: subscription.id,
-            invoiceId: invoice?.id || '',
-            userId: String(user.id),
-            doadorId: String(doador.id),
-          }
-        });
-        
+        const newSetupIntent = await stripe.setupIntents.create({ customer: stripeCustomerId, payment_method_types: ['card'], usage: 'off_session', metadata: { subscriptionId: subscription.id }});
         setupIntent = newSetupIntent.id;
         secretType = 'setup';
         clientSecret = newSetupIntent.client_secret;
-        console.log(`✅ [SUBSCRIPTION] SetupIntent criado manualmente: ${newSetupIntent.id}`);
       }
 
-      console.log(`🔍 [SUBSCRIPTION] Detalhes da assinatura:`, {
-        invoiceId: invoice?.id,
-        paymentIntentId: paymentIntent?.id,
-        setupIntentId: setupIntent,
-        secretType,
-        clientSecretExists: !!clientSecret,
-        subscriptionStatus: subscription.status
-      });
-
-      // === SALVAR IDs NO DOADOR (MESMO ANTES DO PAGAMENTO) ===
-      await db.update(doadores)
-        .set({ 
-          stripeSubscriptionId: subscription.id,
-          stripeCustomerId: stripeCustomerId,
-          stripePaymentIntentId: paymentIntent?.id || null,
-          status: 'pending',
-        })
-        .where(eq(doadores.id, doador.id));
-
-      return res.json({
-        success: true,
-        userId: user.id,
-        donationId: doador.id,
-        subscriptionId: subscription.id,
-        customerId: stripeCustomerId,
-        invoiceId: invoice?.id || null,
-        paymentIntentId: paymentIntent?.id || null,
-        setupIntentId: setupIntent || null,
-        secretType,
-        clientSecret,
-        requiresPolling: !clientSecret,
-      });
-
+      return res.json({ success: true, subscriptionId: subscription.id, customerId: stripeCustomerId, invoiceId: invoice?.id || null, paymentIntentId: paymentIntent?.id || null, setupIntentId: setupIntent || null, secretType, clientSecret, requiresPolling: !clientSecret });
     } catch (error: any) {
-      console.error('❌ Error creating donation:', error?.message || error);
-      console.error('❌ STACK TRACE:', error?.stack);
-      return res.status(500).json({
-        success: false,
-        message: 'Erro interno do servidor',
-      });
+      console.error('❌ [DONATION] Erro:', error?.message);
+      return res.status(500).json({ success: false, message: 'Erro ao criar doação', error: error?.message });
     }
   });
 
@@ -4408,106 +4239,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       case 'invoice.paid':
         const paidInvoice = event.data.object;
-        console.log('💰 [WEBHOOK] Invoice paid:', paidInvoice.id);
-
+        console.log('💰 [WEBHOOK invoice.paid] Invoice:', paidInvoice.id);
+        
         try {
-          // 🎯 FONTE DA VERDADE: invoice.paid é o evento definitivo para liberar acesso
           const subscriptionId = paidInvoice.subscription as string;
-
-          if (!subscriptionId) {
-            console.log('⚠️ [WEBHOOK] Invoice sem subscription associada');
-            break;
-          }
-
-          // Buscar usuário pela subscription
-          const allUsers = await storage.getAllUsers();
-          const userToUpdate = allUsers.find(u => u.stripeSubscriptionId === subscriptionId);
-
-          if (!userToUpdate) {
-            console.log(`⚠️ [WEBHOOK] Usuário não encontrado para subscription: ${subscriptionId}`);
-            break;
-          }
-
-          // Atualizar status para 'active' e renovar período
-          await storage.updateUserStripeInfo(
-            userToUpdate.id,
-            userToUpdate.stripeCustomerId || '',
-            subscriptionId,
-            'active'
-          );
-
-          // Atualizar tabela doadores se existir
-          const doador = await db.select()
-            .from(doadores)
-            .where(eq(doadores.stripeSubscriptionId, subscriptionId))
-            .limit(1);
-
-          if (doador.length > 0) {
-            await db.update(doadores)
-              .set({
-                status: 'paid',
-                ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000),
-              })
-              .where(eq(doadores.id, doador[0].id));
-          }
-
-          // 💳 REGISTRO DE EVENTO DE BILLING
-          const subscription = await db.select()
-            .from(donorSubscriptions)
-            .where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId))
-            .limit(1);
-
-          if (subscription.length > 0) {
-            await db.update(donorSubscriptions)
-              .set({
-                status: 'active',
-                lastError: null,
-                nextPaymentAttempt: null,
-                updatedAt: new Date(),
-              })
-              .where(eq(donorSubscriptions.id, subscription[0].id));
-
-            await db.insert(billingEvents).values({
-              userId: userToUpdate.id,
-              subscriptionId: subscription[0].id,
-              stripeSubscriptionId: subscriptionId,
-              eventType: 'invoice.paid',
-              invoiceId: paidInvoice.id,
-              paymentIntentId: paidInvoice.payment_intent as string,
-              amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : null,
-              currency: paidInvoice.currency,
-              status: 'succeeded',
-              processed: true,
-            });
-          }
-
-          // 🎯 CRIAR MARKETING LINK AUTOMATICAMENTE
-          try {
-            const existingLink = await storage.getMarketingLinks({
-              campaignId: 1,
-              isActive: true,
-            });
+          if (!subscriptionId) { console.log('⚠️ [WEBHOOK] Sem subscription'); break; }
+          
+          // 🔐 MUTEX: Tentar inserir com processing=true, timestamp agora
+          let lock = await db.insert(billingEvents).values({
+            userId: 0,
+            eventType: 'invoice.paid',
+            invoiceId: paidInvoice.id,
+            stripeSubscriptionId: subscriptionId,
+            amount: paidInvoice.amount_paid ? paidInvoice.amount_paid / 100 : null,
+            currency: paidInvoice.currency,
+            status: 'paid',
+            processing: true,
+            processingStartedAt: new Date(),
+            processed: false,
+            createdAt: new Date()
+          }).onConflictDoNothing().returning().then(rows => rows[0]);
+          
+          if (!lock) {
+            // Buscar registro existente
+            const existing = await db.select().from(billingEvents).where(eq(billingEvents.invoiceId, paidInvoice.id)).limit(1).then(rows => rows[0]);
+            if (!existing) { console.error('❌ [WEBHOOK] Conflito sem registro'); break; }
+            if (existing.processed) { console.log('⚠️ [WEBHOOK DUPLICATE] Invoice já processada'); break; }
             
-            const userAlreadyHasLink = existingLink.some(link => link.rewardToUserId === userToUpdate.id);
+            // Verificar idade do lock
+            const now = new Date();
+            const lockAge = existing.processingStartedAt ? (now.getTime() - existing.processingStartedAt.getTime()) / 1000 : Infinity;
+            const isStale = lockAge > 300; // 5 minutos
             
-            if (!userAlreadyHasLink) {
-              console.log(`🔗 [WEBHOOK] Criando marketing link para usuário ${userToUpdate.id}...`);
-              await storage.linkUserToActiveCampaign(userToUpdate.id);
-              console.log(`✅ [WEBHOOK] Marketing link criado automaticamente!`);
-            } else {
-              console.log(`ℹ️ [WEBHOOK] Usuário ${userToUpdate.id} já possui marketing link`);
+            // OPTIMISTIC LOCKING: UPDATE só funciona se timestamp NÃO MUDOU
+            const whereConditions = isStale 
+              ? and(
+                  eq(billingEvents.invoiceId, paidInvoice.id),
+                  eq(billingEvents.processed, false),
+                  eq(billingEvents.processing, true),
+                  existing.processingStartedAt 
+                    ? eq(billingEvents.processingStartedAt, existing.processingStartedAt)
+                    : sql`processing_started_at IS NULL`
+                )
+              : and(
+                  eq(billingEvents.invoiceId, paidInvoice.id),
+                  eq(billingEvents.processed, false),
+                  eq(billingEvents.processing, false)
+                );
+            
+            const [acquired] = await db.update(billingEvents)
+              .set({ processing: true, processingStartedAt: now })
+              .where(whereConditions)
+              .returning();
+            
+            if (!acquired) { 
+              console.log(`⚠️ [WEBHOOK] Lock não disponível (${isStale ? 'outro webhook assumiu stale lock' : 'em processamento'})`); 
+              break; 
             }
-          } catch (linkError) {
-            console.error('⚠️ [WEBHOOK] Erro ao criar marketing link (não crítico):', linkError);
+            lock = acquired;
+            console.log(`🔄 [WEBHOOK RETRY] Adquiriu lock (${isStale ? 'assumiu stale lock' : 'lock livre'})`);
           }
-
-          console.log(`✅ [WEBHOOK] Invoice paid processada - User ${userToUpdate.id} ativo até ${new Date(paidInvoice.period_end * 1000).toISOString()}`);
-
+          
+          try {
+            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+            const metadata = stripeSubscription.metadata || {};
+            const { nome = '', telefone = '', email = '', plano = '', valor = '0', periodicidade = 'mensal', refCode = '' } = metadata;
+            
+            if (!nome || !telefone || !plano) {
+              console.error('❌ [WEBHOOK] Metadata incompleto:', { nome, telefone, plano });
+              await db.update(billingEvents).set({ errorMessage: 'Metadata incompleto', processed: true, processing: false }).where(eq(billingEvents.id, lock.id));
+              break;
+            }
+            
+            let user = await db.select().from(users).where(eq(users.telefone, telefone)).limit(1).then(rows => rows[0]);
+            if (user) {
+              await db.update(users).set({ nome, email: email || user.email, plano, tipo: 'doador', fonte: 'doacao', ativo: true, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).where(eq(users.id, user.id));
+            } else {
+              const [newUser] = await db.insert(users).values({ nome, telefone, email: email || null, tipo: 'doador', fonte: 'doacao', plano, ativo: true, dataCadastro: new Date(), stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, subscriptionStatus: 'active' }).returning();
+              user = newUser;
+            }
+            
+            let doador = await db.select().from(doadores).where(eq(doadores.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
+            if (doador) {
+              await db.update(doadores).set({ status: 'paid', ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000) }).where(eq(doadores.id, doador.id));
+            } else {
+              const [newDoador] = await db.insert(doadores).values({ userId: user.id, plano, valor, periodicidade, status: 'paid', dataDoacaoInicial: new Date(paidInvoice.status_transitions.paid_at! * 1000), ultimaDoacao: new Date(paidInvoice.status_transitions.paid_at! * 1000), stripeSubscriptionId: subscriptionId, stripeCustomerId: stripeSubscription.customer as string, stripePaymentIntentId: paidInvoice.payment_intent as string }).returning();
+              doador = newDoador;
+            }
+            
+            let donorSub = await db.select().from(donorSubscriptions).where(eq(donorSubscriptions.stripeSubscriptionId, subscriptionId)).limit(1).then(rows => rows[0]);
+            if (donorSub) {
+              await db.update(donorSubscriptions).set({ status: 'active', lastError: null, nextPaymentAttempt: null, updatedAt: new Date() }).where(eq(donorSubscriptions.id, donorSub.id));
+            } else {
+              const [newSub] = await db.insert(donorSubscriptions).values({ userId: user.id, stripeCustomerId: stripeSubscription.customer as string, stripeSubscriptionId: subscriptionId, status: 'active', billingCycleAnchor: new Date(stripeSubscription.billing_cycle_anchor * 1000), currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000), currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000), planPriceId: stripeSubscription.items.data[0]?.price?.id || '', planName: plano, collectionMethod: 'charge_automatically', createdAt: new Date(), updatedAt: new Date() }).returning();
+              donorSub = newSub;
+            }
+            
+            if (refCode && /^GRITO-[A-Z0-9]{6}$/.test(refCode)) {
+              try {
+                const indicador = await storage.getUserByRefCode(refCode);
+                if (indicador && indicador.id !== user.id) {
+                  const indicacaoExistente = await storage.getIndicacaoByIndicado(user.id);
+                  if (!indicacaoExistente) await storage.createIndicacao(indicador.id, user.id, refCode);
+                }
+              } catch (refError) { console.error('⚠️ [WEBHOOK] Erro indicação:', refError); }
+            }
+            
+            try {
+              const existingLink = await storage.getMarketingLinks({ campaignId: 1, isActive: true });
+              if (!existingLink.some(link => link.rewardToUserId === user.id)) await storage.linkUserToActiveCampaign(user.id);
+            } catch (linkError) { console.error('⚠️ [WEBHOOK] Erro link:', linkError); }
+            
+            // ✅ Marcar como processado E destravar
+            await db.update(billingEvents).set({ userId: user.id, subscriptionId: donorSub.id, paymentIntentId: paidInvoice.payment_intent as string, status: 'succeeded', processed: true, processing: false }).where(eq(billingEvents.id, lock.id));
+            console.log(`✅ [WEBHOOK] Completo - User ${user.id}, Doador ${doador.id}`);
+          } catch (processingError) {
+            console.error('❌ [WEBHOOK] Erro no processamento:', processingError);
+            // ⚠️ CRITICAL: Destravar em caso de erro (permite retry)
+            await db.update(billingEvents).set({ processing: false, errorMessage: String(processingError) }).where(eq(billingEvents.id, lock.id));
+            throw processingError;
+          }
         } catch (error) {
-          console.error('❌ [WEBHOOK] Error processing invoice.paid:', error);
+          console.error('❌ [WEBHOOK] Erro geral:', error);
         }
         break;
-
+        break;
+        break;
       case 'invoice.payment_failed':
         const failedInvoice = event.data.object;
         console.log('⚠️ [WEBHOOK] Invoice payment failed:', failedInvoice.id);
@@ -8983,14 +8840,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   app.get("/api/conselho/kpis", async (req, res) => {
     try {
       // Conectar ao Digital Ocean PostgreSQL para dados reais
-      const doPool = new Pool({
-        host: process.env.DO_DB_HOST,
-        port: parseInt(process.env.DO_DB_PORT || '5433'),
-        database: process.env.DO_DB_NAME,
-        user: process.env.DO_DB_USER,
-        password: process.env.DO_DB_PASSWORD,
-        ssl: false
-      });
+      // Usando pool do server/db.ts
 
       let alunosFormados = 0;
       let criancasPec = 0;
@@ -8999,7 +8849,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       try {
         // 1. Alunos formados (Inclusão Produtiva) - Total de alunos cadastrados
-        const alunosFormadosResult = await doPool.query(`
+        const alunosFormadosResult = await pool.query(`
           SELECT COUNT(*) as total_alunos
           FROM aluno
         `);
@@ -9013,7 +8863,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       try {
         // 2. Crianças atendidas (PEC) - Total de enrollments ativos
-        const criancasPecResult = await doPool.query(`
+        const criancasPecResult = await pool.query(`
           SELECT COUNT(DISTINCT person_id) as total_estudantes
           FROM enrollments
           WHERE active = true
@@ -9034,7 +8884,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       familiasAtivas = 0;
 
       // Fechar conexão
-      await doPool.end();
+      // Pool compartilhado não deve ser encerrado
 
       console.log('📊 [CONSELHO KPIs] KPIs retornados:', {
         alunosFormados,
@@ -9212,7 +9062,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       };
 
       // Conectar ao Digital Ocean PostgreSQL (usar pool compartilhado)
-      const doPool = getDigitalOceanPool();
+      // Usando pool do server/db.ts
 
       try {
         // ==================================================================
@@ -12066,6 +11916,53 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error: any) {
       console.error("Error fetching coordenador dashboard:", error);
       res.status(500).json({ error: "Failed to fetch dashboard: " + error.message });
+    }
+  });
+
+  // GET /api/coordenadores/:id - Buscar dados do coordenador
+  app.get("/api/coordenadores/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      const coordenador = await storage.getCoordenador(id);
+      
+      if (!coordenador) {
+        return res.status(404).json({ error: "Coordenador não encontrado" });
+      }
+
+      console.log(`✅ [GET /api/coordenadores/${id}] Coordenador encontrado: ${coordenador.nome}`);
+      res.json(coordenador);
+    } catch (error: any) {
+      console.error(`❌ [GET /api/coordenadores/:id] Erro:`, error);
+      res.status(500).json({ error: error.message || "Erro ao buscar coordenador" });
+    }
+  });
+
+  // PUT /api/coordenadores/:id - Atualizar perfil do coordenador
+  app.put("/api/coordenadores/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { nome, email, telefone, formacao } = req.body;
+
+      // Buscar coordenador existente
+      const coordenador = await storage.getCoordenador(id);
+      if (!coordenador) {
+        return res.status(404).json({ error: "Coordenador não encontrado" });
+      }
+
+      // Atualizar com dados fornecidos
+      const updated = await storage.updateCoordenador(id, {
+        nome,
+        email,
+        telefone,
+        formacao
+      });
+
+      console.log(`✅ [PUT /api/coordenadores/${id}] Perfil atualizado com sucesso`);
+      res.json(updated);
+    } catch (error: any) {
+      console.error(`❌ [PUT /api/coordenadores/:id] Erro:`, error);
+      res.status(500).json({ error: error.message || "Erro ao atualizar coordenador" });
     }
   });
 
@@ -19904,6 +19801,23 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
+
+  // DELETE /api/projects/:id - Excluir projeto
+  app.delete("/api/projects/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      await storage.deleteProject(id);
+      res.json({ success: true, message: 'Projeto excluído com sucesso' });
+    } catch (error) {
+      console.error('❌ Error deleting project:', error);
+      res.status(500).json({ error: 'Erro ao excluir projeto' });
+    }
+  });
+
   // ===== ACTIVITIES ENDPOINTS =====
 
   // GET /api/projects/:id/activities - Listar atividades de um projeto
@@ -21169,6 +21083,32 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error) {
       console.error('❌ Error updating PEC activity:', error);
       res.status(500).json({ error: 'Erro ao atualizar atividade PEC' });
+    }
+  });
+
+  // DELETE /api/pec/activities/:id - Excluir oficina PEC
+  app.delete('/api/pec/activities/:id', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      // Verificar se há turmas (instances) relacionadas
+      const relatedInstances = await storage.getActivityInstancesByActivity(id);
+      if (relatedInstances.length > 0) {
+        return res.status(400).json({ 
+          error: 'Não é possível excluir esta oficina',
+          message: `Esta oficina possui ${relatedInstances.length} turma(s) relacionada(s). Exclua as turmas primeiro.`
+        });
+      }
+
+      await storage.deleteActivity(id);
+      console.log('✅ Oficina excluída:', id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('❌ Error deleting PEC activity:', error);
+      res.status(500).json({ error: 'Erro ao excluir oficina PEC' });
     }
   });
 
@@ -23997,11 +23937,41 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       const activeCampaign = campaigns[0];
 
-      // Buscar TODOS os links da campanha ativa (doadores + Dev-Marketing)
-      const marketingLinks = await storage.getMarketingLinks({ campaignId: activeCampaign.id });
+      // Buscar APENAS links de usuários que já pagaram pelo menos uma vez
+      // FIX: Usar subquery para evitar duplicatas quando usuário tem múltiplas doações
+      
+      // Pegar IDs únicos de usuários que pagaram
+      const paidUserIds = await db
+        .selectDistinct({ userId: doadores.userId })
+        .from(doadores)
+        .where(eq(doadores.status, 'paid'));
+
+      const paidIds = paidUserIds.map(row => row.userId).filter(id => id !== null);
+
+      // Buscar links apenas desses usuários (sem duplicatas)
+      const linksData = await db
+        .select({
+          id: marketingLinks.id,
+          campaignId: marketingLinks.campaignId,
+          code: marketingLinks.code,
+          medium: marketingLinks.medium,
+          source: marketingLinks.source,
+          utmSource: marketingLinks.utmSource,
+          utmMedium: marketingLinks.utmMedium,
+          utmCampaign: marketingLinks.utmCampaign,
+          isActive: marketingLinks.isActive,
+          rewardToUserId: marketingLinks.rewardToUserId,
+          createdAt: marketingLinks.createdAt,
+        })
+        .from(marketingLinks)
+        .where(and(
+          eq(marketingLinks.campaignId, activeCampaign.id),
+          inArray(marketingLinks.rewardToUserId, paidIds)
+        ))
+        .orderBy(desc(marketingLinks.createdAt));
 
       // Enriquecer com dados do dono e estatísticas
-      const linksWithDetails = await Promise.all(marketingLinks.map(async (link) => {
+      const linksWithDetails = await Promise.all(linksData.map(async (link) => {
         let ownerName = "Sistema";
         let ownerPhone = null;
         
@@ -24351,9 +24321,125 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           internalEventName = 'payment.succeeded';
           const successInvoice = stripeEvent.data.object as Stripe.Invoice;
           if (successInvoice.customer) {
-            const user = await db.select().from(users)
+            let user = await db.select().from(users)
               .where(eq(users.stripeCustomerId, successInvoice.customer as string))
               .limit(1);
+            
+            // 🆕 Se usuário não existe, criar automaticamente com dados do Stripe
+            if (!user[0]) {
+              console.log(`🆕 [WEBHOOK-AUTO-CREATE] Customer ${successInvoice.customer} não encontrado - criando automaticamente...`);
+              
+              try {
+                const stripeCustomer = await stripe.customers.retrieve(successInvoice.customer as string);
+                
+                if (!stripeCustomer.deleted) {
+                  const subscription = successInvoice.subscription 
+                    ? await stripe.subscriptions.retrieve(successInvoice.subscription as string)
+                    : null;
+                  
+                  const unitAmount = subscription?.items.data[0]?.price?.unit_amount || 0;
+                  let planName = 'eco';
+                  let planValue = 9.90;
+                  
+                  if (unitAmount === 990) { planName = 'eco'; planValue = 9.90; }
+                  else if (unitAmount === 1990) { planName = 'voz'; planValue = 19.90; }
+                  else if (unitAmount === 8970) { planName = 'grito'; planValue = 89.70; }
+                  else if (unitAmount === 10000) { planName = 'platinum'; planValue = 100.00; }
+                  
+                  const newUser = await db.insert(users).values({
+                    nome: stripeCustomer.name || 'Doador',
+                    telefone: stripeCustomer.phone || '+5500000000000',
+                    email: stripeCustomer.email || 'temp@temp.com',
+                    plano: planName,
+                    role: 'doador',
+                    stripeCustomerId: successInvoice.customer as string,
+                    stripeSubscriptionId: subscription?.id || null,
+                    subscriptionStatus: subscription?.status || 'active',
+                    verificado: true,
+                    ativo: true,
+                    gritosTotal: 50,
+                    nivelAtual: 'Aliado do Grito',
+                    tipo: 'doador',
+                    fonte: 'doacao'
+                  }).returning();
+                  
+                  // ✅ Verificar duplicação antes de inserir doador
+                  const existingDoador = await findExistingDonor({
+                    subscriptionId: subscription?.id,
+                    customerId: successInvoice.customer as string
+                  });
+                  
+                  if (existingDoador) {
+                    // Determinar periodicidade do subscription
+                    const interval = subscription?.items.data[0]?.price?.recurring?.interval || 'month';
+                    const periodicidade = interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral';
+                    
+                    // Atualizar doador existente com dados completos e vincular ao novo user
+                    await db.update(doadores)
+                      .set({
+                        plano: planName,
+                        valor: planValue,
+                        periodicidade,
+                        status: 'paid',
+                        ultimaDoacao: new Date(successInvoice.created * 1000),
+                        userId: newUser[0].id,
+                        ativo: true
+                      })
+                      .where(eq(doadores.id, existingDoador.id));
+                    console.log(`♻️ [WEBHOOK-AUTO-CREATE] Doador existente atualizado e vinculado ao user ${newUser[0].id}`);
+                  } else {
+                    // Criar novo doador
+                    await db.insert(doadores).values({
+                      userId: newUser[0].id,
+                      plano: planName,
+                      valor: planValue,
+                      status: 'paid',
+                      ativo: true,
+                      stripeCustomerId: successInvoice.customer as string,
+                      stripeSubscriptionId: subscription?.id || null,
+                      dataDoacaoInicial: new Date(successInvoice.created * 1000),
+                      ultimaDoacao: new Date(successInvoice.created * 1000)
+                    });
+                  }
+                  
+                  console.log(`✅ [WEBHOOK-AUTO-CREATE] Usuário criado: ${newUser[0].nome} (ID: ${newUser[0].id}) - Plano: ${planName} - 50 Gritos creditados`);
+                  
+                  // 🔗 Criar link de marketing automaticamente (formato correto)
+                  try {
+                    const linkSlug = newUser[0].nome
+                      .toLowerCase()
+                      .normalize('NFD')
+                      .replace(/[̀-ͯ]/g, '')
+                      .replace(/[^a-z0-9\s-]/g, '')
+                      .trim()
+                      .replace(/\s+/g, '-');
+                    
+                    const linkCode = `${linkSlug}-${newUser[0].id}`;
+                    
+                    await db.insert(marketingLinks).values({
+                      campaignId: 1,
+                      code: linkCode,
+                      medium: 'marketing',
+                      source: 'dev-marketing',
+                      utmSource: 'marketing',
+                      utmMedium: 'marketing',
+                      utmCampaign: 'Indique e Ganhe - IV ENCONTRO DO GRITO',
+                      rewardToUserId: newUser[0].id,
+                      metadata: { targetUrl: '/' },
+                      isActive: true
+                    });
+                    console.log(`🔗 [WEBHOOK-AUTO-CREATE] Link de marketing criado: ${linkCode}`);
+                  } catch (linkError) {
+                    console.error(`⚠️ [WEBHOOK-AUTO-CREATE] Erro ao criar link de marketing:`, linkError);
+                  }
+                  
+                  user = newUser;
+                }
+              } catch (createError) {
+                console.error(`❌ [WEBHOOK-AUTO-CREATE] Erro ao criar usuário:`, createError);
+              }
+            }
+            
             if (user[0]) {
               userId = user[0].id;
               eventPayload = {
@@ -27260,6 +27346,18 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   // ============================================
 
   // POST /api/psico/familias - Criar nova família
+  
+  // 🚫 MIDDLEWARE: Desabilitar cache para endpoints psico
+  app.use('/api/psico/*', (req, res, next) => {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+    next();
+  });
+
   app.post('/api/psico/familias', requireAuth, async (req, res) => {
     try {
       const validatedData = insertPsicoFamiliaSchema.parse(req.body);
@@ -27337,7 +27435,8 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       const familias = await query.orderBy(desc(psicoFamilias.createdAt));
 
       console.log(`✅ [PSICO] ${familias.length} famílias retornadas`);
-      res.json({ success: true, familias });
+      const camelCaseFamilias = keysToCamelCase(familias);
+      res.json({ success: true, familias: camelCaseFamilias });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar famílias:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -27372,20 +27471,100 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       let query = db.select().from(psicoCasos)
         .where(eq(psicoCasos.coordenadorId, parseInt(userId)));
-
       if (status) {
         query = query.where(eq(psicoCasos.status, status as any));
+      } else {
+        // Por padrão, não mostrar casos fechados/arquivados
+        query = query.where(not(eq(psicoCasos.status, 'fechado')));
       }
-
       if (prioridade) {
         query = query.where(eq(psicoCasos.prioridade, prioridade as any));
       }
       const casos = await query.orderBy(desc(psicoCasos.createdAt));
       console.log(`✅ [PSICO] ${casos.length} casos retornados`);
-      res.json({ success: true, casos });
+      const camelCaseCasos = keysToCamelCase(casos);
+      res.json({ success: true, casos: camelCaseCasos });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar casos:', error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // PUT /api/psico/familias/:id - Atualizar família
+  app.put('/api/psico/familias/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = psicoIdSchema.parse(req.params);
+      const data = updatePsicoFamiliaSchema.parse(req.body);
+      const result = await storage.updatePsicoFamilia(id, data);
+      console.log(`✅ [PSICO] Família ${id} atualizada`);
+      res.json(result);
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
+      }
+      console.error('[PSICO] Erro PUT familia:', error);
+      return res.status(500).json({ error: 'Erro interno' });
+    }
+  });
+
+  // DELETE /api/psico/familias/:id - Excluir família
+  app.delete('/api/psico/familias/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = psicoIdSchema.parse(req.params);
+      await storage.deletePsicoFamilia(id);
+      console.log(`✅ [PSICO] Família ${id} excluída`);
+      res.json({ success: true, message: 'Família excluída com sucesso' });
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
+      }
+      console.error('[PSICO] Erro DELETE familia:', error);
+      return res.status(500).json({ error: 'Erro interno' });
+    }
+  });
+
+  // PUT /api/psico/casos/:id - Atualizar caso
+  app.put('/api/psico/casos/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = psicoIdSchema.parse(req.params);
+      const data = updatePsicoCasoSchema.parse(req.body);
+      const result = await storage.updatePsicoCaso(id, data);
+      console.log(`✅ [PSICO] Caso ${id} atualizado`);
+      res.json(result);
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
+      }
+      console.error('[PSICO] Erro PUT caso:', error);
+      return res.status(500).json({ error: 'Erro interno' });
+    }
+  });
+
+  // DELETE /api/psico/casos/:id - Excluir caso (soft delete)
+  app.delete('/api/psico/casos/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = psicoIdSchema.parse(req.params);
+      await storage.deletePsicoCaso(id);
+      console.log(`✅ [PSICO] Caso ${id} excluído (soft delete)`);
+      res.json({ success: true, message: 'Caso excluído com sucesso' });
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: 'Dados inválidos', details: error.errors });
+      }
+      console.error('[PSICO] Erro DELETE caso:', error);
+      return res.status(500).json({ error: 'Erro interno' });
     }
   });
 
@@ -27422,9 +27601,9 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
 
       const atendimentos = await query.orderBy(desc(psicoAtendimentos.createdAt));
-
+      const camelCaseAtendimentos = keysToCamelCase(atendimentos);
       console.log(`✅ [PSICO] ${atendimentos.length} atendimentos retornados`);
-      res.json({ success: true, atendimentos });
+      res.json({ success: true, atendimentos: camelCaseAtendimentos });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao listar atendimentos:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -27591,7 +27770,8 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       }
 
       console.log(`✅ [PSICO] ${atendimentos.length} atendimentos do participante (${programaOrigem})`);
-      res.json({ success: true, atendimentos });
+      const camelCaseAtendimentosParticipante = keysToCamelCase(atendimentos);
+      res.json({ success: true, atendimentos: camelCaseAtendimentosParticipante });
     } catch (error: any) {
       console.error('❌ [PSICO] Erro ao buscar atendimentos do participante:', error);
       res.status(500).json({ success: false, error: error.message });

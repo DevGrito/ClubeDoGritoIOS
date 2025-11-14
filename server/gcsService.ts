@@ -1,201 +1,164 @@
-import { Storage } from '@google-cloud/storage';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
-
-
-
-// Configurar Google Cloud Storage
-const credentialsPath = path.join(process.cwd(), 'gcs-service-account.json');
-
-// Verificar se o arquivo existe
+// server/gcsService.ts
+import { Storage } from "@google-cloud/storage";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import type { Response } from "express";
+import { Readable } from "node:stream";  
+// === inicialização (igual à sua) ===
+const credentialsPath = path.join(process.cwd(), "gcs-service-account.json");
 if (!fs.existsSync(credentialsPath)) {
-  console.error('❌ Arquivo de credenciais GCS não encontrado:', credentialsPath);
-  throw new Error('GCS credentials file not found');
+  console.error("❌ Arquivo de credenciais GCS não encontrado:", credentialsPath);
+  throw new Error("GCS credentials file not found");
 }
-
-// Inicializar cliente do GCS
-const storage = new Storage({
+export const gcsClient = new Storage({
   keyFilename: credentialsPath,
-  projectId: 'infra-optics-454414-g5'
+  projectId: "infra-optics-454414-g5",
 });
+export const BUCKET_NAME = process.env.GCS_BUCKET_NAME || "clubedogrito";
+export const bucket = gcsClient.bucket(BUCKET_NAME);
+export const UPLOAD_PREFIX = "uploads/beneficios";
 
-// Nome do bucket
-const BUCKET_NAME = 'clubedogrito';
-const bucket = storage.bucket(BUCKET_NAME);
-const UPLOAD_PREFIX = 'uploads/beneficios';
+//console.log("✅ GCS Service inicializado com bucket:", BUCKET_NAME);
 
-console.log('✅ GCS Service inicializado com bucket:', BUCKET_NAME);
-
+// ---------- NOVO: normalizador universal de chave ----------
 /**
- * Faz upload de um arquivo para o GCS
- * @param fileBuffer - Buffer do arquivo
- * @param fileName - Nome do arquivo no GCS
- * @param mimeType - Tipo MIME do arquivo
- * @returns URL pública do arquivo
+ * Recebe URL completa (http/https, gs://…), URL assinada ou a chave crua
+ * e devolve SEMPRE o caminho relativo ao bucket (ex.: "uploads/beneficios/a.png").
  */
-export async function uploadToGCS(
-  fileBuffer: Buffer,
-  fileName: string,
-  mimeType: string
-): Promise<string> {
-  try {
-    // ✅ caminho correto no bucket (sem "public/")
-    const destination = `${UPLOAD_PREFIX}/${fileName}`;
-    const file = bucket.file(destination);
+export function normalizeObjectKey(input: string): string {
+  if (!input) return "";
 
-    console.log('📤 [GCS] Fazendo upload:', destination);
+  // remove querystring
+  let s = input.split("?")[0].trim();
 
-    // ✅ UBLA: sem ACL pública
-    await file.save(fileBuffer, {
-      resumable: false,
-      metadata: {
-        contentType: mimeType,
-      },
-    });
-
-    // Retornar URL pública
-    const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${destination}`;
-    console.log('✅ [GCS] Upload concluído:', publicUrl);
-
-    return publicUrl;
-  } catch (error) {
-    console.error('❌ [GCS] Erro no upload:', error);
-    throw error;
+  // se for gs://<bucket>/path
+  if (s.startsWith("gs://")) {
+    s = s.replace(/^gs:\/\//, "");
+    // remove "<bucket>/" se vier
+    s = s.replace(new RegExp(`^${BUCKET_NAME}\/`), "");
+    return s.replace(/^\/+/, "");
   }
+
+  // se for https://<bucket>.storage.googleapis.com/path...
+  const dotHost = new RegExp(`^https?:\/\/${BUCKET_NAME}\\.storage\\.googleapis\\.com\/`, "i");
+  if (dotHost.test(s)) {
+    return s.replace(dotHost, "").replace(/^\/+/, "");
+  }
+
+  // se for https://storage.googleapis.com/<bucket>/path...
+  const genericHost = new RegExp(`^https?:\/\/storage\\.googleapis\\.com\/${BUCKET_NAME}\/`, "i");
+  if (genericHost.test(s)) {
+    return s.replace(genericHost, "").replace(/^\/+/, "");
+  }
+
+  // se for domínio próprio/CDN (caso tenha), remova o host genérico:
+  // ex.: https://cdn.seudominio.com/<bucket>/path OU /path já limpo
+  // tenta remover "<bucket>/" do início
+  s = s.replace(new RegExp(`^${BUCKET_NAME}\/`), "");
+
+  // por fim, se não tinha host, provavelmente já é chave
+  return s.replace(/^\/+/, "");
 }
 
-/**
- * Gera uma URL assinada para acessar arquivo privado
- * @param filePath - Caminho do arquivo no bucket (ex: public/uploads/beneficios/xxx.png)
- * @param expiresInMinutes - Tempo de expiração em minutos (padrão: 60)
- * @returns URL assinada
- */
-export async function getSignedUrl(
-  filePath: string,
-  expiresInMinutes: number = 60
-): Promise<string> {
-  try {
-    // Remover prefixo da URL completa se houver
-    const cleanPath = filePath
-      .replace(`https://storage.googleapis.com/${BUCKET_NAME}/`, '')
-      .replace(/^\//, '');
-
-    const file = bucket.file(cleanPath);
-
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + expiresInMinutes * 60 * 1000,
-    });
-
-    return url;
-  } catch (error) {
-    console.error('❌ [GCS] Erro ao gerar signed URL:', error);
-    throw error;
-  }
+// ---------- AJUSTE: usar normalize em TODAS as funções ----------
+export async function uploadToGCS(fileBuffer: Buffer, fileName: string, mimeType: string): Promise<string> {
+  const destination = `${UPLOAD_PREFIX}/${fileName}`.replace(/^\/+/, "");
+  const file = bucket.file(destination);
+  await file.save(fileBuffer, { resumable: false, metadata: { contentType: mimeType } });
+  return destination; // chave pura (ex.: uploads/beneficios/xxx.png)
 }
 
-/**
- * Verifica se um arquivo existe no bucket
- * @param filePath - Caminho do arquivo no bucket
- * @returns true se existe, false caso contrário
- */
+export async function getSignedUrl(filePath: string, expiresInMinutes = 60): Promise<string> {
+  const cleanPath = normalizeObjectKey(filePath);
+  const file = bucket.file(cleanPath);
+  const [url] = await file.getSignedUrl({
+    version: "v4",
+    action: "read",
+    expires: Date.now() + expiresInMinutes * 60 * 1000,
+    // opcional: forçar content-type para render em <img>
+    // responseType: "image/jpeg"  // (SDK antigo)
+    // response-content-type: "image/jpeg" // se usar método que aceite
+  } as any);
+  return url;
+}
+
 export async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    const cleanPath = filePath
-      .replace(`https://storage.googleapis.com/${BUCKET_NAME}/`, '')
-      .replace(/^\//, '');
-
-    const file = bucket.file(cleanPath);
-    const [exists] = await file.exists();
-    return exists;
-  } catch (error) {
-    console.error('❌ [GCS] Erro ao verificar arquivo:', error);
-    return false;
-  }
+  const cleanPath = normalizeObjectKey(filePath);
+  const file = bucket.file(cleanPath);
+  const [exists] = await file.exists();
+  return exists;
 }
 
-/**
- * Extrai o caminho do arquivo de uma URL completa do GCS
- * @param url - URL completa do GCS
- * @returns Caminho do arquivo
- */
 export function extractFilePathFromUrl(url: string): string {
-  return url
-    .replace(`https://storage.googleapis.com/${BUCKET_NAME}/`, '')
-    .replace(/^\//, '');
-}
-
-/**
- * Faz upload de múltiplas imagens base64 para o GCS
- * @param base64Images - Array de strings base64 (com ou sem prefixo data:image)
- * @param prefix - Prefixo para o nome dos arquivos (ex: 'missoes/evidencias')
- * @returns Array de URLs públicas
- */
-export async function uploadBase64ImagesToGCS(
-  base64Images: string[],
-  prefix: string = 'missoes/evidencias'
-): Promise<string[]> {
-  const uploadPromises = base64Images.map(async (base64Image, index) => {
-    try {
-      // Remover prefixo data:image/xxx;base64, se houver
-      const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-
-      // Converter base64 para Buffer
-      const imageBuffer = Buffer.from(base64Data, 'base64');
-
-      // Detectar tipo MIME (assumir PNG se não especificado)
-      let mimeType = 'image/png';
-      const match = base64Image.match(/^data:(image\/\w+);base64,/);
-      if (match) {
-        mimeType = match[1];
-      }
-
-      // Gerar nome único para o arquivo
-      const timestamp = Date.now();
-      const randomSuffix = Math.random().toString(36).substring(2, 10);
-      const extension = mimeType.split('/')[1] || 'png';
-      const fileName = `${prefix}-${timestamp}-${index}-${randomSuffix}.${extension}`;
-
-      // Fazer upload
-      const destination = `uploads/${prefix}/${fileName}`;
-      const file = bucket.file(destination);
-
-      console.log(`📤 [GCS] Fazendo upload de evidência ${index + 1}:`, destination);
-
-      await file.save(imageBuffer, {
-        metadata: {
-          contentType: mimeType,
-        },
-        public: true,
-      });
-
-      // Tornar o arquivo explicitamente público
-      await file.makePublic();
-      console.log(`🔓 [GCS] Permissões públicas aplicadas para evidência ${index + 1}`);
-
-      const publicUrl = `https://storage.googleapis.com/${BUCKET_NAME}/${destination}`;
-      console.log(`✅ [GCS] Upload ${index + 1} concluído:`, publicUrl);
-
-      return publicUrl;
-    } catch (error) {
-      console.error(`❌ [GCS] Erro no upload da imagem ${index + 1}:`, error);
-      throw error;
-    }
-  });
-
-  return Promise.all(uploadPromises);
+  return normalizeObjectKey(url);
 }
 
 export async function deleteObject(objectPath: string): Promise<void> {
   try {
-    const cleanPath = objectPath.replace(/^https?:\/\/storage\.googleapis\.com\/[^/]+\//, '').replace(/^\//, '');
+    const cleanPath = normalizeObjectKey(objectPath);
     await bucket.file(cleanPath).delete({ ignoreNotFound: true });
-    console.log('🗑️ [GCS] Objeto removido:', cleanPath);
+    console.log("🗑️ [GCS] Objeto removido:", cleanPath);
   } catch (err) {
-    // não falhe a operação só por causa do GCS; loga e segue
-    console.warn('⚠️ [GCS] Falha ao remover objeto:', objectPath, err);
+    console.warn("⚠️ [GCS] Falha ao remover objeto:", objectPath, err);
   }
 }
 
-export { storage, bucket, BUCKET_NAME };
+// ---------- NOVO: helper para streamar objeto ----------
+import type { Response } from "express";
+export async function streamObjectToResponse(keyOrUrl: string, res: Response): Promise<void> {
+  const objectKey = normalizeObjectKey(keyOrUrl);
+  const file = bucket.file(objectKey);
+
+  // pega metadados para setar Content-Type corretamente
+  const [meta] = await file.getMetadata().catch(() => [{ contentType: "image/jpeg" } as any]);
+
+  res.setHeader("Content-Type", meta?.contentType || "image/jpeg");
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+  file
+    .createReadStream()
+    .on("error", (err: any) => {
+      console.error("GCS read error:", err?.code, err?.message);
+      if (err?.code === 404) res.status(404).send("Imagem não encontrada");
+      else res.status(502).send("Falha ao obter imagem do storage");
+    })
+    .pipe(res);
+}
+
+// ⬇️ ADICIONE ESTA FUNÇÃO (fica junto das demais exports)
+export async function streamSignedObjectToResponse(
+  keyOrUrl: string,
+  res: Response,
+  ttlSeconds: number = 300
+): Promise<void> {
+  // 1) normaliza para chave
+  const key = normalizeObjectKey(keyOrUrl);
+
+  // 2) gera Signed URL (v4) – não depende de OAuth
+  const signed = await getSignedUrl(key, Math.ceil(ttlSeconds / 60));
+
+  // 3) baixa e faz proxy 200
+  const upstream = await fetch(signed, { redirect: "follow" });
+
+  if (!upstream.ok) {
+    console.error("Signed fetch fail:", upstream.status, await upstream.text().catch(() => ""));
+    res.status(502).send("Falha ao obter imagem do storage");
+    return;
+  }
+
+  const ct = upstream.headers.get("content-type") || "image/jpeg";
+  res.setHeader("Content-Type", ct);
+  res.setHeader("Cache-Control", `public, max-age=${ttlSeconds}, s-maxage=${ttlSeconds}`);
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+
+  // Node 18+: body é WebReadableStream → convertemos para Node stream;
+  // fallback para buffer caso não tenha stream exposto
+  const body: any = (upstream as any).body;
+  if (body && typeof (Readable as any).fromWeb === "function" && body.getReader) {
+    Readable.fromWeb(body).pipe(res);
+  } else {
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.end(buf);
+  }
+}

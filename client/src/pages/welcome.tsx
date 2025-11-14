@@ -457,7 +457,7 @@ export default function Welcome() {
       const timer = setTimeout(() => {
         setImpactSectionVisible(true);
       }, 3000);
-
+      
       return () => clearTimeout(timer);
     }
   }, [impactSectionVisible]);
@@ -745,8 +745,6 @@ export default function Welcome() {
     });
   };
 
-  // Removido: histórias mock para exibir apenas histórias reais do banco
-
   // Usar dados reais do banco ou fallback para mock
   const finalStories = convertToStories(historiasInspiradoras);
 
@@ -852,7 +850,7 @@ export default function Welcome() {
         }, 1500); // 1.5 segundos para mostrar a logo
       }
     }
-  }, [userData, setLocation, form, isLoading]); // Adicionado isLoading de volta
+  }, [setLocation, form, isLoading]); // Adicionado isLoading de volta
 
   const { updateUserData } = useUserData();
 
@@ -1943,9 +1941,7 @@ export default function Welcome() {
                 const isLeoByPhone = normalizedPhone === '31998783003' || 
                                      normalizedPhone === '5531998783003' ||
                                      normalizedPhone === '31987830003' || 
-                                     normalizedPhone === '5531987830003' ||
-                                     normalizedPhone === '31993741556' ||
-                                     normalizedPhone === '5531993741556';
+                                     normalizedPhone === '5531987830003';
                 const isLeo = isLeoByEmail || isLeoByPhone;
                 
                 console.log('🔍 [LEO CHECK] Email:', userData.email, 'isLeoByEmail:', isLeoByEmail);

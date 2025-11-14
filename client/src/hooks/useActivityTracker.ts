@@ -90,9 +90,9 @@ export function useActivityTracker(config: ActivityTrackerConfig) {
         },
       });
 
-      console.log('✅ [ACTIVITY TRACKER] Eventos enviados com sucesso');
+      //console.log('✅ [ACTIVITY TRACKER] Eventos enviados com sucesso');
     } catch (error) {
-      console.error('❌ [ACTIVITY TRACKER] Erro ao enviar eventos:', error);
+      //console.error('❌ [ACTIVITY TRACKER] Erro ao enviar eventos:', error);
 
       // Re-adicionar eventos na fila em caso de erro (com limite)
       if (eventQueue.current.length < batchSize * 2) {

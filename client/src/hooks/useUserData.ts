@@ -19,12 +19,13 @@ export function useUserData() {
   const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
   const devPanelActive = localStorage.getItem('dev_panel_active') === 'true';
   const devPanelTimestamp = localStorage.getItem('dev_panel_timestamp');
-  const isRecentDevPanel = devPanelTimestamp && (Date.now() - parseInt(devPanelTimestamp)) < 60000;
-  
+  const isRecentDevPanel =
+    !!devPanelTimestamp && (Date.now() - parseInt(devPanelTimestamp, 10)) < 60_000;
+
   const isDevMode = (isDevAccess && isFromDevPanel) || (devPanelActive && isRecentDevPanel);
-  
+
   const userId = localStorage.getItem("userId");
-  
+
   const { data: apiUserData, isLoading, error } = useQuery({
     queryKey: ["/api/user", userId], // PADRONIZADO - array separado para bater com invalidações
     queryFn: async () => {
@@ -41,7 +42,7 @@ export function useUserData() {
   });
 
   // Process the API data into our UserData format
-  const userData: UserData = (() => {
+    const userData: UserData = (() => {
     // Se é dev mode, retornar dados mock do Leo
     if (isDevMode) {
       return {
@@ -52,49 +53,61 @@ export function useUserData() {
         telefone: "31986631203",
         plano: "platinum",
         fotoPerfil: undefined,
-        role: "leo"
+        role: "leo",
       };
     }
-    
-    if (apiUserData && typeof apiUserData === 'object') {
+
+    // 🔹 Lê possíveis dados já guardados no localStorage (para usar como fallback)
+    const storedEmail = localStorage.getItem("userEmail") || "";
+    const storedPhone = localStorage.getItem("userPhone") || "";
+    const storedPlan  = localStorage.getItem("userPlan")  || "eco";
+
+    if (apiUserData && typeof apiUserData === "object") {
       const data = apiUserData as any;
+
       // Split the nome field into nome and sobrenome
       const fullName = data.nome || "";
       const nameParts = fullName.split(" ");
       const nome = nameParts[0] || "";
       const sobrenome = nameParts.slice(1).join(" ") || "";
-      
+
       return {
         id: data.id,
         nome,
         sobrenome,
-        email: data.email || "",
-        telefone: data.telefone || "",
-        plano: data.plano || "eco", // Buscar plano real da API
+        // 👇 usa email/telefone/plano da API, mas CAI PARA o localStorage se a API não mandar
+        email: data.email || storedEmail,
+        telefone: data.telefone || storedPhone,
+        plano: data.plano || storedPlan,
         fotoPerfil: data.fotoPerfil || undefined,
-        role: data.role || undefined
+        role: data.role || undefined,
       };
     }
-    
-    // Fallback to localStorage if API fails or loading
+
+    // Fallback completo para localStorage se não tiver apiUserData
+    const idStr = localStorage.getItem("userId") || "";
     const userName = localStorage.getItem("userName") || "";
     const nome = userName.split(" ")[0] || "";
     const sobrenome = userName.split(" ").slice(1).join(" ") || "";
-    const email = localStorage.getItem("userEmail") || "";
-    const telefone = localStorage.getItem("userPhone") || "";
-    const plano = localStorage.getItem("userPlan") || "eco";
+    const email = storedEmail;
+    const telefone = storedPhone;
+    const plano = storedPlan;
     const role = localStorage.getItem("userPapel") || undefined;
-    const id = userId ? parseInt(userId) : undefined;
 
-    return { id, nome, sobrenome, email, telefone, plano, role };
+    const idNum =
+      idStr && !Number.isNaN(Number.parseInt(idStr, 10))
+        ? Number.parseInt(idStr, 10)
+        : undefined;
+
+    return { id: idNum, nome, sobrenome, email, telefone, plano, role };
   })();
 
   // Update user data mutation
   const updateUserDataMutation = useMutation({
     mutationFn: async (data: Partial<UserData>) => {
       const fullName = `${data.nome || ''} ${data.sobrenome || ''}`.trim();
-      
-      const response = await fetch(`/api/user/${userId}`, {
+
+      const response = await fetch(`/api/users/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -116,7 +129,7 @@ export function useUserData() {
       localStorage.setItem("userName", fullName);
       if (variables.email) localStorage.setItem("userEmail", variables.email);
       if (variables.telefone) localStorage.setItem("userPhone", variables.telefone);
-      
+
       // Invalidate user query to refetch - PADRONIZADO
       queryClient.invalidateQueries({ queryKey: ["/api/user", userId] });
     }

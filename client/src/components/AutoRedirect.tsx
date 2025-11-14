@@ -44,7 +44,7 @@ export const AutoRedirect: React.FC = () => {
     // Usuários devem passar pelo fluxo normal de autenticação
 
     // Se não está logado e não está em páginas públicas, redirecionar para login
-    const publicRoutes = ['/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/dev', '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias', '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso', '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado', '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso', '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar', '/ingresso/resgate/confirmar', '/scanner', '/scanner-login', '/login/coordenador', '/ingressos/compras/extras', '/ingressos-esgotados'];
+    const publicRoutes = ['/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias', '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso', '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado', '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso', '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar', '/ingresso/resgate/confirmar', '/scanner', '/scanner-login', '/login/coordenador', '/ingressos/compras/extras', '/ingressos-esgotados'];
     
     if (!userPapel || !isVerified) {
       if (!publicRoutes.includes(location) && !location.startsWith('/checkout/') && !location.startsWith('/ingresso/visualizar/') && !location.startsWith('/ingresso/lista-cota/')) {

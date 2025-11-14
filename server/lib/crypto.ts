@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 // Chave mestra de 32 bytes (256 bits) para AES-256-GCM
 // OBRIGATÓRIO: deve ser armazenada como variável de ambiente PAYMENT_ENCRYPTION_KEY
-const MASTER_KEY_BASE64 = process.env.PAYMENT_ENCRYPTION_KEY;
+/* const MASTER_KEY_BASE64 = process.env.PAYMENT_ENCRYPTION_KEY;
 
 if (!MASTER_KEY_BASE64) {
   throw new Error("❌ PAYMENT_ENCRYPTION_KEY não configurada. Configure essa variável de ambiente para usar criptografia de credenciais.");
@@ -19,7 +19,7 @@ if (key.length !== 32) {
  * @param plain - Texto a ser criptografado
  * @returns String base64 contendo [IV|Tag|Dados Criptografados]
  */
-export function seal(plain: string): string {
+/* export function seal(plain: string): string {
   const iv = crypto.randomBytes(12); // 96 bits para GCM
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   
@@ -32,14 +32,14 @@ export function seal(plain: string): string {
   
   // Formato: [IV (12 bytes) | Tag (16 bytes) | Encrypted Data (N bytes)]
   return Buffer.concat([iv, tag, encrypted]).toString("base64");
-}
+} */
 
 /**
  * Descriptografa um texto criptografado com seal()
  * @param b64 - String base64 contendo [IV|Tag|Dados Criptografados]
  * @returns Texto descriptografado
  */
-export function open(b64: string): string {
+/* export function open(b64: string): string {
   const buffer = Buffer.from(b64, "base64");
   
   const iv = buffer.subarray(0, 12);
@@ -55,12 +55,13 @@ export function open(b64: string): string {
   ]);
   
   return decrypted.toString("utf8");
-}
+} */
 
 /**
  * Gera uma nova chave mestra de 32 bytes em base64
  * Use isso para gerar MASTER_KEY_BASE64
  */
-export function generateMasterKey(): string {
+/* export function generateMasterKey(): string {
   return crypto.randomBytes(32).toString("base64");
 }
+ */

@@ -196,8 +196,6 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
     autoSyncStripe();
   }, [userId, isLoadingCards, paymentMethodsData, autoSyncAttempted, refetchCards]);
     
- 
-
   const handleSwipe = (direction: 'left' | 'right') => {
     if (direction === 'left' && currentIndex < cards.length - 1) {
       setCurrentIndex(currentIndex + 1);
@@ -347,8 +345,6 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
       });
     }
   };
-
-  // Estado de erro removido - continuando sem exibir erro para cartões
 
   if (isLoadingCards) {
     return (
@@ -518,7 +514,6 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
           />
         ))}
       </div>
-
 
       {/* Botão de seleção - só aparece no modal */}
       {showSelectButton && (
@@ -1411,7 +1406,6 @@ export default function Pagamentos() {
       });
     }
   };
-
 
   return (
     <motion.div 

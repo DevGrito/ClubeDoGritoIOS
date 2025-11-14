@@ -7,6 +7,10 @@ import QRCode from "react-qr-code";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import PatrocinadoresCarousel from "@/components/PatrocinadoresCarousel";
+import logoEventoImg from "@assets/logo-evento.png";
+const EVENT_DATE = "23/10/2025";
+const EVENT_TIME = "19:30";
+
 
 // Importar imagens usando @assets do Vite
 import logoEventoImg from "@assets/logo-evento.png";
@@ -419,8 +423,8 @@ export default function IngressoPage() {
       if (ingressoNumero && ingressoEspecifico) {
         ticket = {
           ...ingressoEspecifico,
-          data: ingressoEspecifico.data || ingressoEspecifico.eventoData,
-          hora: ingressoEspecifico.hora || ingressoEspecifico.eventoHora,
+          data: EVENT_DATE,
+          hora: EVENT_TIME,
           nomeComprador: ingressoEspecifico.nomeComprador || 'Sem nome definido',
           imagemUrl: "/assets/ingresso-iv-encontro.png",
           };
@@ -428,8 +432,8 @@ export default function IngressoPage() {
         const t = tickets[0];
         ticket = {
           ...t,
-          data: t.data || t.eventoData,
-          hora: t.hora || t.eventoHora,
+          data: EVENT_DATE,
+          hora: EVENT_TIME,
           nomeComprador: t.nomeComprador || 'Sem nome definido',
           imagemUrl: "/assets/ingresso-iv-encontro.png",
         };
