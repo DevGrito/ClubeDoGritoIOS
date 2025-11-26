@@ -299,20 +299,26 @@ export default function Plans() {
 
 
   return (
-    <div className="min-h-screen bg-gray-50" style={{ backgroundColor: '#F5F5F5' }}>
+   <div
+    className="min-h-screen bg-gray-50"
+    style={{
+      backgroundColor: "#F5F5F5",
+      paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)", // 👈 respeita a área do notch
+    }}
+  >
       {/* Main Container com fundo branco sem card */}
       <div className="min-h-screen bg-white">
-        <div className="w-full mx-auto">
+      <div className="w-full mx-auto">
           
           {/* Header com botão Entrar */}
-          <div className="flex justify-end items-start pr-4 pt-4 pb-4">
+          <div className="flex justify-end items-center pr-4 pb-4">
             <Button
-              onClick={() => setLocation('/entrar')}
-              className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-5 py-2 text-xs rounded-full shadow-md"
-              data-testid="button-entrar"
-            >
-              ENTRAR
-            </Button>
+                onClick={() => setLocation('/entrar')}
+                className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 py-1.5 text-xs rounded-full shadow-md"
+                data-testid="button-entrar"
+              >
+                ENTRAR
+          </Button>
           </div>
 
           {/* Título */}
