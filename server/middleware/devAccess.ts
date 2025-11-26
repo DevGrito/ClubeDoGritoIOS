@@ -26,8 +26,12 @@ export const checkDevAccess = (req: Request, res: Response, next: NextFunction) 
     req.headers.referer?.includes('/dev')
   );
 
+  // Verificar se há uma sessão de desenvolvedor ativa
+  const hasActiveDevSession = (req as any).session && (req as any).session.developerId && 
+    ((req as any).session.userPapel === 'dev' || (req as any).session.userPapel === 'desenvolvedor');
+
   // Se modo dev global estiver ativo, permitir acesso livre
-  if (globalDevMode || devAccess || devHeader || devSession) {
+  if (globalDevMode || devAccess || devHeader || devSession || hasActiveDevSession) {
     // Marcar request como acesso de desenvolvedor
     (req as any).isDeveloper = true;
     (req as any).devOrigin = origin || (globalDevMode ? 'dev-mode' : 'unknown');

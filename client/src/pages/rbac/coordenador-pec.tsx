@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/input";
 import type { Project, Activity as PECActivity, ActivityInstance, User as UserType, Educador } from "@shared/schema";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
@@ -36,10 +42,15 @@ import {
   Edit,
   Eye,
   Trash2,
-  X
+  X,
+  Lock,
+  ExternalLink,
+  ClipboardList,
+  ChevronDown
 } from "lucide-react";
 import { InstanceForm, ActivityForm } from "@/components/pec/forms";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
+import AlterarSenha from "@/components/AlterarSenha";
 
 export default function CoordenadorPECPage() {
   const [, setLocation] = useLocation();
@@ -78,6 +89,9 @@ export default function CoordenadorPECPage() {
   const [showExcluirTurmaModal, setShowExcluirTurmaModal] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<any>(null);
   
+  // Estado para alterar senha
+  const [showAlterarSenhaModal, setShowAlterarSenhaModal] = useState(false);
+  
   // State do formulário de projetos
   const [projetoForm, setProjetoForm] = useState({
     name: '',
@@ -107,8 +121,81 @@ export default function CoordenadorPECPage() {
   
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   const userId = localStorage.getItem("userId");
-  const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
+
+  // Estados para perfil editável
+  const [perfilData, setPerfilData] = useState({
+    nome: "Coordenador",
+    email: "",
+    telefone: ""
+  });
+  const [loadingPerfil, setLoadingPerfil] = useState(false);
+
+  // Buscar dados do coordenador
+  const { data: coordData } = useQuery({
+    queryKey: ['/api/coordenador/me'],
+    enabled: !!userId
+  });
+
+  // Atualizar estados quando dados forem carregados
+  useEffect(() => {
+    if (coordData?.data) {
+      setPerfilData({
+        nome: coordData.data.nome || "Coordenador",
+        email: coordData.data.email || "",
+        telefone: coordData.data.telefone || ""
+      });
+    }
+  }, [coordData]);
+
+  // Mutation para salvar perfil
+  const salvarPerfilMutation = useMutation({
+    mutationFn: async (data: { nome: string; email: string; telefone: string }) => {
+      return await apiRequest('/api/coordenador/me', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: (response) => {
+      toast({
+        title: "Sucesso",
+        description: "Perfil atualizado com sucesso",
+      });
+      // Atualizar cache
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenador/me'] });
+      // Atualizar localStorage se o nome foi alterado
+      if (response.data) {
+        localStorage.setItem("userName", response.data.nome);
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao atualizar perfil",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleSalvarPerfil = () => {
+    if (!perfilData.nome.trim()) {
+      toast({
+        title: "Erro",
+        description: "Nome é obrigatório",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!perfilData.email.trim()) {
+      toast({
+        title: "Erro",
+        description: "Email é obrigatório",
+        variant: "destructive",
+      });
+      return;
+    }
+    salvarPerfilMutation.mutate(perfilData);
+  };
 
   // Função para mudar seção e fazer scroll
   const changeSection = (section: string) => {
@@ -561,7 +648,7 @@ export default function CoordenadorPECPage() {
               <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
                 Coordenação Esporte e Cultura
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
+              <p className="text-gray-600" data-testid="text-username">Olá {perfilData.nome}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -578,6 +665,46 @@ export default function CoordenadorPECPage() {
               <Download className="w-4 h-4 mr-2" />
               Exportar
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              data-testid="button-transparencia"
+              className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Canal de Transparência
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
+                  data-testid="button-plano-acao"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Plano de Ação
+                  <ChevronDown className="w-4 h-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Monday
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Slack
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button 
               variant="outline" 
               size="sm" 
@@ -2074,7 +2201,7 @@ export default function CoordenadorPECPage() {
                       <User className="w-8 h-8 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg">{userName}</h3>
+                      <h3 className="font-semibold text-lg">{perfilData.nome}</h3>
                       <p className="text-gray-600">Coordenador de Esporte e Cultura</p>
                       <Badge className="bg-orange-100 text-orange-800 mt-1">
                         🏆 PEC - Polo Esportivo Cultural
@@ -2082,71 +2209,61 @@ export default function CoordenadorPECPage() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <h4 className="font-semibold text-md">Informações Pessoais</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-sm text-gray-500">Nome Completo</label>
-                          <Input value={userName} className="mt-1" />
-                        </div>
-                        <div>
-                          <label className="text-sm text-gray-500">Email</label>
-                          <Input value="coordenador@institutoogrito.org" className="mt-1" />
-                        </div>
-                        <div>
-                          <label className="text-sm text-gray-500">Telefone</label>
-                          <Input value="(31) 99999-9999" className="mt-1" />
-                        </div>
-                        <div>
-                          <label className="text-sm text-gray-500">Cargo</label>
-                          <Input value="Coordenador de Esporte e Cultura" className="mt-1" disabled />
-                        </div>
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-md">Informações Pessoais</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm text-gray-500">Nome Completo</label>
+                        <Input 
+                          value={perfilData.nome} 
+                          onChange={(e) => setPerfilData({ ...perfilData, nome: e.target.value })}
+                          className="mt-1" 
+                          data-testid="input-nome-perfil"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">Email</label>
+                        <Input 
+                          type="email"
+                          value={perfilData.email} 
+                          onChange={(e) => setPerfilData({ ...perfilData, email: e.target.value })}
+                          className="mt-1"
+                          data-testid="input-email-perfil"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">Telefone</label>
+                        <Input 
+                          value={perfilData.telefone} 
+                          onChange={(e) => setPerfilData({ ...perfilData, telefone: e.target.value })}
+                          className="mt-1"
+                          data-testid="input-telefone-perfil"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">Cargo</label>
+                        <Input value="Coordenador de Esporte e Cultura" className="mt-1" disabled />
                       </div>
                     </div>
-                    
+                  </div>
+                  
+                  <div className="border rounded-lg p-4">
+                    <h3 className="font-semibold mb-4 flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Segurança
+                    </h3>
                     <div className="space-y-4">
-                      <h4 className="font-semibold text-md">Preferências do Sistema</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-sm text-gray-500">Tema</label>
-                          <Select>
-                            <SelectTrigger className="mt-1">
-                              <SelectValue placeholder="Selecione o tema" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="claro">Claro</SelectItem>
-                              <SelectItem value="escuro">Escuro</SelectItem>
-                              <SelectItem value="auto">Automático</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-sm text-gray-500">Idioma</label>
-                          <Select>
-                            <SelectTrigger className="mt-1">
-                              <SelectValue placeholder="Português (Brasil)" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pt-br">Português (Brasil)</SelectItem>
-                              <SelectItem value="en">English</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-sm text-gray-500">Notificações</label>
-                          <Select>
-                            <SelectTrigger className="mt-1">
-                              <SelectValue placeholder="Ativadas" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="todas">Todas</SelectItem>
-                              <SelectItem value="importantes">Apenas Importantes</SelectItem>
-                              <SelectItem value="desativadas">Desativadas</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
+                      <p className="text-sm text-gray-600">
+                        Altere sua senha de acesso periodicamente para manter sua conta segura.
+                      </p>
+                      <Button
+                        onClick={() => setShowAlterarSenhaModal(true)}
+                        variant="outline"
+                        data-testid="button-alterar-senha"
+                      >
+                        <Lock className="w-4 h-4 mr-2" />
+                        Alterar Senha
+                      </Button>
                     </div>
                   </div>
                   
@@ -2173,13 +2290,14 @@ export default function CoordenadorPECPage() {
                   </div>
                   
                   <div className="flex gap-3">
-                    <Button className="bg-orange-500 hover:bg-orange-600">
+                    <Button 
+                      className="bg-orange-500 hover:bg-orange-600"
+                      onClick={handleSalvarPerfil}
+                      disabled={salvarPerfilMutation.isPending}
+                      data-testid="button-salvar-perfil"
+                    >
                       <Edit className="w-4 h-4 mr-2" />
-                      Salvar Alterações
-                    </Button>
-                    <Button variant="outline">
-                      <Settings className="w-4 h-4 mr-2" />
-                      Configurações Avançadas
+                      {salvarPerfilMutation.isPending ? "Salvando..." : "Salvar Alterações"}
                     </Button>
                   </div>
                 </div>
@@ -3079,6 +3197,11 @@ export default function CoordenadorPECPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlterarSenha 
+        open={showAlterarSenhaModal} 
+        onOpenChange={setShowAlterarSenhaModal}
+      />
     </div>
   );
 }

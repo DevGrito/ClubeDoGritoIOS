@@ -52,10 +52,26 @@ app.use(
 );
 
 // responde rápido preflight
+// responde rápido preflight
 app.options("*", cors());
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+// 👇 Webhook Stripe precisa do raw body
+app.use("/api/webhook/stripe", express.raw({ type: "application/json" }));
+
+// 👇 Para todas as outras rotas, usa JSON normalmente
+app.use((req, res, next) => {
+  if (req.originalUrl.startsWith("/api/webhook/stripe")) {
+    return next(); // não aplicar express.json aqui
+  }
+  return express.json({ limit: "50mb" })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  if (req.originalUrl.startsWith("/api/webhook/stripe")) {
+    return next(); // não aplicar urlencoded aqui também
+  }
+  return express.urlencoded({ extended: false, limit: "50mb" })(req, res, next);
+});
 
 // estáticos — uploads (persistentes no volume)
 app.use(
@@ -193,6 +209,7 @@ app.use((req, res, next) => {
   app.use(healthRouter());
 
   const server = await registerRoutes(app);
+
 
   // handler de erro central — não relança depois de responder
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

@@ -28,7 +28,11 @@ import {
   Menu,
   Gift,
   BookOpen,
-  Link as LinkIcon
+  Link as LinkIcon,
+  XCircle,
+  Home,
+  ArrowLeft,
+  ExternalLink
 } from "lucide-react";
 import Logo from "@/components/logo";
 import { useLocation } from "wouter";
@@ -38,6 +42,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useProfileImage } from "@/hooks/useProfileImage";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
+import { isLeoUser } from "@/utils/isLeo";
 
 export default function Perfil() {
   const [, setLocation] = useLocation();
@@ -130,15 +135,23 @@ export default function Perfil() {
   // Conselheiros devem ver a versão de doador (simples)
   // Leo não é doador, então não deve ser forçado como doador
   const userPapel = localStorage.getItem("userPapel") || "";
-  const role = (userData?.role || userData?.papel || userPapel || "").toLowerCase();
-  const userIsLeo = role === "leo";
-  const isConselheiro = userPapel === "conselho" || userPapel === "conselheiro" || userPapel === "desenvolvedor";
-  const isDonor = userIsLeo || 
-                 isDonorVerified === true ||
-                 userPapel === "conselho" ||
-                 localStorage.getItem("isDonor") === "true" || 
-                 localStorage.getItem("donationFlow") === "true" ||
-                 localStorage.getItem("userType") === "doador";
+  const isConselheiro =
+    userPapel === "conselho" ||
+    userPapel === "conselheiro" ||
+    userPapel === "desenvolvedor";
+
+  // Agora usamos o helper centralizado
+  const userIsLeo = isLeoUser(userData);
+
+  // Leo NÃO deve ser tratado como doador automático
+  const isDonor =
+    !userIsLeo && (
+      isDonorVerified === true ||
+      isConselheiro ||
+      localStorage.getItem("isDonor") === "true" ||
+      localStorage.getItem("donationFlow") === "true" ||
+      localStorage.getItem("userType") === "doador"
+    );
   
   // Get initials for avatar
   const getInitials = (name: string) => {
@@ -156,6 +169,15 @@ export default function Perfil() {
   };
 
   const planInfo = getPlanInfo(userPlan);
+
+  // Debug: verificar status para mostrar cancelamento
+ /* console.log('🔍 [CANCELAMENTO DEBUG]', {
+    isDonor,
+    userIsLeo,
+    isConselheiro,
+    shouldShowCancelamento: (isDonor && !isConselheiro),
+    userPapel
+  }); */
 
   // Menu sections with improved organization
   const menuSections = [
@@ -280,7 +302,21 @@ export default function Perfil() {
           active: true
         }
       ]
-    }
+    },
+    // Seção de Cancelamento de Doação Recorrente - apenas para doadores PAGANTES (excluindo apenas conselheiros)
+    ...((isDonor && !isConselheiro) ? [{
+      title: "Cancelar Doação Recorrente",
+      items: [
+        {
+          icon: XCircle,
+          label: "Solicitar Cancelamento",
+          onClick: () => window.location.href = "mailto:sac@institutoogrito.org?subject=Solicitação de Cancelamento de Doação Recorrente&body=Olá, gostaria de solicitar o cancelamento da minha doação recorrente.%0A%0AMotivo do cancelamento:%0A",
+          active: true,
+          isGray: true
+        }
+      ],
+      description: "Para cancelar sua doação recorrente, envie um e-mail explicando o motivo. Nossa equipe processará sua solicitação."
+    }] : [])
   ];
 
   // Show improved profile page for logged in users
@@ -288,7 +324,7 @@ export default function Perfil() {
     <div className="min-h-screen bg-white pb-20 font-inter">
       {/* Header */}
       <header className="bg-white">
-        <div className="px-4 py-3 flex items-center">
+        <div className="px-4 pt-12 pb-3 flex items-center">
           {/* Elemento da Esquerda: Menu Hamburger */}
           <div className="w-16 flex justify-start">
             <button
@@ -338,28 +374,35 @@ export default function Perfil() {
         {/* Menu Sections */}
         <div className="space-y-6">
           {menuSections.map((section, index) => (
-            <Card key={index} className="hover:shadow-md transition-shadow">
+            <Card key={index} className={`hover:shadow-md transition-shadow ${section.title === "Cancelar Doação Recorrente" ? "bg-gray-100" : ""}`}>
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-semibold text-black">
                   {section.title}
                 </CardTitle>
+                {section.description && (
+                  <p className="text-sm text-gray-600 mt-2">
+                    {section.description}
+                  </p>
+                )}
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="space-y-1">
                   {section.items.map((item, itemIndex) => {
                     const Icon = item.icon;
+                    const isHighlight = (item as any).highlight;
+                    const isGray = (item as any).isGray;
                     return (
                       <div
                         key={itemIndex}
                         onClick={item.active ? item.onClick : undefined}
                         className={`flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer ${item.active
-                          ? (item.highlight ? 'hover:bg-yellow-50 bg-yellow-400 border-2 border-yellow-600' : 'hover:bg-gray-50 hover:shadow-sm')
+                          ? (isHighlight ? 'hover:bg-yellow-50 bg-yellow-400 border-2 border-yellow-600' : (isGray ? 'hover:bg-gray-200 bg-gray-50' : 'hover:bg-gray-50 hover:shadow-sm'))
                           : 'opacity-50 cursor-not-allowed'
                           }`}
                       >
                         <div className="flex items-center space-x-3">
-                          <Icon className={`w-5 h-5 ${item.highlight ? 'text-black' : 'text-gray-600'}`} />
-                          <span className={`font-medium ${item.highlight ? 'text-black font-bold' : 'text-black'}`}>{item.label}</span>
+                          <Icon className={`w-5 h-5 ${isHighlight ? 'text-black' : 'text-gray-600'}`} />
+                          <span className={`font-medium ${isHighlight ? 'text-black font-bold' : 'text-black'}`}>{item.label}</span>
                         </div>
                         {item.active && (
                           <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -415,6 +458,33 @@ export default function Perfil() {
 
             {/* Opções do Menu */}
             <div className="space-y-4 mt-4">
+              {/* Home - Para Conselheiros */}
+              {isConselheiro && (
+                <div>
+                  <div
+                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                    onClick={() => {
+                      setShowHelpMenu(false);
+                      setTimeout(() => setLocation("/conselho"), 150);
+                    }}
+                  >
+                    <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Home className="w-6 h-6 text-black" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Home
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Acompanhe indicadores e métricas de impacto.
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  </div>
+                  <div className="border-b border-gray-100 mx-4"></div>
+                </div>
+              )}
+
               {/* Perfil */}
               <div>
                 <div
@@ -440,55 +510,59 @@ export default function Perfil() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
-              {/* Benefícios */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                  onClick={() => {
-                    setShowHelpMenu(false);
-                    setTimeout(() => setLocation("/beneficios"), 150);
-                  }}
-                >
-                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <Gift className="w-6 h-6 text-black" />
+              {/* Benefícios - Escondido para Conselheiros */}
+              {!isConselheiro && (
+                <div>
+                  <div
+                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                    onClick={() => {
+                      setShowHelpMenu(false);
+                      setTimeout(() => setLocation("/beneficios"), 150);
+                    }}
+                  >
+                    <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Gift className="w-6 h-6 text-black" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Benefícios
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Vantagens que transformam seu dia a dia e o de muitos outros.
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Benefícios
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Vantagens que transformam seu dia a dia e o de muitos outros.
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  <div className="border-b border-gray-100 mx-4"></div>
                 </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
+              )}
 
-              {/* Financeiro */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                  onClick={() => {
-                    setShowHelpMenu(false);
-                    setTimeout(() => setLocation("/pagamentos"), 150);
-                  }}
-                >
-                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <CreditCard className="w-6 h-6 text-black" />
+              {/* Financeiro - Escondido para Conselheiros */}
+              {!isConselheiro && (
+                <div>
+                  <div
+                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                    onClick={() => {
+                      setShowHelpMenu(false);
+                      setTimeout(() => setLocation("/pagamentos"), 150);
+                    }}
+                  >
+                    <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                      <CreditCard className="w-6 h-6 text-black" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Financeiro
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                        Transparência para você ver seu impacto.
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Financeiro
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Transparência para você ver seu impacto.
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  <div className="border-b border-gray-100 mx-4"></div>
                 </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
+              )}
 
               {/* Termos de Uso */}
               <div>
@@ -515,9 +589,34 @@ export default function Perfil() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Denúncias e sugestões com sigilo.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
               {/* Administrador - Apenas para o Leo */}
               {/* TRECHO REMOVIDO */}
-              {userIsLeo && (
+              {isLeoUser(userData) && (
                   <div>
                     <div
                       className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
@@ -552,13 +651,15 @@ export default function Perfil() {
                     setTimeout(() => handleLogout(), 150);
                   }}
                 >
-                  <LogOut className="w-6 h-6 text-gray-700 flex-shrink-0" />
+                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ArrowLeft className="w-6 h-6 text-red-600" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
                       Deslogar
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Saindo agora, mas seu impacto continua.
+                      Sair da sua conta com segurança.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />

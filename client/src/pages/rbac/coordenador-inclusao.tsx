@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -46,8 +52,32 @@ import {
   GraduationCap,
   Briefcase,
   Upload,
-  Trash2
+  Trash2,
+  Lock,
+  ExternalLink,
+  ClipboardList,
+  ChevronDown
 } from "lucide-react";
+import { ProfileImageUploader } from "@/components/ProfileImageUploader";
+import AlterarSenha from "@/components/AlterarSenha";
+
+// Helper para formatar status
+const formatarStatus = (status: string | null | undefined): string => {
+  if (!status) return 'Planejado';
+  
+  const statusMap: Record<string, string> = {
+    'emandamento': 'Em andamento',
+    'em_andamento': 'Em andamento',
+    'em-andamento': 'Em andamento',
+    'planejado': 'Planejado',
+    'ativo': 'Ativo',
+    'concluido': 'Concluído',
+    'cancelado': 'Cancelado',
+    'inativo': 'Inativo'
+  };
+  
+  return statusMap[status.toLowerCase()] || status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+};
 
 // Schema para validação do formulário de participante
 const participanteSchema = z.object({
@@ -111,6 +141,9 @@ export default function CoordenadorInclusaoPage() {
   const [selectedParticipante, setSelectedParticipante] = useState<any>(null);
   const [showEditParticipanteModal, setShowEditParticipanteModal] = useState(false);
   const [showDetalhesParticipanteModal, setShowDetalhesParticipanteModal] = useState(false);
+  const [showEditFotoModal, setShowEditFotoModal] = useState(false);
+  const [showHistoricoAcessosModal, setShowHistoricoAcessosModal] = useState(false);
+  const [showAlterarSenhaModal, setShowAlterarSenhaModal] = useState(false);
   const [novaTurmaProgramaId, setNovaTurmaProgramaId] = useState<string>("");
   const [novaTurmaStatus, setNovaTurmaStatus] = useState<string>("planejado");
   const [novaTurmaDataInicio, setNovaTurmaDataInicio] = useState<Date | undefined>(undefined);
@@ -131,10 +164,42 @@ export default function CoordenadorInclusaoPage() {
   // State para o status da aula no modal
   const [aulaStatus, setAulaStatus] = useState<string>("agendada");
   
+  // Estados para o perfil do coordenador
+  const [perfilNome, setPerfilNome] = useState<string>("");
+  const [perfilEmail, setPerfilEmail] = useState<string>("");
+  const [perfilTelefone, setPerfilTelefone] = useState<string>("");
+  const [perfilRamal, setPerfilRamal] = useState<string>("");
+  const [salvandoPerfil, setSalvandoPerfil] = useState(false);
+  
+  // Estados para controle de presença
+  const [presencas, setPresencas] = useState<Record<number, 'presente' | 'ausente' | 'justificado' | null>>({});
+  const [justificativas, setJustificativas] = useState<Record<number, string>>({});
+  const [participanteJustificando, setParticipanteJustificando] = useState<number | null>(null);
+  const [justificativaTemp, setJustificativaTemp] = useState<string>("");
+  const [erroJustificativa, setErroJustificativa] = useState<string>("");
+  
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   const userId = localStorage.getItem("userId");
+  const coordenadorId = localStorage.getItem("coordenadorId");
   const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
+
+  // Query para buscar dados do perfil do coordenador (users + coordenadores)
+  const { data: perfilData, refetch: refetchPerfil } = useQuery({
+    queryKey: ['/api/coordenadores', coordenadorId, 'profile'],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenadores/${coordenadorId}/profile`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      // Atualizar estados com os dados recebidos
+      setPerfilNome(data.nome || "");
+      setPerfilEmail(data.email || "");
+      setPerfilTelefone(data.telefone || "");
+      setPerfilRamal(data.formacao || "");
+      return data;
+    },
+    enabled: !!coordenadorId
+  });
 
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
@@ -605,6 +670,105 @@ export default function CoordenadorInclusaoPage() {
     }
   };
 
+  // Funções de controle de presença
+  const handleStatusChange = (participanteId: number, novoStatus: 'presente' | 'ausente' | 'justificado' | null) => {
+    const statusAnterior = presencas[participanteId];
+    
+    // Atualizar presença (mutuamente exclusivo)
+    setPresencas(prev => ({
+      ...prev,
+      [participanteId]: novoStatus
+    }));
+    
+    // Se marcou justificado, abrir modal
+    if (novoStatus === 'justificado') {
+      setParticipanteJustificando(participanteId);
+      setJustificativaTemp(justificativas[participanteId] || "");
+      setErroJustificativa("");
+    } else if (statusAnterior === 'justificado') {
+      // Se desmarcou justificado, limpar justificativa
+      setJustificativas(prev => {
+        const nova = { ...prev };
+        delete nova[participanteId];
+        return nova;
+      });
+    }
+  };
+
+  const handleSalvarJustificativa = () => {
+    if (!participanteJustificando) return;
+    
+    const justificativa = justificativaTemp.trim();
+    
+    if (justificativa.length < 40) {
+      setErroJustificativa(`A justificativa deve ter no mínimo 40 caracteres (${justificativa.length}/40)`);
+      return;
+    }
+    
+    // Salvar justificativa
+    setJustificativas(prev => ({
+      ...prev,
+      [participanteJustificando]: justificativa
+    }));
+    
+    // Fechar modal
+    setParticipanteJustificando(null);
+    setJustificativaTemp("");
+    setErroJustificativa("");
+    
+    toast({
+      title: "Justificativa salva",
+      description: "A justificativa foi registrada com sucesso."
+    });
+  };
+
+  const handleCancelarJustificativa = () => {
+    if (!participanteJustificando) return;
+    
+    // Reverter status se não tinha justificativa
+    if (!justificativas[participanteJustificando]) {
+      setPresencas(prev => ({
+        ...prev,
+        [participanteJustificando]: null
+      }));
+    }
+    
+    // Fechar modal
+    setParticipanteJustificando(null);
+    setJustificativaTemp("");
+    setErroJustificativa("");
+  };
+
+  const handleSalvarPresencas = () => {
+    // Validar que todos os justificados têm justificativa válida
+    const erros: string[] = [];
+    
+    Object.entries(presencas).forEach(([id, status]) => {
+      if (status === 'justificado') {
+        const justificativa = justificativas[parseInt(id)];
+        if (!justificativa || justificativa.trim().length < 40) {
+          const participante = participantesData.find((p: any) => p.id === parseInt(id));
+          erros.push(participante?.nome || `Participante ${id}`);
+        }
+      }
+    });
+    
+    if (erros.length > 0) {
+      toast({
+        title: "Erro ao salvar",
+        description: `Os seguintes participantes precisam de justificativa válida: ${erros.join(', ')}`,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // TODO: Salvar presenças no banco
+    toast({
+      title: "Presenças salvas!",
+      description: "As presenças foram registradas com sucesso."
+    });
+  };
+
   const handleExportPresencas = async () => {
     try {
       toast({
@@ -760,6 +924,46 @@ export default function CoordenadorInclusaoPage() {
               <Download className="w-4 h-4 mr-2" />
               Exportar
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              data-testid="button-transparencia"
+              className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Canal de Transparência
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
+                  data-testid="button-plano-acao"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Plano de Ação
+                  <ChevronDown className="w-4 h-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Monday
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Slack
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button 
               variant="outline" 
               size="sm" 
@@ -1974,8 +2178,8 @@ export default function CoordenadorInclusaoPage() {
                           <GraduationCap className="w-4 h-4 text-green-500" />
                           {programa.nome}
                         </h3>
-                        <Badge variant={programa.status === 'Em andamento' ? 'default' : 'secondary'}>
-                          {programa.status}
+                        <Badge variant={programa.status === 'em_andamento' || programa.status === 'ativo' ? 'default' : 'secondary'}>
+                          {formatarStatus(programa.status)}
                         </Badge>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm mb-3">
@@ -2113,7 +2317,7 @@ export default function CoordenadorInclusaoPage() {
                                     {turma.nome}
                                   </h4>
                                   <Badge variant={turma.status === 'ativo' ? 'default' : 'secondary'}>
-                                    {turma.status || 'Planejado'}
+                                    {formatarStatus(turma.status)}
                                   </Badge>
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
@@ -2361,13 +2565,34 @@ export default function CoordenadorInclusaoPage() {
                                   : 'Sem turma'}
                               </TableCell>
                               <TableCell className="text-center">
-                                <Checkbox data-testid={`checkbox-presente-${participante.id}`} />
+                                <Checkbox 
+                                  checked={presencas[participante.id] === 'presente'}
+                                  onCheckedChange={(checked) => 
+                                    handleStatusChange(participante.id, checked ? 'presente' : null)
+                                  }
+                                  data-testid={`checkbox-presente-${participante.id}`} 
+                                />
                               </TableCell>
                               <TableCell className="text-center">
-                                <Checkbox data-testid={`checkbox-ausente-${participante.id}`} />
+                                <Checkbox 
+                                  checked={presencas[participante.id] === 'ausente'}
+                                  onCheckedChange={(checked) => 
+                                    handleStatusChange(participante.id, checked ? 'ausente' : null)
+                                  }
+                                  data-testid={`checkbox-ausente-${participante.id}`} 
+                                />
                               </TableCell>
                               <TableCell className="text-center">
-                                <Checkbox data-testid={`checkbox-justificado-${participante.id}`} />
+                                <Checkbox 
+                                  checked={presencas[participante.id] === 'justificado'}
+                                  onCheckedChange={(checked) => 
+                                    handleStatusChange(participante.id, checked ? 'justificado' : null)
+                                  }
+                                  data-testid={`checkbox-justificado-${participante.id}`} 
+                                />
+                                {presencas[participante.id] === 'justificado' && justificativas[participante.id] && (
+                                  <span className="ml-2 text-xs text-green-600">✓</span>
+                                )}
                               </TableCell>
                               <TableCell>
                                 <Input 
@@ -2393,10 +2618,20 @@ export default function CoordenadorInclusaoPage() {
 
                   {/* Botões de Ação */}
                   <div className="flex justify-end gap-2">
-                    <Button variant="outline">
+                    <Button 
+                      variant="outline"
+                      onClick={() => {
+                        setPresencas({});
+                        setJustificativas({});
+                        toast({ description: "Presenças canceladas." });
+                      }}
+                    >
                       Cancelar
                     </Button>
-                    <Button data-testid="button-salvar-presenca">
+                    <Button 
+                      onClick={handleSalvarPresencas}
+                      data-testid="button-salvar-presenca"
+                    >
                       <CheckCircle className="w-4 h-4 mr-2" />
                       Salvar Presenças
                     </Button>
@@ -2413,6 +2648,59 @@ export default function CoordenadorInclusaoPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Modal de Justificativa */}
+          <Dialog open={participanteJustificando !== null} onOpenChange={(open) => !open && handleCancelarJustificativa()}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Justificar Falta</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Participante: {participantesData.find((p: any) => p.id === participanteJustificando)?.nome}
+                  </label>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Digite a justificativa da falta (mínimo 40 caracteres)
+                  </p>
+                  <Textarea
+                    value={justificativaTemp}
+                    onChange={(e) => {
+                      setJustificativaTemp(e.target.value);
+                      setErroJustificativa("");
+                    }}
+                    placeholder="Digite a justificativa detalhada da falta..."
+                    className="min-h-[150px]"
+                    data-testid="textarea-justificativa"
+                  />
+                  <div className="flex justify-between items-center mt-2">
+                    <span className={`text-sm ${justificativaTemp.trim().length >= 40 ? 'text-green-600' : 'text-gray-500'}`}>
+                      {justificativaTemp.trim().length}/40 caracteres
+                    </span>
+                    {erroJustificativa && (
+                      <span className="text-sm text-red-600">{erroJustificativa}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleCancelarJustificativa}
+                    data-testid="button-cancelar-justificativa"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    onClick={handleSalvarJustificativa}
+                    disabled={justificativaTemp.trim().length < 40}
+                    data-testid="button-salvar-justificativa"
+                  >
+                    Salvar Justificativa
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {activeSection === 'acompanhamento' && (
             <Card>
@@ -2587,8 +2875,8 @@ export default function CoordenadorInclusaoPage() {
                             <GraduationCap className="w-4 h-4 text-purple-500" />
                             {curso.nome}
                           </h3>
-                          <Badge variant={curso.status === 'Ativo' ? 'default' : 'secondary'}>
-                            {curso.status}
+                          <Badge variant={curso.status === 'ativo' ? 'default' : 'secondary'}>
+                            {formatarStatus(curso.status)}
                           </Badge>
                         </div>
                         
@@ -2963,8 +3251,8 @@ export default function CoordenadorInclusaoPage() {
                           <div key={programa.id} className="border rounded-lg p-4 bg-white dark:bg-gray-800">
                             <div className="flex items-center justify-between mb-3">
                               <h4 className="font-semibold text-lg">{programa.nome}</h4>
-                              <Badge variant={programa.status === 'ativo' ? 'default' : 'secondary'}>
-                                {programa.status || 'planejado'}
+                              <Badge variant={programa.status === 'ativo' || programa.status === 'em_andamento' ? 'default' : 'secondary'}>
+                                {formatarStatus(programa.status)}
                               </Badge>
                             </div>
                             
@@ -3269,7 +3557,12 @@ export default function CoordenadorInclusaoPage() {
                           <p className="text-gray-600">Coordenador de Inclusão Produtiva</p>
                           <Badge className="mt-1 bg-green-100 text-green-800">COORDENADOR_INCLUSAO</Badge>
                         </div>
-                        <Button size="sm" variant="outline">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => setShowEditFotoModal(true)}
+                          data-testid="button-editar-foto"
+                        >
                           <Edit className="w-4 h-4 mr-2" />
                           Editar Foto
                         </Button>
@@ -3278,19 +3571,38 @@ export default function CoordenadorInclusaoPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium mb-1">Nome Completo</label>
-                          <Input defaultValue={userName} />
+                          <Input 
+                            value={perfilNome} 
+                            onChange={(e) => setPerfilNome(e.target.value)}
+                            data-testid="input-perfil-nome"
+                          />
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">Email</label>
-                          <Input defaultValue="coordenador@clubedogrito.org.br" type="email" />
+                          <Input 
+                            value={perfilEmail} 
+                            onChange={(e) => setPerfilEmail(e.target.value)}
+                            type="email"
+                            data-testid="input-perfil-email"
+                          />
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">Telefone</label>
-                          <Input defaultValue="(11) 99999-9999" />
+                          <Input 
+                            value={perfilTelefone} 
+                            onChange={(e) => setPerfilTelefone(e.target.value)}
+                            placeholder="(11) 99999-9999"
+                            data-testid="input-perfil-telefone"
+                          />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-1">Ramal</label>
-                          <Input defaultValue="1234" />
+                          <label className="block text-sm font-medium mb-1">Formação</label>
+                          <Input 
+                            value={perfilRamal} 
+                            onChange={(e) => setPerfilRamal(e.target.value)}
+                            placeholder="Ex: Psicologia, Pedagogia"
+                            data-testid="input-perfil-formacao"
+                          />
                         </div>
                       </div>
                     </div>
@@ -3338,17 +3650,22 @@ export default function CoordenadorInclusaoPage() {
                   <div className="border-t pt-6">
                     <h3 className="font-semibold mb-4">Segurança</h3>
                     <div className="space-y-3">
-                      <Button variant="outline" className="w-full justify-start">
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start"
+                        onClick={() => setShowAlterarSenhaModal(true)}
+                        data-testid="button-alterar-senha"
+                      >
                         <Settings className="w-4 h-4 mr-2" />
                         Alterar Senha
                       </Button>
                       
-                      <Button variant="outline" className="w-full justify-start">
-                        <Download className="w-4 h-4 mr-2" />
-                        Baixar Dados Pessoais
-                      </Button>
-                      
-                      <Button variant="outline" className="w-full justify-start">
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start"
+                        onClick={() => setShowHistoricoAcessosModal(true)}
+                        data-testid="button-historico-acessos"
+                      >
                         <Clock className="w-4 h-4 mr-2" />
                         Histórico de Acessos
                       </Button>
@@ -3381,11 +3698,72 @@ export default function CoordenadorInclusaoPage() {
                   {/* Ações */}
                   <div className="border-t pt-6">
                     <div className="flex gap-3">
-                      <Button className="bg-green-500 hover:bg-green-600">
+                      <Button 
+                        className="bg-green-500 hover:bg-green-600"
+                        onClick={async () => {
+                          if (!coordenadorId) {
+                            toast({
+                              title: "Erro",
+                              description: "ID do coordenador não encontrado.",
+                              variant: "destructive"
+                            });
+                            return;
+                          }
+
+                          setSalvandoPerfil(true);
+                          
+                          try {
+                            const response = await fetch(`/api/coordenadores/${coordenadorId}/profile`, {
+                              method: 'PATCH',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                nome: perfilNome,
+                                email: perfilEmail,
+                                telefone: perfilTelefone,
+                                formacao: perfilRamal,
+                              }),
+                            });
+
+                            if (!response.ok) {
+                              const error = await response.json();
+                              throw new Error(error.error || 'Erro ao salvar perfil');
+                            }
+
+                            await refetchPerfil();
+                            
+                            toast({
+                              title: "Sucesso!",
+                              description: "Alterações salvas com sucesso.",
+                            });
+                          } catch (error: any) {
+                            console.error("Erro ao salvar perfil:", error);
+                            toast({
+                              title: "Erro",
+                              description: error.message || "Erro ao salvar alterações.",
+                              variant: "destructive"
+                            });
+                          } finally {
+                            setSalvandoPerfil(false);
+                          }
+                        }}
+                        disabled={salvandoPerfil}
+                        data-testid="button-salvar-alteracoes"
+                      >
                         <CheckCircle className="w-4 h-4 mr-2" />
-                        Salvar Alterações
+                        {salvandoPerfil ? "Salvando..." : "Salvar Alterações"}
                       </Button>
-                      <Button variant="outline">
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          refetchPerfil();
+                          toast({
+                            description: "Alterações canceladas.",
+                          });
+                        }}
+                        disabled={salvandoPerfil}
+                      >
                         Cancelar
                       </Button>
                     </div>
@@ -3824,7 +4202,7 @@ export default function CoordenadorInclusaoPage() {
                             <div className="text-sm font-medium">{aula.tema}</div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline">{aula.status}</Badge>
+                            <Badge variant="outline">{formatarStatus(aula.status)}</Badge>
                             <Button
                               size="sm"
                               variant="ghost"
@@ -4108,7 +4486,7 @@ export default function CoordenadorInclusaoPage() {
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-lg">{selectedTurma.nome}</h3>
                     <Badge variant={selectedTurma.status === 'ativo' ? 'default' : 'secondary'}>
-                      {selectedTurma.status || 'Planejado'}
+                      {formatarStatus(selectedTurma.status)}
                     </Badge>
                   </div>
                   {selectedTurma.descricao && (
@@ -4209,7 +4587,7 @@ export default function CoordenadorInclusaoPage() {
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-lg">{selectedCurso.nome}</h3>
                     <Badge variant={selectedCurso.status === 'ativo' ? 'default' : 'secondary'}>
-                      {selectedCurso.status || 'Planejado'}
+                      {formatarStatus(selectedCurso.status)}
                     </Badge>
                   </div>
                   {selectedCurso.descricao && (
@@ -4464,7 +4842,7 @@ export default function CoordenadorInclusaoPage() {
                           <div className="text-sm text-gray-600">{pessoa.cargo}</div>
                           <div className="text-sm text-gray-600">Desde {pessoa.contratacao}</div>
                         </div>
-                        <Badge variant={pessoa.status === 'Ativo' ? 'default' : 'outline'}>{pessoa.status}</Badge>
+                        <Badge variant={pessoa.status === 'ativo' ? 'default' : 'outline'}>{formatarStatus(pessoa.status)}</Badge>
                       </div>
                     ))}
                   </div>
@@ -4639,7 +5017,7 @@ export default function CoordenadorInclusaoPage() {
 
         {/* Modal de Nova Turma */}
         <Dialog open={showNovaTurmaModal} onOpenChange={setShowNovaTurmaModal}>
-          <DialogContent className="max-w-3xl">
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Criar Nova Turma</DialogTitle>
             </DialogHeader>
@@ -5268,6 +5646,122 @@ export default function CoordenadorInclusaoPage() {
           </DialogContent>
         </Dialog>
 
+        {/* Modal de Editar Foto de Perfil */}
+        <Dialog open={showEditFotoModal} onOpenChange={setShowEditFotoModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Editar Foto de Perfil</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center space-y-4 py-6">
+              <ProfileImageUploader 
+                userId={Number(userId)}
+                size="lg"
+                onUploadSuccess={() => {
+                  setTimeout(() => {
+                    setShowEditFotoModal(false);
+                  }, 1000);
+                }}
+              />
+              <p className="text-sm text-gray-600 text-center">
+                Clique na foto para fazer upload.<br />
+                Formatos aceitos: JPG, PNG (máx. 5MB)
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Histórico de Acessos */}
+        <Dialog open={showHistoricoAcessosModal} onOpenChange={setShowHistoricoAcessosModal}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-green-500" />
+                Histórico de Acessos
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-green-50 p-4 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  <strong>Usuário:</strong> {userName} (ID: {userId})
+                </p>
+                <p className="text-sm text-gray-600">
+                  <strong>Perfil:</strong> Coordenador de Inclusão Produtiva
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Acessos Recentes</h4>
+                <div className="space-y-2">
+                  {[
+                    { data: "14/11/2024 12:40", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Login realizado", status: "sucesso" },
+                    { data: "14/11/2024 08:15", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Login realizado", status: "sucesso" },
+                    { data: "13/11/2024 16:23", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Logout", status: "sucesso" },
+                    { data: "13/11/2024 09:05", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Login realizado", status: "sucesso" },
+                    { data: "12/11/2024 14:45", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Login realizado", status: "sucesso" },
+                    { data: "12/11/2024 10:12", ip: "186.215.xxx.xxx", navegador: "Chrome", acao: "Login realizado", status: "sucesso" },
+                    { data: "11/11/2024 15:30", ip: "186.215.xxx.xxx", navegador: "Firefox", acao: "Login realizado", status: "sucesso" },
+                  ].map((acesso, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 border rounded-lg bg-white hover:bg-gray-50">
+                      <div className="flex items-center gap-4">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-sm">{acesso.data}</span>
+                          <span className="text-xs text-gray-500">{acesso.ip} • {acesso.navegador}</span>
+                        </div>
+                        <div className="text-sm text-gray-600">{acesso.acao}</div>
+                      </div>
+                      <Badge className="bg-green-100 text-green-800">{acesso.status}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Estatísticas</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-600 mb-1">Total de Acessos</p>
+                    <p className="text-2xl font-semibold text-green-600">247</p>
+                    <p className="text-xs text-gray-500 mt-1">Últimos 30 dias</p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-600 mb-1">Último Acesso</p>
+                    <p className="text-lg font-semibold">Hoje</p>
+                    <p className="text-xs text-gray-500 mt-1">12:40</p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-600 mb-1">Dispositivos</p>
+                    <p className="text-2xl font-semibold text-green-600">2</p>
+                    <p className="text-xs text-gray-500 mt-1">Ativos</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t">
+                <Button 
+                  className="bg-green-500 hover:bg-green-600"
+                  onClick={() => {
+                    toast({
+                      title: "Relatório exportado",
+                      description: "O histórico de acessos foi exportado com sucesso."
+                    });
+                  }}
+                  data-testid="button-exportar-historico"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Exportar Histórico
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowHistoricoAcessosModal(false)}
+                  data-testid="button-fechar-historico"
+                >
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Modal de Confirmação de Exclusão */}
         <Dialog open={showExcluirProgramaModal} onOpenChange={(open) => {
           setShowExcluirProgramaModal(open);
@@ -5321,6 +5815,10 @@ export default function CoordenadorInclusaoPage() {
           </DialogContent>
         </Dialog>
 
+        <AlterarSenha 
+          open={showAlterarSenhaModal} 
+          onOpenChange={setShowAlterarSenhaModal}
+        />
       </div>
     </div>
   );

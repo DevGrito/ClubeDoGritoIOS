@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import Logo from "@/components/logo";
 import BottomNavigation from "@/components/bottom-navigation";
 import { StoriesViewerFinal } from '@/components/StoriesViewerFinal';
-import { TrendingUp, Users, Target, Award, Heart, Rocket, Menu, User, Gift, CreditCard, BookOpen, ChevronRight, RefreshCw, LogOut, Shield, PieChart, UserCheck, Calendar } from "lucide-react";
+import { TrendingUp, Users, Target, Award, Heart, Rocket, Menu, User, Gift, CreditCard, BookOpen, ChevronRight, RefreshCw, LogOut, Shield, PieChart, UserCheck, Calendar, ExternalLink } from "lucide-react";
 import { Cell, PieChart as RechartsPie, Pie, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { StripeKeyManager } from "@/components/StripeKeyManager";
@@ -135,6 +135,7 @@ export default function Impacto() {
   const [atendimentosAnimated, setAtendimentosAnimated] = useState(0);
   const [pessoasImpactadasAnimated, setPessoasImpactadasAnimated] = useState(0);
   const [impactoAnualAnimated, setImpactoAnualAnimated] = useState(0);
+  const [atendimentosSocioAnimated, setAtendimentosSocioAnimated] = useState(0);
   
   // Cores para os gráficos - Tons de Amarelo e Laranja
   const COLORS_PESSOAS = ['#FFD700', '#FFA500'];
@@ -196,10 +197,32 @@ export default function Impacto() {
     }
   }, [gestaoVistaData]);
 
+  // Animar contador de Horas/Aula (sempre mostra 226.359)
+  useEffect(() => {
+    const targetValue = 226359;
+    const duration = 3000; // 3 segundos
+    const steps = 60;
+    const stepTime = duration / steps;
+    const increment = targetValue / steps;
+
+    let currentValue = 0;
+    const interval = setInterval(() => {
+      currentValue += increment;
+      if (currentValue >= targetValue) {
+        setHoraAulaAnimated(targetValue);
+        clearInterval(interval);
+      } else {
+        setHoraAulaAnimated(Math.floor(currentValue));
+      }
+    }, stepTime);
+
+    return () => clearInterval(interval);
+  }, []); // Executa apenas uma vez ao montar o componente
+
   // Animar contador de Impacto Anual (sempre mostra 317.062)
   useEffect(() => {
     const targetValue = 317062;
-    const duration = 2000; // 2 segundos
+    const duration = 3000; // 3 segundos
     const steps = 60;
     const stepTime = duration / steps;
     const increment = targetValue / steps;
@@ -212,6 +235,28 @@ export default function Impacto() {
         clearInterval(interval);
       } else {
         setImpactoAnualAnimated(Math.floor(currentValue));
+      }
+    }, stepTime);
+
+    return () => clearInterval(interval);
+  }, []); // Executa apenas uma vez ao montar o componente
+
+  // Animar contador de Atendimentos Socioemocionais (sempre mostra 5.024)
+  useEffect(() => {
+    const targetValue = 5024;
+    const duration = 3000; // 3 segundos
+    const steps = 60;
+    const stepTime = duration / steps;
+    const increment = targetValue / steps;
+
+    let currentValue = 0;
+    const interval = setInterval(() => {
+      currentValue += increment;
+      if (currentValue >= targetValue) {
+        setAtendimentosSocioAnimated(targetValue);
+        clearInterval(interval);
+      } else {
+        setAtendimentosSocioAnimated(Math.floor(currentValue));
       }
     }, stepTime);
 
@@ -324,46 +369,52 @@ export default function Impacto() {
 
   // Converter histórias do banco para o formato do StoriesViewer
   const convertToStories = (historias: any[]) => {
-    if (!historias || historias.length === 0) {
-      return []; // Retorna lista vazia se não houver histórias
-    }
-    
-    return historias.map(historia => {
-      const processedImageBox = processImageUrl(historia.imagemBox);
-      const processedImageStory = processImageUrl(historia.imagemStory);
-      const texto = historia.texto || `A história de ${historia.nome || historia.titulo} é uma demonstração real de como o Clube do Grito transforma vidas. Cada doação contribui para mudanças significativas na comunidade.`;
-      const textSlides = splitTextIntoSlides(texto, 800); // Limite de 800 caracteres por slide
-      
-      const slides: any[] = [
-        {
-          id: `${historia.id}_1`,
-          type: 'image' as const,
-          image: processedImageStory, // Usar imagem do story para o story completo
-          title: historia.titulo,
-          duration: 5
-        }
-      ];
-      
-      // Adicionar slides de texto baseados na quebra
-      textSlides.forEach((textPart, index) => {
-        slides.push({
-          id: `${historia.id}_text_${index + 1}`,
-          type: 'text' as const,
-          content: textPart,
-          backgroundColor: '#FFD700',
-          duration: 6
-        });
-      });
-      
-      return {
-        id: historia.id.toString(),
+  if (!historias || historias.length === 0) {
+    return []; // Retorna lista vazia se não houver histórias
+  }
+
+  return historias.map((historia) => {
+    // Sempre monta pelas rotas da API
+    const boxUrl   = `/api/historias-inspiradoras/${historia.id}/imagem?tipo=box`;
+    const storyUrl = `/api/historias-inspiradoras/${historia.id}/imagem?tipo=story`;
+
+    const texto =
+      historia.texto ||
+      `A história de ${
+        historia.nome || historia.titulo
+      } é uma demonstração real de como o Clube do Grito transforma vidas. Cada doação contribui para mudanças significativas na comunidade.`;
+
+    const textSlides = splitTextIntoSlides(texto, 800); // 800 chars aqui na tela de impacto
+
+    const slides: any[] = [
+      {
+        id: `${historia.id}_1`,
+        type: "image" as const,
+        image: storyUrl || boxUrl,      // 👈 imagem que aparece no Story fullscreen
         title: historia.titulo,
-        name: historia.nome || historia.titulo,
-        image: processedImageBox, // Usar imagem do box para os cards
-        slides
-      };
+        duration: 5,
+      },
+    ];
+
+    textSlides.forEach((textPart, index) => {
+      slides.push({
+        id: `${historia.id}_text_${index + 1}`,
+        type: "text" as const,
+        content: textPart,
+        backgroundColor: "#FFD700",
+        duration: 6,
+      });
     });
-  };
+
+    return {
+      id: historia.id.toString(),
+      title: historia.titulo,
+      name: historia.nome || historia.titulo,
+      image: boxUrl,                   // 👈 imagem usada nos cards
+      slides,
+    };
+  });
+};
 
   // Removido: histórias mock para exibir apenas histórias reais do banco
 
@@ -413,7 +464,7 @@ export default function Impacto() {
         const scrollLeft = metricasScrollRef.current.scrollLeft;
         const cardWidth = 280 + 24; // largura do card (280px) + gap (24px)
         const currentIndex = Math.round(scrollLeft / cardWidth);
-        setCurrentMetricaSlide(Math.max(0, Math.min(1, currentIndex))); // 2 cards (0-1)
+        setCurrentMetricaSlide(Math.max(0, Math.min(2, currentIndex))); // 3 cards (0-2)
       }
     };
 
@@ -573,11 +624,10 @@ export default function Impacto() {
     return `${monthNames[now.getMonth()]} de ${now.getFullYear()}`;
   };
   
-  // Função para calcular pessoas em formação (Inclusão Produtiva)
-  // Pega do endpoint gestao-vista o valor do MÊS ATUAL
-  const getPessoasEmFormacao = () => {
-    if (!gestaoVistaMensal?.indicadores?.alunosEmFormacao) return 0;
-    return gestaoVistaMensal.indicadores.alunosEmFormacao.valor;
+  // Função para calcular alunos formados (TOTAL ANUAL - Gestão à Vista)
+  const getAlunosFormados = () => {
+    if (!gestaoVistaData?.indicadores?.alunosFormados) return 0;
+    return gestaoVistaData.indicadores.alunosFormados.valor;
   };
   
   // Função para calcular visitas em domicílio (TOTAL ANUAL - sempre anual)
@@ -724,7 +774,7 @@ export default function Impacto() {
                 </div>
               </div>
 
-              {/* Pessoas em Formação (Inclusão Produtiva) */}
+              {/* Alunos Formados */}
               <div className="flex items-start gap-4 group cursor-pointer">
                 <div className="relative flex items-center justify-center">
                   <div className="w-8 h-8 bg-gray-400 group-hover:bg-purple-500 rounded-2xl flex items-center justify-center z-10 transition-all duration-300 transform group-hover:scale-110">
@@ -733,13 +783,13 @@ export default function Impacto() {
                 </div>
                 <div className="flex-1 bg-gray-200 group-hover:bg-purple-500 rounded-2xl p-4 transition-all duration-300 transform group-hover:scale-105 group-hover:shadow-lg">
                   <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-gray-500 group-hover:text-black text-base">Pessoas em Formação</h4>
+                    <h4 className="font-bold text-gray-500 group-hover:text-black text-base">Alunos Formados</h4>
                   </div>
                   <p className="text-gray-500 group-hover:text-black text-sm mb-1">
-                    {getPessoasEmFormacao()} alunos estão em formação no Inclusão Produtiva
+                    {getAlunosFormados()} alunos formados no Inclusão Produtiva
                   </p>
                   <div className="flex items-center gap-2 text-xs text-gray-400 group-hover:text-black/80">
-                    <span>📍 outubro de 2025</span>
+                    <span>📍 total anual {ano}</span>
                   </div>
                 </div>
               </div>
@@ -1081,7 +1131,7 @@ export default function Impacto() {
                   </h3>
                   <div className="text-center">
                     <div className="text-4xl font-extrabold text-gray-900 font-sans">
-                      226.359
+                      {horaAulaAnimated.toLocaleString('pt-BR')}
                     </div>
                   </div>
                 </div>
@@ -1097,12 +1147,24 @@ export default function Impacto() {
                     </div>
                   </div>
                 </div>
+
+                {/* Card 3: Atendimentos Socioemocionais */}
+                <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg flex flex-col items-center justify-center snap-center" style={{width: '280px', height: '200px'}}>
+                  <h3 className="text-base font-bold text-gray-900 mb-2 text-center font-sans">
+                    Atendimentos Socioemocionais
+                  </h3>
+                  <div className="text-center">
+                    <div className="text-4xl font-extrabold text-gray-900 font-sans">
+                      {atendimentosSocioAnimated.toLocaleString('pt-BR')}
+                    </div>
+                  </div>
+                </div>
             </div>
           </div>
           
           {/* Indicadores de navegação para as métricas */}
           <div className="flex justify-center gap-2 mt-6">
-            {[0, 1].map((index) => (
+            {[0, 1, 2].map((index) => (
               <button
                 key={index}
                 onClick={() => {
@@ -1125,50 +1187,45 @@ export default function Impacto() {
           </div>
         </div>
 
-        {/* Seção Histórias que Inspiram */}
-        <div className="px-5 mb-8 mt-5">
-          {/* Título da seção com botão de atualização */}
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-800 text-left">Histórias que Inspiram</h3>
-            <button
-              onClick={forceRefreshHistorias}
-              className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all duration-200"
-              title="Atualizar histórias"
-            >
-              <RefreshCw className="w-5 h-5" />
-            </button>
-          </div>
-          
+ {/* 9. Histórias que Inspiram */}
+        <div className="mb-6">
+          {/* Título da seção */}
+          <h3 className="text-xl font-bold text-gray-800 mb-4 text-left">
+            Histórias que Inspiram
+          </h3>
+
           {/* Container de rolagem horizontal */}
-          <div 
-            ref={historiasScrollRef}
-            className="overflow-x-auto pb-4 -mx-4 md:-mx-8 scroll-smooth" 
-            style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}
-          >
-            <style>{`
-              div::-webkit-scrollbar {
-                display: none;
-              }
-            `}</style>
-            <div className="flex space-x-4 px-4 md:px-8" style={{width: 'fit-content'}}>
-              
+           <div
+              ref={historiasScrollRef}
+              className="overflow-x-auto pb-4 -mx-4 md:-mx-8"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+            <div
+              className="flex space-x-4 px-4 md:px-8"
+              style={{ width: "fit-content" }}
+            >
               {/* Renderizar cards dinamicamente baseado nos dados do banco */}
               {finalStories.map((story, index) => (
-                <div 
+                <div
                   key={story.id}
                   onClick={() => openStories(index)}
                   className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                   style={{
-                    width: '320px',
-                    height: '180px',
-                    backgroundImage: story.image ? `url("${story.image}")` : 'url("https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face")',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center'
+                    width: "320px",
+                    height: "180px",
+                    backgroundImage: `url("/api/historias-inspiradoras/${
+                      story.id
+                    }/imagem?tipo=box"), url(${JSON.stringify(
+                      story.image ||
+                        "https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face"
+                    )})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
                   }}
                 >
                   {/* Overlay escuro */}
                   <div className="absolute inset-0 bg-black/30"></div>
-                  
+
                   {/* Texto sobreposto */}
                   <div className="absolute bottom-4 left-4 text-white">
                     <h4 className="text-lg font-bold">Conheça</h4>
@@ -1176,7 +1233,6 @@ export default function Impacto() {
                   </div>
                 </div>
               ))}
-
             </div>
           </div>
           
@@ -1365,6 +1421,31 @@ export default function Impacto() {
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
                       Segurança e clareza em cada passo.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Denúncias e sugestões com sigilo.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />

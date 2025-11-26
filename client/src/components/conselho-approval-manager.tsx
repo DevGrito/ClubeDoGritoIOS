@@ -31,12 +31,14 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
 
   const approvalMutation = useMutation({
     mutationFn: async ({ telefone, action }: { telefone: string; action: "approve" | "reject" }) => {
-      const response = await apiRequest("POST", "/api/admin/conselho-approve", {
-        telefone,
-        action,
-        approvedBy: approverName,
+      return await apiRequest("/api/admin/conselho-approve", {
+        method: "POST",
+        body: JSON.stringify({
+          telefone,
+          action,
+          approvedBy: approverName,
+        }),
       });
-      return response.json();
     },
     onSuccess: (data, variables) => {
       toast({

@@ -317,7 +317,13 @@ export function hasAccessToScreen(userType: string, screenPath: string): boolean
 // Obter todos os usuários consolidados para o painel do desenvolvedor
 export async function getAllConsolidatedUsers(): Promise<ConsolidatedUser[]> {
   try {
-    const allUsers = await db.select().from(users);
+    const allUsers = await db
+      .select()
+      .from(users)
+      .orderBy(desc(users.id)); // ou createdAt, se existir
+
+    console.log(`[DEV] getAllConsolidatedUsers: ${allUsers.length} usuários encontrados`);
+
     return allUsers.map(formatUser);
   } catch (error) {
     console.error('Erro ao buscar usuários consolidados:', error);

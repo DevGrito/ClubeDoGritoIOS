@@ -1,13 +1,13 @@
-
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import girlImage from "@assets/Gemini_Generated_Image_4go0l24go0l24go0_1763145562380.png";
 
-export default function CoordenadorLogin() {
+export default function MonitorLogin() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -16,7 +16,6 @@ export default function CoordenadorLogin() {
   const { toast } = useToast();
 
   const handleLogin = async () => {
-    // Validar email
     if (!email.trim()) {
       toast({
         title: "Email obrigatório",
@@ -26,18 +25,6 @@ export default function CoordenadorLogin() {
       return;
     }
 
-    // Validar formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
-      toast({
-        title: "Email inválido",
-        description: "Por favor, digite um email válido",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Validar senha
     if (!senha.trim()) {
       toast({
         title: "Senha obrigatória",
@@ -47,77 +34,35 @@ export default function CoordenadorLogin() {
       return;
     }
 
-    // Validar política de senha
-    if (senha.length < 8) {
-      toast({
-        title: "Senha muito curta",
-        description: "A senha deve ter no mínimo 8 caracteres",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!/[A-Z]/.test(senha)) {
-      toast({
-        title: "Senha fraca",
-        description: "A senha deve conter pelo menos uma letra maiúscula",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!/[0-9]/.test(senha)) {
-      toast({
-        title: "Senha fraca",
-        description: "A senha deve conter pelo menos um número",
-        variant: "destructive"
-      });
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const response = await fetch("/api/login/coordenador", {
+      const data = await apiRequest("/api/login/monitor", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), senha: senha.trim() }),
-        credentials: 'include'
+        body: JSON.stringify({ email: email.trim(), senha: senha.trim() })
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        toast({
-          title: "Erro no login",
-          description: data.error || "Coordenador não encontrado",
-          variant: "destructive"
-        });
-        setLoading(false);
-        return;
-      }
-
-      sessionStorage.setItem("coordenador_auth", "true");
-      sessionStorage.setItem("coordenador_data", JSON.stringify(data.coordenador));
+      sessionStorage.setItem("monitor_auth", "true");
+      sessionStorage.setItem("monitor_data", JSON.stringify(data.monitor));
       
       localStorage.setItem("userId", data.userId.toString());
-      localStorage.setItem("coordenadorId", data.coordenador.id.toString());
-      localStorage.setItem("userEmail", data.coordenador.email || "");
-      localStorage.setItem("userName", data.coordenador.nome || "Coordenador");
-      localStorage.setItem("userPapel", data.role || data.coordenador.role || "coordenador");
+      localStorage.setItem("monitorId", data.monitor.id.toString());
+      localStorage.setItem("userPapel", data.monitor.role || "monitor");
+      localStorage.setItem("userName", data.monitor.nome || "Monitor");
       localStorage.setItem("isVerified", "true");
 
-      console.log("✅ Login bem-sucedido:", data.coordenador, "userId:", data.userId, "role:", data.role);
+      console.log("✅ Login bem-sucedido:", data.monitor, "userId:", data.userId);
 
-      setLocation(data.coordenador.redirectPath);
+      setLocation(data.monitor.redirectPath || "/rbac/monitor");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao fazer login:", error);
       toast({
-        title: "Erro",
-        description: "Erro ao conectar com o servidor",
+        title: "Erro no login",
+        description: error.message || "Verifique suas credenciais",
         variant: "destructive"
       });
+    } finally {
       setLoading(false);
     }
   };
@@ -170,7 +115,7 @@ export default function CoordenadorLogin() {
                     onChange={(e) => setEmail(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && !loading && handleLogin()}
                     className="h-11 pl-10 bg-white border-0 text-gray-900 placeholder:text-gray-400 text-sm focus:ring-2 focus:ring-white/50 rounded-xl"
-                    data-testid="input-email-coordenador"
+                    data-testid="input-email-monitor"
                     disabled={loading}
                     aria-label="E-mail institucional"
                     autoComplete="off"
@@ -197,7 +142,7 @@ export default function CoordenadorLogin() {
                     className="h-11 pl-10 pr-10 bg-white border-0 text-gray-900 placeholder:text-gray-400 text-sm focus:ring-2 focus:ring-white/50 rounded-xl"
                     disabled={loading}
                     aria-label="Senha"
-                    data-testid="input-senha-coordenador"
+                    data-testid="input-senha-monitor"
                     autoComplete="new-password"
                   />
                   <button
@@ -205,7 +150,7 @@ export default function CoordenadorLogin() {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                     aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                    data-testid="button-toggle-password-coordenador"
+                    data-testid="button-toggle-password-monitor"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -215,7 +160,7 @@ export default function CoordenadorLogin() {
               {/* Identificador da tela */}
               <div className="text-center">
                 <p className="text-sm text-white/80">
-                  Acesso para Coordenadores
+                  Acesso para Monitores
                 </p>
               </div>
 
@@ -223,7 +168,7 @@ export default function CoordenadorLogin() {
               <Button 
                 onClick={handleLogin}
                 className="w-full h-12 bg-green-600 hover:bg-yellow-500 text-white font-bold text-base rounded-xl shadow-lg transition-all"
-                data-testid="button-login-coordenador"
+                data-testid="button-login-monitor"
                 disabled={loading}
               >
                 {loading ? (

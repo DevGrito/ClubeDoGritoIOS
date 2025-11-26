@@ -49,7 +49,12 @@ import {
   Trophy,
   Code,
   Menu,
-  Filter
+  Filter,
+  Monitor,
+  ChevronUp,
+  ChevronDown,
+  ExternalLink,
+  ClipboardList
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +65,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useLocation } from "wouter";
 import Logo from "@/components/logo";
 import { leoMartinsEmail, isLeoMartins } from "@shared/conselho";
@@ -649,6 +660,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [mesSelecionadoDashboard, setMesSelecionadoDashboard] = useState<number>(7); // 7 = Agosto - Dashboard geral
   const [marketingData, setMarketingData] = useState<any>(null);
   const [anoPatrocinador, setAnoPatrocinador] = useState<number>(2024); // Ano selecionado para patrocinadores (ano anterior)
+  const [selectedArea, setSelectedArea] = useState<string | null>(null); // Área selecionada de cursos (tecnologia, beleza, etc.)
+  const [selectedModalidade, setSelectedModalidade] = useState<string | null>(null); // Modalidade selecionada (presencial/ead)
   const isMobile = useIsMobile();
   const anoAnterior = new Date().getFullYear() - 1;
 
@@ -934,6 +947,35 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const { data: doadoresData } = useQuery<any>({
     queryKey: ['/api/doadores/stats'],
   });
+
+  // Buscar dados demográficos (Gênero, Raça/Cor, Idade)
+  const { data: dadosDemograficos, isLoading: loadingDemograficos } = useQuery<{
+    success: boolean;
+    totalParticipantes: number;
+    genero: Array<{ name: string; value: number; percentage: number }>;
+    racaCor: Array<{ name: string; value: number; percentage: number }>;
+    idade: Array<{ name: string; value: number; percentage: number }>;
+  }>({
+    queryKey: ['/api/dados-demograficos'],
+    refetchInterval: 300000,
+    refetchOnMount: true,
+  });
+
+  // Cores para os gráficos demográficos
+  const COLORS_RACA = ['#FFD700', '#FFC107', '#FF9800', '#F97316'];
+  const COLORS_GENERO = ['#FFD700', '#FF9800', '#FF6B00'];
+  const COLORS_IDADE = ['#FFD700', '#FFC107', '#FF9800', '#FF6B00', '#F97316'];
+
+  // Queries de Cursos de Inclusão Produtiva
+  const { data: tecnologiaData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/tecnologia'], enabled: selectedArea === 'tecnologia' });
+  const { data: belezaData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/beleza'], enabled: selectedArea === 'beleza' });
+  const { data: artesanatoData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/artesanato'], enabled: selectedArea === 'artesanato' });
+  const { data: empreendedorismoData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/empreendedorismo'], enabled: selectedArea === 'empreendedorismo' });
+  const { data: administrativoData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/administrativo'], enabled: selectedArea === 'administrativo' });
+  const { data: socioemocionalData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/socioemocional'], enabled: selectedArea === 'socioemocional' });
+  const { data: educacionalData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/educacional'], enabled: selectedArea === 'educacional' });
+  const { data: operacionalData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/operacional'], enabled: selectedArea === 'operacional' });
+  const { data: gastronomiaData } = useQuery<any>({ queryKey: ['/api/inclusao-produtiva/gastronomia'], enabled: selectedArea === 'gastronomia' });
 
   // Dados OFICIAIS dos Patrocinadores 2024 (Total: 56)
   const patrocinadores2024 = [
@@ -2253,7 +2295,134 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </Card>
       </div>
 
+      {/* Gráficos Demográficos - Gênero e Raça/Cor */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Gráfico de Gênero */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4 text-yellow-600" />
+              Gênero
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              {loadingDemograficos ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+                </div>
+              ) : dadosDemograficos?.genero && dadosDemograficos.genero.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPieChart>
+                    <Pie
+                      data={dadosDemograficos.genero}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ percentage }: any) => `${percentage}%`}
+                      outerRadius={60}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {dadosDemograficos.genero.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS_GENERO[index % COLORS_GENERO.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} iconType="square" />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500 flex items-center justify-center h-full">Sem dados</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
+        {/* Gráfico de Raça/Cor */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4 text-orange-600" />
+              Raça/Cor
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              {loadingDemograficos ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+                </div>
+              ) : dadosDemograficos?.racaCor && dadosDemograficos.racaCor.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPieChart>
+                    <Pie
+                      data={dadosDemograficos.racaCor}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ percentage }: any) => `${percentage}%`}
+                      outerRadius={60}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {dadosDemograficos.racaCor.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS_RACA[index % COLORS_RACA.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} iconType="square" />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500 flex items-center justify-center h-full">Sem dados</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico de Idade */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-600" />
+              Faixa Etária
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[200px]">
+              {loadingDemograficos ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
+                </div>
+              ) : dadosDemograficos?.idade && dadosDemograficos.idade.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPieChart>
+                    <Pie
+                      data={dadosDemograficos.idade}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ percentage }: any) => `${percentage}%`}
+                      outerRadius={60}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {dadosDemograficos.idade.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS_IDADE[index % COLORS_IDADE.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} iconType="square" />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500 flex items-center justify-center h-full">Sem dados</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Nosso Impacto - Gestão à Vista */}
       <Card>
@@ -2509,29 +2678,48 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       case "dashboard":
         return renderDashboard();
       case "doador":
-        // Dados dos doadores da planilha COM PERÍODO
-        const doadoresPlanilha = [
-          { nome: "RODRIGO OTAVIO SANTOS", valor: 50.00, periodo: "2 anos" },
-          { nome: "RODRIGO FERNANDES", valor: 1000.00, periodo: "2 anos" },
-          { nome: "RICARDO GUIMARÃES", valor: 1000.00, periodo: "2 anos" },
-          { nome: "SILVERIO J COELHO", valor: 100.00, periodo: "2 anos" },
-          { nome: "HUDSON OLIVEIRA", valor: 100.00, periodo: "2 anos" },
-          { nome: "LEONARDO SOUSA RODRIGUES", valor: 25.00, periodo: "2 anos" },
-          { nome: "CATARINA ALMEIDA", valor: 605.40, periodo: "3 anos" },
-          { nome: "MARIA REGINA DE REZENDE TEIXEIRA", valor: 3000.00, periodo: "2 anos" },
-          { nome: "Sabrina Vitória", valor: 59.40, periodo: "1 mês" },
-          { nome: "Léo Martins", valor: 50.00, periodo: "1 mês" },
-          { nome: "Carolaine Amanda Batista Dos Santos", valor: 9.90, periodo: "1 ano" },
-          { nome: "Ricardo Santos", valor: 9.90, periodo: "1 mês" },
-          { nome: "Alessandra Rodrigues Martins", valor: 9.90, periodo: "1 mês" },
-          { nome: "Emily Cristina", valor: 9.90, periodo: "2 semanas" },
-          { nome: "Renata Francine Magalhães dos Santos", valor: 9.90, periodo: "2 semanas" }
-        ];
+        // Processar dados dos doadores do Stripe
+        const processarDoadoresStripe = () => {
+          if (!doadoresData?.customers) {
+            return [];
+          }
 
-        const doadoresUnicos = Array.from(new Set(doadoresPlanilha.map(d => d.nome)));
-        const totalDoadores = doadoresUnicos.length;
+          return doadoresData.customers.map((customer: any) => {
+            // Extrair dados do customer
+            const id = customer.id;
+            const nome = customer.name || customer.email || 'Doador Anônimo';
+            const email = customer.email;
+            
+            // Pegar a primeira subscription ativa se houver
+            const subscription = customer.subscriptions?.data?.[0];
+            
+            // Calcular valor (em BRL, converter de centavos para reais)
+            let valor = 0;
+            if (subscription?.items?.data?.[0]?.price) {
+              valor = subscription.items.data[0].price.unit_amount / 100;
+            }
+            
+            // Calcular período baseado na data de criação da subscription
+            let periodo = "Sem assinatura";
+            if (subscription?.created) {
+              const mesesAtivo = Math.floor((Date.now() / 1000 - subscription.created) / (30 * 24 * 60 * 60));
+              if (mesesAtivo >= 36) periodo = "3 anos";
+              else if (mesesAtivo >= 24) periodo = "2 anos";
+              else if (mesesAtivo >= 12) periodo = "1 ano";
+              else if (mesesAtivo >= 1) periodo = "1 mês";
+              else periodo = "2 semanas";
+            }
+            
+            return { id, nome, email, valor, periodo };
+          });
+        };
+
+        const doadoresPlanilha = processarDoadoresStripe();
+
+        // Usar IDs únicos para evitar duplicação (vários podem ter nome "Doador Anônimo")
+        const totalDoadores = doadoresPlanilha.length;
         const arrecadacaoTotal = doadoresPlanilha.reduce((acc, d) => acc + d.valor, 0);
-        const doacaoMedia = arrecadacaoTotal / doadoresPlanilha.length;
+        const doacaoMedia = doadoresPlanilha.length > 0 ? arrecadacaoTotal / doadoresPlanilha.length : 0;
 
         // Estatísticas por período
         const doadoresPorPeriodo = doadoresPlanilha.reduce((acc: any, d) => {
@@ -3673,6 +3861,19 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <FileText className="w-4 h-4 mr-2" />
                     Ver de Notícias
                   </Button>
+                  <Button
+                    onClick={() =>
+                      window.open(
+                        "https://complaint-tracker-OGRITO.replit.app",
+                        "_blank"
+                      )
+                    }
+                    variant="outline"
+                    className="w-full justify-start bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Canal de Transparência
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -4159,6 +4360,615 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </Card>
               );
             })}
+
+            {/* NOVA SEÇÃO: Cursos Detalhados por Área */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-green-700">
+                  <Award className="w-5 h-5" />
+                  Cursos por Área (Detalhado)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                
+                {/* Card Tecnologia */}
+                <div className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden">
+                  <div
+                    className="p-4 cursor-pointer transition-all duration-300 hover:bg-yellow-100"
+                    onClick={() => setSelectedArea(selectedArea === 'tecnologia' ? null : 'tecnologia')}
+                    data-testid="card-area-tecnologia"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Monitor className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Tecnologia</h3>
+                      </div>
+                      {selectedArea === 'tecnologia' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedArea === 'tecnologia' && (
+                    <div className="px-4 pb-4 space-y-3">
+                      {tecnologiaData?.data.presencial && tecnologiaData.data.presencial.cursos.length > 0 && (
+                        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                          <div
+                            className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                            onClick={() => setSelectedModalidade(selectedModalidade === 'presencial' ? null : 'presencial')}
+                            data-testid="btn-modalidade-presencial"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-5 h-5 text-yellow-600" />
+                                <span className="font-semibold text-gray-800">Presencial</span>
+                              </div>
+                              {selectedModalidade === 'presencial' ? (
+                                <ChevronUp className="w-4 h-4 text-gray-600" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-600" />
+                              )}
+                            </div>
+                          </div>
+
+                          {selectedModalidade === 'presencial' && (
+                            <div className="px-3 pb-3 space-y-2">
+                              <div className="bg-yellow-50 rounded-lg p-3 mb-3">
+                                <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-gray-600">
+                                      {tecnologiaData?.data.presencial.cursos.length || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Cursos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-yellow-600">
+                                      {tecnologiaData?.data.presencial.totais.inscritos || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Inscritos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-green-600">
+                                      {tecnologiaData?.data.presencial.totais.formados || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Formados</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-red-600">
+                                      {tecnologiaData?.data.presencial.totais.percentualEvasao || 0}%
+                                    </div>
+                                    <p className="text-xs text-gray-600">Evasão</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                {tecnologiaData?.data.presencial.cursos.map((curso: any) => (
+                                  <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                    <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                      </div>
+                                      <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                        {curso.situacao}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {tecnologiaData?.data.ead && tecnologiaData.data.ead.cursos.length > 0 && (
+                        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                          <div
+                            className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                            onClick={() => setSelectedModalidade(selectedModalidade === 'ead' ? null : 'ead')}
+                            data-testid="btn-modalidade-ead"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Monitor className="w-5 h-5 text-blue-600" />
+                                <span className="font-semibold text-gray-800">EAD</span>
+                              </div>
+                              {selectedModalidade === 'ead' ? (
+                                <ChevronUp className="w-4 h-4 text-gray-600" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-600" />
+                              )}
+                            </div>
+                          </div>
+
+                          {selectedModalidade === 'ead' && (
+                            <div className="px-3 pb-3 space-y-2">
+                              <div className="bg-blue-50 rounded-lg p-3 mb-3">
+                                <h4 className="text-sm font-bold text-gray-800 mb-2">Totais EAD</h4>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-gray-600">
+                                      {tecnologiaData?.data.ead.cursos.length || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Cursos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-blue-600">
+                                      {tecnologiaData?.data.ead.totais.inscritos || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Inscritos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-green-600">
+                                      {tecnologiaData?.data.ead.totais.formados || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Formados</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-red-600">
+                                      {tecnologiaData?.data.ead.totais.percentualEvasao || 0}%
+                                    </div>
+                                    <p className="text-xs text-gray-600">Evasão</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                {tecnologiaData?.data.ead.cursos.map((curso: any) => (
+                                  <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                    <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                      </div>
+                                      <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                        {curso.situacao}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Card Beleza */}
+                <div className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden">
+                  <div
+                    className="p-4 cursor-pointer transition-all duration-300 hover:bg-yellow-100"
+                    onClick={() => setSelectedArea(selectedArea === 'beleza' ? null : 'beleza')}
+                    data-testid="card-area-beleza"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Star className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Beleza</h3>
+                      </div>
+                      {selectedArea === 'beleza' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedArea === 'beleza' && (
+                    <div className="px-4 pb-4 space-y-3">
+                      {belezaData?.data.presencial && belezaData.data.presencial.cursos.length > 0 && (
+                        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                          <div
+                            className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                            onClick={() => setSelectedModalidade(selectedModalidade === 'presencial-beleza' ? null : 'presencial-beleza')}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-5 h-5 text-yellow-600" />
+                                <span className="font-semibold text-gray-800">Presencial</span>
+                              </div>
+                              {selectedModalidade === 'presencial-beleza' ? (
+                                <ChevronUp className="w-4 h-4 text-gray-600" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-600" />
+                              )}
+                            </div>
+                          </div>
+
+                          {selectedModalidade === 'presencial-beleza' && (
+                            <div className="px-3 pb-3 space-y-2">
+                              <div className="bg-yellow-50 rounded-lg p-3 mb-3">
+                                <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-gray-600">
+                                      {belezaData?.data.presencial.cursos.length || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Cursos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-yellow-600">
+                                      {belezaData?.data.presencial.totais.inscritos || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Inscritos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-green-600">
+                                      {belezaData?.data.presencial.totais.formados || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Formados</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-red-600">
+                                      {belezaData?.data.presencial.totais.percentualEvasao || 0}%
+                                    </div>
+                                    <p className="text-xs text-gray-600">Evasão</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                {belezaData?.data.presencial.cursos.map((curso: any) => (
+                                  <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                    <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                      </div>
+                                      <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                        {curso.situacao}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Card Gastronomia */}
+                <div className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden">
+                  <div
+                    className="p-4 cursor-pointer transition-all duration-300 hover:bg-yellow-100"
+                    onClick={() => setSelectedArea(selectedArea === 'gastronomia' ? null : 'gastronomia')}
+                    data-testid="card-area-gastronomia"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Trophy className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Gastronomia</h3>
+                      </div>
+                      {selectedArea === 'gastronomia' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedArea === 'gastronomia' && gastronomiaData && (
+                    <div className="px-4 pb-4 space-y-3">
+                      {gastronomiaData?.data.presencial && gastronomiaData.data.presencial.cursos.length > 0 && (
+                        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                          <div
+                            className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                            onClick={() => setSelectedModalidade(selectedModalidade === 'presencial-gastronomia' ? null : 'presencial-gastronomia')}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-5 h-5 text-yellow-600" />
+                                <span className="font-semibold text-gray-800">Presencial</span>
+                              </div>
+                              {selectedModalidade === 'presencial-gastronomia' ? (
+                                <ChevronUp className="w-4 h-4 text-gray-600" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-600" />
+                              )}
+                            </div>
+                          </div>
+
+                          {selectedModalidade === 'presencial-gastronomia' && (
+                            <div className="px-3 pb-3 space-y-2">
+                              <div className="bg-yellow-50 rounded-lg p-3 mb-3">
+                                <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-gray-600">
+                                      {gastronomiaData?.data.presencial.cursos.length || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Cursos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-yellow-600">
+                                      {gastronomiaData?.data.presencial.totais.inscritos || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Inscritos</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-green-600">
+                                      {gastronomiaData?.data.presencial.totais.formados || 0}
+                                    </div>
+                                    <p className="text-xs text-gray-600">Formados</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <div className="text-lg font-bold text-red-600">
+                                      {gastronomiaData?.data.presencial.totais.percentualEvasao || 0}%
+                                    </div>
+                                    <p className="text-xs text-gray-600">Evasão</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                {gastronomiaData?.data.presencial.cursos.map((curso: any) => (
+                                  <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                    <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                      </div>
+                                      <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                        {curso.situacao}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cards das demais áreas - padrão similar */}
+                {/* Artesanato, Empreendedorismo, Administrativo, Socioemocional, Educacional, Operacional */}
+                {[
+                  { id: 'artesanato', nome: 'Artesanato', data: artesanatoData, icon: 'Trophy' },
+                  { id: 'empreendedorismo', nome: 'Empreendedorismo', data: empreendedorismoData, icon: 'Briefcase' },
+                  { id: 'administrativo', nome: 'Administrativo', data: administrativoData, icon: 'FileText' },
+                  { id: 'socioemocional', nome: 'Socioemocional', data: socioemocionalData, icon: 'Heart' },
+                  { id: 'educacional', nome: 'Educacional', data: educacionalData, icon: 'BookOpen' },
+                  { id: 'operacional', nome: 'Operacional', data: operacionalData, icon: 'Settings' }
+                ].map((area) => {
+                  const IconComponent = area.icon === 'Trophy' ? Trophy : 
+                                      area.icon === 'Briefcase' ? Briefcase :
+                                      area.icon === 'FileText' ? FileText :
+                                      area.icon === 'Heart' ? Heart :
+                                      area.icon === 'BookOpen' ? BookOpen : Settings;
+                  
+                  return (
+                    <div key={area.id} className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden">
+                      <div
+                        className="p-4 cursor-pointer transition-all duration-300 hover:bg-yellow-100"
+                        onClick={() => setSelectedArea(selectedArea === area.id ? null : area.id)}
+                        data-testid={`card-area-${area.id}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                              <IconComponent className="w-5 h-5 text-white" />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-800">{area.nome}</h3>
+                          </div>
+                          {selectedArea === area.id ? (
+                            <ChevronUp className="w-5 h-5 text-gray-600" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 text-gray-600" />
+                          )}
+                        </div>
+                      </div>
+
+                      {selectedArea === area.id && area.data && (
+                        <div className="px-4 pb-4 space-y-3">
+                          {area.data?.data.presencial && area.data.data.presencial.cursos.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                              <div
+                                className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                                onClick={() => setSelectedModalidade(selectedModalidade === `presencial-${area.id}` ? null : `presencial-${area.id}`)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-yellow-600" />
+                                    <span className="font-semibold text-gray-800">Presencial</span>
+                                  </div>
+                                  {selectedModalidade === `presencial-${area.id}` ? (
+                                    <ChevronUp className="w-4 h-4 text-gray-600" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                                  )}
+                                </div>
+                              </div>
+
+                              {selectedModalidade === `presencial-${area.id}` && (
+                                <div className="px-3 pb-3 space-y-2">
+                                  <div className="bg-yellow-50 rounded-lg p-3 mb-3">
+                                    <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
+                                    <div className="grid grid-cols-4 gap-2">
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-gray-600">
+                                          {area.data?.data.presencial.cursos.length || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Cursos</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-yellow-600">
+                                          {area.data?.data.presencial.totais.inscritos || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Inscritos</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-green-600">
+                                          {area.data?.data.presencial.totais.formados || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Formados</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-red-600">
+                                          {area.data?.data.presencial.totais.percentualEvasao || 0}%
+                                        </div>
+                                        <p className="text-xs text-gray-600">Evasão</p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                    {area.data?.data.presencial.cursos.map((curso: any) => (
+                                      <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                        <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                        <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                          <div>
+                                            <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                          </div>
+                                          <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                            {curso.situacao}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {area.data?.data.ead && area.data.data.ead.cursos.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                              <div
+                                className="p-3 cursor-pointer transition-all duration-300 hover:bg-gray-50"
+                                onClick={() => setSelectedModalidade(selectedModalidade === `ead-${area.id}` ? null : `ead-${area.id}`)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Monitor className="w-5 h-5 text-blue-600" />
+                                    <span className="font-semibold text-gray-800">EAD</span>
+                                  </div>
+                                  {selectedModalidade === `ead-${area.id}` ? (
+                                    <ChevronUp className="w-4 h-4 text-gray-600" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                                  )}
+                                </div>
+                              </div>
+
+                              {selectedModalidade === `ead-${area.id}` && (
+                                <div className="px-3 pb-3 space-y-2">
+                                  <div className="bg-blue-50 rounded-lg p-3 mb-3">
+                                    <h4 className="text-sm font-bold text-gray-800 mb-2">Totais EAD</h4>
+                                    <div className="grid grid-cols-4 gap-2">
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-gray-600">
+                                          {area.data?.data.ead.cursos.length || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Cursos</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-blue-600">
+                                          {area.data?.data.ead.totais.inscritos || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Inscritos</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-green-600">
+                                          {area.data?.data.ead.totais.formados || 0}
+                                        </div>
+                                        <p className="text-xs text-gray-600">Formados</p>
+                                      </div>
+                                      <div className="text-center">
+                                        <div className="text-lg font-bold text-red-600">
+                                          {area.data?.data.ead.totais.percentualEvasao || 0}%
+                                        </div>
+                                        <p className="text-xs text-gray-600">Evasão</p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <h4 className="text-sm font-semibold text-gray-700">Cursos:</h4>
+                                    {area.data?.data.ead.cursos.map((curso: any) => (
+                                      <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
+                                        <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
+                                        <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                          <div>
+                                            <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">Formados:</span> {curso.formados ?? '-'}
+                                          </div>
+                                          <div>
+                                            <span className="font-medium">Evasão:</span> {curso.evasao ?? '-'}
+                                          </div>
+                                          <div className={curso.situacao === 'Concluído' ? 'text-green-600' : 'text-blue-600'}>
+                                            {curso.situacao}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+              </CardContent>
+            </Card>
           </div>
         );
       case "pec":
@@ -4632,6 +5442,38 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               <span className="text-sm font-medium">Modo Doador</span>
             </button>
             <button
+              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              className="flex items-center w-full px-4 py-2.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-black mb-2"
+            >
+              <ExternalLink className="w-5 h-5 mr-3" />
+              <span className="text-sm font-medium">Canal de Transparência</span>
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center w-full px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white mb-2">
+                  <ClipboardList className="w-5 h-5 mr-3" />
+                  <span className="text-sm font-medium">Plano de Ação</span>
+                  <ChevronDown className="w-4 h-4 ml-auto" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem
+                  onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Monday
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Slack
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
               onClick={handleLogout}
               className="flex items-center w-full px-4 py-2.5 rounded-lg hover:bg-gray-100 text-gray-700"
             >
@@ -5003,6 +5845,42 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             <Settings className="w-6 h-6 mr-3" />
             Configurações
           </button>
+
+          <button
+            onClick={() => window.open("https://complaint-tracker-OGRITO.replit.app", "_blank")}
+            className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors bg-white hover:bg-gray-50 text-black"
+          >
+            <ExternalLink className="w-6 h-6 mr-3 text-yellow-500" />
+            Canal de Transparência
+          </button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors bg-white hover:bg-gray-50 text-black"
+              >
+                <ClipboardList className="w-6 h-6 mr-3 text-blue-500" />
+                Plano de Ação
+                <ChevronDown className="w-4 h-4 ml-auto text-blue-500" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem
+                onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                className="cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Monday
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                className="cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Slack
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </nav>
       </div>
 

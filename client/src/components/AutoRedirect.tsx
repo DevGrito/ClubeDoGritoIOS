@@ -21,32 +21,57 @@ export const AutoRedirect: React.FC = () => {
     const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
     const devSession = sessionStorage.getItem('dev_session') === 'active';
     
-    // Verificar se é um coordenador autenticado - bypass total
+    // Verificar se é um coordenador ou monitor autenticado - bypass total
     const isCoordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
-    if (isCoordenadorAuth) {
-      return; // Coordenadores têm seu próprio sistema de auth
+    const isMonitorAuth = sessionStorage.getItem('monitor_auth') === 'true';
+    if (isCoordenadorAuth || isMonitorAuth) {
+      return; // Coordenadores e monitores têm seu próprio sistema de auth
     }
     
     // Verificar se usuário está logado
-    const userPapel = localStorage.getItem('userPapel');
+    const rawUserPapel = localStorage.getItem('userPapel');
+    const userPapel = rawUserPapel ? rawUserPapel.toLowerCase() : null;
     const isVerified = localStorage.getItem('isVerified') === 'true';
-    
+
     // DEV tem acesso universal - qualquer forma de acesso dev bypass redirecionamentos
     if (isDevAccess || 
         isFromDevPanel || 
         devSession || 
         userPapel === 'desenvolvedor' ||
-        location === '/dev') {
+        userPapel === 'dev' ||
+        userPapel === 'dev-admin' ||
+        userPapel === 'dev-marketing' ||
+        userPapel === 'marketing' ||
+        location === '/dev' ||
+        location === '/dev/login' ||
+        location === '/dev/marketing') {
       return;
     }
-
     // Remoção da lógica automática de criação de sessão para Leo
     // Usuários devem passar pelo fluxo normal de autenticação
 
     // Se não está logado e não está em páginas públicas, redirecionar para login
-    const publicRoutes = ['/', '/plans', '/register', '/entrar', '/verify', '/checkout', '/success', '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias', '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso', '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado', '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso', '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar', '/ingresso/resgate/confirmar', '/scanner', '/scanner-login', '/login/coordenador', '/ingressos/compras/extras', '/ingressos-esgotados'];
+   const publicRoutes = [
+  '/plans', '/register', '/entrar', '/verify', '/checkout', '/success',
+  '/pos-pagamento', '/aguardando-aprovacao', '/not-found',
+  '/dev/login', '/dev/marketing', // 👈 adicionado aqui
+  '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias',
+  '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso',
+  '/ingresso/sucesso', '/ingresso-demo', '/pagamento/aprovado',
+  '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso',
+  '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar',
+  '/ingresso/resgate/confirmar', '/scanner', '/scanner-login',
+  '/login/coordenador', '/login/monitor', '/ingressos/compras/extras',
+  '/ingressos-esgotados'
+];
     
     if (!userPapel || !isVerified) {
+      // Redirecionar "/" para "/plans" quando não está logado
+      if (location === '/') {
+        setLocation('/plans');
+        return;
+      }
+      
       if (!publicRoutes.includes(location) && !location.startsWith('/checkout/') && !location.startsWith('/ingresso/visualizar/') && !location.startsWith('/ingresso/lista-cota/')) {
         setLocation('/entrar');
       }
@@ -93,7 +118,13 @@ function getDefaultRouteForRole(userPapel: string): string {
     case 'leo':
       return '/tdoador'; // 🔧 LEO VAI PARA ÁREA DOADOR POR PADRÃO
     case 'desenvolvedor':
+    case 'dev':
       return '/dev';
+    case 'dev-admin':
+      return '/dev'; // Admin Full Access começa em /dev, mas pode navegar para /dev/marketing
+    case 'dev-marketing':
+    case 'marketing':
+      return '/dev/marketing';
     case 'admin':
       return '/admin-geral';
     // RBAC Roles - Rotas isoladas

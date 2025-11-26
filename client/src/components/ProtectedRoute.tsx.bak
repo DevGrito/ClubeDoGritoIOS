@@ -14,10 +14,7 @@ interface ProtectedRouteProps {
 const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
   'super_admin': ['/', '/plans', '/administrador', '/leo-martins', '/central-ajuda'],
   'leo': ['/', '/plans', '/administrador', '/leo-martins', '/central-ajuda', '/tdoador', '/welcome', '/busca', '/noticias', '/perfil', '/dados-cadastrais', '/pagamentos', '/configuracoes', '/sobre', '/change-plan', '/beneficios', '/meus-lances', '/missoes-semanais'],
-  'desenvolvedor': ['/', '/plans', '/dev', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev tem acesso universal via hook
-  'dev': ['/', '/plans', '/dev', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Alias para desenvolvedor
-  'dev-admin': ['/', '/plans', '/dev', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev Admin tem acesso a AMBAS as áreas (dev + marketing)
-  'dev-marketing': ['/', '/plans', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev Marketing tem acesso restrito
+  'desenvolvedor': ['/', '/plans', '/dev', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev tem acesso universal via hook
   'admin': ['/', '/plans', '/admin-geral', '/central-ajuda', '/professor', '/monitor', '/coordenador', '/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial', '/pec', '/patrocinador-dashboard', '/perfil-patrocinador'],
   
   // ================ NOVOS PAPÉIS RBAC ================
@@ -47,7 +44,7 @@ const PUBLIC_ROUTES = [
   '/pos-pagamento', '/aguardando-aprovacao', '/not-found', '/perfil',
   '/typeform-donation', '/donation-flow', '/stripe-payment', '/noticias',
   '/termos-servicos', '/politica-privacidade', '/pagamento/ingresso',
-  '/pagamento/sucesso', '/login/developer', '/login/coordenador', '/login/monitor', '/login/marketing', '/scanner-login'
+  '/pagamento/sucesso', '/login/coordenador', '/scanner-login'
 ];
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
@@ -59,6 +56,15 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   const { toast } = useToast();
   const devAccess = useDevAccess();
 
+  // ⭐ CRÍTICO: Verificar coordenadores ANTES de qualquer useEffect (render imediato)
+  const coordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
+  const coordenadorDataStr = sessionStorage.getItem('coordenador_data');
+  const coordRoutes = ['/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial'];
+  
+  if (coordenadorAuth && coordenadorDataStr && coordRoutes.includes(routeName)) {
+    console.log('✅ [COORDENADOR ACCESS] Acesso de coordenador autenticado - BYPASS TOTAL');
+    return <>{children}</>;
+  }
 
   useEffect(() => {
     // ⭐ PRIORIDADE 1: Verificar parâmetros dev PRIMEIRO (antes de qualquer validação)
@@ -86,16 +92,6 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     console.log(`🔍 [USER SESSION] userEmail: ${localStorage.getItem('userEmail')}`);
     console.log(`🔍 [USER SESSION] isVerified: ${localStorage.getItem('isVerified')}`);
     console.log(`🔍 [USER SESSION] hasActiveSubscription: ${localStorage.getItem('hasActiveSubscription')}`);
-
-    // ⭐ VERIFICAÇÃO DE COORDENADOR (movida para dentro do useEffect)
-    const coordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
-    const coordenadorDataStr = sessionStorage.getItem('coordenador_data');
-    const coordRoutes = ['/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial'];
-    
-    if (coordenadorAuth && coordenadorDataStr && coordRoutes.includes(routeName)) {
-      console.log('✅ [COORDENADOR ACCESS] Acesso de coordenador autenticado - BYPASS TOTAL');
-      return; // Early return dentro do useEffect é seguro
-    }
     console.log(`🔍 [ALLOWED ROLES] Route expects: ${allowedRoles.join(', ')}`);
     console.log(`🔍 [ROLE ROUTES] User role allows: ${userPapel ? ROLE_TO_ALLOWED_ROUTES[userPapel]?.join(', ') : 'undefined'}`);
     
@@ -112,8 +108,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     if (devAccess.isDeveloper || 
         devAccess.isGlobalDevMode || 
         userPapel === 'desenvolvedor' ||
-        userPapel === 'dev' ||
-        userPapel === 'dev-marketing') {
+        userPapel === 'dev') {
       console.log('✅ [DEV ACCESS] Acesso dev concedido - bypass de autenticação');
       return;
     }
@@ -144,7 +139,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     const isVerified = localStorage.getItem('isVerified') === 'true';
     
     // Usuário DEV tem acesso universal mesmo logado
-    if (userPapel === 'desenvolvedor' || userPapel === 'dev' || userPapel === 'dev-marketing') {
+    if (userPapel === 'desenvolvedor' || userPapel === 'dev') {
       console.log('✅ [DEV ACCESS] Acesso dev concedido via userPapel');
       return;
     }
@@ -275,10 +270,6 @@ function getDefaultRouteForRole(userPapel: string): string {
       return '/administrador';
     case 'desenvolvedor':
       return '/dev';
-    case 'dev':
-      return '/dev';
-    case 'dev-marketing':
-      return '/dev/marketing';
     case 'admin':
       return '/admin-geral';
     case 'lider':

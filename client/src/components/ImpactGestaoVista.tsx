@@ -88,7 +88,7 @@ function useGestaoVista(ano: number) {
   });
 }
 
-function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false }: IndicadorLineProps) {
+function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false, semestral = false }: IndicadorLineProps) {
   const { valor, meta, tipo, color, progress } = indicador;
   const isSemMeta = tipo === 'count' && !meta;
   
@@ -173,11 +173,18 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
           )}
         </motion.div>
         {progressoNaMeta <= 10 && progressoNaMeta > 0 && (
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700">
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-white">
             {percentualDaMeta.toFixed(1)}%
           </div>
         )}
       </div>
+      {semestral && (
+        <div className="mt-2 px-2 py-1 bg-gray-100 border-l-4 border-gray-400 rounded">
+          <p className="text-xs text-gray-600">
+            <span className="font-semibold">Dado semestral:</span> coletado somente duas vezes ao ano
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -350,12 +357,14 @@ export default function ImpactGestaoVista({
               indicador={data.indicadores.criterioSucesso}
               delay={4}
               prefersReducedMotion={prefersReducedMotion}
+              semestral={true}
             />
             <IndicadorLine
               label="NPS"
               indicador={data.indicadores.nps}
               delay={5}
               prefersReducedMotion={prefersReducedMotion}
+              semestral={true}
             />
             <IndicadorLine
               label="Evasão"
@@ -370,7 +379,7 @@ export default function ImpactGestaoVista({
               prefersReducedMotion={prefersReducedMotion}
             />
             <IndicadorLine
-              label="Famílias acompanhadas"
+              label="Famílias Acompanhadas F3D"
               indicador={data.indicadores.familiasAtivas}
               delay={8}
               prefersReducedMotion={prefersReducedMotion}

@@ -10,17 +10,31 @@ interface SplashGateProps {
 export function SplashGateComponent({ timeout = 1500 }: SplashGateProps) {
   const [, setLocation] = useLocation();
   const [isReady, setIsReady] = useState(false);
+  const [isPublicRoute, setIsPublicRoute] = useState(false);
 
   useEffect(() => {
     console.log('🌟 [SPLASH GATE] Iniciando splash gate...');
     
-    // PRIMEIRO: Verificar acesso de desenvolvedor
+    // PRIMEIRO: Verificar se é uma rota pública de login
+    const currentPath = window.location.pathname;
+    console.log('🔍 [SPLASH GATE] Current path:', currentPath);
+    const publicRoutes = ['/login/coordenador', '/login/monitor', '/login/developer', '/login/marketing', '/scanner-login'];
+    
+    if (publicRoutes.includes(currentPath)) {
+      console.log('🔓 [SPLASH GATE] Rota pública de login detectada - bypass ativado:', currentPath);
+      setIsPublicRoute(true);
+      setIsReady(true);
+      return; // Não redireciona, deixa a rota original
+    }
+    
+    // SEGUNDO: Verificar acesso de desenvolvedor via URL params
     const urlParams = new URLSearchParams(window.location.search);
     const isDevAccess = urlParams.get('dev_access') === 'true';
     const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
     
     if (isDevAccess && isFromDevPanel) {
       console.log('🔓 [SPLASH GATE] Acesso DEV detectado - bypass total ativado');
+      setIsReady(true);
       return; // Não redireciona, deixa a rota original
     }
     
@@ -67,6 +81,11 @@ export function SplashGateComponent({ timeout = 1500 }: SplashGateProps) {
       clearTimeout(timer);
     };
   }, [setLocation, timeout]);
+
+  // Se é uma rota pública, não renderiza nada (deixa o componente de login renderizar)
+  if (isPublicRoute) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center relative overflow-hidden">

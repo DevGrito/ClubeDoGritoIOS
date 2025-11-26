@@ -18,6 +18,7 @@ import CreditCardComponent from "@/components/CreditCard";
 import AddPaymentMethodFlow from "@/components/AddPaymentMethodFlow";
 import DonationHistoryDashboard from "@/components/DonationHistoryDashboard";
 import { loadStripe } from "@stripe/stripe-js";
+import { isLeoUser } from "@/utils/isLeo";
 import { Elements, PaymentElement, useStripe, useElements, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 
 // Helper para garantir que userId seja sempre número
@@ -1240,6 +1241,7 @@ export default function Pagamentos() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
+  const userIsLeo = isLeoUser(userData);
   // ✅ CORREÇÃO: Declarar userId PRIMEIRO
   const userId = localStorage.getItem("userId");
   
@@ -1417,7 +1419,7 @@ export default function Pagamentos() {
     >
       {/* Header */}
       <header className="bg-white">
-        <div className="px-4 py-3 flex items-center">
+        <div className="px-4 pt-12 pb-3 flex items-center">
           {/* Elemento da Esquerda: Menu Hamburger */}
           <div className="w-16 flex justify-start">
             <button 
@@ -1765,10 +1767,7 @@ export default function Pagamentos() {
               </div>
 
               {/* Administrador - Apenas para o Leo */}
-              {(() => {
-                console.log('🔍 [PAGAMENTOS] userData.role:', userData.role, 'isLeo:', userData.role === 'leo');
-                return userData.role === 'leo';
-              })() && (
+              {userIsLeo && (
                 <div>
                   <div
                     className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"

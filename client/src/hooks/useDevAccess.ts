@@ -58,10 +58,10 @@ export const useDevAccess = (): DevAccessInfo => {
 
     setDevInfo(finalDevInfo);
 
-    // Criar botão de voltar automaticamente se necessário
-    if (devAccess && origin === 'dev_panel' && !document.getElementById('dev-back-button')) {
-      createDevBackButton();
-    }
+    // REMOVIDO: Botão de voltar ao painel dev (conforme solicitação)
+    // if (devAccess && origin === 'dev_panel' && !document.getElementById('dev-back-button')) {
+    //   createDevBackButton();
+    // }
 
     // Registrar atividade do desenvolvedor para auditoria
     if (devAccess || globalDevMode) {

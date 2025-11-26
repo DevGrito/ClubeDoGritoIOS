@@ -1,26 +1,24 @@
-
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Loader2, Mail, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import girlImage from "@assets/Gemini_Generated_Image_4go0l24go0l24go0_1763145562380.png";
 
-export default function CoordenadorLogin() {
+export default function MarketingLogin() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
 
   const handleLogin = async () => {
-    // Validar email
     if (!email.trim()) {
       toast({
         title: "Email obrigatório",
-        description: "Por favor, digite seu email institucional",
+        description: "Por favor, digite seu email",
         variant: "destructive"
       });
       return;
@@ -37,7 +35,6 @@ export default function CoordenadorLogin() {
       return;
     }
 
-    // Validar senha
     if (!senha.trim()) {
       toast({
         title: "Senha obrigatória",
@@ -78,46 +75,32 @@ export default function CoordenadorLogin() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/login/coordenador", {
+      const data = await apiRequest("/api/login/marketing", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), senha: senha.trim() }),
-        credentials: 'include'
+        body: JSON.stringify({ email: email.trim(), senha: senha.trim() })
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        toast({
-          title: "Erro no login",
-          description: data.error || "Coordenador não encontrado",
-          variant: "destructive"
-        });
-        setLoading(false);
-        return;
-      }
-
-      sessionStorage.setItem("coordenador_auth", "true");
-      sessionStorage.setItem("coordenador_data", JSON.stringify(data.coordenador));
+      sessionStorage.setItem("marketing_auth", "true");
+      sessionStorage.setItem("marketing_data", JSON.stringify(data.user));
       
-      localStorage.setItem("userId", data.userId.toString());
-      localStorage.setItem("coordenadorId", data.coordenador.id.toString());
-      localStorage.setItem("userEmail", data.coordenador.email || "");
-      localStorage.setItem("userName", data.coordenador.nome || "Coordenador");
-      localStorage.setItem("userPapel", data.role || data.coordenador.role || "coordenador");
+      localStorage.setItem("userId", data.user.id.toString());
+      localStorage.setItem("userPapel", data.user.role || "marketing");
+      localStorage.setItem("userName", data.user.nome || "Marketing");
+      localStorage.setItem("userEmail", data.user.email || "");
       localStorage.setItem("isVerified", "true");
 
-      console.log("✅ Login bem-sucedido:", data.coordenador, "userId:", data.userId, "role:", data.role);
+      console.log("✅ Login bem-sucedido:", data.user);
 
-      setLocation(data.coordenador.redirectPath);
+      setLocation(data.redirectPath || "/rbac/marketing");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao fazer login:", error);
       toast({
-        title: "Erro",
-        description: "Erro ao conectar com o servidor",
+        title: "Erro no login",
+        description: error.message || "Verifique suas credenciais",
         variant: "destructive"
       });
+    } finally {
       setLoading(false);
     }
   };
@@ -143,7 +126,7 @@ export default function CoordenadorLogin() {
         <div className="w-full max-w-md relative z-10 space-y-6">
           {/* Título Principal */}
           <h1 className="text-4xl md:text-5xl text-black text-center drop-shadow-lg">
-            <span className="font-bold">Impacto</span> <span className="italic">Social</span>
+            <span className="font-bold">Marketing</span> <span className="italic">Social</span>
           </h1>
 
           {/* Card Glassmorphism */}
@@ -165,14 +148,14 @@ export default function CoordenadorLogin() {
                   <Input
                     id="email-input"
                     type="email"
-                    placeholder="E-mail institucional"
+                    placeholder="E-mail"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && !loading && handleLogin()}
                     className="h-11 pl-10 bg-white border-0 text-gray-900 placeholder:text-gray-400 text-sm focus:ring-2 focus:ring-white/50 rounded-xl"
-                    data-testid="input-email-coordenador"
+                    data-testid="input-email-marketing"
                     disabled={loading}
-                    aria-label="E-mail institucional"
+                    aria-label="E-mail"
                     autoComplete="off"
                   />
                 </div>
@@ -189,41 +172,25 @@ export default function CoordenadorLogin() {
                   </div>
                   <Input
                     id="senha-input"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Senha institucional"
+                    type="password"
+                    placeholder="Senha"
                     value={senha}
                     onChange={(e) => setSenha(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && !loading && handleLogin()}
-                    className="h-11 pl-10 pr-10 bg-white border-0 text-gray-900 placeholder:text-gray-400 text-sm focus:ring-2 focus:ring-white/50 rounded-xl"
+                    className="h-11 pl-10 bg-white border-0 text-gray-900 placeholder:text-gray-400 text-sm focus:ring-2 focus:ring-white/50 rounded-xl"
                     disabled={loading}
                     aria-label="Senha"
-                    data-testid="input-senha-coordenador"
+                    data-testid="input-senha-marketing"
                     autoComplete="new-password"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                    data-testid="button-toggle-password-coordenador"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
                 </div>
-              </div>
-
-              {/* Identificador da tela */}
-              <div className="text-center">
-                <p className="text-sm text-white/80">
-                  Acesso para Coordenadores
-                </p>
               </div>
 
               {/* Botão Entrar */}
               <Button 
                 onClick={handleLogin}
                 className="w-full h-12 bg-green-600 hover:bg-yellow-500 text-white font-bold text-base rounded-xl shadow-lg transition-all"
-                data-testid="button-login-coordenador"
+                data-testid="button-login-marketing"
                 disabled={loading}
               >
                 {loading ? (
@@ -236,16 +203,16 @@ export default function CoordenadorLogin() {
                 )}
               </Button>
 
-              {/* Texto rodapé */}
+              {/* Texto rodapé - ITÁLICO E PRETO */}
               <div className="text-center pt-4">
-                <p className="text-xs text-white/70">
+                <p className="text-sm text-black italic font-medium">
                   Não tem conta? Entre em contato com Admin.
                 </p>
               </div>
             </div>
           </div>
-          </div>
         </div>
       </div>
+    </div>
   );
 }

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, BarChart3, TrendingUp, Eye, EyeOff, FileText, DollarSign, Filter, Download, Code, RefreshCw, Menu, User, Calendar, ChevronRight } from "lucide-react";
+import { ArrowLeft, BarChart3, TrendingUp, Eye, EyeOff, FileText, DollarSign, Filter, Download, Code, RefreshCw, Menu, User, Calendar, ChevronRight, BookOpen, ExternalLink } from "lucide-react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import Logo from "@/components/logo";
@@ -34,9 +34,24 @@ import { useQuery } from '@tanstack/react-query';
 export default function Conselho() {
   const [, setLocation] = useLocation();
   const [userName, setUserName] = useState<string>("");
-  const [authorized, setAuthorized] = useState(false);
+  
+  // Verificação inicial rápida do localStorage para evitar flash de "Acesso Restrito"
+  const getInitialAuth = () => {
+    if (typeof window === 'undefined') return false;
+    const userPapel = localStorage.getItem("userPapel");
+    const urlParams = new URLSearchParams(window.location.search);
+    const devAccessParam = urlParams.get('dev_access') === 'true';
+    return userPapel === "conselho" || 
+           userPapel === "conselheiro" || 
+           userPapel === "desenvolvedor" || 
+           userPapel === "admin" || 
+           userPapel === "leo" ||
+           devAccessParam;
+  };
+  
+  const [authorized, setAuthorized] = useState(getInitialAuth);
   const [demoMode, setDemoMode] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!getInitialAuth());
   const [showData, setShowData] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const kpiSectionRef = React.useRef<ConselhoKpisSectionRef>(null);
@@ -497,35 +512,53 @@ export default function Conselho() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
-              {/* Financeiro */}
+              {/* Termos de Uso */}
               <div>
-                <a
-                  href="#financeiro"
+                <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                  onClick={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     setShowMenu(false);
-                    setTimeout(() => {
-                      const financeiroSection = document.getElementById('financeiro');
-                      if (financeiroSection) {
-                        financeiroSection.scrollIntoView({ behavior: 'smooth' });
-                      }
-                    }, 150);
+                    setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <DollarSign className="w-6 h-6 text-black" />
+                    <BookOpen className="w-6 h-6 text-black" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base">
-                      Financeiro
+                      Termos de Uso
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                      Transparência para você ver seu impacto.
+                      Segurança e clareza em cada passo.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </a>
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowMenu(false);
+                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Denúncias e sugestões com sigilo.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
@@ -750,24 +783,6 @@ export default function Conselho() {
             </div>
           </div>
 
-          {/* Indicadores de Erro/Loading Global */}
-          {omieError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-red-800">
-                <div className="w-4 h-4 rounded-full bg-red-500"></div>
-                <span className="font-medium">Erro na conexão com Omie ERP</span>
-              </div>
-              <p className="text-red-600 text-sm mt-1">{omieError}</p>
-              <Button 
-                onClick={refetchOmie}
-                size="sm"
-                variant="outline" 
-                className="mt-2 border-red-300 text-red-700 hover:bg-red-50"
-              >
-                Tentar Novamente
-              </Button>
-            </div>
-          )}
 
           {/* Dashboard Financeiro Integrado */}
           <DashboardFinanceiro

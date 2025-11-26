@@ -55,6 +55,7 @@ export default function Entrar() {
     const t = v.toLowerCase();
     return (
       t === "eloiza" ||
+      t === "pedro" ||
       t === "dev" ||
       t === "desenvolvedor" ||
       t === "marketing"
@@ -177,6 +178,7 @@ export default function Entrar() {
       let usuario = telefone.trim();
       const t = telefone.toLowerCase().trim();
       if (t === "eloiza") usuario = "eloiza";
+      else if (t === "pedro") usuario = "pedro";
       else if (t === "desenvolvedor") usuario = "devadmin";
       else if (t === "marketing") usuario = "marketing";
       // caso genérico, usa o que o usuário digitou (ex.: DevPedro)

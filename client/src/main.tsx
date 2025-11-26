@@ -34,7 +34,20 @@ function cleanupCorruptedData() {
       console.log('🧹 Limpando cache antigo/corrompido...');
       
       // Limpa localStorage seletivamente
-      const keysToKeep = ['userDataKey', 'authToken']; // Mantém dados essenciais
+      const keysToKeep = [
+        'userDataKey', 
+        'authToken',
+        'userPapel',           // 🔐 Mantém papel do usuário
+        'isVerified',          // 🔐 Mantém status de verificação
+        'userId',              // 🔐 Mantém ID do usuário
+        'userName',            // 🔐 Mantém nome do usuário
+        'userEmail',           // 🔐 Mantém email do usuário
+        'userTelefone',        // 🔐 Mantém telefone do usuário
+        'dev_panel_active',    // 🔐 Mantém status do painel dev
+        'dev_panel_timestamp', // 🔐 Mantém timestamp do painel dev
+        'hasActiveSubscription', // 🔐 Mantém status de assinatura
+        'hasDoadorRole'        // 🔐 Mantém status de doador
+      ]; // Mantém dados essenciais
       const keysToRemove = [];
       
       for (let i = 0; i < localStorage.length; i++) {

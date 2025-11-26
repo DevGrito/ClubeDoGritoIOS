@@ -304,25 +304,15 @@ export default function Plans() {
       <div className="min-h-screen bg-white">
         <div className="w-full mx-auto">
           
-          {/* Header com menu hambúrguer */}
-          <div className="flex justify-between items-start px-8 pt-8 pb-4">
-            <div className="flex-1"></div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="p-2 hover:bg-gray-100 rounded-full"
-                >
-                  <Menu className="w-6 h-6 text-gray-600" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => setLocation('/entrar')}>
-                  Entrar
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {/* Header com botão Entrar */}
+          <div className="flex justify-end items-start pr-4 pt-4 pb-4">
+            <Button
+              onClick={() => setLocation('/entrar')}
+              className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-5 py-2 text-xs rounded-full shadow-md"
+              data-testid="button-entrar"
+            >
+              ENTRAR
+            </Button>
           </div>
 
           {/* Título */}

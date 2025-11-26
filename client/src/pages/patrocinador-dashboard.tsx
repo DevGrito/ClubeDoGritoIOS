@@ -126,8 +126,6 @@ export default function PatrocinadorDashboard() {
   const impactScrollRef = useRef<HTMLDivElement>(null);
   const [isPausedAutoplay, setIsPausedAutoplay] = useState(false);
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [telefone, setTelefone] = useState("");
   const [showPECDetails, setShowPECDetails] = useState(false);
   const [showInclusaoDetails, setShowInclusaoDetails] = useState(false);
   const [mesSelecionadoPEC, setMesSelecionadoPEC] = useState<number>(7);
@@ -180,81 +178,6 @@ export default function PatrocinadorDashboard() {
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
   const userId = localStorage.getItem("userId");
   const userName = localStorage.getItem("userName") || userData?.user?.nome || "Empresa Patrocinadora";
-
-  // Verificar se precisa solicitar telefone
-  useEffect(() => {
-    const userPhone = localStorage.getItem("userTelefone") || userData?.user?.telefone;
-    const needsPhone = !userPhone || userPhone === "+5500000000000" || userPhone.trim() === "";
-    
-    if (needsPhone && userId) {
-      setShowPhoneModal(true);
-    }
-  }, [userId, userData]);
-
-  // Mutation para atualizar telefone
-  const updatePhoneMutation = useMutation({
-    mutationFn: async (phone: string) => {
-      const response = await apiRequest(`/api/users/${userId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          telefone: phone,
-          nome: localStorage.getItem("userName") || userData?.user?.nome || "Patrocinador"
-        })
-      });
-      if (!response.ok) {
-        throw new Error("Erro ao atualizar telefone");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      localStorage.setItem("userTelefone", telefone);
-      setShowPhoneModal(false);
-      toast({
-        title: "Telefone atualizado!",
-        description: "Seu telefone foi cadastrado com sucesso.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Erro",
-        description: "Não foi possível atualizar seu telefone. Tente novamente.",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const handleSavePhone = () => {
-    let cleanPhone = telefone.replace(/\D/g, "");
-    
-    // Remover prefixos duplicados se existirem
-    if (cleanPhone.startsWith("5555")) {
-      cleanPhone = cleanPhone.substring(2);
-    }
-    
-    // Validar tamanho
-    if (cleanPhone.length < 10) {
-      toast({
-        title: "Telefone inválido",
-        description: "Por favor, digite um telefone válido com DDD (ex: 31999887766).",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Se não tem código do país, adicionar +55
-    const finalPhone = cleanPhone.startsWith("55") ? `+${cleanPhone}` : `+55${cleanPhone}`;
-    updatePhoneMutation.mutate(finalPhone);
-  };
-
-  const handleSkipPhone = () => {
-    // Permitir pular por enquanto
-    setShowPhoneModal(false);
-    toast({
-      title: "Telefone não cadastrado",
-      description: "Você pode atualizar seu telefone depois no perfil.",
-    });
-  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -982,60 +905,6 @@ export default function PatrocinadorDashboard() {
           />
         )}
 
-        {/* Modal para solicitar telefone */}
-        <Dialog open={showPhoneModal} onOpenChange={(open) => !updatePhoneMutation.isPending && setShowPhoneModal(open)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Complete seu cadastro</DialogTitle>
-            <DialogDescription>
-              Por favor, informe seu telefone para continuarmos. Apenas números com DDD.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="telefone">Telefone (com DDD)</Label>
-              <Input
-                id="telefone"
-                type="tel"
-                placeholder="31999887766"
-                value={telefone}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, "");
-                  const formatted = value
-                    .replace(/^(\d{2})(\d)/g, "($1) $2")
-                    .replace(/(\d)(\d{4})$/, "$1-$2");
-                  setTelefone(formatted);
-                }}
-                maxLength={15}
-                data-testid="input-telefone"
-              />
-              <p className="text-xs text-gray-500">
-                Exemplo: (31) 99988-7766
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={handleSkipPhone}
-                disabled={updatePhoneMutation.isPending}
-                variant="outline"
-                className="flex-1"
-                data-testid="button-pular-telefone"
-              >
-                Pular por enquanto
-              </Button>
-              <Button
-                onClick={handleSavePhone}
-                disabled={updatePhoneMutation.isPending}
-                className="flex-1"
-                data-testid="button-salvar-telefone"
-              >
-                {updatePhoneMutation.isPending ? "Salvando..." : "Salvar"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Modal de Detalhes do PEC (Cultura e Esporte) - Layout igual ao do Leo */}
       <Dialog open={showPECDetails} onOpenChange={setShowPECDetails}>
         <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
@@ -1612,6 +1481,32 @@ export default function PatrocinadorDashboard() {
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed">
                       Coordenação Psicossocial
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                  }}
+                  data-testid="menu-transparencia"
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Denúncias e sugestões com sigilo.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />

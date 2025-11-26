@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion } from 'framer-motion';
-import { Star, Heart, MapPin, Menu, RefreshCw, ArrowLeft, CheckCircle, User, Gift, CreditCard, BookOpen, ChevronRight, ChevronLeft, LogOut, Shield } from 'lucide-react';
+import { Star, Heart, MapPin, Menu, RefreshCw, ArrowLeft, CheckCircle, User, Gift, CreditCard, BookOpen, ChevronRight, ChevronLeft, LogOut, Shield, ExternalLink } from 'lucide-react';
 import StoriesViewer from '@/components/StoriesViewer';
 import BottomNavigation from "@/components/bottom-navigation";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import * as LucideIcons from 'lucide-react';
 import { beneficios } from "@shared/schema";
 import useActivityTracker from "@/hooks/useActivityTracker";
 import { CheckinCard } from "@/components/CheckinCard";
+import { isLeoUser } from "@/utils/isLeo";
 
 // Import Beneficio type from shared schema
 type Beneficio = typeof beneficios.$inferSelect;
@@ -489,11 +490,6 @@ export default function Beneficios() {
                 className="border-2 border-gray-200 mb-1"
                 onClick={() => setLocation("/dados-cadastrais")}
               />
-              
-              {/* Badge do Grito */}
-              {userIdFromStorage && (
-                <UserGritoBadge userId={userIdFromStorage} />
-              )}
               
               {/* Badge do Plano */}
               <div className="bg-gray-100 text-gray-700 text-xs font-medium px-2 py-1 rounded-full flex items-center space-x-1">
@@ -1265,7 +1261,15 @@ export default function Beneficios() {
 
                 {/* Avatar do usuário posicionado no canto direito */}
                 <div className="absolute top-0 right-0">
-                  <UserAvatar size="lg" className="" />
+                  <div className="flex flex-col items-center relative">
+                    <UserAvatar size="lg" className="border-2 border-gray-200 mb-1" />
+                    
+                    {/* Badge do Plano */}
+                    <div className="bg-gray-100 text-gray-700 text-xs font-medium px-2 py-1 rounded-full flex items-center space-x-1">
+                      <span>{userData.plano ? getPlanDisplayName(userData.plano) : "Eco"}</span>
+                      <span className="text-orange-500">◆</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1409,35 +1413,38 @@ export default function Beneficios() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
-              {/* Administrador - Apenas para o Leo */}
-              {(() => {
-                console.log('🔍 [BENEFICIOS] userData.role:', userData.role, 'isLeo:', userData.role === 'leo');
-                return userData.role === 'leo';
-              })() && (
-                <div>
-                  <div
-                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                    onClick={() => {
-                      setShowHelpMenu(false);
-                      setTimeout(() => setLocation('/administrador'), 150);
-                    }}
-                  >
-                    <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Shield className="w-6 h-6 text-white" />
+             {/* Administrador - Apenas para o Leo (helper global) */}
+                {isLeoUser(userData) && (
+                  <div>
+                    <div
+                      className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-purple-50"
+                      onClick={() => {
+                        setShowHelpMenu(false);
+                        setTimeout(() => setLocation("/administrador"), 150);
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Shield className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3
+                          className="font-semibold text-gray-900 text-base"
+                          style={{ fontFamily: "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
+                        >
+                          Administrador
+                        </h3>
+                        <p
+                          className="text-sm text-gray-600 mt-1 leading-relaxed"
+                          style={{ fontFamily: "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif" }}
+                        >
+                          Painel executivo e gestão institucional.
+                        </p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                        Administrador
-                      </h3>
-                      <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                        Acesso ao painel administrativo completo.
-                      </p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <div className="border-b border-gray-100 mx-4"></div>
                   </div>
-                  <div className="border-b border-gray-100 mx-4"></div>
-                </div>
-              )}
+                )}
 
               {/* Termos de Uso */}
               <div>
@@ -1457,6 +1464,31 @@ export default function Beneficios() {
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
                       Segurança e clareza em cada passo.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Denúncias e sugestões com sigilo.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />

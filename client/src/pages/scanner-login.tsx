@@ -68,6 +68,7 @@ export default function ScannerLogin() {
               onChange={(e) => setTelefone(e.target.value)}
               className="bg-gray-700 border-gray-600 text-white placeholder:text-gray-500"
               data-testid="input-telefone-scanner"
+              autoComplete="off"
             />
           </div>
 
@@ -83,6 +84,7 @@ export default function ScannerLogin() {
               onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
               className="bg-gray-700 border-gray-600 text-white placeholder:text-gray-500"
               data-testid="input-codigo-scanner"
+              autoComplete="new-password"
             />
           </div>
 

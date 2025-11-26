@@ -5,6 +5,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Scrollbar customizado para navegação horizontal - MUITO VISÍVEL */
+.scrollbar-thin {
+  scrollbar-width: auto;
+  scrollbar-color: rgb(59 130 246) rgb(219 234 254);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 12px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgb(219 234 254);
+  border-radius: 10px;
+  margin: 0 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgb(59 130 246);
+  border-radius: 10px;
+  border: 2px solid rgb(219 234 254);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgb(37 99 235);
+}
+
 :root {
   --background: hsl(0, 0%, 100%);
   --foreground: hsl(0, 0%, 0%);

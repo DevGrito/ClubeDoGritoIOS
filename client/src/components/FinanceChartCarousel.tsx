@@ -12,6 +12,7 @@ interface ChartData {
 
 interface DadosConsolidados {
   periodo: string;
+  departamento?: string;
   totais: {
     receitas_meta: number;
     receitas_captado: number;
@@ -172,8 +173,9 @@ export default function FinanceChartCarousel({
                       <XAxis 
                         dataKey="mes" 
                         stroke="#6B7280"
-                        tick={{ fill: '#374151', fontSize: 12 }}
+                        tick={{ fill: '#374151', fontSize: 11 }}
                         axisLine={{ stroke: '#E5E7EB' }}
+                        interval={0}
                       />
                       <YAxis 
                         stroke="#6B7280"
@@ -255,8 +257,9 @@ export default function FinanceChartCarousel({
                         <XAxis 
                           dataKey="mes" 
                           stroke="#6B7280"
-                          tick={{ fill: '#374151', fontSize: 10 }}
+                          tick={{ fill: '#374151', fontSize: 9 }}
                           axisLine={{ stroke: '#E5E7EB' }}
+                          interval={0}
                         />
                         <YAxis 
                           stroke="#6B7280"
@@ -322,8 +325,9 @@ export default function FinanceChartCarousel({
                         <XAxis 
                           dataKey="mes" 
                           stroke="#6B7280"
-                          tick={{ fill: '#374151', fontSize: 10 }}
+                          tick={{ fill: '#374151', fontSize: 9 }}
                           axisLine={{ stroke: '#E5E7EB' }}
+                          interval={0}
                         />
                         <YAxis 
                           stroke="#6B7280"

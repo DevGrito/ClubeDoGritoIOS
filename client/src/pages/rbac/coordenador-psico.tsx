@@ -11,6 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -41,8 +47,13 @@ import {
   Download,
   AlertTriangle,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  ExternalLink,
+  ClipboardList,
+  ChevronDown
 } from "lucide-react";
+import AlterarSenha from "@/components/AlterarSenha";
 
 export default function CoordenadorPsicoPage() {
   const [, setLocation] = useLocation();
@@ -65,6 +76,7 @@ export default function CoordenadorPsicoPage() {
   const [showDeleteCasoDialog, setShowDeleteCasoDialog] = useState(false);
   const [showViewCasoModal, setShowViewCasoModal] = useState(false);
   const [showEditCasoModal, setShowEditCasoModal] = useState(false);
+  const [showAlterarSenhaModal, setShowAlterarSenhaModal] = useState(false);
   const [selectedParticipante, setSelectedParticipante] = useState<any>(null);
   const [selectedFamilia, setSelectedFamilia] = useState<any>(null);
   const [selectedCaso, setSelectedCaso] = useState<any>(null);
@@ -181,8 +193,7 @@ export default function CoordenadorPsicoPage() {
   const [perfilForm, setPerfilForm] = useState({
     nome: '',
     email: '',
-    telefone: '',
-    formacao: '' // Registro Profissional
+    telefone: ''
   });
   
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
@@ -223,8 +234,7 @@ export default function CoordenadorPsicoPage() {
       setPerfilForm({
         nome: userData.nome || '',
         email: userData.email || '',
-        telefone: userData.telefone || '',
-        formacao: userData.formacao || ''
+        telefone: userData.telefone || ''
       });
     }
   }, [userData]);
@@ -912,6 +922,46 @@ export default function CoordenadorPsicoPage() {
               <Download className="w-4 h-4 mr-2" />
               Exportar
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              data-testid="button-transparencia"
+              className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Canal de Transparência
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
+                  data-testid="button-plano-acao"
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Plano de Ação
+                  <ChevronDown className="w-4 h-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Monday
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                  className="cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Slack
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button 
               variant="outline" 
               size="sm" 
@@ -3095,15 +3145,6 @@ export default function CoordenadorPsicoPage() {
                           data-testid="input-telefone-perfil"
                         />
                       </div>
-                      <div>
-                        <Label htmlFor="registro">Registro Profissional</Label>
-                        <Input 
-                          id="registro" 
-                          value={perfilForm.formacao} 
-                          onChange={(e) => setPerfilForm({...perfilForm, formacao: e.target.value})}
-                          data-testid="input-formacao-perfil"
-                        />
-                      </div>
                     </div>
                     <Button 
                       className="mt-4 bg-blue-500 hover:bg-blue-600"
@@ -3113,6 +3154,26 @@ export default function CoordenadorPsicoPage() {
                     >
                       {updatePerfilMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
                     </Button>
+                  </div>
+                  
+                  <div className="border rounded-lg p-4">
+                    <h3 className="font-semibold mb-4 flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Segurança
+                    </h3>
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-600">
+                        Altere sua senha de acesso periodicamente para manter sua conta segura.
+                      </p>
+                      <Button
+                        onClick={() => setShowAlterarSenhaModal(true)}
+                        variant="outline"
+                        data-testid="button-alterar-senha"
+                      >
+                        <Lock className="w-4 h-4 mr-2" />
+                        Alterar Senha
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -5034,6 +5095,11 @@ export default function CoordenadorPsicoPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlterarSenha 
+        open={showAlterarSenhaModal} 
+        onOpenChange={setShowAlterarSenhaModal}
+      />
     </div>
   );
 }

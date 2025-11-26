@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation } from 'wouter';
-import { ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, CheckCircle, AlertTriangle, Star, Edit, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, Loader2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, CheckCircle, AlertTriangle, Star, Edit, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, LogOut, Monitor } from 'lucide-react';
 import { 
   LineChart, 
   Line, 
@@ -36,6 +36,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { useToast } from '@/hooks/use-toast';
 import Logo from '@/components/logo';
 import { StripeKeyManager } from '@/components/StripeKeyManager';
+import DevLogin from '@/pages/dev-login';
 
 function ConverterDoacoesSection({ queryClient }: { queryClient: any }) {
   const [loading, setLoading] = useState(false);
@@ -949,6 +950,27 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
   const [filtroDataInicio, setFiltroDataInicio] = useState<string>('');
   const [filtroDataFim, setFiltroDataFim] = useState<string>('');
 
+  // Mutation para confirmar todos os ingressos pendentes (DEVE estar antes dos early returns!)
+  const confirmarTodosMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/admin/cielo/confirmar-todos-pendentes', { method: 'POST' });
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Ingressos confirmados!",
+        description: "Todos os ingressos pendentes foram marcados como confirmados.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/ingresso/pagamentos-cielo'] });
+    },
+    onError: () => {
+      toast({
+        title: "Erro ao confirmar",
+        description: "Não foi possível confirmar os ingressos.",
+        variant: "destructive",
+      });
+    }
+  });
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -1037,27 +1059,6 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
 
   const totalParcelados = pagamentosFiltrados.filter((p: any) => (p.parcelas || 1) > 1).length;
 
-  // Mutation para confirmar todos os ingressos pendentes
-  const confirmarTodosMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest('/api/admin/cielo/confirmar-todos-pendentes', { method: 'POST' });
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Ingressos confirmados!",
-        description: "Todos os ingressos pendentes foram marcados como confirmados.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/ingresso/pagamentos-cielo'] });
-    },
-    onError: () => {
-      toast({
-        title: "Erro ao confirmar",
-        description: "Não foi possível confirmar os ingressos.",
-        variant: "destructive",
-      });
-    }
-  });
-
   return (
     <>
       <div className="flex justify-between items-center">
@@ -1106,7 +1107,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <Ticket className="w-6 h-6 text-blue-600" />
+                  <Ticket className="w-8 h-8 text-blue-600" />
                   <p className="text-xs font-medium text-blue-700">Total</p>
                 </div>
                 <p className="text-3xl font-bold text-blue-900">{totalPagamentos}</p>
@@ -1119,7 +1120,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="w-6 h-6 text-green-600" />
+                  <CheckCircle className="w-8 h-8 text-green-600" />
                   <p className="text-xs font-medium text-green-700">Pagos</p>
                 </div>
                 <p className="text-3xl font-bold text-green-900">{totalPagos}</p>
@@ -1132,7 +1133,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <X className="w-6 h-6 text-red-600" />
+                  <X className="w-8 h-8 text-red-600" />
                   <p className="text-xs font-medium text-red-700">Negados</p>
                 </div>
                 <p className="text-3xl font-bold text-red-900">{totalNegados}</p>
@@ -1145,7 +1146,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-6 h-6 text-gray-600" />
+                  <AlertTriangle className="w-8 h-8 text-gray-600" />
                   <p className="text-xs font-medium text-gray-700">Cancelados</p>
                 </div>
                 <p className="text-3xl font-bold text-gray-900">{totalCancelados}</p>
@@ -1158,7 +1159,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <Clock className="w-6 h-6 text-yellow-600" />
+                  <Clock className="w-8 h-8 text-yellow-600" />
                   <p className="text-xs font-medium text-yellow-700">Processando</p>
                 </div>
                 <p className="text-3xl font-bold text-yellow-900">{totalProcessando}</p>
@@ -1171,7 +1172,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <DollarSign className="w-6 h-6 text-emerald-600" />
+                  <DollarSign className="w-8 h-8 text-emerald-600" />
                   <p className="text-xs font-medium text-emerald-700">Total Pago</p>
                 </div>
                 <p className="text-2xl font-bold text-emerald-900">
@@ -1186,7 +1187,7 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
             <CardContent className="p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <CreditCard className="w-6 h-6 text-purple-600" />
+                  <CreditCard className="w-8 h-8 text-purple-600" />
                   <p className="text-xs font-medium text-purple-700">Parcelados</p>
                 </div>
                 <p className="text-3xl font-bold text-purple-900">{totalParcelados}</p>
@@ -1524,6 +1525,7 @@ function LeilaoCard({ leilao }: { leilao: any }) {
   );
 }
 
+
 export default function DevMarketing() {
   const [, setLocation] = useLocation();
   const { userData } = useUserData();
@@ -1531,6 +1533,16 @@ export default function DevMarketing() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // ✅ Verificar autenticação - se não estiver logado como dev, mostrar login
+  const userPapel = localStorage.getItem('userPapel');
+  const isDevAuthenticated = userPapel === 'dev' || userPapel === 'desenvolvedor' || userPapel === 'super_admin' || userPapel === 'leo' || userPapel === 'marketing' || userPapel === 'dev-marketing' || userPapel === 'dev-admin';
+  const isDevAdmin = userPapel === 'dev-admin'; // devfull tem acesso a ambas as páginas
+  
+  // Se não está autenticado, renderizar tela de login
+  if (!isDevAuthenticated) {
+    return <DevLogin />;
+  }
 
   // Benefits state
   const [showBenefitForm, setShowBenefitForm] = useState(false);
@@ -2309,6 +2321,42 @@ export default function DevMarketing() {
     item.descricao?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Ref para controlar o scroll dos tabs
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+
+  // 🖱️ Habilitar scroll horizontal com a roda do mouse
+  useEffect(() => {
+    const container = tabsScrollRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Prevenir scroll vertical padrão
+      e.preventDefault();
+      // Converter scroll vertical em horizontal
+      container.scrollLeft += e.deltaY;
+    };
+
+    // Adicionar event listener
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Cleanup
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
+  // Funções para navegação dos tabs
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsScrollRef.current) {
+      const scrollAmount = 500; // pixels por clique
+      const newScrollLeft = tabsScrollRef.current.scrollLeft + (direction === 'right' ? scrollAmount : -scrollAmount);
+      tabsScrollRef.current.scrollTo({
+        left: newScrollLeft,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   // Função para verificar se um leilão está ativo
   const isAuctionActive = (beneficio: any) => {
     if (!beneficio.ativo) return false;
@@ -2335,6 +2383,13 @@ export default function DevMarketing() {
     item.plano?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Função para fazer logout
+  const handleLogout = () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    setLocation('/dev/login');
+  };
+
   return (
     <motion.div
       className="min-h-screen bg-gray-50"
@@ -2355,10 +2410,9 @@ export default function DevMarketing() {
               <ArrowLeft className="w-5 h-5" />
               Voltar
             </Button>
-            <Logo size="md" />
+            <Logo size="xs" />
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">Dev-Marketing</h1>
-              <p className="text-sm text-gray-600">Painel administrativo completo</p>
+              <h1 className="text-xl font-semibold text-gray-900">Painel Estratégico</h1>
             </div>
           </div>
 
@@ -2382,6 +2436,17 @@ export default function DevMarketing() {
               <Ticket className="w-4 h-4" />
               Página Ingresso
             </Button>
+            {isDevAdmin && (
+              <Button
+                variant="default"
+                onClick={() => setLocation('/dev')}
+                className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-semibold"
+                data-testid="button-dev-toggle"
+              >
+                <Monitor className="w-4 h-4" />
+                Painel Dev
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={handleRefresh}
@@ -2392,143 +2457,177 @@ export default function DevMarketing() {
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Atualizando...' : 'Atualizar'}
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              className="flex items-center gap-2 bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+              data-testid="button-transparencia"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Canal de Transparência
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleLogout}
+              className="flex items-center gap-2"
+              data-testid="button-logout"
+            >
+              <LogOut className="w-4 h-4" />
+              Sair
+            </Button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="p-6">
+      <main className="p-6 mt-8">
         <div className="max-w-7xl mx-auto">
           <Tabs defaultValue="benefits" className="w-full">
-            <div className="bg-white rounded-lg p-2">
-              <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 gap-2 bg-transparent h-auto">
+            {/* Indicador de scroll */}
+            <div className="flex items-center justify-center gap-2 mb-6 text-sm text-muted-foreground">
+              <span>Use a roda do mouse para navegar (14 opções no total)</span>
+            </div>
+
+            {/* Navegação com scroll */}
+            <div className="relative py-8 overflow-visible">
+              <div ref={tabsScrollRef} className="w-full h-auto flex justify-start gap-4 overflow-x-auto overflow-y-visible py-4 mb-6 bg-transparent border-none scrollbar-thin scroll-smooth px-2">
+                <TabsList className="flex gap-4 bg-transparent border-none h-auto" style={{ overflow: 'visible' }}>
                 <TabsTrigger 
                   value="benefits" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400" 
                   data-testid="tab-benefits"
                 >
-                  <Gift className="w-5 h-5" />
-                  <span className="text-center leading-tight">Benefícios</span>
+                  <Gift className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
+                  <span className="text-center leading-tight font-bold text-xs">Benefícios</span>
                 </TabsTrigger>
                 <TabsTrigger 
                   value="stories" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-pink-50 data-[state=active]:text-pink-700 data-[state=active]:border-pink-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-pink-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:border-pink-400" 
                   data-testid="tab-stories"
                 >
-                  <Heart className="w-5 h-5" />
-                  <span className="text-center leading-tight">Histórias</span>
+                  <Heart className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
+                  <span className="text-center leading-tight font-bold text-xs">Histórias</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="auctions" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-orange-50 data-[state=active]:text-orange-700 data-[state=active]:border-orange-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-orange-500/10 to-orange-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-orange-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:border-orange-400" 
                   data-testid="tab-auctions"
                 >
-                  <Target className="w-5 h-5" />
-                  <span className="text-center leading-tight">Leilões</span>
+                  <Target className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
+                  <span className="text-center leading-tight font-bold text-xs">Leilões</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="missions" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-green-50 data-[state=active]:text-green-700 data-[state=active]:border-green-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-green-500/10 to-green-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-green-500 data-[state=active]:to-green-600 data-[state=active]:text-white data-[state=active]:border-green-400" 
                   data-testid="tab-missions"
                 >
-                  <Calendar className="w-5 h-5" />
-                  <span className="text-center leading-tight">Missões</span>
+                  <Calendar className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                  <span className="text-center leading-tight font-bold text-xs">Missões</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="automation" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-purple-50 data-[state=active]:text-purple-700 data-[state=active]:border-purple-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400" 
                   data-testid="tab-automation"
                 >
-                  <Settings className="w-5 h-5" />
-                  <span className="text-center leading-tight">Automação</span>
+                  <Settings className="w-6 h-6 transition-transform group-hover:rotate-90 group-hover:scale-110" />
+                  <span className="text-center leading-tight font-bold text-xs">Automação</span>
+                  
                 </TabsTrigger>
-              </TabsList>
-              
-              <TabsList className="grid w-full grid-cols-2 lg:grid-cols-8 gap-2 bg-transparent h-auto mt-2">
                 <TabsTrigger 
                   value="donors" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:border-indigo-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400" 
                   data-testid="tab-donors"
                 >
-                  <Users className="w-5 h-5" />
-                  <span className="text-center leading-tight">Doadores</span>
+                  <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                  <span className="text-center leading-tight font-bold text-xs">Doadores</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="stripe" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-yellow-50 data-[state=active]:text-yellow-700 data-[state=active]:border-yellow-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-yellow-500 data-[state=active]:to-yellow-600 data-[state=active]:text-white data-[state=active]:border-yellow-400" 
                   data-testid="tab-stripe"
                 >
-                  <DollarSign className="w-5 h-5" />
-                  <span className="text-center leading-tight">Stripe</span>
+                  <DollarSign className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
+                  <span className="text-center leading-tight font-bold text-xs">Stripe</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="management" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-teal-50 data-[state=active]:text-teal-700 data-[state=active]:border-teal-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-teal-500/10 to-teal-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-teal-500 data-[state=active]:to-teal-600 data-[state=active]:text-white data-[state=active]:border-teal-400" 
                   data-testid="tab-management"
                 >
-                  <BarChart3 className="w-5 h-5" />
-                  <span className="text-center leading-tight">Visão Gerencial</span>
+                  <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                  <span className="text-center leading-tight font-bold text-xs">Visão Gerencial</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="gestao-vista" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-cyan-50 data-[state=active]:text-cyan-700 data-[state=active]:border-cyan-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400" 
                   data-testid="tab-gestao-vista"
                 >
-                  <Activity className="w-5 h-5" />
-                  <span className="text-center leading-tight">Gestão à Vista</span>
+                  <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
+                  <span className="text-center leading-tight font-bold text-xs">Gestão à Vista</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="pagamentos-ingressos" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 data-[state=active]:border-emerald-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-emerald-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:border-emerald-400" 
                   data-testid="tab-pagamentos-ingressos"
                 >
-                  <Ticket className="w-5 h-5" />
-                  <span className="text-center leading-tight">Pag. Stripe</span>
+                  <Ticket className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
+                  <span className="text-center leading-tight font-bold text-xs">Pag. Stripe</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="pagamentos-cielo" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700 data-[state=active]:border-blue-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400" 
                   data-testid="tab-pagamentos-cielo"
                 >
-                  <CreditCard className="w-5 h-5" />
-                  <span className="text-center leading-tight">Pag. Cielo</span>
+                  <CreditCard className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                  <span className="text-center leading-tight font-bold text-xs">Pag. Cielo</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="compradores-avulsos" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-rose-50 data-[state=active]:text-rose-700 data-[state=active]:border-rose-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-rose-500/10 to-rose-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-rose-500 data-[state=active]:to-rose-600 data-[state=active]:text-white data-[state=active]:border-rose-400" 
                   data-testid="tab-compradores-avulsos"
                 >
-                  <Phone className="w-5 h-5" />
-                  <span className="text-center leading-tight">Compradores Avulsos</span>
+                  <Phone className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                  <span className="text-center leading-tight font-bold text-xs">Compradores Avulsos</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="estatisticas-ingressos" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-cyan-50 data-[state=active]:text-cyan-700 data-[state=active]:border-cyan-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400" 
                   data-testid="tab-estatisticas-ingressos"
                 >
-                  <BarChart3 className="w-5 h-5" />
-                  <span className="text-center leading-tight">Estatísticas Ingressos</span>
+                  <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-180" />
+                  <span className="text-center leading-tight font-bold text-xs">Estatísticas Ingressos</span>
+                  
                 </TabsTrigger>
                 <TabsTrigger 
                   value="marketing-links" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:border-indigo-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400" 
                   data-testid="tab-marketing-links"
                 >
-                  <ExternalLink className="w-5 h-5" />
-                  <span className="text-center leading-tight">Marketing Links</span>
+                  <ExternalLink className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-45" />
+                  <span className="text-center leading-tight font-bold text-xs">Marketing Links</span>
+                  
                 </TabsTrigger>
-              </TabsList>
-
-              <TabsList className="grid w-full grid-cols-1 lg:grid-cols-4 gap-2 bg-transparent h-auto mt-2">
                 <TabsTrigger 
                   value="converter-doacoes" 
-                  className="flex flex-col items-center gap-1 p-3 text-xs font-medium h-auto min-h-[60px] data-[state=active]:bg-purple-50 data-[state=active]:text-purple-700 data-[state=active]:border-purple-200" 
+                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400" 
                   data-testid="tab-converter-doacoes"
                 >
-                  <RefreshCw className="w-5 h-5" />
-                  <span className="text-center leading-tight">🔄 Converter Doações</span>
+                  <RefreshCw className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
+                  <span className="text-center leading-tight font-bold text-xs">🔄 Converter Doações</span>
+                  
                 </TabsTrigger>
-              </TabsList>
+                </TabsList>
+              </div>
             </div>
 
             {/* Benefits Tab */}
@@ -3929,7 +4028,7 @@ export default function DevMarketing() {
 
               {loadingManagement ? (
                 <div className="flex justify-center items-center py-8">
-                  <RefreshCw className="w-6 h-6 animate-spin" />
+                  <RefreshCw className="w-8 h-8 animate-spin" />
                   <span className="ml-2">Carregando dados de gestão...</span>
                 </div>
               ) : (

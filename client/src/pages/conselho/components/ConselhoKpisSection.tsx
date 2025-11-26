@@ -19,6 +19,9 @@ export interface ConselhoKpisSectionRef {
 function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSectionProps, ref: React.Ref<ConselhoKpisSectionRef>) {
   const { toast } = useToast();
   
+  // Debug: Log do período externo recebido
+  console.log(`🎯 [CONSELHO KPI] externalPeriod recebido: "${externalPeriod}"`);
+  
   // Função helper para mascarar valores
   const maskValue = (value: number | string) => {
     if (showData) return value;
@@ -42,9 +45,51 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
     classId: null
   });
 
-  // Buscar KPIs reais do banco de dados
+  // Calcular mês atual baseado em externalPeriod (prioridade) ou filters.specificMonth
+  // Usar useMemo para garantir que recalcula quando as dependências mudam
+  const mesFiltro = (() => {
+    // Se período externo definido, usar ele (prioridade)
+    if (externalPeriod) {
+      const [, mes] = externalPeriod.split('-');
+      return parseInt(mes, 10);
+    }
+    // Se filtro específico de mês, usar ele
+    if (filters.specificMonth) {
+      const [, mes] = filters.specificMonth.split('-');
+      return parseInt(mes, 10);
+    }
+    // Se período anual, retornar null para buscar soma/último
+    if (filters.period === 'anual') {
+      return null;
+    }
+    return null;
+  })();
+
+  // Buscar KPIs reais (mesma fonte da Gestão à Vista)
   const { data: kpisFromDb, isLoading, isError, refetch } = useQuery({
-    queryKey: ['/api/conselho/kpis'],
+    queryKey: ['/api/conselho/kpis', externalPeriod, filters.specificMonth, filters.period],
+    queryFn: async () => {
+      // Calcular URL dentro do queryFn para garantir valor atualizado
+      const mesParam = (() => {
+        if (externalPeriod) {
+          const [, mes] = externalPeriod.split('-');
+          return parseInt(mes, 10);
+        }
+        if (filters.specificMonth) {
+          const [, mes] = filters.specificMonth.split('-');
+          return parseInt(mes, 10);
+        }
+        if (filters.period === 'anual') {
+          return null;
+        }
+        return null;
+      })();
+      
+      const url = mesParam ? `/api/conselho/kpis?mes=${mesParam}` : '/api/conselho/kpis';
+      console.log(`🔍 [CONSELHO KPI] Buscando KPIs: ${url}`);
+      const response = await fetch(url);
+      return response.json();
+    },
     refetchInterval: 30000, // Atualizar a cada 30 segundos
   });
 
@@ -53,7 +98,7 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
     criancasImpactadas: kpisFromDb?.criancasPec || 0,
     pessoasFormadas: kpisFromDb?.alunosFormados || 0,
     familiasAcompanhadas: kpisFromDb?.familiasAtivas || 0,
-    atendimentosMetodoGrito: kpisFromDb?.empregabilidade || 0
+    atendimentosMetodoGrito: kpisFromDb?.geracao_renda || 0
   };
 
   const hasError = isError;
@@ -146,7 +191,7 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
       color: "#FF8C42" // Laranja
     },
     {
-      title: "Empregabilidade",
+      title: "Geração de Renda",
       value: showData ? kpiData.atendimentosMetodoGrito : 0,
       displayValue: getDisplayValue(kpiData.atendimentosMetodoGrito),
       icon: Activity,

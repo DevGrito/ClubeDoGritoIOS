@@ -75,6 +75,10 @@ import PagamentoReprovado from "@/pages/pagamento-reprovado";
 import ScannerPage from "@/pages/scanner";
 import ScannerLogin from "@/pages/scanner-login";
 import CoordenadorLogin from "@/pages/coordenador-login";
+import MonitorLogin from "@/pages/monitor-login";
+import DevLogin from "@/pages/dev-login";
+import DevLoginPage from "@/pages/dev-login-page";
+import MarketingLogin from "@/pages/marketing-login";
 import AdminConciliarPix from "@/pages/admin-conciliar-pix";
 import AdminManualSubscription from "@/pages/admin-manual-subscription";
 import AdminMigrateDonors from "@/pages/admin-migrate-donors";
@@ -85,6 +89,7 @@ import IngressosEsgotados from "@/pages/ingressos-esgotados";
 // RBAC Pages
 import ProfessorPage from "@/pages/rbac/professor";
 import MonitorPage from "@/pages/rbac/monitor";
+import MarketingPage from "@/pages/rbac/marketing";
 import CoordenadorInclusaoPage from "@/pages/rbac/coordenador-inclusao";
 import CoordenadorPECPage from "@/pages/rbac/coordenador-pec";
 import CoordenadorPsicoPage from "@/pages/rbac/coordenador-psico";
@@ -108,7 +113,15 @@ function Router() {
       <AnimatePresence mode="sync">
         <PageTransition key={location}>
           <Switch>
-      <Route path="/" component={SplashGate} />
+      {/* Rotas de login DEVEM vir ANTES da rota "/" para evitar redirecionamento */}
+      <Route path="/login/coordenador" component={CoordenadorLogin} />
+      <Route path="/login/monitor" component={MonitorLogin} />
+      <Route path="/login/developer" component={DevLogin} />
+      <Route path="/login/marketing" component={MarketingLogin} />
+      <Route path="/scanner-login" component={ScannerLogin} />
+      
+      <Route path="/" component={Plans} />
+      <Route path="/splash-gate" component={SplashGate} />
       <Route path="/splash" component={SplashScreen} />
       <Route path="/plans" component={Plans} />
       <Route path="/register" component={Register} />
@@ -146,6 +159,14 @@ function Router() {
         )}
       </Route>
       
+
+      <Route path="/rbac/marketing">
+        {() => (
+          <ProtectedRoute allowedRoles={['marketing']} routeName="/rbac/marketing">
+            <MarketingPage />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/coordenador/inclusao-produtiva">
         {() => (
           <ProtectedRoute allowedRoles={['coordenador_inclusao']} routeName="/coordenador/inclusao-produtiva">
@@ -186,41 +207,13 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
-      <Route path="/pec-coordenador">
-        {() => (
-          <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/pec-coordenador">
-            <PecCoordenador />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/pec">
-        {() => (
-          <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/pec">
-            <PecCoordenador />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/pec/projetos/:projectId">
-        {() => (
-          <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/pec/projetos/:projectId">
-            <PecCoordenador />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/pec/atividades/:activityId">
-        {() => (
-          <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/pec/atividades/:activityId">
-            <PecCoordenador />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/pec/turmas/:instanceId">
-        {() => (
-          <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/pec/turmas/:instanceId">
-            <PecCoordenador />
-          </ProtectedRoute>
-        )}
-      </Route>
+      {/* REMOVIDO: Todas as rotas do Sistema PEC conforme solicitação (2025-11-18)
+      - /pec-coordenador
+      - /pec
+      - /pec/projetos/:projectId
+      - /pec/atividades/:activityId
+      - /pec/turmas/:instanceId
+      */}
       <Route path="/administrador">
         {() => (
           <ProtectedRoute allowedRoles={['super_admin', 'leo']} routeName="/administrador">
@@ -299,14 +292,9 @@ function Router() {
         )}
       </Route>
 
-      <Route path="/dev-marketing">
-        {() => (
-          <ProtectedRoute allowedRoles={['super_admin', 'leo', 'dev']} routeName="/dev-marketing">
-            <DevMarketing />
-          </ProtectedRoute>
-        )}
-      </Route>
-
+      <Route path="/dev/login" component={DevLoginPage} />
+      
+     
       <Route path="/subscriptions">
         {() => (
           <ProtectedRoute allowedRoles={['super_admin', 'leo', 'dev']} routeName="/subscriptions">
@@ -505,13 +493,8 @@ function Router() {
         )}
       </Route>
 
-      {/* Scanner Login - Rota pública */}
-      <Route path="/scanner-login" component={ScannerLogin} />
-      
+      {/* Scanner Interface - Protected */}
       <Route path="/scanner" component={ScannerPage} />
-
-      {/* Coordenador Login - Rota pública */}
-      <Route path="/login/coordenador" component={CoordenadorLogin} />
 
       <Route path="/pagamento/ingresso" component={IngressosEsgotados} />
       <Route path="/pagamento-ingresso" component={IngressosEsgotados} />
@@ -527,6 +510,18 @@ function Router() {
       <Route path="/ingresso/visualizar/:id" component={IngressoPage} />
       <Route path="/pagamento/aprovado" component={PagamentoAprovado} />
       <Route path="/pagamento/reprovado" component={PagamentoReprovado} />
+
+            {/* Tela de Dev Marketing */}
+      <Route path="/dev/marketing">
+        {() => (
+          <ProtectedRoute
+            allowedRoles={['dev', 'desenvolvedor', 'dev-marketing']}
+            routeName="/dev/marketing"
+          >
+            <DevMarketing />
+          </ProtectedRoute>
+        )}
+      </Route>
       
       <Route path="/dev">
         {() => (

@@ -69,7 +69,9 @@ import {
   type ParticipanteTurma, type InsertParticipanteTurma,
   type CursoInclusao, type InsertCursoInclusao,
   type CursoTurma, type InsertCursoTurma,
-  type ParticipanteInclusao, type InsertParticipanteInclusao
+  type ParticipanteInclusao, type InsertParticipanteInclusao,
+  // Tipos de Patrocinadores
+  patrocinadores, type Patrocinador, type InsertPatrocinador
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, asc, or, ilike, like, inArray, gt, lt } from "drizzle-orm";
@@ -122,6 +124,9 @@ export interface IStorage {
 
   // ===== PATROCINADORES 2026 =====
   createPatrocinador2026(nome: string, telefone: string): Promise<User>;
+  
+  // ===== PATROCINADORES (TABELA) =====
+  getPatrocinadores(ano: number): Promise<Patrocinador[]>;
 
   // ===== MÓDULO SORTEIO =====
   // Sorteios
@@ -6825,6 +6830,23 @@ export class DatabaseStorage implements IStorage {
       }
     } catch (error) {
       console.error('❌ [PATROCINADOR 2026] Erro ao criar/atualizar patrocinador:', error);
+      throw error;
+    }
+  }
+
+  // ===== PATROCINADORES (TABELA) =====
+  async getPatrocinadores(ano: number): Promise<Patrocinador[]> {
+    try {
+      const result = await db
+        .select()
+        .from(patrocinadores)
+        .where(eq(patrocinadores.ano, ano))
+        .orderBy(desc(patrocinadores.valorPatrocinio));
+      
+      console.log(`✅ [PATROCINADORES] Buscados ${result.length} patrocinadores do ano ${ano}`);
+      return result;
+    } catch (error) {
+      console.error(`❌ [PATROCINADORES] Erro ao buscar patrocinadores do ano ${ano}:`, error);
       throw error;
     }
   }

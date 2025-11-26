@@ -13,6 +13,8 @@ import { FormularioEvidencia } from "@/components/FormularioEvidencia";
 import type { EvidenceType } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import useActivityTracker from "@/hooks/useActivityTracker";
+import { UserAvatar } from "@/components/UserAvatar";
+import { useProfileImage } from "@/hooks/useProfileImage";
 
 interface MissaoSemanal {
   id: number;
@@ -338,6 +340,18 @@ export default function MissoesSemanais() {
     }
   };
 
+  // Função para formatar nome do plano
+  const getPlanDisplayName = (plano: string) => {
+    const planoMap: Record<string, string> = {
+      'eco': 'Eco',
+      'voz': 'Voz',
+      'grito': 'Grito',
+      'platinum': 'Platinum',
+      'diamante': 'Diamante'
+    };
+    return planoMap[plano.toLowerCase()] || 'Eco';
+  };
+
   return (
     <div className="min-h-screen bg-white pb-20 font-inter">
       {/* Header */}
@@ -359,16 +373,22 @@ export default function MissoesSemanais() {
             <Logo size="md" />
           </div>
           
-          {/* Elemento da Direita: Botão de Foto */}
+          {/* Elemento da Direita: Perfil do Usuário */}
           <div className="w-16 flex justify-end">
-            <button
-              onClick={() => setShowPhotoModal(true)}
-              className="flex flex-col items-center p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              aria-label="Enviar foto"
-            >
-              <Camera className="w-5 h-5 text-gray-600 mb-1" />
-              <span className="text-xs font-medium text-gray-600">Foto</span>
-            </button>
+            <div className="flex flex-col items-center relative">
+              {/* Foto de Perfil Circular */}
+              <UserAvatar 
+                size="md" 
+                className="border-2 border-gray-200 mb-1"
+                onClick={() => setLocation("/dados-cadastrais")}
+              />
+              
+              {/* Badge do Plano */}
+              <div className="bg-gray-100 text-gray-700 text-xs font-medium px-2 py-1 rounded-full flex items-center space-x-1">
+                <span>{userData?.plano ? getPlanDisplayName(userData.plano) : "Eco"}</span>
+                <span className="text-orange-500">◆</span>
+              </div>
+            </div>
           </div>
         </div>
       </header>

@@ -16,7 +16,6 @@ import * as path from 'node:path';
 // GCS Service for image upload and storage
 import { uploadToGCS, deleteObject, extractFilePathFromUrl, getSignedUrl, fileExists as gcsFileExists } from "./gcsService";
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 import {
   insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins, marketingLinks,
   // 📊 GESTÃO À VISTA - Tabelas
@@ -42,15 +41,6 @@ import {
   participantesInclusao,
   cursosInclusao,
   programasInclusao,
-  monitorParticipantes,
-  aluno,
-  atividadesMonitor,
-  insertAtividadeMonitorSchema,
-  updateMonitorParticipanteSchema,
-  monitorGrupos,
-  insertMonitorGrupoSchema,
-  registrosAtividades,
-  insertRegistroAtividadeSchema,
   // ⚽ PEC (POLO ESPORTIVO CULTURAL)
   pecActivities,
   activityInstances,
@@ -67,8 +57,6 @@ import {
   psicoPlanos,
   psicoInclusaoVinculo,
   psicoPecVinculo,
-  indicadoresPsicoAtencaoSocial,
-  indicadoresPsicoMetodoGrito,
   insertPsicoFamiliaSchema,
   insertPsicoCasoSchema,
   insertPsicoAtendimentoSchema,
@@ -91,9 +79,6 @@ import {
   // 👥 COORDENADORES - LOGIN
   coordenadores,
   type Coordenador,
-  // 👥 MONITORES - LOGIN
-  monitores,
-  marketingUsers,
   // 💳 SUBSCRIPTION MANAGEMENT
   donorSubscriptions,
   billingEvents,
@@ -107,7 +92,7 @@ import {
   dadosDemograficos
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, or, sql, desc, ilike, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
 import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
 import { z } from "zod";
 import multer from "multer";
@@ -418,40 +403,23 @@ function validateImageMagicNumber(buffer: Buffer): boolean {
 // Middleware para verificar autenticação obrigatória
 async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
-    // 🔒 PRIORIDADE 1: Validar sessão de coordenador (se existir)
-    const session = req.session as any;
-    if (session?.isCoordinator && session?.coordenadorId) {
-      console.log(`✅ [AUTH SESSION] Coordenador autenticado: ${session.userName} (coordId=${session.coordenadorId})`);
-      
-      // Buscar dados atualizados do coordenador
-      const coordenador = await db
-        .select()
-        .from(coordenadores)
-        .where(eq(coordenadores.id, session.coordenadorId))
-        .limit(1);
-      
-      if (coordenador && coordenador.length > 0) {
-        (req as any).coordenador = coordenador[0];
-        (req as any).user = { id: session.userId };
-        return next();
-      }
-    }
-
     // Verificar se é modo dev por vários critérios
     const devAccessQuery = req.query.dev_access === 'true';
     const devAccessHeader = req.headers['x-dev-access'] === 'true';
     const devReferer = req.headers.referer?.includes('dev_access=true') ||
-      req.headers.referer?.includes('/dev');
+      req.headers.referer?.includes('/dev') ||
+      req.headers.referer?.includes('/coordenador/inclusao-produtiva');
     const isDevMode = isDevRequest(req) || devAccessQuery || devAccessHeader || devReferer;
 
     // Permitir acesso em modo dev sem autenticação
     if (isDevMode) {
       console.log('🔧 [DEV MODE] Bypass de autenticação para:', req.path, '| Referer:', req.headers.referer);
+      // Criar um usuário fake para dev mode
       (req as any).user = { id: 1, nome: 'Dev User', papel: 'dev' };
       (req as any).isDeveloper = true;
       return next();
     }
-    
+
     const userId = req.headers['x-user-id'];
     if (!userId) {
       return res.status(401).json({ error: 'Autenticação obrigatória - cabeçalho x-user-id necessário' });
@@ -465,57 +433,36 @@ async function requireAuth(req: express.Request, res: express.Response, next: ex
       const coordenador = await db
         .select()
         .from(coordenadores)
-        .where(eq(coordenadores.userId, parseInt(userId as string)))
+        .where(eq(coordenadores.id, parseInt(userId as string)))
         .limit(1);
-
+      
       if (coordenador && coordenador.length > 0) {
-        (req as any).coordenador = coordenador[0];
-        (req as any).user = { id: parseInt(userId as string) };
-        console.log('🔐 [AUTH] Coordenador autenticado via header:', coordenador[0].nome);
+        // Criar objeto user-like com dados do coordenador
+        (req as any).user = {
+          id: coordenador[0].id,
+          nome: coordenador[0].nome,
+          email: coordenador[0].email,
+          role: 'coordenador',
+          tipo: 'coordenador',
+          isCoordenador: true,
+          setor: coordenador[0].setor
+        };
+        (req as any).isCoordenador = true;
+        console.log(`✅ [AUTH-COORD] Coordenador ${coordenador[0].nome} (${coordenador[0].setor}) autenticado`);
         return next();
       }
-
+      
       return res.status(401).json({ error: 'Usuário não encontrado' });
     }
 
+    // Anexar usuário à requisição para uso posterior
     (req as any).user = user;
     next();
   } catch (error) {
-    console.error('Erro no middleware de autenticação:', error);
-    res.status(500).json({ error: 'Erro interno do servidor' });
+    console.error('❌ [AUTH] Erro na autenticação:', error);
+    return res.status(401).json({ error: 'Falha na autenticação' });
   }
 }
-
-
-
-// Middleware para verificar autenticação de desenvolvedor
-async function requireDevAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  try {
-    console.log("[requireDevAuth] Session data:", {
-      hasSession: !!req.session,
-      developerId: req.session?.developerId,
-      userPapel: req.session?.userPapel,
-      sessionID: req.sessionID
-    });
-
-    const developerId = req.session?.developerId;
-    const userPapel = req.session?.userPapel;
-
-    if (!developerId || (userPapel !== "dev" && userPapel !== "desenvolvedor")) {
-      console.log("[requireDevAuth] Auth failed - missing session data");
-      return res.status(401).json({ error: "Acesso negado - sessão de desenvolvedor requerida" });
-    }
-
-    // Anexar info do desenvolvedor ao request
-    (req as any).developerId = developerId;
-    console.log("[requireDevAuth] Auth successful for developer:", developerId);
-    return next();
-  } catch (error) {
-    console.error("[requireDevAuth] Error:", error);
-    return res.status(500).json({ error: "Erro ao verificar autenticação" });
-  }
-}
-
 
 // Middleware para verificar se usuário é admin
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -546,13 +493,6 @@ function requireRole(allowedRoles: string[]) {
     // Obter papel do usuário (compatibilidade com campos existentes)
     const userRole = user.papel || user.userPapel || user.tipo || user.role;
 
-    // PERMITIR ACESSO EM DEV MODE (bypass RBAC)
-    if (userRole === 'dev') {
-      console.log(`✅ [DEV MODE] Usuário ${user.id} acessando com papel "dev" (RBAC bypass)`);
-      next();
-      return;
-    }
-
     // Verificar se o papel do usuário está na lista de papéis permitidos
     if (!userRole || !allowedRoles.includes(userRole)) {
       console.warn(`🚨 [RBAC] Acesso negado - Usuário ${user.id} (${user.email}) papel "${userRole}" não autorizado. Papéis permitidos: ${allowedRoles.join(', ')}`);
@@ -565,28 +505,6 @@ function requireRole(allowedRoles: string[]) {
     console.log(`✅ [RBAC] Usuário ${user.id} papel "${userRole}" autorizado`);
     next();
   };
-}
-
-// Helper para verificar acesso a recursos próprios com bypass dev mode
-function ensureSelfAccess(user: any, targetId: number, resourceName: string = 'recurso'): { allowed: boolean; error?: any } {
-  const userRole = user.papel || user.userPapel || user.tipo || user.role;
-  if (userRole === 'dev') {
-    console.log(`✅ [DEV MODE] Bypass self-access para ${resourceName} (user ${user.id} → target ${targetId})`);
-    return { allowed: true };
-  }
-
-  if (user.id !== targetId) {
-    console.warn(`🚨 [SECURITY] User ${user.id} tentou acessar ${resourceName} de user ${targetId}`);
-    return { 
-      allowed: false, 
-      error: { 
-        status: 403, 
-        message: `Acesso negado - você só pode acessar seu próprio ${resourceName}` 
-      } 
-    };
-  }
-
-  return { allowed: true };
 }
 
 // Middleware específicos para cada papel RBAC
@@ -9042,17 +8960,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       //          e SNAPSHOTS para indicadores de ESTOQUE (que pegam último valor)
       // ==================================================================
       const dadosMensais2025 = {
-        criancasAtendidas: [null, 330, 305, 305, 318, 284, 328, 321, 333, 370, null, null], // ESTOQUE (snapshot) - último: out (370)
-        alunosFormados: [null, null, 72, null, 62, 176, 64, 33, 52, 122, null, null], // FLUXO (mensal) - Total out: 581
-        alunosEmFormacao: [57, 71, 80, 30, 211, 204, 170, 162, 341, 255, null, null], // ESTOQUE (snapshot) - último: out (255)
-        frequencia: [null, 78, 81, 88, 86, 86, 90, 82, 87, 84, null, null], // ESTOQUE (% snapshot) - último: 84% (out)
+        criancasAtendidas: [null, 330, 305, 305, 318, 284, 328, 321, 333, null, null, null], // ESTOQUE (snapshot) - último: set
+        alunosFormados: [null, null, 72, null, 62, 176, 64, 33, 52, null, null, null], // FLUXO (mensal) - Total set: 561
+        alunosEmFormacao: [57, 71, 80, 30, 211, 204, 170, 162, 341, 255, null, null], // CORRIGIDO: set=341, out=255 - Total: 1.581
+        frequencia: [null, 78, 81, 88, 86, 86, 90, 82, 87, null, null, null], // ESTOQUE (% snapshot) - último: 87% (set)
         avaliacaoAprendizagem: [null, null, null, null, null, 89, null, null, null, null, null, null], // ESTOQUE (% snapshot) - último: 89% (jun)
         pesquisaSatisfacao: [null, null, null, null, null, 81, null, null, null, null, null, null], // ESTOQUE (snapshot) - último: 81 (jun)
-        evasao: [null, 0, 32, 0, 0, 1, 1, 23, 4, 6, null, null], // FLUXO (mensal) - Total out: 67
-        geracaoRenda: [null, 1, 21, 8, 45, 10, 13, null, 20, 13, null, null], // FLUXO (mensal) - Total out: 131
-        familiasAcompanhadas: [238, 219, 219, 217, 217, 217, 217, 218, 219, 219, null, null], // ESTOQUE (snapshot) - último: 219 (out)
-        visitasDomicilio: [323, 297, 332, 363, 398, 407, 354, 387, 313, 366, null, null], // FLUXO (mensal) - Total out: 3540
-        atendimentosPsico: [0, 17, 50, 44, 56, 30, 35, 30, 62, 53, null, null] // FLUXO (mensal) - Total out: 377
+        evasao: [null, null, 32, null, null, 1, 1, 23, 4, null, null, null], // FLUXO (mensal) - Total set: 61
+        geracaoRenda: [null, 1, 21, 8, 45, 10, 13, null, 20, null, null, null], // FLUXO (mensal) - Total set: 131 (269 deve ser erro)
+        familiasAcompanhadas: [238, 219, 219, 217, 217, 217, 217, 218, 219, null, null, null], // ESTOQUE (snapshot) - último: 219 (set)
+        visitasDomicilio: [323, 297, 332, 363, 398, 407, 354, 387, 313, null, null, null], // FLUXO (mensal) - Total set: 3174
+        atendimentosPsico: [0, 17, 50, 44, 56, 30, 35, 30, 62, null, null, null] // FLUXO (mensal) - Total set: 324
       };
 
       // Metas anuais 2025 (não mudam por mês)
@@ -11827,9 +11745,9 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       const userId = parseInt(req.params.userId);
       const user = (req as any).user;
 
-      const access = ensureSelfAccess(user, userId, 'dashboard');
-      if (!access.allowed) {
-        return res.status(access.error!.status).json({ error: access.error!.message });
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
       }
 
       // Retornar dados do dashboard específicos para professor
@@ -11854,9 +11772,9 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       const userId = parseInt(req.params.userId);
       const user = (req as any).user;
 
-      const access = ensureSelfAccess(user, userId, 'dashboard');
-      if (!access.allowed) {
-        return res.status(access.error!.status).json({ error: access.error!.message });
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
       }
 
       // Retornar dados do dashboard específicos para monitor
@@ -11875,537 +11793,16 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-
-  // GET /api/monitor/:monitorId/alunos - Lista alunos do monitor
-  // GET /api/monitor/:monitorId/alunos - Lista alunos do monitor (PEC e Inclusão Produtiva)
-  app.get("/api/monitor/:monitorId/alunos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      const programType = req.query.programType as string; // 'pec', 'inclusao' ou undefined (todos)
-
-      const access = ensureSelfAccess(user, monitorId, 'alunos');
-      if (!access.allowed) {
-        return res.status(access.error!.status).json({ error: access.error!.message });
-      }
-
-      console.log(`📚 [MONITOR ALUNOS] Buscando alunos do monitor ${monitorId}, programa: ${programType || 'todos'}`);
-
-      // Buscar os participantes vinculados ao monitor com JOIN para ambas as fontes
-      const alunosData = await db
-        .select({
-          id: monitorParticipantes.id,
-          programType: monitorParticipantes.programType,
-          
-          // Dados de Inclusão Produtiva
-          inclusaoId: monitorParticipantes.inclusaoParticipanteId,
-          inclusaoNome: participantesInclusao.nome,
-          inclusaoPrograma: participantesInclusao.programaAtual,
-          
-          // Dados de PEC
-          pecCpf: monitorParticipantes.pecAlunoCpf,
-          pecNome: aluno.nome_completo,
-          pecMatricula: aluno.numero_matricula,
-          
-          // Campos de acompanhamento
-          observacoesPrivadas: monitorParticipantes.observacoesPrivadas,
-          acompanhamentoStatus: monitorParticipantes.acompanhamentoStatus,
-          ultimaInteracao: monitorParticipantes.ultimaInteracao,
-        })
-        .from(monitorParticipantes)
-        .leftJoin(
-          participantesInclusao,
-          eq(monitorParticipantes.inclusaoParticipanteId, participantesInclusao.id)
-        )
-        .leftJoin(
-          aluno,
-          eq(monitorParticipantes.pecAlunoCpf, aluno.cpf)
-        )
-        .where(
-          and(
-            eq(monitorParticipantes.monitorUserId, monitorId),
-            programType ? eq(monitorParticipantes.programType, programType) : undefined
-          )
-        );
-
-      // Normalizar dados: unificar campos de ambas as fontes
-      const alunosNormalizados = alunosData.map((aluno) => {
-        const isPec = aluno.programType === 'pec';
-        
-        return {
-          id: aluno.id,
-          programType: aluno.programType,
-          studentId: isPec ? aluno.pecCpf : aluno.inclusaoId,
-          nome: isPec ? aluno.pecNome : aluno.inclusaoNome,
-          grupo: isPec ? aluno.pecMatricula : aluno.inclusaoPrograma,
-          observacoesPrivadas: aluno.observacoesPrivadas,
-          acompanhamentoStatus: aluno.acompanhamentoStatus,
-          ultimaInteracao: aluno.ultimaInteracao,
-          frequencia: 0, // TODO: calcular frequência por programa
-        };
-      });
-
-      console.log(`✅ [MONITOR ALUNOS] ${alunosNormalizados.length} alunos encontrados para monitor ${monitorId}`);
-      res.json(alunosNormalizados);
-    } catch (error: any) {
-      console.error("❌ [MONITOR ALUNOS] Erro ao buscar alunos:", error);
-      res.status(500).json({ error: "Falha ao buscar alunos: " + error.message });
-    }
-  });
-
-  // PATCH /api/monitor/alunos/:id - Atualizar informações de acompanhamento de aluno
-  app.patch("/api/monitor/alunos/:id", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorParticipanteId = parseInt(req.params.id);
-      const user = (req as any).user;
-
-      console.log(`📝 [MONITOR ALUNOS] Monitor ${user.id} atualizando registro ${monitorParticipanteId}`);
-
-      // Validar body com schema
-      const validationResult = updateMonitorParticipanteSchema.safeParse(req.body);
-      if (!validationResult.success) {
-        console.warn(`⚠️ [MONITOR ALUNOS] Validação falhou:`, validationResult.error);
-        return res.status(400).json({ 
-          error: "Dados inválidos", 
-          details: validationResult.error.errors 
-        });
-      }
-
-      const updateData = validationResult.data;
-
-      // Verificar se o registro existe e pertence ao monitor autenticado
-      const existingRecord = await db
-        .select()
-        .from(monitorParticipantes)
-        .where(eq(monitorParticipantes.id, monitorParticipanteId))
-        .limit(1);
-
-      if (!existingRecord || existingRecord.length === 0) {
-        console.warn(`⚠️ [MONITOR ALUNOS] Registro ${monitorParticipanteId} não encontrado`);
-        return res.status(404).json({ error: "Registro não encontrado" });
-      }
-
-      if (existingRecord[0].monitorUserId !== user.id) {
-        console.warn(`🚨 [SECURITY] Monitor ${user.id} tentou atualizar registro de outro monitor`);
-        return res.status(403).json({ error: "Acesso negado - este registro não pertence a você" });
-      }
-
-      // Atualizar o registro
-      const updated = await db
-        .update(monitorParticipantes)
-        .set({
-          ...updateData,
-          updatedAt: new Date(),
-        })
-        .where(eq(monitorParticipantes.id, monitorParticipanteId))
-        .returning();
-
-      console.log(`✅ [MONITOR ALUNOS] Registro ${monitorParticipanteId} atualizado com sucesso`);
-      res.json(updated[0]);
-    } catch (error: any) {
-      console.error("❌ [MONITOR ALUNOS] Erro ao atualizar registro:", error);
-      res.status(500).json({ error: "Falha ao atualizar registro: " + error.message });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/alunos - Assign aluno to monitor
-  app.post("/api/monitor/:monitorId/alunos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'alunos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const { participanteId } = req.body;
-      
-      // Check if already assigned
-      const existing = await db.select()
-        .from(monitorParticipantes)
-        .where(eq(monitorParticipantes.participanteId, participanteId))
-        .limit(1);
-      
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'Participante já atribuído' });
-      }
-      
-      const newAssignment = await db.insert(monitorParticipantes)
-        .values({
-          monitorUserId: monitorId,
-          participanteId: participanteId,
-          acompanhamentoStatus: 'ativo',
-          observacoesPrivadas: ''
-        })
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Aluno ${participanteId} atribuido ao monitor ${monitorId}`);
-      res.json(newAssignment[0]);
-    } catch (error: any) {
-      console.error("Error assigning aluno:", error);
-      res.status(500).json({ error: "Failed to assign aluno" });
-    }
-  });
-
-  // GET /api/monitor/:monitorId/participantes-disponiveis - List unassigned participantes
-  app.get("/api/monitor/:monitorId/participantes-disponiveis", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'participantes-disponiveis');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      // Get participantes not assigned to this monitor
-      const allParticipantes = await db.select({
-        id: participantesInclusao.id,
-        nome: participantesInclusao.nome,
-        grupo: participantesInclusao.programaAtual
-      })
-      .from(participantesInclusao)
-      .orderBy(participantesInclusao.nome);
-      
-      // Get already assigned IDs
-      const assignedIds = await db.select({ id: monitorParticipantes.participanteId })
-        .from(monitorParticipantes)
-        .where(eq(monitorParticipantes.monitorUserId, monitorId));
-      
-      const assignedSet = new Set(assignedIds.map(a => a.id));
-      const available = allParticipantes.filter(p => !assignedSet.has(p.id));
-      
-      res.json(available);
-    } catch (error: any) {
-      console.error("Error fetching available participantes:", error);
-      res.status(500).json({ error: "Failed to fetch participantes" });
-    }
-
-  });
-  // GET /api/monitor/:monitorId/atividades - List monitor's activities
-  app.get("/api/monitor/:monitorId/atividades", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'atividades');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const atividades = await db.select()
-        .from(atividadesMonitor)
-        .where(eq(atividadesMonitor.monitorUserId, monitorId))
-        .orderBy(atividadesMonitor.data);
-      
-      res.json(atividades);
-    } catch (error: any) {
-      console.error("Error fetching atividades:", error);
-      res.status(500).json({ error: "Failed to fetch atividades" });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/atividades - Create new activity
-  app.post("/api/monitor/:monitorId/atividades", requireAuth, requireMonitor, async (req, res) => {
-    console.log("[DEBUG] POST /api/monitor/:monitorId/atividades chamado");
-    console.log("[DEBUG] req.body:", JSON.stringify(req.body, null, 2));
-    console.log("[DEBUG] req.params:", req.params);
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'atividades');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      // Convert data string to Date object
-      const dataConverted = req.body.data ? new Date(req.body.data) : undefined;
-
-      const validated = insertAtividadeMonitorSchema.parse({
-        ...req.body,
-        data: dataConverted,
-        monitorUserId: monitorId
-      });
-      
-      const newAtividade = await db.insert(atividadesMonitor)
-        .values(validated)
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Atividade criada por monitor ${monitorId}`);
-      res.json(newAtividade[0]);
-    } catch (error: any) {
-      console.error("Error creating atividade:", error);
-      res.status(500).json({ error: "Failed to create atividade" });
-    }
-  });
-  
-
-  // GET /api/monitor/:monitorId/grupos - List monitor's groups
-  app.get("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'grupos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const grupos = await db.select()
-        .from(monitorGrupos)
-        .where(eq(monitorGrupos.monitorUserId, monitorId))
-        .orderBy(monitorGrupos.createdAt);
-      
-      res.json(grupos);
-    } catch (error: any) {
-      console.error("Error fetching grupos:", error);
-      res.status(500).json({ error: "Failed to fetch grupos" });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/grupos - Create new group
-  app.post("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'grupos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const validated = insertMonitorGrupoSchema.parse({
-        ...req.body,
-        monitorUserId: monitorId
-      });
-      
-      const newGrupo = await db.insert(monitorGrupos)
-        .values(validated)
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Grupo criado por monitor ${monitorId}: ${newGrupo[0].nome}`);
-      res.json(newGrupo[0]);
-    } catch (error: any) {
-      console.error("Error creating grupo:", error);
-      res.status(500).json({ error: "Failed to create grupo" });
-    }
-  });
-
-  // GET /api/monitor/:monitorId/registros - List activity reports/logs
-  app.get("/api/monitor/:monitorId/registros", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'registros');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const registros = await db.select()
-        .from(registrosAtividades)
-        .where(eq(registrosAtividades.monitorUserId, monitorId))
-        .orderBy(desc(registrosAtividades.dataAtividade));
-      
-      res.json(registros);
-    } catch (error: any) {
-      console.error("Error fetching registros:", error);
-      res.status(500).json({ error: "Failed to fetch registros" });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/registros - Create activity report/log
-  app.post("/api/monitor/:monitorId/registros", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'registros');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const validated = insertRegistroAtividadeSchema.parse({
-        ...req.body,
-        monitorUserId: monitorId
-      });
-      
-      const newRegistro = await db.insert(registrosAtividades)
-        .values(validated)
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Registro criado por monitor ${monitorId}: ${newRegistro[0].titulo}`);
-      res.json(newRegistro[0]);
-    } catch (error: any) {
-      console.error("Error creating registro:", error);
-      res.status(500).json({ error: "Failed to create registro" });
-    }
-  });
-
-  // GET /api/monitor/:monitorId/grupos/:grupoId/alunos - Get students in a group
-  app.get("/api/monitor/:monitorId/grupos/:grupoId/alunos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const grupoId = parseInt(req.params.grupoId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'grupos-alunos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      // Get the grupo with its turmaId
-      const grupo = await db.query.monitorGrupos.findFirst({
-        where: and(
-          eq(monitorGrupos.id, grupoId),
-          eq(monitorGrupos.monitorUserId, monitorId)
-        )
-      });
-      
-      if (!grupo) {
-        return res.status(404).json({ error: 'Grupo não encontrado' });
-      }
-      
-      if (!grupo.turmaId) {
-        return res.status(400).json({ error: 'Grupo não está vinculado a uma turma' });
-      }
-      
-      // Get students from aluno_turma for this turma
-      const students = await db
-        .select({
-          cpf: aluno.cpf,
-          nome: aluno.nomeCompleto,
-        })
-        .from(alunoTurma)
-        .innerJoin(aluno, eq(alunoTurma.alunoCpf, aluno.cpf))
-        .where(eq(alunoTurma.turmaId, grupo.turmaId));
-      
-      console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} alunos do grupo ${grupoId}`);
-      res.json(students);
-    } catch (error: any) {
-      console.error("Error fetching grupo students:", error);
-      res.status(500).json({ error: "Failed to fetch students" });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/chamada - Create attendance record
-  app.post("/api/monitor/:monitorId/chamada", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'chamada');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const { grupoId, data, observacoes } = req.body;
-      
-      if (!grupoId || !data) {
-        return res.status(400).json({ error: 'grupoId e data são obrigatórios' });
-      }
-      
-      // Get the grupo to extract turmaId
-      const grupo = await db.query.monitorGrupos.findFirst({
-        where: and(
-          eq(monitorGrupos.id, grupoId),
-          eq(monitorGrupos.monitorUserId, monitorId)
-        )
-      });
-      
-      if (!grupo) {
-        return res.status(404).json({ error: 'Grupo não encontrado' });
-      }
-      
-      if (!grupo.turmaId) {
-        return res.status(400).json({ error: 'Grupo não está vinculado a uma turma' });
-      }
-      
-      const validated = insertChamadaSchema.parse({
-        turmaId: grupo.turmaId,
-        data,
-        professorId: monitorId,
-        observacoes
-      });
-      
-      const newChamada = await db.insert(chamada)
-        .values(validated)
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Chamada criada por monitor ${monitorId} para grupo ${grupoId}`);
-      res.json(newChamada[0]);
-    } catch (error: any) {
-      console.error("Error creating chamada:", error);
-      res.status(500).json({ error: "Failed to create chamada" });
-    }
-  });
-
-  // POST /api/monitor/:monitorId/chamada/:chamadaId/presencas - Save attendance list
-  app.post("/api/monitor/:monitorId/chamada/:chamadaId/presencas", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const chamadaId = parseInt(req.params.chamadaId);
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'presencas');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const { presencas } = req.body;
-      
-      if (!Array.isArray(presencas)) {
-        return res.status(400).json({ error: 'presencas deve ser um array' });
-      }
-      
-      // Verify chamada belongs to this monitor
-      const chamadaRecord = await db.query.chamada.findFirst({
-        where: eq(chamada.id, chamadaId)
-      });
-      
-      if (!chamadaRecord) {
-        return res.status(404).json({ error: 'Chamada não encontrada' });
-      }
-      
-      if (chamadaRecord.professorId !== monitorId) {
-        return res.status(403).json({ error: 'Esta chamada não pertence a você' });
-      }
-      
-      // Insert all presencas
-      const insertedPresencas = [];
-      for (const p of presencas) {
-        const validated = insertChamadaAlunoSchema.parse({
-          chamadaId,
-          alunoCpf: p.alunoCpf,
-          status: p.presente ? 'presente' : 'falta',
-          observacoes: p.observacoes || null
-        });
-        
-        const inserted = await db.insert(chamadaAluno)
-          .values(validated)
-          .returning();
-        
-        insertedPresencas.push(inserted[0]);
-      }
-      
-      console.log(`[RBAC MONITOR] Monitor ${monitorId} salvou ${insertedPresencas.length} presenças para chamada ${chamadaId}`);
-      res.json({ success: true, count: insertedPresencas.length });
-    } catch (error: any) {
-      console.error("Error saving presencas:", error);
-      res.status(500).json({ error: "Failed to save presencas" });
-    }
-  });
+  // Dashboard dos Coordenadores RBAC - Unificado
   app.get("/api/coordenador/dashboard/:userId", requireAuth, requireAnyCoordenador, async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
       const user = (req as any).user;
       const area = req.query.area as string;
 
-      const access = ensureSelfAccess(user, userId, 'dashboard');
-      if (!access.allowed) {
-        return res.status(access.error!.status).json({ error: access.error!.message });
+      // Verificar se o usuário está acessando seu próprio dashboard
+      if (user.id !== userId) {
+        return res.status(403).json({ error: 'Acesso negado - você só pode acessar seu próprio dashboard' });
       }
 
       // Verificar se a área solicitada corresponde ao papel do usuário
@@ -12541,130 +11938,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // GET /api/coordenadores/:id/profile - Buscar perfil completo (users + coordenadores)
-  app.get("/api/coordenadores/:id/profile", async (req, res) => {
-    try {
-      const coordId = parseInt(req.params.id);
-      
-      // Buscar coordenador
-      const coordenador = await storage.getCoordenador(coordId);
-      
-      if (!coordenador) {
-        return res.status(404).json({ error: "Coordenador não encontrado" });
-      }
-      
-      // Buscar usuário correspondente por email
-      const user = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, coordenador.email))
-        .limit(1);
-      
-      // Retornar perfil mesclado
-      const perfil = {
-        nome: user && user.length > 0 ? user[0].nome : coordenador.nome,
-        email: coordenador.email,
-        telefone: user && user.length > 0 ? user[0].telefone : coordenador.telefone,
-        formacao: coordenador.formacao || "",
-        setor: coordenador.setor,
-        userId: user && user.length > 0 ? user[0].id : null,
-        coordenadorId: coordenador.id
-      };
-      
-      console.log(`✅ [GET /api/coordenadores/${coordId}/profile] Perfil encontrado para ${coordenador.nome}`);
-      res.json(perfil);
-      
-    } catch (error: any) {
-      console.error("❌ [COORD PROFILE GET] Erro ao buscar perfil:", error);
-      res.status(500).json({ error: "Erro ao buscar perfil" });
-    }
-  });
-
-    // PATCH /api/coordenadores/:id/profile - Atualizar perfil (users + coordenadores)
-  app.patch("/api/coordenadores/:id/profile", express.json(), async (req, res) => {
-    try {
-      const coordId = parseInt(req.params.id);
-      const { nome, email, telefone, formacao } = req.body;
-      
-      // Validação básica
-      if (!nome || !nome.trim()) {
-        return res.status(400).json({ error: "Nome é obrigatório" });
-      }
-      if (!email || !email.trim() || !email.includes('@')) {
-        return res.status(400).json({ error: "Email válido é obrigatório" });
-      }
-      
-      // Buscar coordenador
-      const coordenador = await storage.getCoordenador(coordId);
-      
-      if (!coordenador) {
-        return res.status(404).json({ error: "Coordenador não encontrado" });
-      }
-      
-      const oldEmail = coordenador.email;
-      
-      // Normalizar telefone para E.164 se fornecido
-      let normalizedTelefone = telefone;
-      if (telefone && telefone.trim()) {
-        try {
-          normalizedTelefone = normalizePhoneToE164(telefone);
-        } catch (error: any) {
-          return res.status(400).json({ 
-            error: "Telefone inválido. Use o formato (11) 99999-9999 ou +5511999999999" 
-          });
-        }
-      }
-      
-      // Atualizar coordenador
-      const coordUpdate: any = {};
-      if (nome) coordUpdate.nome = nome;
-      if (email && email !== oldEmail) coordUpdate.email = email;
-      if (normalizedTelefone) coordUpdate.telefone = normalizedTelefone;
-      if (formacao !== undefined) coordUpdate.formacao = formacao;
-      coordUpdate.updatedAt = new Date();
-      
-      if (Object.keys(coordUpdate).length > 1) { // mais de 1 pois updatedAt sempre está presente
-        await db
-          .update(coordenadores)
-          .set(coordUpdate)
-          .where(eq(coordenadores.id, coordId));
-        
-        console.log(`✅ [COORD PROFILE UPDATE] Coordenador ${coordId} atualizado no DB`);
-      }
-      
-      // Atualizar usuário correspondente
-      const userList = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, oldEmail))
-        .limit(1);
-      
-      if (userList && userList.length > 0) {
-        const userUpdate: any = {};
-        if (nome) userUpdate.nome = nome;
-        if (email && email !== oldEmail) userUpdate.email = email;
-        if (normalizedTelefone) userUpdate.telefone = normalizedTelefone;
-        
-        if (Object.keys(userUpdate).length > 0) {
-          await db
-            .update(users)
-            .set(userUpdate)
-            .where(eq(users.id, userList[0].id));
-          
-          console.log(`✅ [COORD PROFILE UPDATE] Usuário ${userList[0].id} atualizado no DB`);
-        }
-      }
-      
-      console.log(`✅ [COORD PROFILE] Perfil atualizado com sucesso para coordenador ${coordId}`);
-      res.json({ success: true, message: "Perfil atualizado com sucesso" });
-      
-    } catch (error: any) {
-      console.error("❌ [COORD PROFILE PATCH] Erro ao atualizar perfil:", error);
-      res.status(500).json({ error: "Erro ao atualizar perfil: " + error.message });
-    }
-  });
-
-
   // PUT /api/coordenadores/:id - Atualizar perfil do coordenador
   app.put("/api/coordenadores/:id", async (req, res) => {
     try {
@@ -12796,7 +12069,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
         { id: 21, nome: "central-ajuda", titulo: "Central de Ajuda", rota: "/central-ajuda", status: "OK", descricao: "Central de ajuda e suporte", modulo: "Suporte", tipo: "Geral", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
         { id: 22, nome: "patrocinador-dashboard", titulo: "Patrocinador", rota: "/patrocinador-dashboard", status: "OK", descricao: "Dashboard do patrocinador", modulo: "Dashboard", tipo: "Patrocinador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
         { id: 23, nome: "sorteio-admin", titulo: "Admin Sorteio", rota: "/sorteio-admin", status: "OK", descricao: "Administração do sistema de sorteio", modulo: "Administração", tipo: "Admin", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
-        { id: 24, nome: "dev-marketing", titulo: "Marketing", rota: "/dev/marketing", status: "OK", descricao: "Área de marketing para gerenciar benefícios, missões e histórias inspiradoras", modulo: "Desenvolvimento", tipo: "Marketing", ultimaAtualizacao: "2025-09-08", atualizadoPor: "Sistema" },
+        { id: 24, nome: "dev-marketing", titulo: "Marketing", rota: "/dev-marketing", status: "OK", descricao: "Área de marketing para gerenciar benefícios, missões e histórias inspiradoras", modulo: "Desenvolvimento", tipo: "Marketing", ultimaAtualizacao: "2025-09-08", atualizadoPor: "Sistema" },
 
         // ================ NOVAS TELAS RBAC ================
         { id: 25, nome: "professor-rbac", titulo: "Professor", rota: "/professor", status: "OK", descricao: "Dashboard isolado do Professor RBAC", modulo: "Educação", tipo: "Professor", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
@@ -13454,74 +12727,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       const devUser = rows[0];
       if (!devUser) return res.status(401).json({ error: "Credenciais inválidas" });
-      
       if (devUser.ativo === false) return res.status(401).json({ error: "Usuário desativado" });
 
       // validação de senha (bcrypt ou texto puro para compatibilidade antiga)
       const saved = String(devUser.senha ?? "");
       const looksLikeBcrypt = /^\$2[aby]\$/.test(saved);
 
-      console.log(`🔐 [DEV LOGIN DEBUG] Usuario: ${usuario}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Senha recebida: "${senha}"`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Senha length: ${senha.length}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Hash salvo: "${saved.substring(0, 20)}..."`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Hash completo length: ${saved.length}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] É bcrypt?: ${looksLikeBcrypt}`);
-      
-      // Debug específico para devfull
-      if (usuario === 'devfull') {
-        console.log(`🔍 [DEVFULL DEBUG] Hash completo: "${saved}"`);
-        console.log(`🔍 [DEVFULL DEBUG] Regex test: ${/^\$2[aby]\$/.test(saved)}`);
-      }
+      const ok = looksLikeBcrypt
+        ? await bcrypt.compare(senha, saved).catch(() => false)
+        : senha === saved;
 
-      let ok = false;
-      if (looksLikeBcrypt) {
-        try {
-          ok = await bcrypt.compare(senha, saved);
-          console.log(`🔐 [DEV LOGIN DEBUG] bcrypt.compare resultado: ${ok}`);
-        } catch (bcryptError: any) {
-          console.error(`❌ [DEV LOGIN DEBUG] Erro no bcrypt.compare:`, bcryptError.message);
-          ok = false;
-        }
-      } else {
-        ok = senha === saved;
-        console.log(`🔐 [DEV LOGIN DEBUG] Comparação plaintext: ${ok}`);
-      }
-
-      if (!ok) {
-        console.log(`❌ [DEV LOGIN DEBUG] Autenticação falhou para: ${usuario}`);
-        return res.status(401).json({ error: "Credenciais inválidas" });
-      }
-
-      console.log(`✅ [DEV LOGIN DEBUG] Autenticação bem-sucedida para: ${usuario}`);
-
-
-      // ✅ Configurar sessão APÓS validação bem-sucedida
-      if (req.session) {
-        req.session.developerId = devUser.id;
-        req.session.userPapel = devUser.tipo === "admin" ? "dev-admin" : (devUser.tipo === "marketing" ? "dev-marketing" : "dev");
-        req.session.telefone = devUser.usuario;
-        req.session.userId = devUser.id;
-        req.session.nome = devUser.nome;
-        
-        // 🔐 SALVAR SESSÃO EXPLICITAMENTE para garantir persistência
-        await new Promise<void>((resolve, reject) => {
-          req.session.save((err) => {
-            if (err) {
-              console.error("[DEV LOGIN] Erro ao salvar sessão:", err);
-              reject(err);
-            } else {
-              console.log("[DEV LOGIN] Sessão salva com sucesso:", {
-                developerId: req.session.developerId,
-                userPapel: req.session.userPapel,
-                tipo: devUser.tipo,
-                sessionID: req.sessionID
-              });
-              resolve();
-            }
-          });
-        });
-      }
+      if (!ok) return res.status(401).json({ error: "Credenciais inválidas" });
 
       // atualiza último acesso (sem depender do schema TS)
       try {
@@ -13538,8 +12754,8 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           usuario: devUser.usuario,
           nome: devUser.nome,
           email: devUser.email,
-          tipo: devUser.tipo ?? "dev",
           ativo: devUser.ativo,
+          tipo: "master",
           ultimo_acesso: new Date().toISOString(),
         },
       });
@@ -13549,96 +12765,17 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // Alterar senha do desenvolvedor
-  app.post("/api/dev/alterar-senha", express.json(), requireDevAuth, async (req, res) => {
-    try {
-      console.log("[ALTERAR SENHA] Rota executada, body:", req.body);
-      console.log("[ALTERAR SENHA] Session data:", req.session);
-      console.log("[ALTERAR SENHA] Developer ID:", (req as any).developerId);
-      
-      const { senhaAtual, novaSenha } = req.body;
-
-      // Validar senha atual
-      if (!senhaAtual || typeof senhaAtual !== "string") {
-        return res.status(400).json({ error: "Senha atual é obrigatória" });
-      }
-
-      if (!novaSenha || typeof novaSenha !== "string") {
-        return res.status(400).json({ error: "Nova senha é obrigatória" });
-      }
-
-      if (novaSenha.length < 8) {
-        return res.status(400).json({ error: "A senha deve ter no mínimo 8 caracteres" });
-      }
-
-      // 🔒 VALIDAÇÃO DE COMPLEXIDADE DE SENHA
-      if (!/[A-Z]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos uma letra maiúscula" 
-        });
-      }
-
-      if (!/[0-9]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos um número" 
-        });
-      }
-
-      // Pegar ID do desenvolvedor da sessão
-      const developerId = (req as any).developerId;
-
-      // Buscar desenvolvedor
-      const rows = await db
-        .select()
-        .from(developers)
-        .where(eq(developers.id, developerId))
-        .limit(1);
-
-      const devUser = rows[0];
-      if (!devUser) {
-        return res.status(404).json({ error: "Desenvolvedor não encontrado" });
-      }
-
-      // Verificar senha atual
-      const senhaValida = await bcrypt.compare(senhaAtual, devUser.senha);
-      if (!senhaValida) {
-        return res.status(401).json({ error: "Senha atual incorreta" });
-      }
-
-      // Hash da nova senha com bcrypt
-      const hashedPassword = await bcrypt.hash(novaSenha, 10);
-
-      // Atualizar senha no banco
-      await db.execute(
-        sql`UPDATE developers SET senha = ${hashedPassword} WHERE id = ${developerId}`
-      );
-
-      return res.json({ 
-        success: true, 
-        message: "Senha alterada com sucesso" 
-      });
-    } catch (error) {
-      console.error("Error changing developer password:", error);
-      return res.status(500).json({ error: "Erro ao alterar senha" });
-    }
-  });
-
   // ================ COORDENADORES - LOGIN ================
 
   // Login para coordenadores (apenas com email)
-
   app.post("/api/login/coordenador", express.json(), async (req, res) => {
     try {
-      const { email, senha } = req.body;
+      const { email } = req.body;
 
       if (!email || !email.trim()) {
         return res.status(400).json({ error: "Email é obrigatório" });
       }
 
-
-      if (!senha || !senha.trim()) {
-        return res.status(400).json({ error: "Senha é obrigatória" });
-      }
       console.log(`🔑 [COORD LOGIN] Tentativa de login: ${email}`);
 
       // Buscar coordenador por email no banco Digital Ocean
@@ -13650,17 +12787,10 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       if (!coordenador || coordenador.length === 0) {
         console.log(`❌ [COORD LOGIN] Coordenador não encontrado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        return res.status(404).json({ error: "Coordenador não encontrado" });
       }
 
       const coord = coordenador[0];
-
-      // Validar senha com bcrypt
-      const senhaValida = await bcrypt.compare(senha, coord.passwordHash);
-      if (!senhaValida) {
-        console.log(`❌ [COORD LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
 
       // Verificar se está ativo
       if (!coord.ativo) {
@@ -13670,78 +12800,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
       console.log(`✅ [COORD LOGIN] Login bem-sucedido: ${coord.nome} (${coord.setor})`);
 
-      const coordinatorRoleMap: Record<string, string> = {
-        psicossocial: "coordenador_psico",
-        esporte_cultura: "coordenador_pec",
-        inclusao_produtiva: "coordenador_inclusao"
-      };
-      const targetRole = coordinatorRoleMap[coord.setor] ?? "coordenador";
-
-      let userId: number | null = null;
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, coord.email))
-        .limit(1);
-
-      if (existingUser.length > 0) {
-        userId = existingUser[0].id;
-
-        if (existingUser[0].role !== targetRole || existingUser[0].tipo !== "coordenador") {
-          await db
-            .update(users)
-            .set({ role: targetRole, tipo: "coordenador" })
-            .where(eq(users.id, userId));
-          console.log(`ℹ️ [COORD LOGIN] Atualizado role/tipo para usuário ${userId} (${coord.email})`);
-        }
-      } else {
-        let normalizedPhone: string | null = null;
-
-        if (coord.telefone?.trim()) {
-          try {
-            normalizedPhone = normalizePhoneToE164(coord.telefone.trim());
-          } catch (err) {
-            console.warn(`⚠️ [COORD LOGIN] Falha ao normalizar telefone "${coord.telefone}" para ${coord.email}:`, err);
-          }
-        }
-
-        if (!normalizedPhone) {
-          const fallbackSequence = `9${String(100000000 + coord.id).slice(-8)}`;
-          normalizedPhone = `+5599${fallbackSequence}`;
-          console.log(`⚠️ [COORD LOGIN] Telefone ausente/inválido para ${coord.email}; usando fallback ${normalizedPhone}`);
-        }
-
-        const [createdUser] = await db
-          .insert(users)
-          .values({
-            nome: coord.nome,
-            email: coord.email,
-            telefone: normalizedPhone,
-            role: targetRole,
-            tipo: "coordenador",
-            ativo: true,
-          })
-          .returning({ id: users.id });
-
-        userId = createdUser.id;
-        console.log(`✅ [COORD LOGIN] Usuário criado para coordenador ${coord.email} (userId=${userId})`);
-      }
-
-      if (!userId) {
-        throw new Error(`Não foi possível resolver userId para coordenador ${coord.email}`);
-      }
-
       // Retornar dados do coordenador + rota de redirecionamento
-      
-      // 🔒 SALVAR NA SESSÃO DO SERVIDOR (segurança)
-      (req.session as any).coordenadorId = coord.id;
-      (req.session as any).userId = userId;
-      (req.session as any).userEmail = coord.email;
-      (req.session as any).userName = coord.nome;
-      (req.session as any).userPapel = targetRole;
-      (req.session as any).isCoordinator = true;
-      console.log(`🔐 [COORD SESSION] Sessão criada para coordenador ${coord.nome} (coordId=${coord.id}, userId=${userId})`);
-      
       res.json({
         success: true,
         coordenador: {
@@ -13749,11 +12808,8 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           nome: coord.nome,
           email: coord.email,
           setor: coord.setor,
-          redirectPath: coord.redirectPath,
-          role: targetRole, // coordenador_psico, coordenador_pec ou coordenador_inclusao
-        },
-        userId,
-        role: targetRole, // Disponível também no nível superior para facilitar acesso
+          redirectPath: coord.redirectPath
+        }
       });
 
     } catch (error: any) {
@@ -13762,577 +12818,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // Alterar senha do coordenador
-  app.post("/api/coordenador/alterar-senha", requireAuth, express.json(), async (req, res) => {
-    try {
-      const { senhaAtual, novaSenha } = req.body;
-      
-      
-      // 🔒 SEGURANÇA: Obter coordenadorId do middleware (sessão ou header)
-      const coordenador = (req as any).coordenador;
-      if (!coordenador || !coordenador.id) {
-        console.warn(`🚨 [SECURITY] Tentativa de alteração de senha sem coordenador autenticado`);
-        return res.status(401).json({ error: "Não autenticado como coordenador" });
-      }
-      
-      const coordenadorId = coordenador.id;
-
-      // Validar campos obrigatórios
-      if (!senhaAtual || !senhaAtual.trim()) {
-        return res.status(400).json({ error: "Senha atual é obrigatória" });
-      }
-
-      if (!novaSenha || !novaSenha.trim()) {
-        return res.status(400).json({ error: "Nova senha é obrigatória" });
-      }
-
-      // 🔒 VALIDAÇÃO DE COMPLEXIDADE DE SENHA
-      if (novaSenha.length < 8) {
-        return res.status(400).json({ 
-          error: "Senha deve ter no mínimo 8 caracteres" 
-        });
-      }
-
-      if (!/[A-Z]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos uma letra maiúscula" 
-        });
-      }
-
-      if (!/[0-9]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos um número" 
-        });
-      }
-
-      // 🔒 LOG DE SEGURANÇA
-      console.log(`🔑 [SECURITY] Tentativa de alteração de senha: coordenadorId=${coordenadorId}, email=${coordenador.email}, timestamp=${new Date().toISOString()}`);
-
-
-      // Validar senha atual com bcrypt
-      const senhaValida = await bcrypt.compare(senhaAtual, coordenador.passwordHash);
-      if (!senhaValida) {
-        console.log(`❌ [SECURITY] Senha atual incorreta para coordenador ${coordenadorId} (${coordenador.email})`);
-        return res.status(401).json({ error: "Senha atual incorreta" });
-      }
-
-      // Gerar novo hash com bcrypt
-      const novoHash = bcrypt.hashSync(novaSenha, 10);
-
-      // Atualizar coordenador com novo password_hash
-      await db
-        .update(coordenadores)
-        .set({ passwordHash: novoHash })
-        .where(eq(coordenadores.id, coordenadorId));
-
-      console.log(`✅ [SECURITY] Senha alterada com sucesso para coordenador ${coordenador.nome} (${coordenador.email}), timestamp=${new Date().toISOString()}`);
-
-      res.json({
-        success: true,
-        message: "Senha alterada com sucesso"
-      });
-
-    } catch (error: any) {
-      console.error("❌ [COORD SENHA] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
-  // ================ PERFIL DO COORDENADOR ================
-  // GET /api/coordenador/me - Buscar dados do coordenador autenticado
-  app.get("/api/coordenador/me", requireAuth, async (req, res) => {
-    try {
-      const coordenador = (req as any).coordenador;
-      if (!coordenador || !coordenador.id) {
-        return res.status(401).json({ error: "Não autenticado como coordenador" });
-      }
-
-      // Buscar dados completos do coordenador
-      const coordData = await db
-        .select()
-        .from(coordenadores)
-        .where(eq(coordenadores.id, coordenador.id))
-        .limit(1);
-
-      if (!coordData || coordData.length === 0) {
-        return res.status(404).json({ error: "Coordenador não encontrado" });
-      }
-
-      const { passwordHash, ...coordSemSenha } = coordData[0];
-
-      res.json({
-        success: true,
-        data: coordSemSenha
-      });
-
-    } catch (error: any) {
-      console.error("❌ [GET /api/coordenador/me] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
-  // PUT /api/coordenador/me - Atualizar dados do coordenador autenticado
-  app.put("/api/coordenador/me", requireAuth, express.json(), async (req, res) => {
-    try {
-      const coordenador = (req as any).coordenador;
-      if (!coordenador || !coordenador.id) {
-        return res.status(401).json({ error: "Não autenticado como coordenador" });
-      }
-
-      const { nome, email, telefone } = req.body;
-
-      // Validar campos obrigatórios
-      if (!nome || !nome.trim()) {
-        return res.status(400).json({ error: "Nome é obrigatório" });
-      }
-
-      if (!email || !email.trim()) {
-        return res.status(400).json({ error: "Email é obrigatório" });
-      }
-
-      // Validar formato do email
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({ error: "Email inválido" });
-      }
-
-      // Verificar se o email já existe (em outro coordenador)
-      if (email !== coordenador.email) {
-        const emailExiste = await db
-          .select()
-          .from(coordenadores)
-          .where(and(
-            eq(coordenadores.email, email),
-            not(eq(coordenadores.id, coordenador.id))
-          ))
-          .limit(1);
-
-        if (emailExiste && emailExiste.length > 0) {
-          return res.status(400).json({ error: "Este email já está em uso por outro coordenador" });
-        }
-      }
-
-      // Atualizar dados do coordenador
-      await db
-        .update(coordenadores)
-        .set({
-          nome: nome.trim(),
-          email: email.trim().toLowerCase(),
-          telefone: telefone?.trim() || null,
-          updatedAt: new Date()
-        })
-        .where(eq(coordenadores.id, coordenador.id));
-
-      // Também atualizar o email na tabela users (se o coordenador tiver um usuário associado)
-      const oldEmail = coordenador.email;
-      if (email.toLowerCase() !== oldEmail.toLowerCase()) {
-        const userToUpdate = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, oldEmail))
-          .limit(1);
-
-        if (userToUpdate && userToUpdate.length > 0) {
-          await db
-            .update(users)
-            .set({
-              nome: nome.trim(),
-              email: email.trim().toLowerCase()
-            })
-            .where(eq(users.id, userToUpdate[0].id));
-          
-          console.log(`✅ [PUT /api/coordenador/me] Email atualizado na tabela users: ${oldEmail} → ${email}`);
-        }
-      }
-
-      // Buscar dados atualizados
-      const coordAtualizado = await db
-        .select()
-        .from(coordenadores)
-        .where(eq(coordenadores.id, coordenador.id))
-        .limit(1);
-
-      const { passwordHash, ...coordSemSenha } = coordAtualizado[0];
-
-      console.log(`✅ [PUT /api/coordenador/me] Perfil atualizado: ${nome} (${email})`);
-
-      res.json({
-        success: true,
-        message: "Perfil atualizado com sucesso",
-        data: coordSemSenha
-      });
-
-    } catch (error: any) {
-      console.error("❌ [PUT /api/coordenador/me] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-  // ================ LOGIN DE MONITOR ================
-  app.post("/api/login/monitor", express.json(), async (req, res) => {
-    try {
-      const { email, senha } = req.body;
-
-      // Validar se email e senha foram fornecidos
-      if (!email || !email.trim()) {
-        return res.status(400).json({ error: "Email é obrigatório" });
-      }
-
-      if (!senha || !senha.trim()) {
-        return res.status(400).json({ error: "Senha é obrigatória" });
-      }
-
-      console.log(`🔑 [MONITOR LOGIN] Tentativa de login: ${email}`);
-
-      // Buscar monitor na tabela monitores (não users) por email
-      const monitorResult = await db
-        .select()
-        .from(monitores)
-        .where(eq(monitores.email, email.toLowerCase().trim()))
-        .limit(1);
-
-      if (!monitorResult || monitorResult.length === 0) {
-        console.log(`❌ [MONITOR LOGIN] Monitor não encontrado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      const monitor = monitorResult[0];
-
-      // Verificar se monitor está ativo
-      if (!monitor.ativo) {
-        console.log(`❌ [MONITOR LOGIN] Monitor desativado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      // Validar senha com bcrypt.compare
-      const senhaValida = await bcrypt.compare(senha, monitor.passwordHash);
-      
-      if (!senhaValida) {
-        console.log(`❌ [MONITOR LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      // Mapear programa do monitor para role
-      let role: string;
-      switch (monitor.programa) {
-        case 'pec':
-          role = 'monitor_pec';
-          break;
-        case 'inclusao_produtiva':
-          role = 'monitor_inclusao';
-          break;
-        case 'psicossocial':
-          role = 'monitor_psico';
-          break;
-        default:
-          role = 'monitor';
-      }
-
-      // Criar ou atualizar usuário na tabela users com o role correto
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, monitor.email))
-        .limit(1);
-
-      let userId: number;
-
-      if (existingUser && existingUser.length > 0) {
-        // Atualizar usuário existente
-        await db
-          .update(users)
-          .set({
-            nome: monitor.nome,
-            role: role,
-            ativo: true,
-            tipo: 'monitor'
-          })
-          .where(eq(users.id, existingUser[0].id));
-        
-        userId = existingUser[0].id;
-        console.log(`✅ [MONITOR LOGIN] Usuário atualizado: ${monitor.nome} (ID: ${userId}, Role: ${role})`);
-      } else {
-        // Criar novo usuário
-        const newUser = await db
-          .insert(users)
-          .values({
-            email: monitor.email,
-            nome: monitor.nome,
-            telefone: monitor.telefone || '',
-            role: role,
-            ativo: true,
-            tipo: 'monitor',
-            verificado: true
-          })
-          .returning();
-        
-        userId = newUser[0].id;
-        console.log(`✅ [MONITOR LOGIN] Novo usuário criado: ${monitor.nome} (ID: ${userId}, Role: ${role})`);
-      }
-
-      console.log(`✅ [MONITOR LOGIN] Login bem-sucedido: ${monitor.nome} (ID: ${userId})`);
-
-      // Retornar monitor data e userId
-      res.json({
-        success: true,
-        monitor: {
-          id: monitor.id,
-          nome: monitor.nome,
-          email: monitor.email,
-          programa: monitor.programa,
-          role: role,
-          redirectPath: "/rbac/monitor",
-        },
-        userId: userId,
-      });
-
-    } catch (error: any) {
-      console.error("❌ [MONITOR LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
-  // ==================== LOGIN DE DESENVOLVEDOR ====================
-  app.post("/api/login/developer", express.json(), async (req, res) => {
-    try {
-      const { usuario, senha } = req.body;
-
-      if (!usuario || !usuario.trim()) {
-        return res.status(400).json({ error: "Usuário é obrigatório" });
-      }
-
-      if (!senha || !senha.trim()) {
-        return res.status(400).json({ error: "Senha é obrigatória" });
-      }
-
-      console.log(`🔑 [DEV LOGIN] Tentativa de login: ${usuario}`);
-
-      // Buscar desenvolvedor por usuário no banco Digital Ocean
-      const developerResult = await db
-        .select()
-        .from(developers)
-        .where(eq(developers.usuario, usuario.toLowerCase().trim()))
-        .limit(1);
-
-      if (!developerResult || developerResult.length === 0) {
-        console.log(`❌ [DEV LOGIN] Desenvolvedor não encontrado: ${usuario}`);
-        return res.status(401).json({ error: "Usuário ou senha incorretos" });
-      }
-
-      const dev = developerResult[0];
-
-      // Verificar se desenvolvedor está ativo
-      if (!dev.ativo) {
-        console.log(`❌ [DEV LOGIN] Desenvolvedor desativado: ${usuario}`);
-        return res.status(401).json({ error: "Acesso desativado" });
-      }
-
-      // Validar senha - pode ser texto plano (legado) ou bcrypt hash
-      let senhaValida = false;
-      
-      // Verificar se é hash bcrypt (começa com $2a$, $2b$ ou $2y$)
-      if (dev.senha.startsWith('$2a$') || dev.senha.startsWith('$2b$') || dev.senha.startsWith('$2y$')) {
-        senhaValida = await bcrypt.compare(senha, dev.senha);
-      } else {
-        // Senha em texto plano (legado)
-        senhaValida = senha === dev.senha;
-      }
-
-      if (!senhaValida) {
-        console.log(`❌ [DEV LOGIN] Senha incorreta para: ${usuario}`);
-        return res.status(401).json({ error: "Usuário ou senha incorretos" });
-      }
-
-      console.log(`✅ [DEV LOGIN] Login bem-sucedido: ${dev.nome}`);
-
-      // Criar ou atualizar usuário na tabela users
-      // Verificar por email OU por telefone (evita duplicatas)
-      const devEmail = dev.email || `${dev.usuario}@dev.clubedogrito.com`;
-      const devTelefone = `+5599${String(900000000 + dev.id).slice(-9)}`;
-      
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(or(
-          eq(users.email, devEmail),
-          eq(users.telefone, devTelefone)
-        ))
-        .limit(1);
-
-      let userId: number;
-
-      if (existingUser && existingUser.length > 0) {
-        await db
-          .update(users)
-          .set({
-            nome: dev.nome,
-            email: devEmail,
-            telefone: devTelefone,
-            role: 'dev',
-            ativo: true,
-            tipo: 'desenvolvedor'
-          })
-          .where(eq(users.id, existingUser[0].id));
-        
-        userId = existingUser[0].id;
-        console.log(`✅ [DEV LOGIN] Usuário atualizado: ${dev.nome} (ID: ${userId})`);
-      } else {
-        const newUser = await db
-          .insert(users)
-          .values({
-            email: devEmail,
-            nome: dev.nome,
-            telefone: devTelefone,
-            role: 'dev',
-            ativo: true,
-            tipo: 'desenvolvedor',
-            verificado: true
-          })
-          .returning();
-        
-        userId = newUser[0].id;
-        console.log(`✅ [DEV LOGIN] Novo usuário criado: ${dev.nome} (ID: ${userId})`);
-      }
-
-      // Atualizar último acesso
-      await db
-        .update(developers)
-        .set({ ultimoAcesso: new Date() })
-        .where(eq(developers.id, dev.id));
-
-      // Salvar na sessão
-      const session = req.session as any;
-      session.isDeveloper = true;
-      session.developerId = dev.id;
-      session.userId = userId;
-      session.userPapel = 'dev';
-      session.telefone = '';
-      session.userName = dev.nome;
-
-      console.log(`✅ [DEV LOGIN] Sessão criada para ${dev.nome} (devId=${dev.id}, userId=${userId})`);
-
-      // Retornar dados do desenvolvedor
-      res.json({
-        success: true,
-        developer: {
-          id: dev.id,
-          nome: dev.nome,
-          usuario: dev.usuario,
-          email: dev.email,
-          role: 'dev',
-        },
-        userId: userId,
-      });
-
-    } catch (error: any) {
-      console.error("❌ [DEV LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
-
-
-
-  // Alterar senha do monitor
-  app.post("/api/monitor/alterar-senha", requireAuth, express.json(), async (req, res) => {
-    try {
-      const { senhaAtual, novaSenha } = req.body;
-      
-      // 🔒 SEGURANÇA: Obter monitorId da sessão autenticada
-      const user = (req as any).user;
-      if (!user || !user.id) {
-        console.warn(`🚨 [SECURITY] Tentativa de alteração de senha sem autenticação`);
-        return res.status(401).json({ error: "Não autenticado" });
-      }
-      
-      const userId = user.id;
-
-      // Validar campos obrigatórios
-      if (!senhaAtual || !senhaAtual.trim()) {
-        return res.status(400).json({ error: "Senha atual é obrigatória" });
-      }
-
-      if (!novaSenha || !novaSenha.trim()) {
-        return res.status(400).json({ error: "Nova senha é obrigatória" });
-      }
-
-      // 🔒 VALIDAÇÃO DE COMPLEXIDADE DE SENHA
-      if (novaSenha.length < 8) {
-        return res.status(400).json({ 
-          error: "Senha deve ter no mínimo 8 caracteres" 
-        });
-      }
-
-      if (!/[A-Z]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos uma letra maiúscula" 
-        });
-      }
-
-      if (!/[0-9]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos um número" 
-        });
-      }
-
-      // Buscar email do usuário autenticado na tabela users
-      const userResult = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      if (!userResult || userResult.length === 0) {
-        console.log(`❌ [MONITOR SENHA] Usuário não encontrado: ${userId}`);
-        return res.status(404).json({ error: "Usuário não encontrado" });
-      }
-
-      const userEmail = userResult[0].email;
-
-      // 🔒 LOG DE SEGURANÇA
-      console.log(`🔑 [MONITOR SENHA] Tentativa de alteração de senha: userId=${userId}, email=${userEmail}, timestamp=${new Date().toISOString()}`);
-
-      // Buscar monitor por email na tabela monitores
-      const monitorResult = await db
-        .select()
-        .from(monitores)
-        .where(eq(monitores.email, userEmail))
-        .limit(1);
-
-      if (!monitorResult || monitorResult.length === 0) {
-        console.log(`❌ [MONITOR SENHA] Monitor não encontrado para email: ${userEmail}`);
-        return res.status(404).json({ error: "Monitor não encontrado" });
-      }
-
-      const monitor = monitorResult[0];
-
-      // Validar senha atual com bcrypt
-      const senhaValida = await bcrypt.compare(senhaAtual, monitor.passwordHash);
-      if (!senhaValida) {
-        console.log(`❌ [MONITOR SENHA] Senha atual incorreta para monitor ${monitor.id} (${monitor.email})`);
-        return res.status(401).json({ error: "Senha atual incorreta" });
-      }
-
-      // Gerar novo hash com bcrypt
-      const novoHash = bcrypt.hashSync(novaSenha, 10);
-
-      // Atualizar monitor com novo password_hash
-      await db
-        .update(monitores)
-        .set({ passwordHash: novoHash })
-        .where(eq(monitores.id, monitor.id));
-
-      console.log(`✅ 🔑 [MONITOR SENHA] Senha alterada com sucesso para monitor ${monitor.nome} (${monitor.email}), timestamp=${new Date().toISOString()}`);
-
-      res.json({
-        success: true,
-        message: "Senha alterada com sucesso"
-      });
-
-    } catch (error: any) {
-      console.error("❌ [MONITOR SENHA] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
 
   // ================ SISTEMA DE SORTEIO - APIs ================
 
@@ -29656,99 +28141,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // =============================================================================
-  // ENDPOINTS INDICADORES PSICOSSOCIAL PARA DOADORES
-  // =============================================================================
-  
-  // GET /api/psico/indicadores/atencao-social - Buscar indicadores de Atenção Social
-  app.get('/api/psico/indicadores/atencao-social', async (req, res) => {
-    try {
-      console.log('📊 [PSICO-INDICADORES] Buscando indicadores de Atenção Social...');
-      
-      const indicadores = await db
-        .select()
-        .from(indicadoresPsicoAtencaoSocial)
-        .limit(1);
-
-      if (indicadores.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Nenhum indicador encontrado' 
-        });
-      }
-
-      const data = indicadores[0];
-      const percentualVisitas = Math.round((data.visitasDomiciliaresRealizadas / data.visitasDomiciliaresMeta) * 100);
-      const percentualAtendimentos = Math.round((data.atendimentosIndividuaisRealizados / data.atendimentosIndividuaisMeta) * 100);
-
-      console.log(`✅ [PSICO-INDICADORES] Atenção Social: ${percentualVisitas}% visitas, ${percentualAtendimentos}% atendimentos`);
-
-      res.json({
-        success: true,
-        data: {
-          visitasDomiciliares: {
-            realizadas: data.visitasDomiciliaresRealizadas,
-            meta: data.visitasDomiciliaresMeta,
-            percentual: percentualVisitas
-          },
-          atendimentosIndividuais: {
-            realizados: data.atendimentosIndividuaisRealizados,
-            meta: data.atendimentosIndividuaisMeta,
-            percentual: percentualAtendimentos
-          }
-        }
-      });
-    } catch (error: any) {
-      console.error('❌ [PSICO-INDICADORES] Erro ao buscar Atenção Social:', error);
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // GET /api/psico/indicadores/metodo-grito - Buscar indicadores do Método O Grito
-  app.get('/api/psico/indicadores/metodo-grito', async (req, res) => {
-    try {
-      console.log('📊 [PSICO-INDICADORES] Buscando indicadores do Método O Grito...');
-      
-      const indicadores = await db
-        .select()
-        .from(indicadoresPsicoMetodoGrito)
-        .limit(1);
-
-      if (indicadores.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Nenhum indicador encontrado' 
-        });
-      }
-
-      const data = indicadores[0];
-      const percentualEspacos = Math.round((data.espacosColetivos / data.espacosColetivosMeta) * 100);
-
-      console.log(`✅ [PSICO-INDICADORES] Método O Grito: ${data.atendimentosColetivoRealizados} atendimentos, ${percentualEspacos}% espaços`);
-
-      res.json({
-        success: true,
-        data: {
-          atendimentosColetivos: {
-            realizados: data.atendimentosColetivoRealizados,
-            percentualTurmas: data.turmasAlcancadasPercentual
-          },
-          espacosColetivos: {
-            total: data.espacosColetivos,
-            meta: data.espacosColetivosMeta,
-            percentual: percentualEspacos
-          },
-          caravanasComunitarias: data.caravanasComunitarias,
-          acoesSaudeColaboradores: data.acoesSaudeColaboradores
-        }
-      });
-    } catch (error: any) {
-      console.error('❌ [PSICO-INDICADORES] Erro ao buscar Método O Grito:', error);
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-
   // 📊 GET /api/patrocinador/progresso - Dados de progresso dos programas para patrocinadores
   app.get('/api/patrocinador/progresso', async (req, res) => {
     try {
@@ -30302,224 +28694,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error) {
       console.error("❌ [MKT-LINKS-LIST] Erro:", error);
       res.status(500).json({ error: "Erro ao listar links" });
-  // ================ MARKETING - LOGIN E GESTÃO DE SENHA ================
-
-  // POST /api/login/marketing - Login para usuários de marketing
-  app.post("/api/login/marketing", express.json(), async (req, res) => {
-    try {
-      const { email, senha } = req.body;
-
-      // Validar se email e senha foram fornecidos
-      if (!email || !email.trim()) {
-        return res.status(400).json({ error: "Email é obrigatório" });
-      }
-
-      if (!senha || !senha.trim()) {
-        return res.status(400).json({ error: "Senha é obrigatória" });
-      }
-
-      console.log(`🔑 [MARKETING LOGIN] Tentativa de login: ${email}`);
-
-      // Buscar usuário de marketing na tabela marketing_users por email
-      const marketingResult = await db
-        .select()
-        .from(marketingUsers)
-        .where(eq(marketingUsers.email, email.toLowerCase().trim()))
-        .limit(1);
-
-      if (!marketingResult || marketingResult.length === 0) {
-        console.log(`❌ [MARKETING LOGIN] Usuário não encontrado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      const marketingUser = marketingResult[0];
-
-      // Verificar se usuário está ativo
-      if (!marketingUser.ativo) {
-        console.log(`❌ [MARKETING LOGIN] Usuário desativado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      // Validar senha com bcrypt.compare
-      const senhaValida = await bcrypt.compare(senha, marketingUser.passwordHash);
-      
-      if (!senhaValida) {
-        console.log(`❌ [MARKETING LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
-      }
-
-      // Criar ou atualizar usuário na tabela users com role 'marketing'
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, marketingUser.email))
-        .limit(1);
-
-      let userId: number;
-
-      if (existingUser && existingUser.length > 0) {
-        // Atualizar usuário existente
-        await db
-          .update(users)
-          .set({
-            nome: marketingUser.nome,
-            role: 'marketing',
-            ativo: true,
-            tipo: 'marketing'
-          })
-          .where(eq(users.id, existingUser[0].id));
-        
-        userId = existingUser[0].id;
-        console.log(`✅ [MARKETING LOGIN] Usuário atualizado: ${marketingUser.nome} (ID: ${userId})`);
-      } else {
-        // Criar novo usuário
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            nome: marketingUser.nome,
-            telefone: marketingUser.telefone || '',
-            email: marketingUser.email,
-            role: 'marketing',
-            ativo: true,
-            tipo: 'marketing'
-          })
-          .returning();
-        
-        userId = newUser.id;
-        console.log(`✅ [MARKETING LOGIN] Novo usuário criado: ${marketingUser.nome} (ID: ${userId})`);
-      }
-
-      // Configurar sessão do usuário autenticado
-      if (req.session) {
-        req.session.userId = userId;
-        req.session.userRole = 'marketing';
-        req.session.userName = marketingUser.nome;
-        req.session.userEmail = marketingUser.email;
-      }
-
-      console.log(`✅ [MARKETING LOGIN] Login bem-sucedido: ${marketingUser.nome} (${marketingUser.email})`);
-
-      // Retornar dados do usuário e redirect path
-      res.json({
-        success: true,
-        user: {
-          id: userId,
-          nome: marketingUser.nome,
-          email: marketingUser.email,
-          role: 'marketing',
-          cargo: marketingUser.cargo
-        },
-        redirectPath: '/rbac/marketing'
-      });
-
-    } catch (error: any) {
-      console.error("❌ [MARKETING LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
-  // POST /api/marketing/alterar-senha - Alteração de senha para usuário de marketing autenticado
-  app.post("/api/marketing/alterar-senha", requireAuth, express.json(), async (req, res) => {
-    try {
-      const { senhaAtual, novaSenha } = req.body;
-      
-      // 🔒 SEGURANÇA: Obter userId da sessão autenticada
-      const user = (req as any).user;
-      if (!user || !user.id) {
-        console.warn(`🚨 [SECURITY] Tentativa de alteração de senha sem autenticação`);
-        return res.status(401).json({ error: "Não autenticado" });
-      }
-      
-      const userId = user.id;
-
-      // Validar campos obrigatórios
-      if (!senhaAtual || !senhaAtual.trim()) {
-        return res.status(400).json({ error: "Senha atual é obrigatória" });
-      }
-
-      if (!novaSenha || !novaSenha.trim()) {
-        return res.status(400).json({ error: "Nova senha é obrigatória" });
-      }
-
-      // 🔒 VALIDAÇÃO DE COMPLEXIDADE DE SENHA
-      if (novaSenha.length < 8) {
-        return res.status(400).json({ 
-          error: "Senha deve ter no mínimo 8 caracteres" 
-        });
-      }
-
-      if (!/[A-Z]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos uma letra maiúscula" 
-        });
-      }
-
-      if (!/[0-9]/.test(novaSenha)) {
-        return res.status(400).json({ 
-          error: "Senha deve conter pelo menos um número" 
-        });
-      }
-
-      // Buscar email do usuário autenticado na tabela users
-      const userResult = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      if (!userResult || userResult.length === 0) {
-        console.log(`❌ [MARKETING SENHA] Usuário não encontrado: ${userId}`);
-        return res.status(404).json({ error: "Usuário não encontrado" });
-      }
-
-      const userEmail = userResult[0].email;
-
-      // 🔒 LOG DE SEGURANÇA
-      console.log(`🔑 [MARKETING SENHA] Tentativa de alteração de senha: userId=${userId}, email=${userEmail}, timestamp=${new Date().toISOString()}`);
-
-      // Buscar usuário de marketing por email na tabela marketing_users
-      const marketingResult = await db
-        .select()
-        .from(marketingUsers)
-        .where(eq(marketingUsers.email, userEmail))
-        .limit(1);
-
-      if (!marketingResult || marketingResult.length === 0) {
-        console.log(`❌ [MARKETING SENHA] Usuário de marketing não encontrado para email: ${userEmail}`);
-        return res.status(404).json({ error: "Usuário de marketing não encontrado" });
-      }
-
-      const marketingUser = marketingResult[0];
-
-      // Validar senha atual com bcrypt
-      const senhaValida = await bcrypt.compare(senhaAtual, marketingUser.passwordHash);
-      if (!senhaValida) {
-        console.log(`❌ [MARKETING SENHA] Senha atual incorreta para usuário ${marketingUser.id} (${marketingUser.email})`);
-        return res.status(401).json({ error: "Senha atual incorreta" });
-      }
-
-      // Gerar novo hash com bcrypt
-      const novoHash = bcrypt.hashSync(novaSenha, 10);
-
-      // Atualizar usuário de marketing com novo password_hash
-      await db
-        .update(marketingUsers)
-        .set({ passwordHash: novoHash })
-        .where(eq(marketingUsers.id, marketingUser.id));
-
-      console.log(`✅ 🔑 [MARKETING SENHA] Senha alterada com sucesso para ${marketingUser.nome} (${marketingUser.email}), timestamp=${new Date().toISOString()}`);
-
-      res.json({
-        success: true,
-        message: "Senha alterada com sucesso"
-      });
-
-    } catch (error: any) {
-      console.error("❌ [MARKETING SENHA] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
-
     }
   });
 

@@ -27,9 +27,20 @@ const poolConfig = {
   max: 20,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
+  options: '-c search_path=public',
 };
 
 export const pool = new Pool(poolConfig);
+
+// Garantir que toda conexão use o schema public
+pool.on('connect', async (client) => {
+  try {
+    await client.query('SET search_path TO public');
+    console.log('✅ search_path definido para public');
+  } catch (err) {
+    console.error('❌ Erro ao definir search_path:', err);
+  }
+});
 
 pool.on("error", (err) => {
   console.error("❌ Database pool error:", err);
@@ -41,7 +52,7 @@ export async function testDatabaseConnection(): Promise<boolean> {
     const client = await pool.connect();
     const result = await client.query("SELECT inet_server_addr() as server_ip, current_database() as db_name");
     client.release();
-    console.log(`✅ CONEXÃO CONFIRMADA: ${result.rows[0].server_ip} / ${result.rows[0].db_name}`);
+    console.log(`✅ Digital Ocean PostgreSQL conectado: ${result.rows[0].db_name}`);
     return true;
   } catch (error) {
     console.error("❌ FALHA CRÍTICA: Não foi possível conectar ao Digital Ocean PostgreSQL:", error);
