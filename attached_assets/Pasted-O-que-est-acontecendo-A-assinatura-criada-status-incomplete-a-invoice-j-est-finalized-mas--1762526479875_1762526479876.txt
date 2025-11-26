@@ -1,0 +1,136 @@
+O que está acontecendo
+
+A assinatura é criada (status incomplete), a invoice já está finalized, mas não existe latest_invoice.payment_intent.
+
+Seu polling tenta “finalizar” de novo a invoice para forçar o PI e recebe:
+
+“This invoice is already finalized…”
+
+Resultado: o front fica esperando o client_secret do PaymentIntent que não foi criado.
+
+Isso acontece quando a Stripe prepara a assinatura sem criar o PaymentIntent (pode ocorrer por timing/comportamento da conta, método de pagamento, etc.). Nesses casos, a Stripe pode expor pending_setup_intent na subscription — e só depois de você confirmar o SetupIntent (coletar o cartão) é que você paga a invoice (aí sim nasce o PaymentIntent).
+
+Como resolver (robusto | funciona nos dois cenários)
+1) Na criação da assinatura
+
+Inclua mais expand e trate dois caminhos:
+
+latest_invoice.payment_intent.client_secret → fluxo PaymentIntent (confirmar pagamento direto).
+
+pending_setup_intent.client_secret → fluxo SetupIntent (salvar cartão e depois pagar a invoice).
+
+Mudança-chave no create:
+
+expand: ['latest_invoice.payment_intent', 'pending_setup_intent']
+
+Retorne:
+
+secretType: 'payment' | 'setup'
+
+clientSecret
+
+subscriptionId, customerId, invoiceId (se houver)
+
+2) Se voltar setupIntent (sem PaymentIntent)
+
+Fluxo do front:
+
+Renderize Payment Element com o client_secret do SetupIntent.
+
+Chame stripe.confirmSetup({ elements, clientSecret }).
+
+Envie o payment_method salvo para o backend (novo endpoint), que fará:
+
+stripe.paymentMethods.attach(pm, { customer }) (se ainda não atachado)
+
+stripe.customers.update(customer, { invoice_settings: { default_payment_method: pm }})
+
+stripe.invoices.pay(invoiceId) → isso cria/usa o PaymentIntent e tenta cobrar.
+
+O status final virá por webhooks (invoice.paid, invoice.payment_failed).
+
+3) Pare de tentar “re-finalizar” a invoice no polling
+
+Se a invoice já está finalized, não chame invoices.finalize. Em vez disso:
+
+Refaça o retrieve com expand: ['payment_intent'].
+
+Se ainda sem PI e existe pending_setup_intent, devolva secretType: 'setup'.
+
+Se nenhum dos dois existir, retorne 202 e continue o polling (pouco provável).
+
+Diferença “antes → depois” (só o essencial)
+Antes (criação)
+
+Expandia só latest_invoice.payment_intent
+
+Se PI não existia → timeouts/erros e tentativa de finalize de novo
+
+Depois (criação — retorno resiliente)
+
+expand: ['latest_invoice.payment_intent', 'pending_setup_intent']
+
+Retorna um desses objetos:
+
+// Caso 1: PaymentIntent disponível
+{
+  "success": true,
+  "subscriptionId": "sub_...",
+  "customerId": "cus_...",
+  "invoiceId": "in_...",
+  "secretType": "payment",
+  "clientSecret": "pi_..._secret_..."
+}
+
+// Caso 2: só SetupIntent disponível
+{
+  "success": true,
+  "subscriptionId": "sub_...",
+  "customerId": "cus_...",
+  "invoiceId": "in_...",
+  "secretType": "setup",
+  "clientSecret": "seti_..._secret_..."
+}
+
+Novo endpoint (pós-Setup) — “pagar invoice”
+
+Entrada: subscriptionId, invoiceId, paymentMethodId, customerId
+
+Passos no backend:
+
+paymentMethods.attach (se necessário)
+
+customers.update(invoice_settings.default_payment_method = pm)
+
+invoices.pay(invoiceId) ← cria/usa o PI e tenta cobrar
+
+Retorna { paid: true/false, invoiceStatus, paymentIntentId? }
+
+Polling atual (client-secret)
+
+Remova a tentativa de invoices.finalize.
+
+Faça apenas retrieve(subscription, { expand: ['latest_invoice.payment_intent','pending_setup_intent'] }) e devolva:
+
+payment se existir PI
+
+setup se existir SI
+
+202 se ainda nada
+
+Webhooks (confirmação final)
+
+customer.subscription.created/updated → salvar stripe_subscription_id, status.
+
+invoice.paid → marcar doação paid e subscription_status='active'.
+
+invoice.payment_failed → past_due.
+
+invoice.payment_action_required → manter seu handler (3DS).
+
+Por que isso resolve seu “Timeout: clientSecret…”
+
+Porque você não depende exclusivamente de latest_invoice.payment_intent.
+Se ele não vier, você cai no caminho de SetupIntent, coleta o cartão, e então paga a invoice — o que cria o PI e encerra o ciclo corretamente.
+
+Se quiser, te escrevo os trechos (antes→depois) exatamente das funções/rotas que vo

@@ -1,0 +1,136 @@
+Quero que você revise e corrija o fluxo de pagamentos/assinaturas com Stripe no meu backend Node/Express.
+
+Contexto do problema
+
+Tenho essas rotas principais:
+
+POST /webhooks/stripe
+
+POST /api/donation/create
+
+POST /api/payments/create-for-new-user
+
+POST /api/donation/confirm
+
+O fluxo que usei para a doadora Rafaela foi:
+
+Front chama /api/donation/create → Stripe cria subscription + invoice/payment_intent → Stripe manda webhook invoice.payment_succeeded.
+
+O sintoma hoje:
+
+A Stripe mostra vários webhooks invoice.payment_succeeded e outros tipos com status 400 apontando para /webhooks/stripe.
+
+No banco não é criado nenhum user nem doador para esse fluxo.
+
+Ou seja: o pagamento existe na Stripe, mas não nasce nada no banco.
+
+O que já existe no código
+
+Em /webhooks/stripe, eu tenho algo assim (em essência):
+
+Pego o header stripe-signature
+
+Chamo stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
+
+Se der erro, retorno 400
+
+Se o evento for invoice.payment_succeeded, faço:
+
+Buscar users pelo stripeCustomerId
+
+Se não existir, crio o usuário automaticamente ([WEBHOOK-AUTO-CREATE])
+
+Crio/atualizo doadores, etc.
+
+No final, retorno res.json({ received: true }).
+
+Ou seja: a lógica de criar user + doador para o fluxo de subscription está TODA dentro do webhook invoice.payment_succeeded.
+
+Erro que estou enfrentando
+
+O webhook /webhooks/stripe está retornando 400 porque a verificação de assinatura do Stripe está falhando.
+
+Isso acontece porque hoje o Express provavelmente está aplicando express.json() globalmente, então req.body chega como objeto JSON parseado, e não como raw body/Buffer, que é o que stripe.webhooks.constructEvent espera.
+
+Como o constructEvent falha, toda a parte do código que cria/atualiza usuário e doador nunca roda.
+
+Resultado: a doadora paga, a Stripe registra o pagamento, mas:
+
+Nenhum usuário é criado no banco
+
+Nenhum registro de doação/doador é criado nesse fluxo
+
+Eu só vejo o pagamento na Stripe, mas não tenho quem é essa pessoa no meu sistema.
+
+O que eu preciso que você corrija
+
+Ajustar o parsing do body especificamente para o endpoint /webhooks/stripe
+
+Fazer o endpoint /webhooks/stripe usar body “cru” (raw) do jeito que a Stripe exige.
+
+Não deixar esse endpoint passar pelo express.json() padrão.
+
+Usar o middleware de raw para application/json só nesse path.
+
+Garantir que, dentro do handler, stripe.webhooks.constructEvent receba o body exatamente como a Stripe manda (Buffer/string), junto com o header stripe-signature e o STRIPE_WEBHOOK_SECRET.
+
+Em resumo:
+
+“Ajustar a configuração do Express para que /webhooks/stripe use express.raw({ type: 'application/json' }) (ou equivalente) e não o body já parseado em JSON, senão a verificação de assinatura sempre quebra e o webhook nunca chega na parte que cria user/doador.”
+
+Validar que o webhook voltou a funcionar
+
+Depois de ajustar o raw body, quero que você:
+
+Abra o dashboard da Stripe, na parte de webhooks.
+
+Reenvie um evento invoice.payment_succeeded para a URL do meu webhook.
+
+Conferir:
+
+O webhook agora deve responder 200 OK, e não mais 400.
+
+Nos logs do backend deve aparecer algo como:
+
+[STRIPE WEBHOOK] Received: invoice.payment_succeeded
+
+🆕 [WEBHOOK-AUTO-CREATE] Customer ... não encontrado - criando automaticamente...
+
+✅ [WEBHOOK-AUTO-CREATE] Usuário criado...
+
+Conferir no banco:
+
+Tabela users: um registro novo com stripeCustomerId do cliente.
+
+Tabela doadores: registro criado/atualizado vinculado a esse user.
+
+A ideia é garantir que:
+Pagamento confirmado na Stripe → webhook roda sem 400 → usuário/doador são criados/atualizados.
+
+(Melhoria desejável, se fizer sentido) Reduzir dependência total do webhook
+
+Hoje, o endpoint /api/donation/create:
+
+Cria a subscription na Stripe
+
+Retorna subscriptionId, clientSecret, etc.
+
+Não cria nenhum registro direto no banco.
+
+Se for simples, queria que você:
+
+Criasse pelo menos um registro inicial em doadores e/ou users dentro de /api/donation/create, para não depender 100% do webhook.
+
+O webhook invoice.payment_succeeded ficaria responsável por:
+
+Confirmar status
+
+Ajustar plano/valor/periodicidade
+
+Garantir consistência final.
+
+Mas o mais urgente e crítico é corrigir o raw body do webhook para parar os 400 e permitir que a lógica [WEBHOOK-AUTO-CREATE] rode.
+
+Resumindo o objetivo:
+
+👉 Consertar o endpoint /webhooks/stripe para que a verificação de assinatura funcione (sem 400), de modo que o evento invoice.payment_succeeded volte a executar a lógica que cria automaticamente users + doadores quando alguém assina ou paga via /api/donation/create.

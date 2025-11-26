@@ -1,0 +1,524 @@
+[vite] connected from window 3518614a-16d9-4b4f-a6c0-83a671860bd0:67:11
+[vite] new window visibility hidden 3518614a-16d9-4b4f-a6c0-83a671860bd0:63:12
+[vite] new window visibility visible 3518614a-16d9-4b4f-a6c0-83a671860bd0:63:12
+[vite] new window visibility hidden 3518614a-16d9-4b4f-a6c0-83a671860bd0:63:12
+[vite] new window visibility visible 3518614a-16d9-4b4f-a6c0-83a671860bd0:63:12
+[vite] new window visibility hidden 3518614a-16d9-4b4f-a6c0-83a671860bd0:63:12
+[vite] ping successful 3518614a-16d9-4b4f-a6c0-83a671860bd0:69:12
+[vite] connected from window ffc231df-ce06-4cb8-acac-20ada7d7d886:67:11
+[vite] new window visibility hidden ffc231df-ce06-4cb8-acac-20ada7d7d886:63:12
+[vite] connected from window fa878c92-f106-4ae0-8682-39eb4a3f5bd0:67:11
+[vite] new window visibility visible fa878c92-f106-4ae0-8682-39eb4a3f5bd0:63:12
+[vite] new window visibility hidden fa878c92-f106-4ae0-8682-39eb4a3f5bd0:63:12
+[vite] new window visibility visible ffc231df-ce06-4cb8-acac-20ada7d7d886:63:12
+[vite] ping successful ffc231df-ce06-4cb8-acac-20ada7d7d886:69:12
+[vite] connected from window 265e2692-f906-4af5-83be-b9b90b04ad4f:67:11
+[vite] connected from window 69b2f57d-bd19-40b8-9cd9-d10362b48ee3:67:11
+[vite] new window visibility visible 265e2692-f906-4af5-83be-b9b90b04ad4f:63:12
+[vite] new window visibility hidden 69b2f57d-bd19-40b8-9cd9-d10362b48ee3:63:12
+[vite] new window visibility hidden 265e2692-f906-4af5-83be-b9b90b04ad4f:63:12
+[vite] new window visibility visible 69b2f57d-bd19-40b8-9cd9-d10362b48ee3:63:12
+[vite] ping successful 69b2f57d-bd19-40b8-9cd9-d10362b48ee3:69:12
+[vite] connected from window 1a263de6-6538-405c-bfd9-1f1e2372bc9b:67:11
+[vite] connected from window c9599969-f03e-4f16-b375-d83e06b56fa2:67:11
+[vite] new window visibility hidden 1a263de6-6538-405c-bfd9-1f1e2372bc9b:63:12
+[vite] new window visibility hidden c9599969-f03e-4f16-b375-d83e06b56fa2:63:12
+[vite] new window visibility visible 1a263de6-6538-405c-bfd9-1f1e2372bc9b:63:12
+[vite] ping successful 1a263de6-6538-405c-bfd9-1f1e2372bc9b:69:12
+[vite] connected from window 5f716139-e9d2-4162-90a8-7621354c301a:67:11
+[vite] new window visibility hidden 5f716139-e9d2-4162-90a8-7621354c301a:63:12
+[vite] connected from window a2155cb5-abf5-4de8-bfb2-cabb77cbf678:67:11
+[vite] new window visibility visible a2155cb5-abf5-4de8-bfb2-cabb77cbf678:63:12
+[vite] new window visibility hidden a2155cb5-abf5-4de8-bfb2-cabb77cbf678:63:12
+✅ [CIELO SOP] Script carregado: sandbox pagamentos:55:19
+O layout foi forçado antes que a página fosse totalmente carregada. Se houver folhas de estilo ainda não carregadas, isso pode causar piscamento de conteúdo sem estilo. ThumbnailsChild.sys.mjs:26:13
+🚀 VERSÃO DO CÓDIGO: 3.0.0-PLAN-FIX-1762278119371 pagamentos:185:15
+🗑️ DELETANDO TODOS OS CACHES: 
+Array []
+pagamentos:180:19
+[vite] connecting... client:733:9
+[vite] connected. client:827:12
+Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools chunk-FD5SMSK5.js:21609:25
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Juliana", sobrenome: "Correa", email: "contatocorreajuliana@gmail.com", telefone: "+5531983224027", plano: "eco", role: "doador" }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: undefined }
+useProfileImage.ts:15:13
+❌ Nenhuma imagem encontrada no banco useProfileImage.ts:38:15
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: undefined }
+useProfileImage.ts:15:13
+❌ Nenhuma imagem encontrada no banco useProfileImage.ts:38:15
+🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /pagamentos ProtectedRoute.tsx:91:13
+🔍 [USER SESSION] userPapel: doador ProtectedRoute.tsx:92:13
+🔍 [USER SESSION] userEmail: contatocorreajuliana@gmail.com ProtectedRoute.tsx:93:13
+🔍 [USER SESSION] isVerified: true ProtectedRoute.tsx:94:13
+🔍 [USER SESSION] hasActiveSubscription: true ProtectedRoute.tsx:95:13
+🔍 [ALLOWED ROLES] Route expects: doador, user ProtectedRoute.tsx:96:13
+🔍 [ROLE ROUTES] User role allows: /, /plans, /tdoador, /welcome, /busca, /noticias, /perfil, /dados-cadastrais, /pagamentos, /configuracoes, /sobre, /change-plan, /central-ajuda ProtectedRoute.tsx:97:13
+🚨 [PAYMENT DEBUG] routeName: /pagamentos, hasActiveSubscription: true, userPapel: doador, isRBACUser: false ProtectedRoute.tsx:139:13
+✅ [ACCESS] Permitindo acesso para usuário verificado - verificação de pagamento no backend se necessário ProtectedRoute.tsx:140:13
+🗑️ Deletando TODOS os caches: 
+Array []
+main.tsx:16:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Juliana", sobrenome: "Correa", email: "contatocorreajuliana@gmail.com", telefone: "+5531983224027", plano: "eco", role: "doador" }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+Acesso a cookies ou armazenamento particionado foi fornecido para “https://js.stripe.com/v3/controller-with-dual-preconnect-control-59a3c0e4e4a8f28a6f413cf5df624e2a.html#__shared_params__[version]=basil&__shared_params__[light_experiment_assignments]=%7B%22token%22%3A%22eb289fbe-d4c9-4c3e-9a64-288a97d2577d%22%2C%22assignments%22%3A%7B%22link_controller_preconnect_merchant_ui_api%22%3A%22control%22%7D%7D&apiKey=pk_live_51RdaRqHT8727OGtYCyyg4cdaLPHvLUzXxgN0eFH9FmOexldzPlzYdEx3NXLrvmcRJlC77s3mRHUdweyISA2J2gC200nacMiUcv&apiVersion=2025-03-31.basil&stripeJsId=eb289fbe-d4c9-4c3e-9a64-288a97d2577d&stripeObjId=sobj-f4bbc971-472d-4289-90b3-94172c41e5d8&firstStripeInstanceCreatedLatency=6&controllerCount=1&isCheckout=false&stripeJsLoadTime=1762278134168&manualBrowserDeprecationRollout=false&mids[guid]=NA&mids[muid]=7a86917e-efc5-4434-9912-63cab3ce30d0e50e6a&mids[sid]=0e689852-9ba1-44e1-99f4-e1efe79051d6064ed4&referrer=https%3A%2F%2F752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev%2Fpagamentos&controllerId=__privateStripeController5831” porque é carregado em contexto de terceiros e o particionamento de estado dinâmico está ativado. controller-with-dual-preconnect-control-31d3f36f1af05094e8acbd2e75407c2a.js:1:162247
+🔄 [useUserData] Dados buscados do servidor: 
+Object { gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:19:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg" }
+useProfileImage.ts:15:13
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg" }
+useProfileImage.ts:15:13
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg" }
+useProfileImage.ts:15:13
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔍 [useProfileImage] Debug: 
+Object { isDevAccess: false, isFromDevPanel: false, devPanelActive: true, devPanelTimestamp: "1762276034374", isRecentDevPanel: false, isDevMode: false, fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg" }
+useProfileImage.ts:15:13
+🔍 [PROTECTED ROUTE DEBUG] Tentando acessar: /pagamentos ProtectedRoute.tsx:91:13
+🔍 [USER SESSION] userPapel: doador ProtectedRoute.tsx:92:13
+🔍 [USER SESSION] userEmail: contatocorreajuliana@gmail.com ProtectedRoute.tsx:93:13
+🔍 [USER SESSION] isVerified: true ProtectedRoute.tsx:94:13
+🔍 [USER SESSION] hasActiveSubscription: true ProtectedRoute.tsx:95:13
+🔍 [ALLOWED ROLES] Route expects: doador, user ProtectedRoute.tsx:96:13
+🔍 [ROLE ROUTES] User role allows: /, /plans, /tdoador, /welcome, /busca, /noticias, /perfil, /dados-cadastrais, /pagamentos, /configuracoes, /sobre, /change-plan, /central-ajuda ProtectedRoute.tsx:97:13
+🚨 [PAYMENT DEBUG] routeName: /pagamentos, hasActiveSubscription: true, userPapel: doador, isRBACUser: false ProtectedRoute.tsx:139:13
+✅ [ACCESS] Permitindo acesso para usuário verificado - verificação de pagamento no backend se necessário ProtectedRoute.tsx:140:13
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔄 [useUserData] Dados buscados do servidor: 
+Object { gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:19:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+Acesso a cookies ou armazenamento particionado foi fornecido para “https://m.stripe.network/inner.html#url=https%3A%2F%2F752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev%2Fpagamentos&title=Clube%20do%20Grito&referrer=https%3A%2F%2Freplit.com%2F&muid=7a86917e-efc5-4434-9912-63cab3ce30d0e50e6a&sid=0e689852-9ba1-44e1-99f4-e1efe79051d6064ed4&version=6&preview=false&__shared_params__[version]=basil” porque é carregado em contexto de terceiros e o particionamento de estado dinâmico está ativado. out-4.5.45.js:1:39660
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔄 [useUserData] Dados buscados do servidor: 
+Object { gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:19:15
+Avisos de cookies 2
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: false pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: Error: Resposta inválida do servidor
+    getQueryFn queryClient.ts:77
+pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: false cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🔄 [AUTO-SYNC] Iniciando sincronização automática com Stripe... pagamentos.tsx:142:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: false pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: Error: Resposta inválida do servidor
+    getQueryFn queryClient.ts:77
+pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: false cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+✅ [AUTO-SYNC] Resposta: 
+Object { success: true, customerId: "cus_SzidwMTkPugeLQ", paymentMethods: (3) […], message: "Customer cus_SzidwMTkPugeLQ sincronizado com sucesso. 3 cartões encontrados." }
+pagamentos.tsx:148:17
+✅ [AUTO-SYNC] 3 cartão(ões) sincronizado(s) pagamentos.tsx:150:19
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: true pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: null pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: true cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: false pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: Error: Resposta inválida do servidor
+    getQueryFn queryClient.ts:77
+    fetchFn query.ts:475
+    run retryer.ts:155
+    run retryer.ts:201
+    promise callback*createRetryer/run/< retryer.ts:197
+pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: false cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: false pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: Error: Resposta inválida do servidor
+    getQueryFn queryClient.ts:77
+    fetchFn query.ts:475
+    run retryer.ts:155
+    run retryer.ts:201
+    promise callback*createRetryer/run/< retryer.ts:197
+pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: false cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13
+XHRGET
+https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/api/users/95/donation-stats
+[HTTP/1.1 500 Internal Server Error 516ms]
+
+🔄 [useUserData] Dados buscados do servidor: 
+Object { gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:19:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+💰 [DONATION STATS] Dados do Stripe: undefined pagamentos.tsx:1739:11
+💰 [IMPACTO DEBUG] Final Value: 0 pagamentos.tsx:1749:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🎬 [main-carousel] COMPONENTE RENDERIZADO - SwipeableCardSelector pagamentos.tsx:42:11
+📊 [useUserData] Processando dados da API: 
+Object { nome: "Julianaaa Correa", gritos_total: 280, dias_consecutivos: 2, ultimo_checkin: "2025-11-04 14:26:34.851" }
+useUserData.ts:58:15
+🏷️ [main-carousel] Iniciando SwipeableCardSelector pagamentos.tsx:52:11
+📍 [main-carousel] cards.length ATUAL: 0 pagamentos.tsx:53:11
+🔍 [CARD SELECTOR] userData: 
+Object { id: 95, nome: "Julianaaa", sobrenome: "Correa", email: "", telefone: "+5531983224027", plano: "eco", fotoPerfil: "/uploads/file-1761240759629-268990093.jpeg", role: undefined }
+pagamentos.tsx:72:11
+🔍 [CARD SELECTOR] userId para query: 95 pagamentos.tsx:73:11
+🔍 [CARD SELECTOR] userId final: 95 pagamentos.tsx:75:11
+🔍 [CARD SELECTOR] paymentMethodsData: undefined pagamentos.tsx:83:11
+🔍 [CARD SELECTOR] isLoading: false pagamentos.tsx:84:11
+🔍 [CARD SELECTOR] error: Error: Resposta inválida do servidor
+    getQueryFn queryClient.ts:77
+    fetchFn query.ts:475
+    run retryer.ts:155
+    run retryer.ts:201
+    promise callback*createRetryer/run/< retryer.ts:197
+pagamentos.tsx:85:11
+🔍 [main-carousel] useEffect EXECUTADO - userId: 95 paymentMethodsData: undefined pagamentos.tsx:92:13
+🔍 [main-carousel] isLoadingCards: false cards.length: 0 pagamentos.tsx:93:13
+📦 [main-carousel] pmRaw: undefined methods.length: 0 pagamentos.tsx:100:13
+❌ [main-carousel] Nenhum payment method encontrado: undefined pagamentos.tsx:130:13

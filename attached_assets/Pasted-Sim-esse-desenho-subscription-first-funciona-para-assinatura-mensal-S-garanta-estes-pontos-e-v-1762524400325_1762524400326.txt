@@ -1,0 +1,47 @@
+Sim — esse desenho “subscription-first” funciona para assinatura mensal. Só garanta estes pontos e vai rodar liso:
+
+O que precisa ter (checklist)
+
+Criar a subscription assim:
+
+payment_behavior: 'default_incomplete'
+
+payment_settings.save_default_payment_method: 'on_subscription'
+
+expand: ['latest_invoice.payment_intent']
+
+collection_method: 'charge_automatically' (é o padrão; pode deixar explícito)
+
+Não assumir que o payment_intent virá na hora.
+
+Se subscription.latest_invoice.payment_intent?.client_secret existir → retorne para o front.
+
+Se vier null → não lance erro. Retorne { subscriptionId, customerId, clientSecret: null } e faça o front buscar depois num endpoint /api/subscriptions/:id/client-secret (que faz um retrieve com expand).
+
+Frontend (Payment Element):
+
+Se recebeu clientSecret → stripe.confirmPayment(...).
+
+Se veio null → poll no endpoint de client-secret até aparecer e aí confirmar.
+
+Webhooks obrigatórios (fecham o ciclo):
+
+customer.subscription.created/updated → salvar stripe_subscription_id, stripe_customer_id, status.
+
+invoice.paid → marcar doadores.status='paid' e users.subscription_status='active'.
+
+invoice.payment_failed e invoice.payment_action_required → atualizar status e guardar payment_intent_id se precisar acionar 3DS.
+
+Evite criar Product/Price a cada doação.
+
+Prefira reutilizar price fixo (mensal/trimestral/etc.). Criar price toda hora polui a conta e atrapalha relatórios.
+
+Idempotência e persistência:
+
+Envie Idempotency-Key no subscriptions.create (ou amarre por userId+timestamp) para evitar duplicatas em re-tentativas.
+
+Ao criar a assinatura, já grave doador.id, subscriptionId, customerId (mesmo antes do pagamento).
+
+Webhook raw body (você já viu isso): a rota do webhook deve receber corpo raw antes de express.json().
+
+Se seguir esse checklist, sim, “funfa”: elimina o 500 por “PaymentIntent não encontrado”, confirma o pagamento pela fatura da assinatura, salva o cartão para as próximas cobranças e mantém o estado sincronizado via webhooks.

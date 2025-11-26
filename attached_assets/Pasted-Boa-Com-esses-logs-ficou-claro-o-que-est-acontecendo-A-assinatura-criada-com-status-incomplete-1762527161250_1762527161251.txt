@@ -1,0 +1,51 @@
+Boa! Com esses logs ficou claro o que está acontecendo:
+
+A assinatura é criada com status incomplete.
+
+A fatura (invoice) é criada/finalizada sem payment_intent.
+
+O seu polling fica esperando um client_secret que nunca aparece → estoura timeout.
+
+Isso acontece quando a Stripe não consegue gerar o PaymentIntent no momento da criação (ex.: sem PM salvo no customer, configuração regional de métodos, timing). Nesses casos você precisa coletar/guardar o cartão primeiro e forçar o pagamento da invoice.
+
+A correção prática é transformar o fluxo em duas etapas (ainda no “subscription-first”):
+
+O que mudar (resumo direto)
+
+Na criação da subscription (/api/donation/create):
+
+Continue criando a assinatura (payment_behavior: 'default_incomplete', collection_method: 'charge_automatically', payment_settings.save_default_payment_method: 'on_subscription', expand: ['latest_invoice.payment_intent','pending_setup_intent']).
+
+Se vier payment_intent → devolva secretType: 'payment' e o client_secret (fluxo normal).
+
+Se NÃO vier payment_intent → crie um SetupIntent para o customer e devolva secretType: 'setup', setupClientSecret e invoiceId.
+
+Nova rota para pagar a invoice (backend):
+
+POST /api/subscriptions/:subscriptionId/pay
+Recebe invoiceId e chama stripe.invoices.pay(invoiceId, {paid_out_of_band: false}).
+Depois faz retrieve da invoice com expand: ['payment_intent'] e retorna o client_secret se existir, ou status atualizado.
+
+No frontend:
+
+Se secretType === 'payment': use stripe.confirmCardPayment(clientSecret, …) (como já faz).
+
+Se secretType === 'setup':
+
+await stripe.confirmCardSetup(setupClientSecret, { payment_method: { card, billing_details } })
+
+Chame POST /api/subscriptions/:id/pay passando invoiceId.
+
+Se a resposta voltar com payment_intent.client_secret, confirme com stripe.confirmCardPayment(...).
+
+Trate os webhooks para marcar active quando invoice.paid chegar.
+
+Por que isso resolve?
+
+Garante que existe um método de pagamento salvo no customer.
+
+Ao chamar invoices.pay, a Stripe cria o PaymentIntent da fatura (se não existir) e tenta cobrar usando o PM padrão.
+
+Evita o loop do polling que ficava esperando um client_secret inexistente.
+
+Se quiser, te mando os blocos “ANTES/DEPOIS” da create e as duas rotas auxiliares (client-secret + pay) já prontas nesse formato novo.

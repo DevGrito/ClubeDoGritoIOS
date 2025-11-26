@@ -1,0 +1,113 @@
+Prompt para o Replit (sem código):
+
+Objetivo: adicionar um Dashboard na tela já existente em /coordenador/psicossocia sem quebrar o que existe hoje.
+
+Navegação e posição
+
+Manter a rota atual /coordenador/psicossocia.
+
+No topo da tela, criar abas:
+
+Dashboard (nova – abre por padrão)
+
+Casos (conteúdo atual da página, mover para esta aba)
+
+Triagem (se já existir conteúdo relacionado, mover)
+
+Encaminhamentos (se já existir conteúdo relacionado, mover)
+
+Não remover nada do conteúdo atual; apenas organizar em abas.
+
+Filtros globais (fixos no topo, valem para todas as abas)
+
+Período (data inicial e final).
+
+Unidade/Polo (lista existente).
+
+Profissional (lista existente).
+
+Status (Ativo, Em Acompanhamento, Encaminhado, Concluído; incluir “Todos”).
+
+Botões: Aplicar, Limpar filtros, Exportar CSV (exporta a tabela visível respeitando filtros).
+
+Conteúdo da aba “Dashboard”
+
+Linha de KPIs (cards), em uma única linha no desktop:
+
+Atendimentos no período
+
+Casos ativos
+
+Novos casos (abertos no período)
+
+Tempo médio até 1º atendimento (dias)
+
+Encaminhamentos externos
+
+(Opcional) Satisfação/NPS se disponível
+
+Gráfico 1 – Evolução semanal: linha/área de atendimentos por semana (últimas 12–24 semanas).
+
+Gráfico 2 – Distribuição por tipo/status: barras empilhadas por tipo (acolhimento, triagem, individual, grupo, visita domiciliar) cruzado com status.
+
+Lista “Alto Risco”: top 10 casos com risco Alto, mostrando nome, profissional responsável, dias em acompanhamento, status e ação “Ver detalhes”.
+
+Comportamento e UX
+
+Responsivo: mobile-first; cards empilham (ou carrossel), gráficos ocupam 100%, tabelas mostram colunas essenciais.
+
+Loaders/Skeletons durante carregamento e Empty states (“Sem dados para o período selecionado”).
+
+Tooltips com explicação dos KPIs (ex.: “Tempo médio entre cadastro e primeiro atendimento concluído”).
+
+Badges: risco (Alto/Moderado/Baixo) e status (Ativo/Acompanhamento/Encaminhado/Concluído).
+
+Acessibilidade: rotular controles com aria-label, contraste AA.
+
+Dados (reutilizar serviços já existentes)
+
+Reutilizar os endpoints/serviços já usados na tela para montar agregações por período, polo, profissional e status.
+
+Caso alguma agregação não exista, criar camada de agregação no frontend (mock razoável) mantendo as mesmas chaves/nomes de filtros já usados hoje.
+
+Padrão de query params: start, end, poloId, profissionalId, status, period=week|month.
+
+Integrações com o que já existe
+
+Tudo que hoje está visível na página vira a aba “Casos” sem alteração funcional.
+
+Se já há blocos de Triagem e Encaminhamentos, mover para suas abas respectivas, mantendo filtros globais atuando nelas.
+
+Exportações
+
+Botão Exportar CSV exporta a tabela ativa (na aba atual) respeitando filtros aplicados.
+
+No Dashboard, permitir exportar lista “Alto Risco”.
+
+Critérios de aceite
+
+A rota /coordenador/psicossocia abre por padrão na aba Dashboard e exibe KPIs + 2 gráficos + lista “Alto Risco”.
+
+Filtros no topo afetam todas as abas e atualizam dados imediatamente.
+
+Aba Casos contém integralmente o conteúdo pré-existente, sem regressões.
+
+Carregamento com skeletons, mensagens claras de erro e de vazio.
+
+Responsividade ok (testar 360px, 768px, 1280px).
+
+Exportar CSV funcionando nas abas com tabela.
+
+Testes manuais mínimos
+
+Aplicar/limpar filtros; verificar KPIs, gráficos e listas mudando.
+
+Trocar de abas e manter filtros.
+
+Ver estados de vazio (período sem dados).
+
+Exportar CSV nas abas de tabela.
+
+Abrir “Ver detalhes” em um caso de alto risco e voltar sem perder filtros.
+
+Estilo visual: manter o padrão do app; usar destaque leve em amarelo/laranja para títulos/badges; nada de cores agressivas nos gráficos.

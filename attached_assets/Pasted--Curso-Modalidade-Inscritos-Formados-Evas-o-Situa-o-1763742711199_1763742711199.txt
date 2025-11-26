@@ -1,0 +1,21 @@
+| Curso                                      | Modalidade | Inscritos | Formados | Evasão | Situação       |
+|--------------------------------------------|------------|-----------|----------|--------|----------------|
+| Informática Abril                          | Presencial | 20        | 20       | 0      | Concluído      |
+| Workshop Inteligência Artificial           | Presencial | 12        | 12       | 0      | Concluído      |
+| Excel                                      | Presencial | 13        | 12       | 1      | Concluído      |
+| Informática Tarde                          | Presencial | 18        | 16       | 3      | Concluído      |
+| Canva                                      | Presencial | 12        | 10       | 0      | Concluído      |
+| Letramento Digital                         | Presencial | 9         | 9        | 0      | Concluído      |
+| Informática Noturno                        | Presencial | 17        | 17       | 0      | Concluído      |
+| Criação de Jogos (Scratch)                 | Presencial | 7         | 7        | 0      | Concluído      |
+| Informática Intermediária                  | Presencial | 13        | 13       | 0      | Concluído      |
+| IA para Empreender                         | Presencial | 4         | 4        | 0      | Concluído      |
+| Manutenção e Limpeza de PC                 | Presencial | 7         | 6        | 0      | Concluído      |
+| Power BI                                   | Presencial | 3         | 2        | 1      | Concluído      |
+| Informática – Turma 1                      | Presencial | 11        | 11       | —      | Concluído      |
+| Informática – Turma 2                      | Presencial | 9         | 9        | —      | Concluído      |
+| Excel                                      | Presencial | 9         | 9        | —      | Concluído      |
+| Excel Outubro                              | Presencial | —         | —        | —      | Em Andamento   |
+| Manutenção Computadores Outubro            | Presencial | —         | —        | —      | Em Andamento   |
+| Informática Outubro                        | Presencial | —         | —        | —      | Em Andamento   |
+| Informática para adultos                   | EAD        | 9         | 9        | —      | Concluído      |
