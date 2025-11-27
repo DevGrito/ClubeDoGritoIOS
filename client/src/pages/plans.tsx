@@ -298,32 +298,44 @@ export default function Plans() {
 
 
 
-    return (
-      <div
-        className="min-h-screen bg-gray-50"
-        style={{ backgroundColor: '#F5F5F5' }}
-      >
+  return (
+    <div
+      className="min-h-screen bg-gray-50"
+      style={{ backgroundColor: "#F5F5F5" }}
+    >
       {/* Main Container com fundo branco sem card */}
-            <div
+      <div className="min-h-screen bg-white">
+        <div className="w-full mx-auto">
+          {/* Header com botão Entrar */}
+          <div
             className="flex justify-end items-center pr-4 pb-4"
             style={{
-              paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)", // 👈 agora só o header desce
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
             }}
           >
             <Button
-              onClick={() => setLocation('/entrar')}
+              onClick={() => setLocation("/entrar")}
               className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 py-1.5 text-xs rounded-full shadow-md"
               data-testid="button-entrar"
             >
               ENTRAR
             </Button>
           </div>
+
           {/* Título */}
           <div className="px-8 pb-8">
-            <h1 className="text-gray-800 leading-tight text-left" style={{ fontFamily: 'Inter', fontSize: '24px', fontWeight: '400' }}>
-              Mais benefícios<br />
-              para você. <span style={{ fontWeight: '700' }}>Mais<br />
-              futuro para eles.</span>
+            <h1
+              className="text-gray-800 leading-tight text-left"
+              style={{ fontFamily: "Inter", fontSize: "24px", fontWeight: "400" }}
+            >
+              Mais benefícios
+              <br />
+              para você.{" "}
+              <span style={{ fontWeight: "700" }}>
+                Mais
+                <br />
+                futuro para eles.
+              </span>
             </h1>
           </div>
 

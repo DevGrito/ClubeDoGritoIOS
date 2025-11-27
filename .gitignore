@@ -36,3 +36,4 @@ uploads/
 gcs-service-account.json
 _archive
 _archive/
+package-lock.json
