@@ -10,6 +10,7 @@ import { PageTransition } from "@/components/PageTransition";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { setupGlobalErrorHandling } from "@/utils/errorHandler";
 import ConnectionStatus from "@/components/ConnectionStatus";
+import { useSubscriptionVerify } from "@/hooks/useSubscriptionVerify";
 import SplashScreen from "@/pages/splash-screen";
 import SplashGate from "@/components/SplashGate";
 import Plans from "@/pages/plans";
@@ -544,6 +545,13 @@ function Router() {
 // Remoção da lógica automática de criação/correção de sessão para Leo
 // Todos os usuários devem passar pelo fluxo normal de autenticação
 
+
+// Componente que verifica assinatura em background
+function SubscriptionVerifier() {
+  useSubscriptionVerify();
+  return null;
+}
+
 function App() {
   
   // Configurar tratamento global de erros uma vez
@@ -556,6 +564,7 @@ function App() {
       <TooltipProvider>
         <ErrorBoundary>
           <ConnectionStatus />
+          <SubscriptionVerifier />
           <AutoRedirect />
           <Toaster />
           <Router />

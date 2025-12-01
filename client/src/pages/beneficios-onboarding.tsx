@@ -63,13 +63,27 @@ export default function BeneficiosOnboarding() {
   const [progressWidth, setProgressWidth] = useState(0);
   const [userPlan, setUserPlan] = useState("eco");
 
+  // 🔒 NOVO: se o usuário já viu o onboarding, manda direto pra /beneficios
+  useEffect(() => {
+    const userId = localStorage.getItem("userId");
+    const viuGlobal = localStorage.getItem("viuBoasVindasBeneficios");
+    const viuUser = userId
+      ? localStorage.getItem(`viuBoasVindasBeneficios_${userId}`)
+      : null;
+
+    if (viuGlobal === "true" || viuUser === "true") {
+      console.log("✅ Já viu onboarding, redirecionando para /beneficios");
+      setLocation("/beneficios");
+    }
+  }, [setLocation]);
+
   // Buscar dados do usuário do localStorage
   useEffect(() => {
     const userName = localStorage.getItem("userName");
     const userPlanData = localStorage.getItem("userPlan");
     
     if (userName) {
-      const firstName = userName.split(' ')[0];
+      const firstName = userName.split(" ")[0];
       setUserFirstName(firstName);
     }
     

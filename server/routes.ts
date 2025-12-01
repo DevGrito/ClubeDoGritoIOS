@@ -1975,7 +1975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rawValor = req.body.valor ?? req.body.amount ?? req.body.value;
       const valorNum = typeof rawValor === 'string' ? Number(rawValor.replace(',', '.')) : Number(rawValor);
       const periodicity = req.body.periodicity || req.body.periodicidade || 'mensal';
-      const refCode = req.body.refCode || req.body.ref_code || req.body.ref || '';
+      const refCode = req.body.referralCode || req.body.refCode || req.body.ref_code || req.body.ref || '';
 
       if (!nome || !telefone || !plano) {
         return res.status(400).json({ success: false, message: 'Dados obrigatórios faltando' });
@@ -2119,6 +2119,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('❌ [PAY-INVOICE] Erro:', error.message);
       res.status(500).json({ 
         error: 'Erro ao processar pagamento',
+        message: error.message
+      });
+    }
+  });
+
+  // === ENDPOINT: Verificar status real da assinatura na Stripe ===
+  app.get('/api/subscription/verify', async (req, res) => {
+    try {
+      const phone = req.query.phone as string;
+      
+      if (!phone) {
+        return res.status(400).json({ error: 'Telefone é obrigatório' });
+      }
+      
+      console.log(`🔍 [VERIFY-SUB] Verificando assinatura para telefone: ${phone}`);
+      
+      // Buscar cliente na Stripe pelo telefone
+      const customers = await stripe.customers.search({
+        query: `phone~"${phone}"`
+      });
+      
+      if (!customers.data.length) {
+        console.log(`⚠️ [VERIFY-SUB] Nenhum cliente encontrado para ${phone}`);
+        return res.json({ 
+          hasActiveSubscription: false, 
+          reason: 'customer_not_found' 
+        });
+      }
+      
+      // Verificar assinaturas de todos os clientes com este telefone
+      for (const customer of customers.data) {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'active',
+          limit: 1
+        });
+        
+        if (subscriptions.data.length > 0) {
+          const sub = subscriptions.data[0];
+          console.log(`✅ [VERIFY-SUB] Assinatura ativa encontrada: ${sub.id}`);
+          return res.json({ 
+            hasActiveSubscription: true,
+            subscriptionId: sub.id,
+            status: sub.status,
+            customerId: customer.id,
+            customerName: customer.name
+          });
+        }
+        
+        // Verificar também trialing
+        const trialingSubs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'trialing',
+          limit: 1
+        });
+        
+        if (trialingSubs.data.length > 0) {
+          const sub = trialingSubs.data[0];
+          console.log(`✅ [VERIFY-SUB] Assinatura em trial encontrada: ${sub.id}`);
+          return res.json({ 
+            hasActiveSubscription: true,
+            subscriptionId: sub.id,
+            status: sub.status,
+            customerId: customer.id,
+            customerName: customer.name
+          });
+        }
+      }
+      
+      console.log(`⚠️ [VERIFY-SUB] Nenhuma assinatura ativa para ${phone}`);
+      return res.json({ 
+        hasActiveSubscription: false, 
+        reason: 'no_active_subscription' 
+      });
+      
+    } catch (error: any) {
+      console.error('❌ [VERIFY-SUB] Erro:', error.message);
+      res.status(500).json({ 
+        error: 'Erro ao verificar assinatura',
         message: error.message
       });
     }
@@ -2368,7 +2447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ========= Create payment for new user after SMS verification =========
    app.post('/api/payments/create-for-new-user', async (req, res) => {
     try {
-      const { phone, nome, email, plan, amount, periodicity } = req.body;
+      const { phone, nome, email, plan, amount, periodicity, referralCode } = req.body;
       console.log(`🔄 [NEW USER PAYMENT] Creating payment for: ${phone}, plan: ${plan}, amount: ${amount}, periodicity: ${periodicity}`);
 
       if (!phone) {
@@ -2503,55 +2582,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
 
-      // === CRIAR PAYMENTINTENT PARA PRIMEIRO PAGAMENTO ===
-      // Criar PaymentIntent para o primeiro pagamento (webhook cria subscription depois)
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: finalAmount,
-        currency: 'brl',
+      // === CRIAR SUBSCRIPTION RECORRENTE (NÃO PAYMENTINTENT) ===
+      // Buscar ou criar produto específico do plano (NÃO usar "Doação Clube do Grito")
+      const planNames: Record<string, string> = {
+        'eco': 'Plano Eco - Clube do Grito',
+        'voz': 'Plano Voz - Clube do Grito',
+        'grito': 'Plano Grito - Clube do Grito',
+        'platinum': 'Plano Platinum - Clube do Grito',
+        'apoio_mensal': 'Plano Grito - Clube do Grito',
+      };
+      
+      const planKey = (plan || tier || 'platinum').toLowerCase();
+      const productName = planNames[planKey] || 'Plano Platinum - Clube do Grito';
+      
+      // Buscar produto existente ou criar novo
+      let stripeProduct;
+      const existingProducts = await stripe.products.list({ active: true, limit: 100 });
+      stripeProduct = existingProducts.data.find(p => p.name === productName);
+      
+      if (!stripeProduct) {
+        stripeProduct = await stripe.products.create({
+          name: productName,
+          description: `Assinatura recorrente ${productName}`,
+          metadata: { 
+            type: 'subscription_plan',
+            plan: planKey,
+            fonte: 'donation-flow'
+          }
+        });
+        console.log(`✅ [NEW USER PAYMENT] Produto criado: ${stripeProduct.id} - ${productName}`);
+      }
+      
+      // Mapear label de periodicidade para exibição
+      const periodicityLabels: Record<string, string> = {
+        'mensal': 'Recorrente',
+        'trimestral': 'Trimestral',
+        'semestral': 'Semestral',
+        'anual': 'Anual',
+      };
+      const periodicityLabel = periodicityLabels[selectedPeriodicity] || 'Recorrente';
+      
+      // Criar SUBSCRIPTION real com o produto do plano
+      const idempotencyKey = `sub-new-user-${phone.replace(/\D/g, '')}-${Date.now()}`;
+      
+      const subscription = await stripe.subscriptions.create({
         customer: customer.id,
-        payment_method_types: ['card'],
-        setup_future_usage: 'off_session', // Permite reutilizar método de pagamento
+        items: [{
+          price_data: {
+            currency: 'brl',
+            product: stripeProduct.id,
+            unit_amount: finalAmount,
+            recurring: {
+              interval: recurringConfig.interval,
+              interval_count: recurringConfig.interval_count,
+            },
+          },
+        }],
+        payment_behavior: 'default_incomplete',
+        collection_method: 'charge_automatically',
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        expand: ['latest_invoice.payment_intent', 'pending_setup_intent'],
         metadata: {
           phone: phone,
-          plan: plan || 'platinum',
+          plan: planKey,
           tier: tier,
           gritos_awarded: gritos.toString(),
           donation_amount: (finalAmount / 100).toString(),
           newUser: 'true',
           periodicity: selectedPeriodicity,
-          isRecurring: 'true', // Flag para webhook criar subscription depois
+          periodicityLabel: periodicityLabel,
+          nome: nome || '',
+          fonte: 'donation-flow-new-user',
+          flowVersion: '3.0-subscription',
+          referralCode: referralCode || '',
         },
-      });
+      }, { idempotencyKey });
 
-      console.log('✅ PAYMENTINTENT criado para novo usuário:', {
-        paymentIntentId: paymentIntent.id,
+      console.log(`✅ [NEW USER PAYMENT] SUBSCRIPTION criada: ${subscription.id}`, {
+        subscriptionId: subscription.id,
         amount: finalAmount / 100,
         customer: customer.id,
+        periodicity: selectedPeriodicity,
+        product: stripeProduct.id,
       });
 
-      // Store in database as pending donation
+      // Extrair client_secret da invoice ou setup_intent
+      const invoice = subscription.latest_invoice as any;
+      const paymentIntent = invoice?.payment_intent;
+      let setupIntent = subscription.pending_setup_intent;
+      let secretType: 'payment' | 'setup' | null = null;
+      let clientSecret: string | null = null;
+
+      if (paymentIntent?.client_secret) {
+        secretType = 'payment';
+        clientSecret = paymentIntent.client_secret;
+      } else if (setupIntent) {
+        const setupIntentFull = await stripe.setupIntents.retrieve(setupIntent as string);
+        secretType = 'setup';
+        clientSecret = setupIntentFull.client_secret;
+      } else {
+        const newSetupIntent = await stripe.setupIntents.create({
+          customer: customer.id,
+          payment_method_types: ['card'],
+          usage: 'off_session',
+          metadata: { subscriptionId: subscription.id }
+        });
+        setupIntent = newSetupIntent.id;
+        secretType = 'setup';
+        clientSecret = newSetupIntent.client_secret;
+      }
+
+      // Store in database with subscription ID
       const newDonation = await db.insert(doadores).values({
-        nome: nome || 'Novo Doador',
-        telefone: phone,
-        email: email || '',
-        plano: tier,
-        valor: finalAmount / 100,
-        stripeCustomerId: customer.id,
-        stripePaymentIntentId: paymentIntent.id,
-        status: 'pending'
-      }).returning();
+          userId: null,
+          plano: tier,
+          valor: finalAmount / 100,
+          stripeCustomerId: customer.id,
+          stripePaymentIntentId: paymentIntent?.id || null,
+          stripeSubscriptionId: subscription.id,
+          periodicidade: selectedPeriodicity,
+          status: 'pending',
+          ativo: true,
+        }).returning();
 
-      console.log(`✅ [NEW USER PAYMENT] Created donation ID: ${newDonation[0].id} for phone: ${phone}`);
+        const donationId = newDonation[0].id;
 
-      res.json({
-        success: true,
-        userId: newDonation[0].id,
-        clientSecret: paymentIntent.client_secret,
-        customerId: customer.id,
-        paymentIntentId: paymentIntent.id,
-        donation_amount: finalAmount / 100,
-        periodicity: selectedPeriodicity // ✅ ADICIONADO: Retornar periodicidade
-      });
+        res.json({
+          success: true,
+          donationId,                    // ✅ nome certo
+          clientSecret: clientSecret,
+          customerId: customer.id,
+          subscriptionId: subscription.id,
+          paymentIntentId: paymentIntent?.id || null,
+          secretType: secretType,
+          donation_amount: finalAmount / 100,
+          periodicity: selectedPeriodicity,
+        });
 
     } catch (error) {
       console.error('❌ [NEW USER PAYMENT] Error:', error);
@@ -6273,7 +6439,82 @@ app.post('/api/webhook/stripe', async (req, res) => {
         if (existingUser) {
           console.log(`✅ [LOGIN ELIGIBILITY] User exists: ${existingUser.nome} (${existingUser.id})`);
 
-          // User exists - eligible for login without payment
+          // VERIFICAÇÃO CRÍTICA: Se for doador, verificar assinatura ANTES de permitir login
+          if (existingUser.tipo === 'doador') {
+            console.log(`🔍 [LOGIN ELIGIBILITY] Verificando assinatura Stripe para doador: ${existingUser.nome}`);
+            
+            try {
+              // Buscar dados do doador
+              const [doadorInfo] = await db
+                .select({ 
+                  stripeCustomerId: doadores.stripeCustomerId,
+                  status: doadores.status,
+                  ativo: doadores.ativo
+                })
+                .from(doadores)
+                .where(eq(doadores.userId, existingUser.id))
+                .limit(1);
+
+              if (!doadorInfo) {
+                console.log(`❌ [LOGIN ELIGIBILITY] Doador não encontrado na tabela: ${existingUser.id}`);
+                return res.json({
+                  eligible: false,
+                  exists: true,
+                  reason: 'SUBSCRIPTION_REQUIRED',
+                  message: 'Sua doação não foi encontrada. Faça uma nova doação para continuar.'
+                });
+              }
+
+              // Se tem stripeCustomerId, verificar na Stripe
+              if (doadorInfo.stripeCustomerId && stripe) {
+                const subscriptions = await stripe.subscriptions.list({
+                  customer: doadorInfo.stripeCustomerId,
+                  status: 'all',
+                  limit: 10
+                });
+
+                const activeStatuses = ['active', 'trialing'];
+                const hasActiveSubscription = subscriptions.data.some(sub => 
+                  activeStatuses.includes(sub.status)
+                );
+
+                console.log(`🔍 [LOGIN ELIGIBILITY] Stripe: ${subscriptions.data.length} subs, ativas: ${hasActiveSubscription}`);
+
+                if (!hasActiveSubscription) {
+                  console.log(`❌ [LOGIN ELIGIBILITY] BLOQUEANDO - sem assinatura ativa na Stripe: ${existingUser.nome}`);
+                  return res.json({
+                    eligible: false,
+                    exists: true,
+                    reason: 'SUBSCRIPTION_INACTIVE',
+                    message: 'Sua assinatura não está ativa. Renove sua doação para continuar acessando.'
+                  });
+                }
+              } else {
+                // Sem stripeCustomerId - verificar status local
+                if (doadorInfo.status !== 'paid' || !doadorInfo.ativo) {
+                  console.log(`❌ [LOGIN ELIGIBILITY] BLOQUEANDO - status local inválido: ${doadorInfo.status}, ativo: ${doadorInfo.ativo}`);
+                  return res.json({
+                    eligible: false,
+                    exists: true,
+                    reason: 'SUBSCRIPTION_INACTIVE',
+                    message: 'Sua doação não está ativa. Entre em contato com o suporte.'
+                  });
+                }
+              }
+
+              console.log(`✅ [LOGIN ELIGIBILITY] Assinatura verificada - permitindo login para: ${existingUser.nome}`);
+            } catch (stripeError) {
+              console.error(`❌ [LOGIN ELIGIBILITY] Erro ao verificar Stripe:`, stripeError);
+              return res.json({
+                eligible: false,
+                exists: true,
+                reason: 'VERIFICATION_ERROR',
+                message: 'Erro ao verificar sua assinatura. Tente novamente.'
+              });
+            }
+          }
+
+          // User exists and passed verification - eligible for login
           return res.json({
             eligible: true,
             exists: true,
@@ -6343,7 +6584,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
         // Special handling for test numbers
         const testNumbers = [
           "+5599999999999", "+5531999990001", "+5531999990002", "+5531999990003",
-          "+5531998783003", "+5531987830003"
+          "+5531998783003", "+5531987830003", "+5531999990004"
         ];
 
         if (testNumbers.some(testPhone => normalizedPhone === testPhone)) {
@@ -6494,20 +6735,74 @@ app.post('/api/webhook/stripe', async (req, res) => {
 
         if (user.tipo === 'doador') {
           try {
-            const [activeDonation] = await db
-              .select({ id: doadores.id })
+            // VERIFICAÇÃO REAL NA STRIPE - Bloqueia login se não houver assinatura ativa
+            console.log(`🔍 [VERIFY OTP] Verificando assinatura Stripe para doador: ${user.nome}`);
+            
+            // Buscar customerId do doador
+            const [doadorInfo] = await db
+              .select({ 
+                id: doadores.id, 
+                stripeCustomerId: doadores.stripeCustomerId,
+                status: doadores.status,
+                ativo: doadores.ativo
+              })
               .from(doadores)
-              .where(and(
-                eq(doadores.userId, user.id),
-                eq(doadores.status, 'paid'),
-                eq(doadores.ativo, true)
-              ))
+              .where(eq(doadores.userId, user.id))
               .limit(1);
 
-            donationStatus.hasActiveSubscription = !!activeDonation;
-            donationStatus.isExistingDonor = true;
+            if (!doadorInfo) {
+              console.log(`❌ [VERIFY OTP] Doador não encontrado na tabela doadores: ${user.id}`);
+              return res.status(403).json({ 
+                error: "SUBSCRIPTION_REQUIRED",
+                message: "Você precisa ter uma assinatura ativa para acessar. Faça uma doação para continuar."
+              });
+            }
+
+            // Se tem stripeCustomerId, verifica na Stripe
+            if (doadorInfo.stripeCustomerId && stripe) {
+              const subscriptions = await stripe.subscriptions.list({
+                customer: doadorInfo.stripeCustomerId,
+                status: 'all',
+                limit: 10
+              });
+
+              const activeStatuses = ['active', 'trialing'];
+              const hasActiveStripeSubscription = subscriptions.data.some(sub => 
+                activeStatuses.includes(sub.status)
+              );
+
+              console.log(`🔍 [VERIFY OTP] Stripe subscriptions para ${user.nome}: ${subscriptions.data.length} total, ativas: ${hasActiveStripeSubscription}`);
+              
+              if (!hasActiveStripeSubscription) {
+                console.log(`❌ [VERIFY OTP] Bloqueando login - sem assinatura ativa na Stripe: ${user.nome}`);
+                return res.status(403).json({ 
+                  error: "SUBSCRIPTION_INACTIVE",
+                  message: "Sua assinatura não está mais ativa. Renove sua doação para continuar acessando."
+                });
+              }
+
+              donationStatus.hasActiveSubscription = true;
+              donationStatus.isExistingDonor = true;
+              console.log(`✅ [VERIFY OTP] Assinatura ativa confirmada na Stripe para: ${user.nome}`);
+            } else {
+              // Sem stripeCustomerId - verificar apenas banco local
+              if (doadorInfo.status !== 'paid' || !doadorInfo.ativo) {
+                console.log(`❌ [VERIFY OTP] Bloqueando login - status local inválido: ${doadorInfo.status}, ativo: ${doadorInfo.ativo}`);
+                return res.status(403).json({ 
+                  error: "SUBSCRIPTION_INACTIVE",
+                  message: "Sua doação não está ativa. Entre em contato com o suporte."
+                });
+              }
+              donationStatus.hasActiveSubscription = true;
+              donationStatus.isExistingDonor = true;
+            }
           } catch (error) {
-            console.error('❌ [VERIFY OTP] Error checking donation status:', error);
+            console.error('❌ [VERIFY OTP] Error checking Stripe subscription:', error);
+            // Em caso de erro na verificação, bloqueia por segurança
+            return res.status(403).json({ 
+              error: "VERIFICATION_ERROR",
+              message: "Erro ao verificar sua assinatura. Tente novamente."
+            });
           }
         }
 
@@ -6665,7 +6960,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
         });
       }
 
-      // Handle professor test numbers (only for sending codes)
+      // Handle professor test numbers (only for sending codes) - BACKUP
       const professorTestPhones = ["+5531999990001", "+5531999990002", "+5531999990003"];
       if (professorTestPhones.some(phone => telefone === phone || telefone.includes("999990001") || telefone.includes("999990002") || telefone.includes("999990003"))) {
         const codigo = "123456"; // Fixed code for professor test phones
@@ -6706,6 +7001,43 @@ app.post('/api/webhook/stripe', async (req, res) => {
       } catch (dbError) {
         console.error("Erro ao verificar telefone no banco:", dbError);
         return res.status(500).json({ error: "Erro interno do servidor" });
+      }
+
+      // 🎯 VERIFICAÇÃO INFLUENCIADOR: Não envia SMS, usa código do banco
+      try {
+        const phoneForInfluencer = telefone.replace(/\D/g, '');
+        const phoneVariations = [
+          phoneForInfluencer,
+          phoneForInfluencer.startsWith('55') ? phoneForInfluencer : '55' + phoneForInfluencer,
+          phoneForInfluencer.startsWith('55') ? phoneForInfluencer.substring(2) : phoneForInfluencer,
+          '+' + (phoneForInfluencer.startsWith('55') ? phoneForInfluencer : '55' + phoneForInfluencer)
+        ];
+        
+        // Verificar se é um influenciador no banco (tem influencer_code definido)
+        const influencerCheck = await pool.query(
+          `SELECT id, nome, influencer_code FROM users 
+           WHERE influencer_code IS NOT NULL 
+           AND influencer_code != ''
+           AND (telefone = $1 OR telefone = $2 OR telefone = $3 OR telefone = $4)`,
+          phoneVariations
+        );
+        
+        if (influencerCheck.rows.length > 0) {
+          const influencer = influencerCheck.rows[0];
+          console.log(`🎯 [INFLUENCER] Detectado influenciador: ${influencer.nome} (ID: ${influencer.id})`);
+          console.log(`🎯 [INFLUENCER] NÃO enviando SMS - código pré-definido será usado na verificação`);
+          
+          // NÃO envia SMS, apenas retorna sucesso
+          // O código do banco será verificado no endpoint /api/verify-login-code
+          return res.json({
+            success: true,
+            message: "Digite seu código de acesso exclusivo",
+            isInfluencer: true
+          });
+        }
+      } catch (influencerError) {
+        console.log("⚠️ [INFLUENCER] Erro ao verificar influenciador:", influencerError);
+        // Continua com fluxo normal se der erro
       }
 
       // Generate 6-digit verification code
@@ -6920,12 +7252,45 @@ app.post('/api/webhook/stripe', async (req, res) => {
         }
       }
 
-      // Verify code for regular users (Leo already handled above)
+      // 🎯 INFLUENCER: Se não tem código armazenado, verificar se é Influencer no banco
+      let isInfluencer = false;
       if (!storedCode) {
-        return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+        try {
+          const phoneForInfluencer = telefone.replace(/\D/g, '');
+          const phoneWithoutCountry = phoneForInfluencer.replace(/^55/, '');
+          const phoneWith55 = '55' + phoneWithoutCountry;
+          
+          console.log('🎯 [INFLUENCER VERIFY] Verificando se código é de influencer no banco');
+          
+          const influencerResult = await pool.query(
+            `SELECT id, nome, telefone, influencer_code 
+             FROM users 
+             WHERE influencer_code = $1 
+             AND (
+               regexp_replace(telefone, '[^0-9]', '', 'g') = $2
+               OR regexp_replace(telefone, '[^0-9]', '', 'g') = $3
+               OR regexp_replace(telefone, '[^0-9]', '', 'g') = $4
+             )`,
+            [codigo, phoneForInfluencer, phoneWith55, phoneWithoutCountry]
+          );
+          
+          if (influencerResult.rows && influencerResult.rows.length > 0) {
+            const influencer = influencerResult.rows[0] as any;
+            console.log('🎯 [INFLUENCER] ✅ Código válido para:', influencer.nome, '- ID:', influencer.id);
+            isInfluencer = true;
+            storedCode = codigo; // Simula que encontrou o código
+          } else {
+            console.log('🎯 [INFLUENCER] Código não corresponde a nenhum influencer');
+            return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+          }
+        } catch (influencerError) {
+          console.log('⚠️ [INFLUENCER] Erro ao verificar influencer:', influencerError);
+          return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+        }
       }
 
-      if (storedCode !== codigo) {
+      // Verify code for regular users (skip if is influencer - already validated)
+      if (!isInfluencer && storedCode !== codigo) {
         return res.status(400).json({ error: "Código de verificação inválido" });
       }
 
@@ -9041,9 +9406,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
   app.put("/api/users/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { nome, telefone, email } = req.body;
+      const { nome, telefone, email, plano } = req.body;
 
-      if (!nome && !telefone && !email) {
+      if (!nome && !telefone && !email && !plano) {
         return res.status(400).json({ error: "Pelo menos um campo deve ser fornecido" });
       }
 
@@ -9056,6 +9421,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
       if (nome) updateData.nome = nome;
       if (telefone) updateData.telefone = telefone;
       if (email) updateData.email = email;
+      if (plano) updateData.plano = plano;
 
       const updatedUser = await storage.updateUser(parseInt(id), updateData);
 
@@ -9303,11 +9669,13 @@ app.post('/api/webhook/stripe', async (req, res) => {
 
 
   // =============================================================================
-  // ENDPOINT DOADORES STATS - Busca todos os doadores do Stripe
+  // =============================================================================
+  // =============================================================================
+  // ENDPOINT DOADORES STATS - Dados empresariais completos do Stripe
   // =============================================================================
   app.get("/api/doadores/stats", async (req, res) => {
     try {
-      console.log('📊 [DOADORES] Buscando todos os doadores do Stripe...');
+      console.log('📊 [DOADORES] Buscando dados empresariais do Stripe...');
 
       if (!stripe) {
         return res.status(500).json({ 
@@ -9316,17 +9684,282 @@ app.post('/api/webhook/stripe', async (req, res) => {
         });
       }
 
-      // Buscar todos os customers do Stripe com subscriptions ativas
-      const customers = await stripe.customers.list({
-        limit: 100,
-        expand: ['data.subscriptions']
+      // Buscar subscriptions ativas, em teste e com pagamento pendente
+      const [activesSubs, trialingSubs, pastDueSubs] = await Promise.all([
+        stripe.subscriptions.list({ status: 'active', limit: 100, expand: ['data.customer', 'data.items.data.price'] }),
+        stripe.subscriptions.list({ status: 'trialing', limit: 100, expand: ['data.customer', 'data.items.data.price'] }),
+        stripe.subscriptions.list({ status: 'past_due', limit: 100, expand: ['data.customer', 'data.items.data.price'] })
+      ]);
+
+      const allSubscriptions = [
+        ...activesSubs.data,
+        ...trialingSubs.data,
+        ...pastDueSubs.data
+      ];
+
+      console.log(`✅ [DOADORES] ${activesSubs.data.length} active, ${trialingSubs.data.length} trialing, ${pastDueSubs.data.length} past_due`);
+
+      // Buscar dados locais dos usuários para complementar (email, telefone, nome)
+      const localUsersData = await db
+        .select({
+          stripeCustomerId: users.stripeCustomerId,
+          nome: users.nome,
+          email: users.email,
+          telefone: users.telefone
+        })
+        .from(users)
+        .where(isNotNull(users.stripeCustomerId));
+      
+      // Criar mapa para busca rápida
+      const localUsersMap = new Map<string, { nome: string | null; email: string | null; telefone: string | null }>();
+      localUsersData.forEach(u => {
+        if (u.stripeCustomerId) {
+          localUsersMap.set(u.stripeCustomerId, { nome: u.nome, email: u.email, telefone: u.telefone });
+        }
       });
 
-      console.log(`✅ [DOADORES] ${customers.data.length} customers encontrados no Stripe`);
+      console.log(`📊 [DOADORES] ${localUsersData.length} usuários locais com stripeCustomerId para cruzamento`);
+
+      // Mapear para formato de doador - cruzando com dados locais
+      const todosDoadoresRaw = allSubscriptions.map(sub => {
+        const customer = sub.customer as any;
+        const customerId = customer?.id || sub.id;
+        const localUser = localUsersMap.get(customerId);
+        
+        const priceItem = sub.items.data[0];
+        const valorTotal = priceItem?.price?.unit_amount ? priceItem.price.unit_amount / 100 : 0;
+        const interval = priceItem?.price?.recurring?.interval || 'month';
+        const intervalCount = priceItem?.price?.recurring?.interval_count || 1;
+        // Calcular valor mensal real baseado na periodicidade
+        let valor = valorTotal;
+        if (interval === 'month' && intervalCount > 1) {
+          valor = valorTotal / intervalCount; // Ex: R$89,70 trimestral = R$29,90/mês
+        } else if (interval === 'year') {
+          valor = valorTotal / 12; // Anual dividido por 12
+        }
+        
+        // Determinar plano baseado no valor
+        let plano = 'eco';
+        if (valor >= 30) plano = 'platinum';
+        else if (valor >= 20) plano = 'grito';
+        
+        else if (valor > 10) plano = 'voz';
+        else plano = 'eco';
+        
+        // Priorizar dados locais do banco de dados sobre dados do Stripe
+        const finalName = localUser?.nome || customer?.name || customer?.email || 'Doador Anônimo';
+        const finalEmail = localUser?.email || customer?.email || null;
+        const finalPhone = localUser?.telefone || customer?.phone || null;
+        
+        return {
+          customerId: customerId,
+          id: customerId,
+          name: finalName,
+          email: finalEmail,
+          phone: finalPhone,
+          subscriptionId: sub.id,
+          status: sub.status,
+          valor: valor,
+          valorTotal: valorTotal,
+          intervalCount: intervalCount,
+          plano: plano,
+          interval: priceItem?.price?.recurring?.interval || 'month',
+          created: sub.created,
+          createdDate: new Date(sub.created * 1000).toISOString(),
+          currentPeriodStart: sub.current_period_start,
+          currentPeriodEnd: sub.current_period_end,
+          cancelAtPeriodEnd: sub.cancel_at_period_end
+        };
+      });
+
+      // DEDUPLICAR: Manter apenas a subscription mais recente por customer
+      const doadoresPorCustomer = new Map<string, typeof todosDoadoresRaw[0]>();
+      
+      for (const doador of todosDoadoresRaw) {
+        const existente = doadoresPorCustomer.get(doador.customerId);
+        if (!existente || doador.created > existente.created) {
+          doadoresPorCustomer.set(doador.customerId, doador);
+        }
+      }
+
+      const doadoresAtivos = Array.from(doadoresPorCustomer.values());
+
+      console.log(`📊 [DOADORES] Após deduplicação: ${doadoresAtivos.length} doadores únicos`);
+
+      // ===== ESTATÍSTICAS EMPRESARIAIS =====
+
+      // 1. Totais gerais
+      const totalDoadores = doadoresAtivos.length;
+      const arrecadacaoMensal = doadoresAtivos.reduce((acc, d) => acc + d.valor, 0);
+      const doacaoMedia = totalDoadores > 0 ? arrecadacaoMensal / totalDoadores : 0;
+      const arrecadacaoAnual = arrecadacaoMensal * 12;
+
+      // 2. Distribuição por plano
+      const porPlano: Record<string, { quantidade: number; valor: number }> = {
+        'Eco (R$9,90)': { quantidade: 0, valor: 0 },
+        'Voz (R$19,90)': { quantidade: 0, valor: 0 },
+        'Grito (R$89,70)': { quantidade: 0, valor: 0 },
+        'Platinum (R$30+)': { quantidade: 0, valor: 0 }
+      };
+
+      doadoresAtivos.forEach(d => {
+        if (d.valor <= 10) {
+          porPlano['Eco (R$9,90)'].quantidade++;
+          porPlano['Eco (R$9,90)'].valor += d.valor;
+        } else if (d.valor <= 20) {
+          porPlano['Voz (R$19,90)'].quantidade++;
+          porPlano['Voz (R$19,90)'].valor += d.valor;
+        } else if (d.valor < 30) {
+          porPlano['Grito (R$89,70)'].quantidade++;
+          porPlano['Grito (R$89,70)'].valor += d.valor;
+        } else {
+          porPlano['Platinum (R$30+)'].quantidade++;
+          porPlano['Platinum (R$30+)'].valor += d.valor;
+        }
+      });
+
+      // 3. Evolução mensal de adesões (por mês de criação)
+      const mesesNomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      const evolucaoMensal: Record<string, { novosDoadadores: number; valorTotal: number; acumuladoDoadores: number; acumuladoValor: number }> = {};
+      
+      // Inicializar todos os meses do ano
+      mesesNomes.forEach(mes => {
+        evolucaoMensal[mes] = { novosDoadadores: 0, valorTotal: 0, acumuladoDoadores: 0, acumuladoValor: 0 };
+      });
+
+      doadoresAtivos.forEach(d => {
+        const data = new Date(d.created * 1000);
+        const mesIndex = data.getMonth();
+        const mes = mesesNomes[mesIndex];
+        evolucaoMensal[mes].novosDoadadores++;
+        evolucaoMensal[mes].valorTotal += d.valor;
+      });
+
+      // Calcular acumulados
+      let acumuladoDoadores = 0;
+      let acumuladoValor = 0;
+      mesesNomes.forEach(mes => {
+        acumuladoDoadores += evolucaoMensal[mes].novosDoadadores;
+        acumuladoValor += evolucaoMensal[mes].valorTotal;
+        evolucaoMensal[mes].acumuladoDoadores = acumuladoDoadores;
+        evolucaoMensal[mes].acumuladoValor = acumuladoValor;
+      });
+
+      // 4. Distribuição por faixa de valor
+      const distribuicaoPorValor: Record<string, number> = {
+        'R$1-25': 0,
+        'R$26-50': 0,
+        'R$51-100': 0,
+        'R$101-200': 0,
+        'R$200+': 0
+      };
+
+      doadoresAtivos.forEach(d => {
+        if (d.valor <= 25) distribuicaoPorValor['R$1-25']++;
+        else if (d.valor <= 50) distribuicaoPorValor['R$26-50']++;
+        else if (d.valor <= 100) distribuicaoPorValor['R$51-100']++;
+        else if (d.valor <= 200) distribuicaoPorValor['R$101-200']++;
+        else distribuicaoPorValor['R$200+']++;
+      });
+
+      // 5. Status das assinaturas
+      const porStatus = {
+        active: doadoresAtivos.filter(d => d.status === 'active').length,
+        trialing: doadoresAtivos.filter(d => d.status === 'trialing').length,
+        past_due: doadoresAtivos.filter(d => d.status === 'past_due').length
+      };
+
+      // 6. Taxa de retenção (doadores com mais de 1 mês)
+      const agora = Date.now() / 1000;
+      const doadoresAntigos = doadoresAtivos.filter(d => (agora - d.created) > 30 * 24 * 60 * 60);
+      const taxaRetencao = totalDoadores > 0 ? Math.round((doadoresAntigos.length / totalDoadores) * 100) : 0;
+
+      // 7. Ticket médio e maior doador
+      const maiorDoador = doadoresAtivos.reduce((max, d) => d.valor > max.valor ? d : max, { valor: 0, name: '' });
+
+      // 8. Projeção anual baseada no mês atual
+      const mesAtual = new Date().getMonth();
+      const mesesRestantes = 12 - mesAtual - 1;
+      const projecaoAnual = arrecadacaoMensal * 12;
+
+      console.log(`📊 [DOADORES] Total: ${totalDoadores}, Arrecadação: R$ ${arrecadacaoMensal.toFixed(2)}, Retenção: ${taxaRetencao}%`);
 
       res.json({
-        totalDoadores: customers.data.length,
-        customers: customers.data
+        // Totais
+        totalDoadores,
+        arrecadacaoMensal,
+        doacaoMedia,
+        arrecadacaoAnual,
+        projecaoAnual,
+        taxaRetencao,
+        
+        // Por status
+        porStatus,
+        
+        // Por plano (para gráfico de pizza)
+        porPlano: Object.entries(porPlano).map(([plano, dados]) => ({
+          plano,
+          quantidade: dados.quantidade,
+          valor: dados.valor
+        })),
+        
+        // Evolução mensal (para gráfico de linha/barras)
+        evolucaoMensal: mesesNomes.map(mes => ({
+          mes,
+          novosDoadores: evolucaoMensal[mes].novosDoadadores,
+          valorMensal: evolucaoMensal[mes].valorTotal,
+          acumuladoDoadores: evolucaoMensal[mes].acumuladoDoadores,
+          acumuladoValor: evolucaoMensal[mes].acumuladoValor
+        })),
+        
+        // Distribuição por valor (para gráfico de barras)
+        distribuicaoPorValor: Object.entries(distribuicaoPorValor).map(([faixa, quantidade]) => ({
+          faixa,
+          quantidade
+        })),
+        
+        // Destaques
+        maiorDoador: {
+          nome: maiorDoador.name,
+          valor: maiorDoador.valor
+        },
+        
+        // Lista completa de doadores (com telefone/email do banco de dados)
+        doadores: await Promise.all(doadoresAtivos.map(async d => {
+          // Buscar telefone e email do banco de dados Digital Ocean
+          let telefoneDB = null;
+          let emailDB = null;
+          try {
+            const userResult = await pool.query(
+              `SELECT telefone, email FROM users WHERE stripe_customer_id = $1 LIMIT 1`,
+              [d.customerId]
+            );
+            if (userResult.rows.length > 0) {
+              telefoneDB = userResult.rows[0].telefone;
+              emailDB = userResult.rows[0].email;
+            }
+          } catch (err) {
+            console.log(`⚠️ [DOADORES] Erro ao buscar user para ${d.customerId}`);
+          }
+          
+          return {
+            id: d.id,
+            nome: d.name,
+            email: emailDB || d.email,
+            telefone: telefoneDB || d.phone,
+            valor: d.valor,
+            plano: d.plano,
+            valorTotal: d.valorTotal,
+            intervalCount: d.intervalCount,
+            periodicidade: d.intervalCount === 1 ? 'Mensal' : 
+                           d.intervalCount === 3 ? 'Trimestral' : 
+                           d.intervalCount === 6 ? 'Semestral' : 
+                           d.interval === 'year' ? 'Anual' : `${d.intervalCount}x`,
+            status: d.status,
+            dataAdesao: new Date(d.created * 1000).toLocaleDateString('pt-BR'),
+            diasComoDoador: Math.floor((agora - d.created) / (24 * 60 * 60))
+          };
+        }))
       });
     } catch (error: any) {
       console.error('❌ [DOADORES] Erro ao buscar doadores do Stripe:', error);
@@ -9337,6 +9970,50 @@ app.post('/api/webhook/stripe', async (req, res) => {
       });
     }
   });
+  // =============================================================================
+  // DOADORES EXTERNOS - Doadores que doam fora do aplicativo
+  // =============================================================================
+  app.get("/api/doadores-externos", async (req, res) => {
+    try {
+      console.log('📊 [DOADORES EXTERNOS] Buscando doadores externos do banco DO...');
+      
+      // Buscar do banco Digital Ocean
+      const doadoresExternosList = await pool.query("SELECT * FROM doadores_externos WHERE ativo = true ORDER BY valor_mensal DESC");
+      const doadores = doadoresExternosList.rows || [];
+      
+      // Calcular totais
+      const totalDoadores = doadores.length;
+      const arrecadacaoMensal = doadores.reduce((acc: number, d: any) => acc + parseFloat(d.valor_mensal || 0), 0);
+      const doacaoMedia = totalDoadores > 0 ? arrecadacaoMensal / totalDoadores : 0;
+      
+      console.log(`✅ [DOADORES EXTERNOS] ${totalDoadores} doadores, R$ ${arrecadacaoMensal.toFixed(2)}/mês`);
+      
+      res.json({
+        success: true,
+        totalDoadores,
+        arrecadacaoMensal,
+        doacaoMedia,
+        doadores: doadores.map((d: any) => ({
+          id: d.id,
+          nome: d.nome,
+          valorMensal: parseFloat(d.valor_mensal),
+          formaPagamento: d.forma_pagamento || 'pix',
+          observacao: d.observacao,
+          dataInicio: d.data_inicio ? new Date(d.data_inicio).toLocaleDateString('pt-BR') : null,
+          status: d.status,
+          ativo: d.ativo
+        }))
+      });
+    } catch (error: any) {
+      console.error('❌ [DOADORES EXTERNOS] Erro:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao buscar doadores externos',
+        message: error.message
+      });
+    }
+  });
+
   // =============================================================================
   // CONSELHO - DADOS REALIZADOS MENSAIS
   // =============================================================================
@@ -9911,19 +10588,20 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
         // ==================================================================
         // 7. CRIANÇAS ATENDIDAS - PEC (3 SEGMENTOS)
         // Pegar valor mensal ou último disponível (snapshot)
-        // META ANUAL 2025: 500
+        // NOVA META 2025: 370 crianças (37/mês × 10 meses: fev→nov) - META ACUMULADA
         // ==================================================================
         const criancasAtendidasValor = getValorMensalOuUltimo(dadosMensais2025.criancasAtendidas);
-        const criancasAtendidasMeta = metasAnuais2025.criancasAtendidas;
-        console.log(`📊 [CRIANÇAS ATENDIDAS] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${criancasAtendidasValor}`);
+        // Usar nova função de meta ACUMULADA (37, 74, 111, ..., 370)
+        const criancasAtendidasMeta = gestaoVistaData.getMetaAcumuladaCriancas(mes);
+        console.log(`📊 [CRIANÇAS ATENDIDAS] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${criancasAtendidasValor}, Meta acumulada: ${criancasAtendidasMeta}`);
 
         const criancasAtendidasKpi = getKpiColor({
           id: 'criancasAtendidas',
           valor: criancasAtendidasValor,
-          meta: criancasAtendidasMeta,
+          meta: criancasAtendidasMeta, // Meta acumulada do mês
           tipo: 'count',
-          mesFiltro: mes,
-          mesVigente: 10 // Outubro 2025 (LEGADO)
+          mesFiltro: null, // Não dividir por 10, já está calculada corretamente
+          mesVigente: 11 // Novembro 2025
         });
 
         // ==================================================================
@@ -9982,20 +10660,20 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
         // ==================================================================
         // 10. FAMÍLIAS ACOMPANHADAS - Favela 3D (Decolagem)
-        // Pegar valor mensal ou último disponível (snapshot)
-        // META ANUAL 2025: 419
+        // VALOR FIXO: Não altera mês a mês
+        // META FIXA: 250 | REALIZADO FIXO: 219
         // ==================================================================
-        const familiasAtivasValor = getValorMensalOuUltimo(dadosMensais2025.familiasAcompanhadas);
-        const familiasAtivasMeta = metasAnuais2025.familiasAcompanhadas;
-        console.log(`📊 [FAMÍLIAS ACOMPANHADAS] Valor ${mes !== null ? `mês ${mes}` : 'anual (último)'}: ${familiasAtivasValor}`);
+        const familiasAtivasValor = 219; // Valor fixo - não varia por mês
+        const familiasAtivasMeta = 250;  // Meta fixa - não varia por mês
+        console.log(`📊 [FAMÍLIAS F3D] Valor FIXO: ${familiasAtivasValor}, Meta FIXA: ${familiasAtivasMeta}`);
 
         const familiasAtivasKpi = getKpiColor({
           id: 'familiasAtivas',
           valor: familiasAtivasValor,
           meta: familiasAtivasMeta,
           tipo: 'count',
-          mesFiltro: mes,
-          mesVigente: 10 // Outubro 2025 (LEGADO)
+          mesFiltro: null, // Valor fixo - não dividir por mês
+          mesVigente: 11 // Novembro 2025
         });
 
         // ==================================================================
@@ -10092,7 +10770,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           },
           criancasAtendidas: {
             valor: criancasAtendidasValor,
-            meta: ajustarMeta(criancasAtendidasMeta),
+            meta: criancasAtendidasMeta, // Já está calculada com getMetaAcumuladaCriancas
             tipo: 'count' as const,
             color: criancasAtendidasKpi.color,
             progress: criancasAtendidasKpi.progress
@@ -10113,7 +10791,7 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
           },
           familiasAtivas: {
             valor: familiasAtivasValor,
-            meta: ajustarMeta(familiasAtivasMeta),
+            meta: familiasAtivasMeta, // Meta fixa 250 - não ajustar
             tipo: 'count' as const,
             color: familiasAtivasKpi.color,
             progress: familiasAtivasKpi.progress
@@ -10140,14 +10818,20 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
         // Pessoas Ativas (Inclusão + PEC)
         const pessoasAtivas = {
-          inclusaoProdutiva: { emFormacao: alunosEmFormacaoValor },
-          pec: { criancasAtendidas: criancasAtendidasValor },
+          inclusaoProdutiva: {
+            formados: alunosFormadosValor,
+            emFormacao: alunosEmFormacaoValor
+          },
+          pec: {
+            criancasAtendidas: criancasAtendidasValor
+          },
           totais: {
-            inclusao: alunosEmFormacaoValor,
+            inclusao: alunosFormadosValor + alunosEmFormacaoValor,
             pec: criancasAtendidasValor,
-            geral: alunosEmFormacaoValor + criancasAtendidasValor
+            geral: alunosFormadosValor + alunosEmFormacaoValor + criancasAtendidasValor
           }
         };
+
 
         // Raça/Cor (placeholder - precisa de dados estruturados)
         const racaCor = {
@@ -16798,54 +17482,91 @@ app.get("/api/dev/users", async (req, res) => {
         return res.status(404).json({ error: "Usuário não encontrado" });
       }
 
-      let customerId = user.stripeCustomerId;
+      // Se usuário não tem customer_id, criar ou buscar no Stripe
+    let customerId = user.stripeCustomerId;
 
       // Se usuário não tem customer_id, criar ou buscar no Stripe
       if (!customerId) {
         console.log(`🔍 [SYNC STRIPE] Buscando customer no Stripe por email: ${user.email}`);
 
-        // Buscar customer existente por email
         const customers = await stripe.customers.list({
           email: user.email,
-          limit: 1
+          limit: 1,
         });
 
         if (customers.data.length > 0) {
-          // Customer encontrado
           customerId = customers.data[0].id;
           console.log(`✅ [SYNC STRIPE] Customer existente encontrado: ${customerId}`);
         } else {
-          // Criar novo customer
           console.log(`➕ [SYNC STRIPE] Criando novo customer no Stripe`);
           const customer = await stripe.customers.create({
-            email: user.email,
-            name: user.nome,
-            phone: user.telefone,
+            email: user.email || undefined,
+            name: user.nome || undefined,
+            phone: user.telefone || undefined,
             metadata: {
               userId: userId.toString(),
-              source: 'clube_do_grito'
-            }
+              source: "clube_do_grito",
+            },
           });
           customerId = customer.id;
           console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
         }
 
-        // Atualizar usuário no banco com o customer_id
         await storage.updateUser(parseInt(userId), { stripeCustomerId: customerId });
         console.log(`✅ [SYNC STRIPE] stripeCustomerId salvo no banco: ${customerId}`);
       } else {
         console.log(`ℹ️ [SYNC STRIPE] Usuário já possui customer_id: ${customerId}`);
+
+        // ⚠️ Validar se o customer ainda existe no Stripe
+        try {
+          await stripe.customers.retrieve(customerId);
+        } catch (err: any) {
+          if (err.code === "resource_missing" && err.param === "customer") {
+            console.warn(
+              `⚠️ [SYNC STRIPE] Customer ${customerId} não existe mais no Stripe. Recriando...`
+            );
+
+            // zera no banco para não ficar ID podre
+            await storage.updateUser(parseInt(userId), {
+              stripeCustomerId: null,
+              stripeSubscriptionId: null,
+            });
+
+            // cria um novo customer
+            const newCustomer = await stripe.customers.create({
+              email: user.email || undefined,
+              name: user.nome || undefined,
+              phone: user.telefone || undefined,
+              metadata: {
+                userId: userId.toString(),
+                source: "clube_do_grito",
+              },
+            });
+
+            customerId = newCustomer.id;
+            console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
+
+            await storage.updateUser(parseInt(userId), {
+              stripeCustomerId: customerId,
+            });
+            console.log(`✅ [SYNC STRIPE] stripeCustomerId atualizado no banco`);
+          } else {
+            // outro tipo de erro: repassa pra ser tratado no catch geral
+            throw err;
+          }
+        }
       }
 
-      // Buscar payment methods do customer
+      // 🔐 A partir daqui, customerId é garantido válido
       const paymentMethods = await stripe.paymentMethods.list({
         customer: customerId,
-        type: 'card',
+        type: "card",
       });
 
-      console.log(`📊 [SYNC STRIPE] ${paymentMethods.data.length} payment methods encontrados`);
+      console.log(
+        `📊 [SYNC STRIPE] ${paymentMethods.data.length} payment methods encontrados`
+      );
 
-      // Buscar customer para obter cartão padrão
       const customer = await stripe.customers.retrieve(customerId);
       const defaultPaymentMethodId = (customer as any).invoice_settings?.default_payment_method;
 
@@ -18229,6 +18950,78 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+
+  // Buscar benefícios (prêmios) elegíveis por plano + periodicidade
+  // Regras oficiais:
+  // ECO MENSAL: Apenas Combo Cineart
+  // ECO TRIMESTRAL/ANUAL: Simples + Médios  
+  // VOZ MENSAL: Apenas Médios
+  // VOZ TRIMESTRAL/ANUAL: Simples + Médios + Alguns Grandes
+  // GRITO MENSAL: Médios + Grandes (sem iPhone)
+  // GRITO TRIMESTRAL: Tudo menos iPhone
+  // GRITO ANUAL: TODOS (incluindo iPhone)
+  app.get("/api/beneficios/plano/:plano/periodicidade/:periodicidade", async (req, res) => {
+    try {
+      const { plano, periodicidade } = req.params;
+      console.log(`🎯 [API PRÊMIOS] Buscando prêmios para plano=${plano}, periodicidade=${periodicidade}`);
+      
+      // Buscar todos os benefícios ativos
+      const todosBeneficios = await storage.getBeneficiosAtivos();
+      
+      // Filtrar por plano + periodicidade conforme regras oficiais
+      console.log(`🎯 [FILTRO] Iniciando filtro: plano=${plano}, periodicidade=${periodicidade}, total=${todosBeneficios.length}`);
+      const beneficiosFiltrados = todosBeneficios.filter((beneficio: any) => {
+        // Normalizar plano e periodicidade para lowercase
+        const userPlan = (plano || '').toLowerCase();
+        const userPeriodicidade = (periodicidade || '').toLowerCase();
+        
+        // Normalizar arrays do benefício
+        const planosBeneficio = (beneficio.planosDisponiveis || beneficio.planos_disponiveis || [])
+          .map((p: string) => p.toLowerCase());
+        const ciclosBeneficio = (beneficio.ciclosPagamento || beneficio.ciclos_pagamento || ['mensal'])
+          .map((c: string) => c.toLowerCase());
+        
+        // REGRA 1: Platinum vê tudo, outros só veem prêmios onde seu plano está incluído
+        const planAllowed = userPlan === 'platinum' || planosBeneficio.includes(userPlan);
+        if (!planAllowed) {
+          return false;
+        }
+        
+        // REGRA 2: A periodicidade deve estar nos ciclos de pagamento permitidos
+        if (!ciclosBeneficio.includes(userPeriodicidade)) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      console.log(`✅ [API PRÊMIOS] Encontrados ${beneficiosFiltrados.length} prêmios elegíveis`);
+
+      // Para cada benefício, buscar todas as imagens
+      const beneficiosComImagens = await Promise.all(
+        beneficiosFiltrados.map(async (beneficio: any) => {
+          const imagens = await storage.getBeneficioImagensByBeneficio(beneficio.id);
+
+          // Separar imagens por tipo
+          const imagemCard = imagens.find((img: any) => img.tipo === 'card');
+          const imagemDetalhes = imagens.find((img: any) => img.tipo === 'detalhes');
+          const primeiraImagem = imagemCard || imagens[0];
+
+          return {
+            ...beneficio,
+            imagemCardUrl: imagemCard ? `/api/beneficios/${beneficio.id}/imagem?tipo=card` : null,
+            imagemDetalhesUrl: imagemDetalhes ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes` : null,
+            imagemUrl: primeiraImagem ? `/api/beneficios/${beneficio.id}/imagem` : null
+          };
+        })
+      );
+
+      res.json(beneficiosComImagens);
+    } catch (error) {
+      console.error("Error fetching beneficios by plan and periodicity:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
   // Buscar benefício específico
   app.get("/api/beneficios/:id", async (req, res) => {
     try {
@@ -20577,6 +21370,133 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+  // ===== REGULARIZAR SUBSCRIPTIONS COM PRODUTO ERRADO =====
+  // Corrigir subscriptions que foram criadas com "Doação Clube do Grito" em vez do plano correto
+  app.post("/api/admin/regularize-subscriptions", async (req, res) => {
+    try {
+      console.log('🔧 [REGULARIZE] Iniciando regularização de subscriptions...');
+
+      if (!stripe) {
+        return res.status(500).json({ error: "Stripe não configurado" });
+      }
+
+      // Buscar produto "Doação Clube do Grito"
+      const products = await stripe.products.list({ active: true, limit: 100 });
+      const donationProduct = products.data.find(p => 
+        p.name === "Doação Clube do Grito" || p.metadata?.type === "donation"
+      );
+
+      if (!donationProduct) {
+        return res.json({ 
+          success: true, 
+          message: 'Produto "Doação Clube do Grito" não encontrado - nada a regularizar',
+          regularizados: 0 
+        });
+      }
+
+      console.log(`📦 [REGULARIZE] Produto de doação encontrado: ${donationProduct.id}`);
+
+      // Buscar subscriptions ativas
+      const allSubs = await stripe.subscriptions.list({ 
+        status: 'active', 
+        limit: 100, 
+        expand: ['data.customer', 'data.items.data.price'] 
+      });
+
+      const subsParaCorrigir = allSubs.data.filter(sub => {
+        const productId = sub.items.data[0]?.price?.product;
+        return productId === donationProduct.id;
+      });
+
+      console.log(`🔍 [REGULARIZE] ${subsParaCorrigir.length} subscriptions com produto "Doação" encontradas`);
+
+      const resultados: any[] = [];
+
+      for (const sub of subsParaCorrigir) {
+        try {
+          const customer = sub.customer as any;
+          const priceItem = sub.items.data[0];
+          const valorTotal = priceItem?.price?.unit_amount || 0;
+          const interval = priceItem?.price?.recurring?.interval || 'month';
+          const intervalCount = priceItem?.price?.recurring?.interval_count || 1;
+
+          // Calcular valor mensal
+          let valorMensal = valorTotal / 100;
+          if (interval === 'month' && intervalCount > 1) {
+            valorMensal = valorTotal / 100 / intervalCount;
+          } else if (interval === 'year') {
+            valorMensal = valorTotal / 100 / 12;
+          }
+
+          // Determinar plano correto baseado no valor
+          let planoCorreto = 'platinum';
+          if (valorMensal < 15) planoCorreto = 'eco';
+          else if (valorMensal < 25) planoCorreto = 'voz';
+          else if (valorMensal < 35) planoCorreto = 'grito';
+
+          // Determinar periodicidade
+          let periodicidade = 'mensal';
+          if (interval === 'year') periodicidade = 'anual';
+          else if (intervalCount === 3) periodicidade = 'trimestral';
+          else if (intervalCount === 6) periodicidade = 'semestral';
+
+          // Atualizar metadata da subscription
+          await stripe.subscriptions.update(sub.id, {
+            metadata: {
+              ...sub.metadata,
+              plan: planoCorreto,
+              tier: planoCorreto,
+              periodicity: periodicidade,
+              periodicityLabel: periodicidade.charAt(0).toUpperCase() + periodicidade.slice(1),
+              regularized: 'true',
+              regularizedAt: new Date().toISOString(),
+              valorMensalCalculado: valorMensal.toFixed(2),
+              flowVersion: '3.0-regularized',
+            }
+          });
+
+          resultados.push({
+            subscriptionId: sub.id,
+            customer: customer?.name || customer?.email || 'Desconhecido',
+            valorTotal: valorTotal / 100,
+            valorMensal: valorMensal,
+            planoAnterior: sub.metadata?.plan || 'indefinido',
+            planoCorreto: planoCorreto,
+            periodicidade: periodicidade,
+            status: 'regularizado'
+          });
+
+          console.log(`✅ [REGULARIZE] ${sub.id}: ${customer?.name} -> ${planoCorreto} (${periodicidade})`);
+
+        } catch (error: any) {
+          console.error(`❌ [REGULARIZE] Erro ao regularizar ${sub.id}:`, error.message);
+          resultados.push({
+            subscriptionId: sub.id,
+            status: 'erro',
+            erro: error.message
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `${resultados.filter(r => r.status === 'regularizado').length} subscriptions regularizadas`,
+        totalAnalisadas: subsParaCorrigir.length,
+        regularizados: resultados.filter(r => r.status === 'regularizado').length,
+        erros: resultados.filter(r => r.status === 'erro').length,
+        detalhes: resultados
+      });
+
+    } catch (error: any) {
+      console.error('❌ [REGULARIZE] Erro geral:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro ao regularizar subscriptions', 
+        message: error.message 
+      });
+    }
+  });
+
   // ===== SINCRONIZAÇÃO COM STRIPE =====
   // Buscar todos os pagamentos confirmados no Stripe e recriar registros
   app.post("/api/admin/sync-stripe-payments", async (req, res) => {
@@ -20627,6 +21547,8 @@ app.get("/api/dev/users", async (req, res) => {
                 const newDonation = await db.insert(doadores).values({
                   userId: parseInt(userId),
                   valor: valor,
+                  valorTotal: valorTotal,
+                  intervalCount: intervalCount,
                   plano: pi.metadata?.plano || 'eco', // Pegar plano dos metadados
                   status: 'paid', // ✅ Confirmado pelo Stripe
                   ativo: true,
@@ -20836,6 +21758,34 @@ app.get("/api/dev/users", async (req, res) => {
         if (!user) {
           throw new Error("Usuário não encontrado");
         }
+
+        // ✅ CRÍTICO 7.5: VERIFICAR ELEGIBILIDADE DO PLANO + PERIODICIDADE
+        const planoUsuario = user.plano || 'eco';
+        const periodicidadeUsuario = user.periodicity || 'mensal';
+        // Normalizar para lowercase
+        const userPlan = (planoUsuario || '').toLowerCase();
+        const userPeriodicidade = (periodicidadeUsuario || '').toLowerCase();
+        
+        // Normalizar arrays do benefício (suportar ambos os formatos)
+        const planosBeneficio = ((beneficio as any).planosDisponiveis || (beneficio as any).planos_disponiveis || [])
+          .map((p: string) => p.toLowerCase());
+        const ciclosBeneficio = ((beneficio as any).ciclosPagamento || (beneficio as any).ciclos_pagamento || ['mensal'])
+          .map((c: string) => c.toLowerCase());
+        
+        // Verificar se o plano do usuário está nos planos permitidos (platinum vê tudo)
+        const planAllowed = userPlan === 'platinum' || planosBeneficio.includes(userPlan);
+        if (!planAllowed) {
+          console.log(`❌ [LANCE] Plano ${userPlan} não permitido para este prêmio. Planos: ${planosBeneficio}`);
+          throw new Error(`Seu plano (${planoUsuario}) não tem acesso a este prêmio. Faça upgrade para participar!`);
+        }
+        
+        // Verificar se a periodicidade do usuário está nos ciclos permitidos
+        if (!ciclosBeneficio.includes(userPeriodicidade)) {
+          console.log(`❌ [LANCE] Periodicidade ${userPeriodicidade} não permitida para este prêmio. Ciclos: ${ciclosBeneficio}`);
+          throw new Error(`Sua periodicidade (${periodicidadeUsuario}) não permite acesso a este prêmio. Considere mudar para ${ciclosBeneficio[0]} ou superior!`);
+        }
+        
+        console.log(`✅ [LANCE] Usuário elegível: plano=${planoUsuario}, periodicidade=${periodicidadeUsuario}`);
 
         // ✅ CRÍTICO 8: VERIFICAÇÕES DE NEGÓCIO ATÔMICAS
         const gritosAtuais = user.gritosTotal || 0;
@@ -25997,6 +26947,100 @@ app.get("/api/dev/users", async (req, res) => {
 
   // ===== GESTÃO À VISTA - API ENDPOINTS =====
 
+  // ===== INDICADORES GLOBAIS =====
+  
+  // 📊 GET /api/indicadores-globais - Buscar indicadores globais do banco DO
+  app.get('/api/indicadores-globais', async (req, res) => {
+    try {
+      const result = await pool.query("SELECT * FROM doadores_externos WHERE ativo = true ORDER BY valor_mensal DESC");//SELECT chave, valor, descricao, ano FROM indicadores_globais WHERE ano = 2025');
+      
+      const indicadores: Record<string, number> = {};
+      result.rows.forEach((row: any) => {
+        indicadores[row.chave] = parseInt(row.valor);
+      });
+      
+      res.json({
+        success: true,
+        indicadores,
+        horasAula: indicadores['horas_aula'] || 226359,
+        impactoDiretoIndireto: indicadores['impacto_direto_indireto'] || 317062
+      });
+    } catch (error) {
+      console.error('❌ Erro ao buscar indicadores globais:', error);
+      res.json({
+        success: false,
+        horasAula: 226359,
+        impactoDiretoIndireto: 317062
+      });
+    }
+  });
+
+
+  // 🏢 GET /api/patrocinador/dados/:email - Buscar dados do patrocinador pelo email
+  app.get('/api/patrocinador/dados/:email', async (req, res) => {
+    try {
+      const { email } = req.params;
+      
+      // Mapeamento de categorias para valores
+      const categoriaValores: Record<string, number> = {
+        'oficial': 150000,
+        'diamante': 100000,
+        'master': 50000,
+        'gold': 30000,
+        'silver': 20000,
+        'bronze': 10000
+      };
+      
+      // Mapeamento de categorias para nomes de exibição
+      const categoriaNomes: Record<string, string> = {
+        'oficial': 'OFICIAL',
+        'diamante': 'DIAMANTE',
+        'master': 'MASTER',
+        'gold': 'GOLD',
+        'silver': 'SILVER',
+        'bronze': 'BRONZE'
+      };
+      
+      // Buscar patrocinador pelo email
+      const result = await pool.query(
+        'SELECT id, nome, categoria, valor_patrocinio, email FROM patrocinadores WHERE LOWER(email) = LOWER($1) LIMIT 1',
+        [email]
+      );
+      
+      if (result.rows.length > 0) {
+        const patrocinador = result.rows[0];
+        const categoria = patrocinador.categoria || 'bronze';
+        const valor = patrocinador.valor_patrocinio || categoriaValores[categoria] || 10000;
+        
+        res.json({
+          success: true,
+          encontrado: true,
+          patrocinador: {
+            id: patrocinador.id,
+            nome: patrocinador.nome,
+            categoria: categoria,
+            categoriaNome: categoriaNomes[categoria] || categoria.toUpperCase(),
+            valorPatrocinio: parseFloat(valor),
+            email: patrocinador.email
+          }
+        });
+      } else {
+        // Patrocinador não encontrado pelo email
+        res.json({
+          success: true,
+          encontrado: false,
+          message: 'Patrocinador não encontrado com este email'
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar dados do patrocinador:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao buscar dados do patrocinador'
+      });
+    }
+  });
+
   // 📊 GET /api/gestao-vista/dashboard - Dashboard completo
   app.get('/api/gestao-vista/dashboard', async (req, res) => {
     try {
@@ -26007,7 +27051,7 @@ app.get("/api/dev/users", async (req, res) => {
       // Query para buscar dashboard completo com meta vs realizado
       let whereClause = sql`t.period = ${period} AND t.scope = ${scope}`;
       if (sectorSlug) {
-        whereClause = sql`${whereClause} AND s.slug = ${sectorSlug}`;
+        whereClause = sql`${wheareClause} AND s.slug = ${sectorSlug}`;
       }
 
       const dashboardData = await db
@@ -27595,7 +28639,364 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+  // =========  POST /webhooks/stripe  =========
+  app.post('/webhooks/stripe', async (req, res) => {
+    try {
+      const sig = req.headers['stripe-signature'] as string;
+      let stripeEvent: Stripe.Event;
 
+      // Verificar assinatura do webhook
+      try {
+        stripeEvent = stripe.webhooks.constructEvent(
+          req.body,
+          sig,
+          process.env.STRIPE_WEBHOOK_SECRET!
+        );
+      } catch (err: any) {
+        console.error('❌ [STRIPE WEBHOOK] Signature verification failed:', err.message);
+        return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
+      }
+
+      console.log(`🎯 [STRIPE WEBHOOK] Received: ${stripeEvent.type}`);
+
+      // Traduzir eventos Stripe para eventos internos
+      let internalEventName: string | null = null;
+      let userId: number | null = null;
+      let eventPayload: Record<string, any> = {};
+
+      switch (stripeEvent.type) {
+        case 'checkout.session.completed':
+          internalEventName = 'plan.subscribed';
+          const session = stripeEvent.data.object as Stripe.Checkout.Session;
+
+          // Buscar usuário pelo customer ID
+          if (session.customer) {
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, session.customer as string))
+              .limit(1);
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                stripeSessionId: session.id,
+                customerId: session.customer,
+                amount: session.amount_total,
+                currency: session.currency,
+              };
+            }
+          }
+          break;
+
+        case 'invoice.payment_succeeded':
+          internalEventName = 'payment.succeeded';
+          const successInvoice = stripeEvent.data.object as Stripe.Invoice;
+          if (successInvoice.customer) {
+            let user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, successInvoice.customer as string))
+              .limit(1);
+            
+            // 🆕 Se usuário não existe, criar automaticamente com dados do Stripe
+            if (!user[0]) {
+              console.log(`🆕 [WEBHOOK-AUTO-CREATE] Customer ${successInvoice.customer} não encontrado - criando automaticamente...`);
+              
+              try {
+                const stripeCustomer = await stripe.customers.retrieve(successInvoice.customer as string);
+                
+                if (!stripeCustomer.deleted) {
+                  const subscription = successInvoice.subscription 
+                    ? await stripe.subscriptions.retrieve(successInvoice.subscription as string)
+                    : null;
+                  
+                  const unitAmount = subscription?.items.data[0]?.price?.unit_amount || 0;
+                  let planName = 'eco';
+                  let planValue = 9.90;
+                  
+                  if (unitAmount === 990) { planName = 'eco'; planValue = 9.90; }
+                  else if (unitAmount === 1990) { planName = 'voz'; planValue = 19.90; }
+                  else if (unitAmount === 8970) { planName = 'grito'; planValue = 89.70; }
+                  else if (unitAmount === 10000) { planName = 'platinum'; planValue = 100.00; }
+                  
+                  const newUser = await db.insert(users).values({
+                    nome: stripeCustomer.name || 'Doador',
+                    telefone: stripeCustomer.phone || '+5500000000000',
+                    email: stripeCustomer.email || 'temp@temp.com',
+                    plano: planName,
+                    role: 'doador',
+                    stripeCustomerId: successInvoice.customer as string,
+                    stripeSubscriptionId: subscription?.id || null,
+                    subscriptionStatus: subscription?.status || 'active',
+                    verificado: true,
+                    ativo: true,
+                    gritosTotal: 50,
+                    nivelAtual: 'Aliado do Grito',
+                    tipo: 'doador',
+                    fonte: 'doacao'
+                  }).returning();
+                  
+                  // ✅ Verificar duplicação antes de inserir doador
+                  const existingDoador = await findExistingDonor({
+                    subscriptionId: subscription?.id,
+                    customerId: successInvoice.customer as string
+                  });
+                  
+                  if (existingDoador) {
+                    // Determinar periodicidade do subscription
+                    const interval = subscription?.items.data[0]?.price?.recurring?.interval || 'month';
+                    const periodicidade = interval === 'year' ? 'anual' : interval === 'month' ? 'mensal' : 'semestral';
+                    
+                    // Atualizar doador existente com dados completos e vincular ao novo user
+                    await db.update(doadores)
+                      .set({
+                        plano: planName,
+                        valor: planValue,
+                        periodicidade,
+                        status: 'paid',
+                        ultimaDoacao: new Date(successInvoice.created * 1000),
+                        userId: newUser[0].id,
+                        ativo: true
+                      })
+                      .where(eq(doadores.id, existingDoador.id));
+                    console.log(`♻️ [WEBHOOK-AUTO-CREATE] Doador existente atualizado e vinculado ao user ${newUser[0].id}`);
+                  } else {
+                    // Criar novo doador
+                    await db.insert(doadores).values({
+                      userId: newUser[0].id,
+                      plano: planName,
+                      valor: planValue,
+                      status: 'paid',
+                      ativo: true,
+                      stripeCustomerId: successInvoice.customer as string,
+                      stripeSubscriptionId: subscription?.id || null,
+                      dataDoacaoInicial: new Date(successInvoice.created * 1000),
+                      ultimaDoacao: new Date(successInvoice.created * 1000)
+                    });
+                  }
+                  
+                  console.log(`✅ [WEBHOOK-AUTO-CREATE] Usuário criado: ${newUser[0].nome} (ID: ${newUser[0].id}) - Plano: ${planName} - 50 Gritos creditados`);
+                  
+                  // Link será criado pelo linkUserToActiveCampaign mais abaixo
+                  user = newUser;
+                }
+              } catch (createError) {
+                console.error(`❌ [WEBHOOK-AUTO-CREATE] Erro ao criar usuário:`, createError);
+              }
+            }
+            
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                invoiceId: successInvoice.id,
+                customerId: successInvoice.customer,
+                amount: successInvoice.amount_paid,
+                currency: successInvoice.currency,
+              };
+
+              // 🔗 NOVO: Criar indicação a partir dos metadados do Stripe (se existir referralCode)
+              try {
+                const subscriptionId = successInvoice.subscription;
+                if (subscriptionId) {
+                  const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
+                  const refCode = subscription.metadata?.referralCode || subscription.metadata?.refCode || '';
+                  
+                  if (refCode) {
+                    console.log(`🔗 [WEBHOOK-REFERRAL] Encontrado referralCode nos metadados: ${refCode}`);
+                    
+                    // Verificar se já tem indicação para esse usuário
+                    const indicacaoExistente = await storage.getIndicacaoByIndicado(user[0].id);
+                    
+                    if (!indicacaoExistente) {
+                      // Verificar se é um link de marketing
+                      const marketingLink = await storage.getMarketingLinkByCode(refCode);
+                      
+                      if (marketingLink) {
+                        const indicouId = marketingLink.rewardToUserId || null;
+                        await storage.createIndicacao(indicouId, user[0].id, refCode);
+                        console.log(`✅ [WEBHOOK-REFERRAL] Indicação criada via marketing link: ${refCode} -> user ${user[0].id}`);
+                        
+                        // Registrar clique/conversão no marketing link
+                        await storage.recordMarketingClick(marketingLink.id, user[0].id, null);
+                      } else {
+                        // Verificar se é ref_code de usuário
+                        const indicador = await storage.getUserByRefCode(refCode);
+                        
+                        if (indicador) {
+                          if (indicador.id !== user[0].id) {
+                            await storage.createIndicacao(indicador.id, user[0].id, refCode);
+                            console.log(`✅ [WEBHOOK-REFERRAL] Indicação criada via ref_code: ${indicador.nome} -> user ${user[0].id}`);
+                            
+                            await db.update(users)
+                              .set({ refCodeCadastro: refCode })
+                              .where(eq(users.id, user[0].id));
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (refError) {
+                console.error(`❌ [WEBHOOK-REFERRAL] Erro ao processar referralCode:`, refError);
+              }
+
+              // ✨ SISTEMA DE INDICAÇÃO: Confirmar indicação na primeira doação confirmada
+              try {
+                // Idempotência: verificar se evento já foi processado
+                const jaProcessado = await storage.isStripeEventProcessed(stripeEvent.id);
+                
+                if (!jaProcessado) {
+                  // Buscar indicação PENDENTE deste usuário
+                  const indicacao = await storage.getIndicacaoByIndicado(user[0].id);
+                  
+                  if (indicacao && indicacao.status === 'PENDENTE') {
+                    // Verificar se está dentro da janela de 30 dias
+                    const agora = new Date();
+                    const validade = new Date(indicacao.validade);
+                    
+                    if (agora <= validade) {
+                      // ✅ VALIDAÇÃO ADICIONAL: Se é link de marketing, verificar max_conversions e expiração
+                      let podeConfirmar = true;
+                      const marketingLink = await storage.getMarketingLinkByCode(indicacao.refCode);
+                      
+                      if (marketingLink) {
+                        console.log(`🔗 [WEBHOOK-MARKETING] Validando indicação de link: ${marketingLink.code}`);
+                        
+                        // Verificar se link está ativo
+                        if (!marketingLink.isActive) {
+                          console.log(`❌ [WEBHOOK-MARKETING] Link inativo: ${marketingLink.code}`);
+                          podeConfirmar = false;
+                        }
+                        
+                        // Verificar expiração do link
+                        if (marketingLink.expiresAt && new Date(marketingLink.expiresAt) < agora) {
+                          console.log(`⏰ [WEBHOOK-MARKETING] Link expirado: ${marketingLink.code} (${marketingLink.expiresAt})`);
+                          podeConfirmar = false;
+                        }
+                        
+                        // Verificar max_conversions
+                        if (marketingLink.maxConversions !== null && marketingLink.maxConversions > 0) {
+                          const stats = await storage.getMarketingLinkStats(marketingLink.id);
+                          if (stats.conversoes >= marketingLink.maxConversions) {
+                            console.log(`🚫 [WEBHOOK-MARKETING] Max conversões atingido: ${stats.conversoes}/${marketingLink.maxConversions}`);
+                            podeConfirmar = false;
+                          }
+                        }
+                      }
+                      
+                      if (podeConfirmar) {
+                        // Confirmar indicação e creditar 1 ponto
+                        await storage.confirmarIndicacao(indicacao.id);
+                        console.log(`✅ [WEBHOOK-INDICAÇÃO] Indicação ${indicacao.id} confirmada - ${indicacao.indicouId} ganhou 1 ponto!`);
+                      } else {
+                        console.log(`⚠️ [WEBHOOK-INDICAÇÃO] Indicação ${indicacao.id} não confirmada - falhou validação de marketing link`);
+                      }
+                    } else {
+                      // Expirou
+                      console.log(`⏰ [WEBHOOK-INDICAÇÃO] Indicação ${indicacao.id} expirou (validade: ${validade.toISOString()})`);
+                    }
+                  }
+                  
+                  // Marcar evento como processado
+
+                      // 🔗 SISTEMA DE MARKETING: Vincular automaticamente à campanha ativa
+                      try {
+                        await storage.linkUserToActiveCampaign(user[0].id);
+                      } catch (linkError) {
+                        console.error(`⚠️ [WEBHOOK-AUTO-LINK] Erro ao vincular usuário ${user[0].id} à campanha:`, linkError);
+                      }
+                  await storage.markStripeEventProcessed(stripeEvent.id, stripeEvent.type);
+                }
+              } catch (error) {
+                console.error(`❌ [WEBHOOK-INDICAÇÃO] Erro ao processar indicação para usuário ${user[0].id}:`, error);
+                // Não falhar o webhook por erro na indicação
+              }
+            }
+          }
+          break;
+
+        case 'invoice.payment_failed':
+          internalEventName = 'payment.failed';
+          const failedInvoice = stripeEvent.data.object as Stripe.Invoice;
+          if (failedInvoice.customer) {
+            const user = await db.select().from(users)
+              .where(eq(users.stripeCustomerId, failedInvoice.customer as string))
+              .limit(1);
+            if (user[0]) {
+              userId = user[0].id;
+              eventPayload = {
+                invoiceId: failedInvoice.id,
+                customerId: failedInvoice.customer,
+                amount: failedInvoice.amount_due,
+                currency: failedInvoice.currency,
+                failureCode: failedInvoice.last_finalization_error?.code,
+              };
+            }
+          }
+          break;
+
+        case 'charge.refunded':
+          internalEventName = 'payment.refunded';
+          const refund = stripeEvent.data.object as Stripe.Charge;
+
+          console.log(`💸 [REFUND] Reembolso detectado: ${refund.id}`);
+
+          // Atualizar ingresso se houver payment_intent usando SQL PURO
+          if (refund.payment_intent) {
+            try {
+              // Usar pool.query em vez de Drizzle ORM para evitar problemas de cache
+              const searchResult = await pool.query(
+                `SELECT id, numero FROM ingressos 
+                 WHERE "stripeCheckoutSessionId" LIKE $1 
+                 LIMIT 1`,
+                [`%${refund.payment_intent}%`]
+              );
+
+              if (searchResult.rows[0]) {
+                const ingresso = searchResult.rows[0];
+
+                // Atualizar dados de reembolso usando SQL puro
+                await pool.query(
+                  `UPDATE ingressos 
+                   SET refunded = $1, 
+                       refunded_at = $2, 
+                       refund_amount = $3, 
+                       refund_reason = $4,
+                       status = $5
+                   WHERE id = $6`,
+                  [
+                    true,
+                    new Date(),
+                    refund.amount_refunded,
+                    refund.refunds?.data?.[0]?.reason || 'requested_by_customer',
+                    'cancelado',
+                    ingresso.id
+                  ]
+                );
+
+                console.log(`✅ [REFUND] Ingresso ${ingresso.numero} marcado como reembolsado`);
+              }
+            } catch (refundError) {
+              console.error('❌ [REFUND] Erro ao processar reembolso:', refundError);
+            }
+          }
+          break;
+      }
+
+      // Criar evento interno se tradução foi bem-sucedida
+      if (internalEventName && userId) {
+        await createEvent({
+          eventName: internalEventName,
+          userId,
+          source: 'stripe',
+          payload: eventPayload,
+          idempotencyKey: `stripe_${stripeEvent.id}`,
+        });
+      }
+
+      res.json({ received: true });
+
+    } catch (error: any) {
+      console.error('❌ [STRIPE WEBHOOK] Error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
   // =========  GET /health  =========
   app.get('/health', async (req, res) => {
@@ -28978,7 +30379,7 @@ app.get("/api/dev/users", async (req, res) => {
         }
       };
       
-      console.log(`✅ [INCLUSÃO-PRODUTIVA] Tecnologia - Presencial: \${cursosPresencial.length} cursos, EAD: \${cursosEAD.length} cursos`);
+      console.log(`✅ [INCLUSÃO-PRODUTIVA] Tecnologia - Presencial: ${cursosPresencial.length} cursos, EAD: ${cursosEAD.length} cursos`);
       
       res.json({ 
         success: true, 
@@ -29029,7 +30430,7 @@ app.get("/api/dev/users", async (req, res) => {
         }
       };
       
-      console.log(`✅ [INCLUSÃO-PRODUTIVA] Beleza - Presencial: \${cursosPresencial.length} cursos, EAD: \${cursosEAD.length} cursos`);
+      console.log(`✅ [INCLUSÃO-PRODUTIVA] Beleza - Presencial: ${cursosPresencial.length} cursos, EAD: ${cursosEAD.length} cursos`);
       
       res.json({ 
         success: true, 
@@ -29080,7 +30481,7 @@ app.get("/api/dev/users", async (req, res) => {
         }
       };
       
-      console.log(`✅ [INCLUSÃO-PRODUTIVA] Artesanato - Presencial: \${cursosPresencial.length} cursos, EAD: \${cursosEAD.length} cursos`);
+      console.log(`✅ [INCLUSÃO-PRODUTIVA] Artesanato - Presencial: ${cursosPresencial.length} cursos, EAD: ${cursosEAD.length} cursos`);
       
       res.json({ 
         success: true, 
@@ -29131,7 +30532,7 @@ app.get("/api/dev/users", async (req, res) => {
         }
       };
       
-      console.log(`✅ [INCLUSÃO-PRODUTIVA] Empreendedorismo - Presencial: \${cursosPresencial.length} cursos, EAD: \${cursosEAD.length} cursos`);
+      console.log(`✅ [INCLUSÃO-PRODUTIVA] Empreendedorismo - Presencial: ${cursosPresencial.length} cursos, EAD: ${cursosEAD.length} cursos`);
       
       res.json({ 
         success: true, 
@@ -29360,6 +30761,14 @@ app.get("/api/dev/users", async (req, res) => {
   app.get('/api/pec/dados-programas', async (req, res) => {
     try {
       console.log('🏀 [PEC] Buscando dados dos 3 programas...');
+      // Garantir que as colunas de evasao existam no banco DO
+      try {
+        await pool.query(`ALTER TABLE pec_dados ADD COLUMN IF NOT EXISTS casa_sonhar_evasao INTEGER DEFAULT 0, ADD COLUMN IF NOT EXISTS programa_esporte_cultura_evasao INTEGER DEFAULT 0`);
+        // Definir valores iniciais de evasao se forem 0
+        await pool.query(`UPDATE pec_dados SET casa_sonhar_evasao = 25, programa_esporte_cultura_evasao = 40 WHERE ano = 2025 AND mes IS NULL AND (casa_sonhar_evasao = 0 OR casa_sonhar_evasao IS NULL)`);
+      } catch (alterErr: any) {
+        console.log("⚠️ [PEC] ALTER TABLE (pode ignorar):", alterErr.message);
+      }
       
       const result = await db.execute(sql`
         SELECT 
@@ -29376,6 +30785,8 @@ app.get("/api/dev/users", async (req, res) => {
           serenata_atendidos,
           serenata_atendimentos,
           serenata_hora_aula,
+          casa_sonhar_evasao,
+          programa_esporte_cultura_evasao,
           serenata_frequencia
         FROM pec_dados
         WHERE ano = 2025 AND mes IS NULL
@@ -29389,8 +30800,8 @@ app.get("/api/dev/users", async (req, res) => {
         return res.json({ 
           success: true, 
           data: {
-            casaSonhar: { atendidos: 0, atendimentos: 0, frequencia: 0, alimentacao: 0, horaAula: 0 },
-            programaEsporteCultura: { atendidos: 0, atendimentos: 0, frequencia: 0, alimentacao: 0, horaAula: 0 },
+            casaSonhar: { atendidos: 0, atendimentos: 0, frequencia: 0, alimentacao: 0, horaAula: 0, evasao: 0 },
+            programaEsporteCultura: { atendidos: 0, atendimentos: 0, frequencia: 0, alimentacao: 0, horaAula: 0, evasao: 0 },
             serenata: { atendidos: 0, atendimentos: 0, frequencia: 0, horaAula: 0 }
           }
         });
@@ -29406,14 +30817,16 @@ app.get("/api/dev/users", async (req, res) => {
             atendimentos: Number(dados.casa_sonhar_atendimentos) || 0,
             frequencia: Number(dados.casa_sonhar_frequencia) || 0,
             alimentacao: Number(dados.casa_sonhar_alimentacao) || 0,
-            horaAula: Number(dados.casa_sonhar_hora_aula) || 0
+            horaAula: Number(dados.casa_sonhar_hora_aula) || 0,
+            evasao: Number(dados.casa_sonhar_evasao) || 0
           },
           programaEsporteCultura: {
             atendidos: Number(dados.programa_esporte_cultura_atendidos) || 0,
             atendimentos: Number(dados.programa_esporte_cultura_atendimentos) || 0,
             frequencia: Number(dados.programa_esporte_cultura_frequencia) || 0,
             alimentacao: Number(dados.programa_esporte_cultura_alimentacao) || 0,
-            horaAula: Number(dados.programa_esporte_cultura_hora_aula) || 0
+            horaAula: Number(dados.programa_esporte_cultura_hora_aula) || 0,
+            evasao: Number(dados.programa_esporte_cultura_evasao) || 0
           },
           serenata: {
             atendidos: Number(dados.serenata_atendidos) || 0,
@@ -29476,38 +30889,70 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
-  // Inclusão Produtiva - Indicadores
+  // Inclusão Produtiva - Indicadores (busca do banco Digital Ocean)
   app.get("/api/inclusao-produtiva/indicadores", async (req, res) => {
     try {
-      console.log('📊 [INCLUSÃO PRODUTIVA] Buscando indicadores...');
+      console.log('📊 [INCLUSÃO PRODUTIVA] Buscando indicadores do banco DO...');
+      
+      // Buscar dados do banco Digital Ocean
+      const result = await pool.query(`
+        SELECT * FROM inclusao_produtiva_dados 
+        WHERE ano = 2025 AND mes IS NULL 
+        ORDER BY id DESC LIMIT 1
+      `);
+      
+      if (result.rows.length === 0) {
+        console.log('⚠️ [INCLUSÃO PRODUTIVA] Nenhum dado encontrado, retornando padrão');
+        return res.json({ projetos: [] });
+      }
+      
+      const row = result.rows[0];
       
       const dados = {
         projetos: [
           {
             nome: "LAB. VOZES DO FUTURO",
             indicadores: [
-              { nome: "Total de Alunos", valor: 68, meta: 70 },
-              { nome: "Taxa de Conclusão", valor: 85, meta: 90 }
+              { nome: "Hora Aula", valor: parseFloat(row.lab_hora_aula) || 0 },
+              { nome: "Atendimentos", valor: row.lab_atendimentos || 0 },
+              { nome: "Lanche", valor: row.lab_lanche || 0 },
+              { nome: "Frequência", valor: parseFloat(row.lab_frequencia) || 0, unidade: "%" },
+              { nome: "Empregados", valor: row.lab_empregados || 0 },
+              { nome: "Empreendedores", valor: row.lab_empreendedores || 0 },
+              { nome: "Atendidos", valor: row.lab_atendidos || 0 },
+              { nome: "Evasão", valor: row.lab_evasao || 0 }
             ]
           },
           {
             nome: "CURSOS PRESENCIAIS",
             indicadores: [
-              { nome: "Total de Alunos", valor: 165, meta: 180 },
-              { nome: "Taxa de Conclusão", valor: 80, meta: 85 }
+              { nome: "Hora Aula", valor: parseFloat(row.presencial_hora_aula) || 0 },
+              { nome: "Atendimentos", valor: row.presencial_atendimentos || 0 },
+              { nome: "Lanche", valor: row.presencial_lanche || 0 },
+              { nome: "Frequência", valor: parseFloat(row.presencial_frequencia) || 0, unidade: "%" },
+              { nome: "Empregados", valor: row.presencial_empregados || 0 },
+              { nome: "Empreendedores", valor: row.presencial_empreendedores || 0 },
+              { nome: "Atendidos", valor: row.presencial_atendidos || 0 },
+              { nome: "Evasão", valor: row.presencial_evasao || 0 }
             ]
           },
           {
             nome: "CURSOS EAD CGD",
             indicadores: [
-              { nome: "Total de Alunos", valor: 290, meta: 300 },
-              { nome: "Taxa de Conclusão", valor: 75, meta: 80 }
+              { nome: "Hora Aula", valor: parseFloat(row.ead_hora_aula) || 0 },
+              { nome: "Atendimentos", valor: row.ead_atendimentos || 0 },
+              { nome: "Lanche", valor: row.ead_lanche || 0 },
+              { nome: "Frequência", valor: parseFloat(row.ead_frequencia) || 0, unidade: "%" },
+              { nome: "Empregados", valor: row.ead_empregados || 0 },
+              { nome: "Empreendedores", valor: row.ead_empreendedores || 0 },
+              { nome: "Atendidos", valor: row.ead_atendidos || 0 },
+              { nome: "Evasão", valor: row.ead_evasao || 0 }
             ]
           }
         ]
       };
       
-      console.log('✅ [INCLUSÃO PRODUTIVA] Indicadores retornados com sucesso');
+      console.log('✅ [INCLUSÃO PRODUTIVA] Indicadores retornados do banco DO');
       res.json(dados);
     } catch (error: any) {
       console.error('❌ [INCLUSÃO PRODUTIVA] Erro ao buscar indicadores:', error);
@@ -29515,20 +30960,88 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
-  // Psicossocial - Dados Mensais
+  // Psicossocial - Dados Mensais (Dados reais do banco)
   app.get("/api/psicossocial/dados-mensais", async (req, res) => {
     try {
-      console.log('📅 [PSICOSSOCIAL] Buscando dados mensais 2025...');
+      console.log('📅 [PSICOSSOCIAL] Buscando dados mensais 2025 do banco...');
+      
+      // Buscar dados reais das tabelas de indicadores psicossocial
+      const [atencaoSocial, metodoGrito] = await Promise.all([
+        db.select().from(indicadoresPsicoAtencaoSocial).orderBy(desc(indicadoresPsicoAtencaoSocial.createdAt)).limit(1),
+        db.select().from(indicadoresPsicoMetodoGrito).orderBy(desc(indicadoresPsicoMetodoGrito.createdAt)).limit(1)
+      ]);
+      
+      const atencao = atencaoSocial[0];
+      const metodo = metodoGrito[0];
+      
+      // Calcular percentuais
+      const visitasPercentual = atencao?.visitasDomiciliaresMeta 
+        ? Math.round((atencao.visitasDomiciliaresRealizadas / atencao.visitasDomiciliaresMeta) * 100) : 0;
+      const atendIndPercentual = atencao?.atendimentosIndividuaisMeta 
+        ? Math.round((atencao.atendimentosIndividuaisRealizados / atencao.atendimentosIndividuaisMeta) * 100) : 0;
+      const espacosPercentual = metodo?.espacosColetivosMeta 
+        ? Math.round((metodo.espacosColetivos / metodo.espacosColetivosMeta) * 100) : 0;
       
       const dados = {
         meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
         indicadores: [
-          { nome: "Atendimentos Realizados", mensal: [150, 160, 170, 175, 180, 185, 190, 195, 200, 205, null, null] },
-          { nome: "Famílias Atendidas", mensal: [45, 48, 50, 52, 55, 58, 60, 62, 65, 68, null, null] }
-        ]
+          { 
+            nome: "Visitas Domiciliares", 
+            valor: atencao?.visitasDomiciliaresRealizadas || 0,
+            meta: atencao?.visitasDomiciliaresMeta || 0,
+            percentual: visitasPercentual,
+            mensal: [null, null, null, null, null, null, null, null, null, atencao?.visitasDomiciliaresRealizadas || 0, null, null]
+          },
+          { 
+            nome: "Atendimentos Individuais", 
+            valor: atencao?.atendimentosIndividuaisRealizados || 0,
+            meta: atencao?.atendimentosIndividuaisMeta || 0,
+            percentual: atendIndPercentual,
+            mensal: [null, null, null, null, null, null, null, null, null, atencao?.atendimentosIndividuaisRealizados || 0, null, null]
+          },
+          { 
+            nome: "Atendimentos Coletivos", 
+            valor: metodo?.atendimentosColetivoRealizados || 0,
+            meta: null,
+            percentual: metodo?.turmasAlcancadasPercentual || 0,
+            mensal: [null, null, null, null, null, null, null, null, null, metodo?.atendimentosColetivoRealizados || 0, null, null]
+          },
+          { 
+            nome: "Espaços de Convivência", 
+            valor: metodo?.espacosColetivos || 0,
+            meta: metodo?.espacosColetivosMeta || 0,
+            percentual: espacosPercentual,
+            mensal: [null, null, null, null, null, null, null, null, null, metodo?.espacosColetivos || 0, null, null]
+          },
+          { 
+            nome: "Caravanas Comunitárias", 
+            valor: metodo?.caravanasComunitarias || 0,
+            meta: null,
+            percentual: null,
+            mensal: [null, null, null, null, null, null, null, null, null, metodo?.caravanasComunitarias || 0, null, null]
+          },
+          { 
+            nome: "Ações com Colaboradores", 
+            valor: metodo?.acoesSaudeColaboradores || 0,
+            meta: null,
+            percentual: null,
+            mensal: [null, null, null, null, null, null, null, null, null, metodo?.acoesSaudeColaboradores || 0, null, null]
+          }
+        ],
+        resumo: {
+          totalAtendimentos: (atencao?.atendimentosIndividuaisRealizados || 0) + (metodo?.atendimentosColetivoRealizados || 0),
+          totalVisitas: atencao?.visitasDomiciliaresRealizadas || 0,
+          totalEspacos: metodo?.espacosColetivos || 0,
+          turmasAlcancadas: metodo?.turmasAlcancadasPercentual || 0
+        }
       };
       
-      console.log('✅ [PSICOSSOCIAL] Dados mensais retornados com sucesso');
+      console.log('✅ [PSICOSSOCIAL] Dados reais retornados:', {
+        visitas: atencao?.visitasDomiciliaresRealizadas,
+        atendInd: atencao?.atendimentosIndividuaisRealizados,
+        atendCol: metodo?.atendimentosColetivoRealizados,
+        espacos: metodo?.espacosColetivos
+      });
       res.json(dados);
     } catch (error: any) {
       console.error('❌ [PSICOSSOCIAL] Erro ao buscar dados mensais:', error);
@@ -29536,57 +31049,177 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
-  // PEC - Dados Mensais
+  // PEC - Dados Mensais (buscando do banco de dados)
   app.get("/api/pec/dados-mensais", async (req, res) => {
     try {
-      console.log('📅 [PEC] Buscando dados mensais 2025...');
+      const ano = parseInt(req.query.ano as string) || 2025;
+      console.log(`📅 [PEC] Buscando dados mensais ${ano} do banco...`);
       
-      const dados = {
+      // Buscar dados anuais da tabela pec_dados
+      const result = await pool.query(`
+        SELECT 
+          casa_sonhar_atendidos,
+          casa_sonhar_atendimentos,
+          casa_sonhar_frequencia,
+          casa_sonhar_alimentacao,
+          casa_sonhar_hora_aula,
+          casa_sonhar_evasao,
+          programa_esporte_cultura_atendidos,
+          programa_esporte_cultura_atendimentos,
+          programa_esporte_cultura_frequencia,
+          programa_esporte_cultura_alimentacao,
+          programa_esporte_cultura_hora_aula,
+          programa_esporte_cultura_evasao,
+          serenata_atendidos,
+          serenata_atendimentos,
+          serenata_frequencia,
+          serenata_hora_aula
+        FROM pec_dados
+        WHERE ano = $1 AND mes IS NULL
+        LIMIT 1
+      `, [ano]);
+      
+      const dados = result.rows[0];
+      
+      if (!dados) {
+        console.log('⚠️ [PEC] Nenhum dado encontrado para o ano', ano);
+        return res.json({
+          meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+          projetos: [],
+          resumo: {
+            totalAtendidos: 0,
+            totalAtendimentos: 0,
+            frequenciaMedia: 0,
+            totalEvasao: 0
+          }
+        });
+      }
+      
+      // Calcular totais
+      const casaSonharAtendidos = Number(dados.casa_sonhar_atendidos) || 0;
+      const pecAtendidos = Number(dados.programa_esporte_cultura_atendidos) || 0;
+      const serenataAtendidos = Number(dados.serenata_atendidos) || 0;
+      const totalAtendidos = casaSonharAtendidos + pecAtendidos + serenataAtendidos;
+      
+      const casaSonharAtendimentos = Number(dados.casa_sonhar_atendimentos) || 0;
+      const pecAtendimentos = Number(dados.programa_esporte_cultura_atendimentos) || 0;
+      const serenataAtendimentos = Number(dados.serenata_atendimentos) || 0;
+      const totalAtendimentos = casaSonharAtendimentos + pecAtendimentos + serenataAtendimentos;
+      
+      const casaSonharFreq = Number(dados.casa_sonhar_frequencia) || 0;
+      const pecFreq = Number(dados.programa_esporte_cultura_frequencia) || 0;
+      const serenataFreq = Number(dados.serenata_frequencia) || 0;
+      const frequenciaMedia = ((casaSonharFreq + pecFreq + serenataFreq) / 3).toFixed(1);
+      
+      const casaSonharEvasao = Number(dados.casa_sonhar_evasao) || 0;
+      const pecEvasao = Number(dados.programa_esporte_cultura_evasao) || 0;
+      const totalEvasao = casaSonharEvasao + pecEvasao;
+      
+      const response = {
         meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
-        indicadores: [
-          { nome: "Alunos Matriculados", mensal: [250, 255, 260, 265, 270, 275, 280, 285, 290, 295, null, null] },
-          { nome: "Frequência Média", mensal: [88, 89, 90, 91, 92, 93, 94, 95, 96, 97, null, null] }
-        ]
+        projetos: [
+          {
+            nome: "Casa Sonhar",
+            indicadores: [
+              { nome: "Atendidos", valor: casaSonharAtendidos },
+              { nome: "Atendimentos", valor: casaSonharAtendimentos },
+              { nome: "Frequência", valor: casaSonharFreq, suffix: "%" },
+              { nome: "Alimentação", valor: Number(dados.casa_sonhar_alimentacao) || 0 },
+              { nome: "Horas/Aula", valor: Number(dados.casa_sonhar_hora_aula) || 0 },
+              { nome: "Evasão", valor: casaSonharEvasao }
+            ]
+          },
+          {
+            nome: "Programa Esporte e Cultura",
+            indicadores: [
+              { nome: "Atendidos", valor: pecAtendidos },
+              { nome: "Atendimentos", valor: pecAtendimentos },
+              { nome: "Frequência", valor: pecFreq, suffix: "%" },
+              { nome: "Alimentação", valor: Number(dados.programa_esporte_cultura_alimentacao) || 0 },
+              { nome: "Horas/Aula", valor: Number(dados.programa_esporte_cultura_hora_aula) || 0 },
+              { nome: "Evasão", valor: pecEvasao }
+            ]
+          },
+          {
+            nome: "Serenata",
+            indicadores: [
+              { nome: "Atendidos", valor: serenataAtendidos },
+              { nome: "Atendimentos", valor: serenataAtendimentos },
+              { nome: "Frequência", valor: serenataFreq, suffix: "%" },
+              { nome: "Horas/Aula", valor: Number(dados.serenata_hora_aula) || 0 }
+            ]
+          }
+        ],
+        resumo: {
+          totalAtendidos,
+          totalAtendimentos,
+          frequenciaMedia: parseFloat(frequenciaMedia),
+          totalEvasao
+        }
       };
       
-      console.log('✅ [PEC] Dados mensais retornados com sucesso');
-      res.json(dados);
+      console.log(`✅ [PEC] Dados reais retornados: { atendidos: ${totalAtendidos}, atendimentos: ${totalAtendimentos}, freq: ${frequenciaMedia}%, evasao: ${totalEvasao} }`);
+      res.json(response);
     } catch (error: any) {
       console.error('❌ [PEC] Erro ao buscar dados mensais:', error);
       res.status(500).json({ error: 'Erro ao buscar dados mensais', message: error.message });
     }
   });
 
-  // Favela 3D - Dados Mensais
+
+  // Favela 3D - Dados do banco de dados Digital Ocean
   app.get("/api/favela-3d/dados-mensais", async (req, res) => {
     try {
-      console.log('📅 [FAVELA 3D] Buscando dados mensais 2025...');
+      console.log('📅 [FAVELA 3D] Buscando dados do banco de dados...');
+      
+      // Buscar eixos e indicadores do banco de dados
+      const eixosResult = await pool.query(`
+        SELECT e.id, e.nome, e.ordem,
+               COALESCE(json_agg(
+                 json_build_object(
+                   'nome', i.nome,
+                   'valor', i.valor,
+                   'impacto', i.impacto,
+                   'tipo', i.tipo
+                 ) ORDER BY i.ordem
+               ) FILTER (WHERE i.id IS NOT NULL), '[]') as indicadores
+        FROM favela_3d_eixos e
+        LEFT JOIN favela_3d_indicadores i ON i.eixo_id = e.id AND i.ativo = true
+        WHERE e.ativo = true
+        GROUP BY e.id, e.nome, e.ordem
+        ORDER BY e.ordem
+      `);
+      
+      const eixos = eixosResult.rows.map(row => ({
+        nome: row.nome,
+        indicadores: row.indicadores
+      }));
       
       const dados = {
         meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
-        eixos: [
-          {
-            nome: "Liderança",
-            indicadores: [
-              { nome: "Participantes Ativos", mensal: [35, 38, 40, 42, 45, 48, 50, 52, 55, 58, null, null] }
-            ]
-          },
-          {
-            nome: "Empreendedorismo",
-            indicadores: [
-              { nome: "Negócios Criados", mensal: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, null, null] }
-            ]
-          }
-        ]
+        eixos
       };
       
-      console.log('✅ [FAVELA 3D] Dados mensais retornados com sucesso');
+      console.log('✅ [FAVELA 3D] Dados retornados:', eixos.length, 'eixos');
       res.json(dados);
     } catch (error: any) {
-      console.error('❌ [FAVELA 3D] Erro ao buscar dados mensais:', error);
-      res.status(500).json({ error: 'Erro ao buscar dados mensais', message: error.message });
+      console.error('❌ [FAVELA 3D] Erro ao buscar dados:', error);
+      res.status(500).json({ error: 'Erro ao buscar dados', message: error.message });
     }
   });
+app.post("/api/activity/batch", (req, res) => {
+  const body = req.body || {};
+  const events = Array.isArray(body.events) ? body.events : [];
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("📝 [ACTIVITY-BATCH] recebidos:", {
+      totalEvents: events.length,
+      sample: events[0] || null,
+    });
+  }
+
+  res.json({ ok: true });
+});
 
   return httpServer;
 }

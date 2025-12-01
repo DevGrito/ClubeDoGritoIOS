@@ -662,8 +662,13 @@ export default function StoriesViewer({
         overflow: 'hidden'
       }}
     >
-      {/* Barras de progresso - sempre no topo */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4">
+      {/* Barras de progresso - sempre no topo com safe-area para iPhone */}
+      <div 
+        className="absolute top-0 left-0 right-0 z-20 px-4 pb-2"
+        style={{ 
+          paddingTop: 'max(16px, env(safe-area-inset-top, 16px))'
+        }}
+      >
         <div className="flex space-x-1">
           {currentStoryPages.map((_, slideIdx) => (
             <div key={slideIdx} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
@@ -677,11 +682,15 @@ export default function StoriesViewer({
           ))}
         </div>
         
-        {/* Botão de fechar */}
+        {/* Botão de fechar - posicionado abaixo das barras com espaço para safe-area */}
         <button 
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center"
-          style={{ touchAction: 'manipulation' }}
+          className="absolute right-4 w-10 h-10 flex items-center justify-center bg-black/30 rounded-full"
+          style={{ 
+            touchAction: 'manipulation',
+            top: 'calc(max(16px, env(safe-area-inset-top, 16px)) + 20px)'
+          }}
+          data-testid="button-close-story"
         >
           <X className="w-6 h-6 text-white" />
         </button>

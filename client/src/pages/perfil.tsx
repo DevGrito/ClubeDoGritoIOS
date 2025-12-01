@@ -230,6 +230,7 @@ export default function Perfil() {
         }
       ]
     },
+    /* DESATIVADO - Link de Afiliado (descomentar para reativar)
     ...(isDonor ? [{
       title: activeCampaign ? activeCampaign.name : "Link de Afiliado",
       items: [
@@ -241,6 +242,7 @@ export default function Perfil() {
         }
       ]
     }] : []),
+    */
     {
       title: "Suporte",
       items: [

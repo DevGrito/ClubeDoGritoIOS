@@ -30,6 +30,8 @@ interface DashboardFinanceiroProps {
   showRefreshControls?: boolean;
   /** Se deve mostrar os dados ou mascarar */
   showData?: boolean;
+  /** Callback para toggle do showData */
+  onToggleShowData?: () => void;
 }
 
 /**
@@ -99,7 +101,8 @@ export default function DashboardFinanceiro({
   className = '',
   onRefresh,
   showRefreshControls = true,
-  showData = true
+  showData = true,
+  onToggleShowData
 }: DashboardFinanceiroProps) {
   
   console.log('🔧 [DASHBOARD] Renderizando com filtros:', filtrosPeriodo, 'Área:', filtroArea, 'showData:', showData);
@@ -409,6 +412,19 @@ export default function DashboardFinanceiro({
               <Building2 className="w-4 h-4" />
               <span className="text-sm">Carregando departamentos...</span>
             </div>
+          )}
+
+          {/* Botão de olho para ocultar/mostrar dados */}
+          {onToggleShowData && (
+            <Button
+              onClick={onToggleShowData}
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-gray-600 hover:text-black"
+              data-testid="button-toggle-data-financeiro"
+            >
+              {showData ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </Button>
           )}
 
           {/* Botão de atualizar */}

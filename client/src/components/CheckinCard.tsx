@@ -18,60 +18,94 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Query para verificar se pode fazer check-in - SEM CACHE
-  const { data: checkinData, refetch, isLoading } = useQuery({
-    queryKey: ["checkin-status", userId], // Key fixo - cache controlado pelo backend
+    const { data: checkinData, refetch, isLoading } = useQuery({
+    queryKey: ["checkin-status", userId],
     queryFn: async () => {
-      if (!userId) return { canCheckin: false, diasConsecutivos: 0, diaAtual: 1 };
+      if (!userId) {
+        return { canCheckin: false, diasConsecutivos: 0, diaAtual: 1 };
+      }
+
       try {
-        // Adicionar timestamp para evitar cache HTTP
         const timestamp = Date.now();
-        const response = await apiRequest(`/api/users/${userId}/can-checkin?t=${timestamp}`, {
-          method: "GET",
-        });
-        //console.log('🔍 [CHECKIN QUERY] Resposta do backend:', response);
+        const response = await apiRequest(
+          `/api/users/${userId}/can-checkin?t=${timestamp}`,
+          { method: "GET" }
+        );
         return response;
       } catch (error) {
-        console.error('❌ [CHECKIN QUERY] Erro:', error);
-      return { canCheckin: true, diasConsecutivos: 0, diaAtual: 1, __erro: true };
+        console.error("❌ [CHECKIN QUERY] Erro:", error);
+        return {
+          canCheckin: false,
+          diasConsecutivos: 0,
+          diaAtual: 1,
+          __erro: true,
+        };
       }
     },
-    enabled: !!userId,
-    staleTime: 0, // Dados sempre stale
-    gcTime: 0, // Não manter em cache
-    refetchInterval: 2000, // Polling a cada 2 segundos
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    refetchIntervalInBackground: true
+    enabled: !!userId,          // só roda se tiver userId
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
+    refetchInterval: false,
   });
 
   // NUNCA assumir false durante loading - usar dados reais do backend
   const podeCheckin = checkinData?.canCheckin ?? true; 
 
- const handleCheckin = async () => {
-  if (!userId || isLoading || isSubmitting) return;
+const handleCheckin = async () => {
+  if (!userId) {
+    console.warn("❌ [CHECKIN] userId ausente no CheckinCard");
+    alert(
+      "Houve um erro ao carregar seu perfil. Feche e abra o app ou faça login novamente."
+    );
+    return;
+  }
+
+  if (isLoading || isSubmitting) return;
+
   setIsSubmitting(true);
+
   try {
-    const result = await apiRequest(`/api/users/${userId}/checkin`, { method: "POST" });
+    const result = await apiRequest(`/api/users/${userId}/checkin`, {
+      method: "POST",
+    });
+
     if (result.success) {
-      queryClient.setQueryData(["checkin-status", userId], (old:any) => ({
+      // ✅ Abre o modal usando o estado que você já criou lá em cima
+      setCheckinResult({
+        gritosGanhos: result.gritosGanhos ?? 10,
+        isDay7: !!result.isDay7,
+      });
+      setShowCheckinModal(true);
+
+      queryClient.setQueryData(["checkin-status", userId], (old: any) => ({
         ...(old || {}),
         canCheckin: false,
         diasConsecutivos: (old?.diasConsecutivos ?? 0) + 1,
         diaAtual: result.diaAtual,
       }));
 
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["checkin-status", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["user-profile", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["gritos", userId] }), // ✅ se existir
-    ]);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["checkin-status", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["user-profile", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["gritos", userId] }), // ✅ se existir
+      ]);
+
+      onCheckinComplete?.();
     }
   } catch (e) {
+    console.error("❌ [CHECKIN] Erro no POST /checkin", e);
     alert("Erro ao fazer check-in. Tente novamente.");
   } finally {
     setIsSubmitting(false);
   }
 };
+const isButtonDisabled =
+  !userId ||
+  isLoading ||
+  isSubmitting ||
+  checkinData?.canCheckin === false ||
+  checkinData?.__erro;
 
   return (
     <>
@@ -123,12 +157,16 @@ export function CheckinCard({ userId, onCheckinComplete, showMissoes = false }: 
           })}
         </div>
         {/* Botão de check-in */}
-        <button 
-          className="w-full bg-white text-yellow-500 font-bold py-3 rounded-full text-base"
+       <button
+          className="w-full bg-white text-yellow-500 font-bold py-3 rounded-full text-base disabled:opacity-60 disabled:cursor-not-allowed"
           onClick={handleCheckin}
-          disabled={isLoading || isSubmitting || checkinData?.canCheckin === false}
+          disabled={isButtonDisabled}
         >
-          {podeCheckin ? "Fazer Check-in" : "Check-in realizado hoje"}
+          {!userId
+            ? "Carregando seu perfil..."
+            : podeCheckin
+              ? "Fazer Check-in"
+              : "Check-in realizado hoje"}
         </button>
       </div>
 

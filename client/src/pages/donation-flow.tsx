@@ -657,6 +657,8 @@ export default function DonationFlow() {
       // Obter periodicidade escolhida pelo usuário
       const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
       
+      const referralCode = localStorage.getItem("referralCode") || "";
+      
       const result = await apiRequest("/api/donation/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -669,7 +671,8 @@ export default function DonationFlow() {
             donationData.plan === "platinum"
               ? donationData.amount
               : donationData.amount,
-          periodicity: selectedPeriodicity, // ✅ ADICIONADO: Envia periodicidade escolhida
+          periodicity: selectedPeriodicity,
+          referralCode: referralCode || undefined,
         }),
       });
 
@@ -751,6 +754,8 @@ export default function DonationFlow() {
       // Obter periodicidade escolhida pelo usuário
       const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
 
+      const referralCode = localStorage.getItem("referralCode") || "";
+      
       // 🎯 Usar rota existente create-for-new-user
       const result = await apiRequest("/api/payments/create-for-new-user", {
         method: "POST",
@@ -763,8 +768,9 @@ export default function DonationFlow() {
           amount:
             donationData.plan === "platinum"
               ? donationData.amount * 100
-              : undefined, // Convert to cents if custom amount
-          periodicity: selectedPeriodicity, // ✅ ADICIONADO: Envia periodicidade escolhida
+              : undefined,
+          periodicity: selectedPeriodicity,
+          referralCode: referralCode || undefined,
         }),
       });
 
@@ -1017,25 +1023,42 @@ export default function DonationFlow() {
   };
 
   // Update email after payment is complete
+  // ✅ VERSÃO CORRIGIDA
   const updateEmailAndComplete = async () => {
     setIsLoading(true);
-    try {
-      const userId = localStorage.getItem("donationUserId");
 
-      if (userId) {
-        // Update user email in backend
+    try {
+      // 1) Preferir sempre o userId real salvo no fluxo de login/SMS
+      const storedUserId = localStorage.getItem("userId");
+      // 2) Manter donationUserId só como fallback pra legado (se por acaso for igual)
+      const fallbackDonationUserId = localStorage.getItem("donationUserId");
+
+      const idToUse = storedUserId || fallbackDonationUserId;
+
+      if (!idToUse) {
+        console.warn(
+          "[updateEmailAndComplete] Nenhum userId encontrado no localStorage. Email será salvo só localmente."
+        );
+      } else if (!donationData.email) {
+        console.warn(
+          "[updateEmailAndComplete] Email vazio ao tentar atualizar. Abortando chamada à API."
+        );
+      } else {
+        // Chamar sua rota de backend para atualizar o email do USUÁRIO
         await apiRequest("/api/user/update-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userId: parseInt(userId),
-            email: donationData.email,
+            userId: Number(idToUse),
+            email: donationData.email.trim(),
           }),
         });
       }
 
-      // Store final email in localStorage
-      localStorage.setItem("userEmail", donationData.email);
+      // Salvar email localmente para uso no app
+      if (donationData.email) {
+        localStorage.setItem("userEmail", donationData.email.trim());
+      }
 
       toast({
         title: "Cadastro concluído!",
@@ -1043,20 +1066,22 @@ export default function DonationFlow() {
         duration: 3000,
       });
 
-      // Redirect to donor dashboard
+      // Redirecionar para o painel do doador
       setTimeout(() => {
         setLocation("/tdoador");
       }, 2000);
     } catch (error: any) {
+      console.error("[updateEmailAndComplete] erro:", error);
+
       toast({
         title: "Erro",
         description:
-          error.message ||
+          error?.message ||
           "Erro ao finalizar cadastro. Redirecionando mesmo assim.",
         variant: "destructive",
       });
 
-      // Redirect even if email update fails
+      // Mesmo com erro, não travar o usuário
       setTimeout(() => {
         setLocation("/tdoador");
       }, 2000);
@@ -1069,6 +1094,8 @@ export default function DonationFlow() {
     setIsLoading(true);
     setIsPreparingPayment(true);
     try {
+      const referralCode = localStorage.getItem("referralCode") || "";
+      
       // Create donation and payment intent
       const result = await apiRequest("/api/donation/create", {
         method: "POST",
@@ -1076,13 +1103,14 @@ export default function DonationFlow() {
         body: JSON.stringify({
           nome: donationData.nome,
           telefone: donationData.telefone.replace(/\D/g, ""),
-          email: donationData.email || "temp@temp.com", // Temporary email until provided
+          email: donationData.email || "temp@temp.com",
           plano: donationData.plan,
           valor: donationData.amount,
           periodicity:
             periodicity ||
             localStorage.getItem("selectedPeriodicity") ||
             "mensal",
+          referralCode: referralCode || undefined,
         }),
       });
 
@@ -1236,23 +1264,64 @@ export default function DonationFlow() {
             // Silently ignore payment request errors
           });
 
-        // Handle payment method selection
+        // Handle payment method selection (Apple Pay / Google Pay)
         paymentMethodHandler = async (ev: any) => {
           setIsProcessing(true);
           try {
-            const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-            payment_method: ev.paymentMethod.id,
-          });
+            const secretType = localStorage.getItem('secretType');
+            const subscriptionId = localStorage.getItem('subscriptionId');
+            
+            console.log('🍎 [APPLE/GOOGLE PAY] Iniciando confirmação...', { secretType, hasPaymentMethod: !!ev.paymentMethod.id });
+            
+            if (secretType === 'setup') {
+              console.log('🔧 [APPLE/GOOGLE PAY] Fluxo SetupIntent...');
+              const { error: setupError, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
+                payment_method: ev.paymentMethod.id,
+              });
 
-            if (error) {
-              ev.complete("fail");
-              throw new Error(error.message);
-            } 
-          
-            ev.complete("success");
+              if (setupError) {
+                console.error('❌ [APPLE/GOOGLE PAY] SetupIntent Error:', setupError);
+                ev.complete("fail");
+                throw new Error(setupError.message);
+              }
 
-            try {
-              await fetch("/api/donation/confirm", {
+              console.log('✅ [APPLE/GOOGLE PAY] SetupIntent confirmado:', setupIntent?.status);
+              
+              if (setupIntent?.status === 'succeeded' && subscriptionId) {
+                console.log('💳 [APPLE/GOOGLE PAY] Pagando invoice...');
+                const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ paymentMethodId: setupIntent.payment_method })
+                });
+
+                if (!payResponse.ok) {
+                  const errData = await payResponse.json().catch(() => ({}));
+                  throw new Error(errData.error || 'Falha ao processar pagamento');
+                }
+
+                const payData = await payResponse.json();
+                console.log('✅ [APPLE/GOOGLE PAY] Invoice paga:', payData);
+              }
+
+              ev.complete("success");
+            } else {
+              console.log('💳 [APPLE/GOOGLE PAY] Fluxo PaymentIntent...');
+              const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+                payment_method: ev.paymentMethod.id,
+              });
+
+              if (error) {
+                console.error('❌ [APPLE/GOOGLE PAY] PaymentIntent Error:', error);
+                ev.complete("fail");
+                throw new Error(error.message);
+              }
+
+              console.log('✅ [APPLE/GOOGLE PAY] PaymentIntent confirmado:', paymentIntent?.status);
+              ev.complete("success");
+
+              try {
+                await fetch("/api/donation/confirm", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -1263,32 +1332,35 @@ export default function DonationFlow() {
               } catch (e) {
                 console.error("❌ Erro ao confirmar pagamento:", e);
               }
+            }
 
-               // Sessão do doador
-                setPaymentCompleted(true);
-                setPaymentWasSuccessful(true);
-                localStorage.setItem("isVerified", "true");
-                localStorage.setItem("userPapel", "doador");
-                localStorage.setItem("hasActiveSubscription", "true");
-                localStorage.setItem("firstTimeAccess", "true");
-                localStorage.setItem("hasDoadorRole", "true");
-                sessionStorage.setItem("justCompletedDonation", "true");
-                setAnimationKey((prev) => prev + 1);
-                setCurrentStep(5);
+            setPaymentCompleted(true);
+            setPaymentWasSuccessful(true);
+            localStorage.setItem("isVerified", "true");
+            localStorage.setItem("userPapel", "doador");
+            localStorage.setItem("hasActiveSubscription", "true");
+            localStorage.setItem("firstTimeAccess", "true");
+            localStorage.setItem("hasDoadorRole", "true");
+            sessionStorage.setItem("justCompletedDonation", "true");
+            setAnimationKey((prev) => prev + 1);
+            setCurrentStep(5);
             
-                toast({
-                  title: "Pagamento Confirmado!",
-                  description: "Agora vamos finalizar seu cadastro.",
-                  duration: 2000,
-                });
+            toast({
+              title: "Pagamento Confirmado!",
+              description: "Agora vamos finalizar seu cadastro.",
+              duration: 2000,
+            });
           } catch (error: any) {
+            console.error('❌ [APPLE/GOOGLE PAY] Erro geral:', error);
             ev.complete("fail");
             toast({
               title: "Erro no pagamento",
-              description:
-                error.message || "Houve um erro ao processar o pagamento.",
+              description: error.message || "Houve um erro ao processar o pagamento.",
               variant: "destructive",
             });
+            setPaymentWasSuccessful(false);
+            setAnimationKey((prev) => prev + 1);
+            setCurrentStep(9);
           } finally {
             setIsProcessing(false);
           }
@@ -1413,7 +1485,24 @@ export default function DonationFlow() {
         });
 
         if (error) {
-          console.error("Stripe payment error:", error);
+          console.error("❌ [STRIPE PAYMENT ERROR]:", {
+            type: error.type,
+            code: error.code,
+            message: error.message,
+            decline_code: (error as any).decline_code,
+            param: (error as any).param,
+            full_error: JSON.stringify(error)
+          });
+          
+          fetch("/api/log-client-error", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: `Stripe Payment Error: ${error.message}`,
+              context: { type: error.type, code: error.code, decline_code: (error as any).decline_code }
+            })
+          }).catch(() => {});
+          
           setPaymentWasSuccessful(false);
           setAnimationKey((prev) => prev + 1);
           setCurrentStep(9); // payment_failed step

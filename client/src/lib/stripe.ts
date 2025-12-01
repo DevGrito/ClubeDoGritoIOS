@@ -1,42 +1,160 @@
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, Stripe } from "@stripe/stripe-js";
 
-const stripePublicKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_51RdaS1Qlsea8vAKZC1WmSHcCGXNGGTxJuLZ3iq90MUpeCxq5CUhj5C2QwmHWO008hWIMSaZ0yh75EzrSUpXyvTs6002cYD8L9l";
+const isProd = import.meta.env.PROD;
 
-export const stripePromise = loadStripe(stripePublicKey);
+// Pega a chave pública do .env
+let stripePublicKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY as string | undefined;
+
+// Se não tiver chave, em dev usa fallback; em prod só loga erro
+if (!stripePublicKey) {
+  if (isProd) {
+    console.error(
+      "[Stripe] VITE_STRIPE_PUBLIC_KEY não configurada em produção. " +
+        "Verifique as variáveis de ambiente."
+    );
+  } else {
+    console.warn(
+      "[Stripe] VITE_STRIPE_PUBLIC_KEY não encontrada. Usando chave de teste hardcoded (DEV apenas)."
+    );
+    stripePublicKey =
+      "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";
+  }
+}
+
+// Promise global do Stripe, agora com tratamento de erro
+export const stripePromise: Promise<Stripe | null> | null = stripePublicKey
+  ? loadStripe(stripePublicKey).catch((error) => {
+      console.error("[Stripe] Failed to load Stripe.js", error);
+
+      // Se quiser mandar pro backend, descomente:
+      /*
+      fetch("/api/log-client-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "Failed to load Stripe.js",
+          stack: error?.stack,
+          context: {
+            location: window.location.href,
+            userAgent: navigator.userAgent,
+          },
+        }),
+      }).catch(() => {});
+      */
+
+      // Evita UnhandledPromiseRejection resolvendo como null
+      return null;
+    })
+  : null;
 
 // Note: Agora usamos price_data dinâmico em vez de Price IDs pré-criados
 // Isso elimina a necessidade de criar produtos no Stripe Dashboard antecipadamente
 
 export const planPrices = {
-  eco: { 
+  eco: {
     mensal: { price: 990, display: "R$ 9,90", interval: "month" as const },
-    trimestral: { price: 2970, display: "R$ 29,70", interval: "month" as const, interval_count: 3 },
-    semestral: { price: 5940, display: "R$ 59,40", interval: "month" as const, interval_count: 6 },
-    anual: { price: 11880, display: "R$ 118,80", interval: "month" as const, interval_count: 12 }
+    trimestral: {
+      price: 2970,
+      display: "R$ 29,70",
+      interval: "month" as const,
+      interval_count: 3,
+    },
+    semestral: {
+      price: 5940,
+      display: "R$ 59,40",
+      interval: "month" as const,
+      interval_count: 6,
+    },
+    anual: {
+      price: 11880,
+      display: "R$ 118,80",
+      interval: "month" as const,
+      interval_count: 12,
+    },
   },
-  voz: { 
+  voz: {
     mensal: { price: 1990, display: "R$ 19,90", interval: "month" as const },
-    trimestral: { price: 5970, display: "R$ 59,70", interval: "month" as const, interval_count: 3 },
-    semestral: { price: 11940, display: "R$ 119,40", interval: "month" as const, interval_count: 6 },
-    anual: { price: 23880, display: "R$ 238,80", interval: "month" as const, interval_count: 12 }
+    trimestral: {
+      price: 5970,
+      display: "R$ 59,70",
+      interval: "month" as const,
+      interval_count: 3,
+    },
+    semestral: {
+      price: 11940,
+      display: "R$ 119,40",
+      interval: "month" as const,
+      interval_count: 6,
+    },
+    anual: {
+      price: 23880,
+      display: "R$ 238,80",
+      interval: "month" as const,
+      interval_count: 12,
+    },
   },
-  grito: { 
+  grito: {
     mensal: { price: 2990, display: "R$ 29,90", interval: "month" as const },
-    trimestral: { price: 8970, display: "R$ 89,70", interval: "month" as const, interval_count: 3 },
-    semestral: { price: 17940, display: "R$ 179,40", interval: "month" as const, interval_count: 6 },
-    anual: { price: 35880, display: "R$ 358,80", interval: "month" as const, interval_count: 12 }
+    trimestral: {
+      price: 8970,
+      display: "R$ 89,70",
+      interval: "month" as const,
+      interval_count: 3,
+    },
+    semestral: {
+      price: 17940,
+      display: "R$ 179,40",
+      interval: "month" as const,
+      interval_count: 6,
+    },
+    anual: {
+      price: 35880,
+      display: "R$ 358,80",
+      interval: "month" as const,
+      interval_count: 12,
+    },
   },
-  platinum: { 
+  platinum: {
     mensal: { price: 5000, display: "R$ 50,00", interval: "month" as const },
-    trimestral: { price: 15000, display: "R$ 150,00", interval: "month" as const, interval_count: 3 },
-    semestral: { price: 30000, display: "R$ 300,00", interval: "month" as const, interval_count: 6 },
-    anual: { price: 60000, display: "R$ 600,00", interval: "month" as const, interval_count: 12 }
+    trimestral: {
+      price: 15000,
+      display: "R$ 150,00",
+      interval: "month" as const,
+      interval_count: 3,
+    },
+    semestral: {
+      price: 30000,
+      display: "R$ 300,00",
+      interval: "month" as const,
+      interval_count: 6,
+    },
+    anual: {
+      price: 60000,
+      display: "R$ 600,00",
+      interval: "month" as const,
+      interval_count: 12,
+    },
   },
-  diamante: { 
+  diamante: {
     mensal: { price: 10000, display: "R$ 100,00", interval: "month" as const },
-    trimestral: { price: 30000, display: "R$ 300,00", interval: "month" as const, interval_count: 3 },
-    semestral: { price: 60000, display: "R$ 600,00", interval: "month" as const, interval_count: 6 },
-    anual: { price: 120000, display: "R$ 1200,00", interval: "month" as const, interval_count: 12 }
+    trimestral: {
+      price: 30000,
+      display: "R$ 300,00",
+      interval: "month" as const,
+      interval_count: 3,
+    },
+    semestral: {
+      price: 60000,
+      display: "R$ 600,00",
+      interval: "month" as const,
+      interval_count: 6,
+    },
+    anual: {
+      price: 120000,
+      display: "R$ 1200,00",
+      interval: "month" as const,
+      interval_count: 12,
+    },
   },
 };
 
@@ -45,10 +163,7 @@ export const planDetails = {
     name: "Eco",
     description: "Seu Grito começa a se propagar!",
     subtitle: "Plano básico",
-    features: [
-      "Acesso básico à plataforma",
-      "Suporte por email"
-    ],
+    features: ["Acesso básico à plataforma", "Suporte por email"],
     icon: "leaf",
     color: "from-green-400 to-green-600",
     periodicities: ["mensal", "trimestral", "semestral", "anual"] as const,
@@ -61,7 +176,7 @@ export const planDetails = {
     features: [
       "Tudo do plano Eco",
       "Recursos avançados",
-      "Suporte prioritário"
+      "Suporte prioritário",
     ],
     icon: "volume-up",
     color: "from-yellow-400 to-yellow-600",
@@ -76,7 +191,7 @@ export const planDetails = {
     features: [
       "Tudo dos planos anteriores",
       "Recursos exclusivos",
-      "Suporte 24/7"
+      "Suporte 24/7",
     ],
     icon: "bullhorn",
     color: "from-red-400 to-red-600",
@@ -92,7 +207,7 @@ export const planDetails = {
       "Créditos extras para sorteios e prêmios",
       "Acesso a experiências de bem-estar (ex.: sessões fitness, cultura, turismo social)",
       "Presentes e produtos oficiais do Grito (Griffte, Outlet Social)",
-      "Reconhecimento dentro do app"
+      "Reconhecimento dentro do app",
     ],
     icon: "crown",
     color: "from-yellow-400 to-yellow-600",
@@ -109,7 +224,7 @@ export const planDetails = {
       "Experiências exclusivas e premium (viagens sociais, encontros especiais com líderes e artistas)",
       "Convites VIP para os grandes eventos do Instituto (ex: inaugurações, festivais,)",
       "Presentes e produtos oficiais do Grito (Griffte, Outlet Social)",
-      "Badge Diamante no perfil com destaque máximo no ranking"
+      "Badge Diamante no perfil com destaque máximo no ranking",
     ],
     icon: "diamond",
     color: "from-gray-800 to-gray-900",
@@ -124,5 +239,5 @@ export const periodicityLabels = {
   mensal: "Mensal",
   trimestral: "Trimestral (3 meses)",
   semestral: "Semestral (6 meses)",
-  anual: "Anual (12 meses)"
+  anual: "Anual (12 meses)",
 } as const;

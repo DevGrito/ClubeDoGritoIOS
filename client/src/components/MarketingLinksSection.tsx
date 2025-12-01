@@ -102,10 +102,12 @@ export function MarketingLinksSection({ queryClient: _queryClient }: { queryClie
 
   const { data: activeCampaignData, isLoading: loadingActive, refetch: refetchActive } = useQuery<ActiveCampaignData>({
     queryKey: ["/api/mkt/active-campaign"],
+    refetchInterval: 10000,
   });
 
   const { data: allCampaigns, isLoading: loadingCampaigns, refetch: refetchCampaigns } = useQuery<Campaign[]>({
     queryKey: ["/api/mkt/campaigns"],
+    refetchInterval: 10000,
   });
 
   const handleGenerateSlug = async () => {

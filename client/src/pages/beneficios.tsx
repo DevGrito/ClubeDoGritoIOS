@@ -85,6 +85,13 @@ function getBeneficioImageSrc(b: any): string {
   );
 }
 
+// Função para formatar números com separador de milhar (ponto)
+const formatNumber = (num: number | string): string => {
+  const n = typeof num === 'string' ? parseInt(num) : num;
+  if (isNaN(n)) return '0';
+  return n.toLocaleString('pt-BR');
+};
+
 // Dados serão carregados via useUserData hook
 export default function Beneficios() {
   const [, setLocation] = useLocation();
@@ -106,14 +113,7 @@ export default function Beneficios() {
   });
 
   // Rastreamento inicial da página de benefícios
-  useEffect(() => {
-    if (userIdFromStorage > 0) {
-      activityTracker.trackClick('page', 'beneficios', 'Página de Benefícios', 'navegacao', ['beneficios', 'home']);
-    }
-  }, [userIdFromStorage]);
-
-  // 🎯 Verificar se é primeira vez acessando benefícios
-  useEffect(() => {
+   useEffect(() => {
     const userId = localStorage.getItem('userId');
     const viuBoasVindas = localStorage.getItem('viuBoasVindasBeneficios');
     const userSpecificKey = localStorage.getItem(`viuBoasVindasBeneficios_${userId}`);
@@ -127,28 +127,39 @@ export default function Beneficios() {
       return;
     }
     
-    // ✅ CORREÇÃO 1: Verificar se usuário tem mais de 1 dia de cadastro (não é novo)
+    // Verificar se usuário tem mais de 1 dia de cadastro (não é novo)
     const dataCadastro = (userData as any).dataCadastro || (userData as any).createdAt;
-    const isOldUser = dataCadastro && (Date.now() - new Date(dataCadastro).getTime() > 24 * 60 * 60 * 1000);
+    const isOldUser =
+      dataCadastro && (Date.now() - new Date(dataCadastro).getTime() > 24 * 60 * 60 * 1000);
     
-    // ✅ CORREÇÃO 2: Pular onboarding para roles específicos
+    // Pular onboarding para roles específicos
     const skipOnboardingRoles = ['patrocinador', 'doador', 'leo', 'desenvolvedor', 'professor', 'conselho'];
     const shouldSkipByRole = userData.role && skipOnboardingRoles.includes(userData.role);
     
-    // ✅ CORREÇÃO 3: Pular se já viu onboarding antes (localStorage)
+    // Pular se já viu onboarding antes (localStorage)
     const hasSeenOnboarding = viuBoasVindas === 'true' || userSpecificKey === 'true';
     
-    // Pular onboarding se: usuário antigo OU role especial OU já viu antes
+    // 👉 Se for usuário antigo, role especial ou já tiver visto, apenas pula
     if (isOldUser || shouldSkipByRole || hasSeenOnboarding) {
-      console.log('✅ Usuário', userId, '- pulando onboarding:', {isOldUser, shouldSkipByRole, hasSeenOnboarding});
-      // Marcar como visto para não perguntar novamente
+      console.log('✅ Usuário', userId, '- pulando onboarding:', {
+        isOldUser,
+        shouldSkipByRole,
+        hasSeenOnboarding,
+      });
+      
+      // Garante que as flags fiquem como "visto"
       localStorage.setItem('viuBoasVindasBeneficios', 'true');
       localStorage.setItem(`viuBoasVindasBeneficios_${userId}`, 'true');
       return;
     }
     
-    // Se chegou aqui, é usuário novo que nunca viu onboarding
+    // 👉 Se chegou aqui, é realmente a PRIMEIRA VEZ nesse device
     console.log('🔄 Redirecionando para onboarding - primeira vez do usuário', userId);
+    
+    // ⚠️ IMPORTANTE: já marca como visto ANTES de redirecionar
+    localStorage.setItem('viuBoasVindasBeneficios', 'true');
+    localStorage.setItem(`viuBoasVindasBeneficios_${userId}`, 'true');
+    
     setLocation('/beneficios-onboarding');
   }, [setLocation, userData]);
 
@@ -528,7 +539,7 @@ export default function Beneficios() {
                   transition={{ duration: 1.5, ease: "easeOut" }}
                 >
                   <span className="text-sm font-bold text-black px-2">
-                    {extendedUserData.gritos_atuais}
+                    {formatNumber(extendedUserData.gritos_atuais)}
                   </span>
                 </motion.div>
               )}
@@ -538,7 +549,7 @@ export default function Beneficios() {
             <p className="text-xs text-gray-600">
               {extendedUserData ? (
                 <>
-                  Faltam {gritosRestantes} Gritos para chegar ao próximo nível: <span className="font-bold">{extendedUserData?.proximo_nivel || "Eco do Bem"}</span>.
+                  Faltam {formatNumber(gritosRestantes)} Gritos para chegar ao próximo nível: <span className="font-bold">{extendedUserData?.proximo_nivel || "Eco do Bem"}</span>.
                 </>
               ) : (
                 "Carregando progresso..."
@@ -708,17 +719,17 @@ export default function Beneficios() {
                       <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
                       
                       {/* Conteúdo do card */}
-                      <div className="relative h-full p-6 text-white flex justify-between items-start">
-                        {/* Lado esquerdo - Conteúdo */}
-                        <div className="flex-1 flex flex-col justify-between h-full max-w-[60%]">
+                      <div className="relative h-full p-6 text-black flex justify-between items-start">
+                        {/* Conteúdo */}
+                        <div className="flex-1 flex flex-col justify-between h-full">
                           <div>
-                            <h4 className="font-bold text-lg mb-3 leading-tight">{beneficio.titulo}</h4>
+                            <h4 className="font-bold text-lg mb-3 leading-tight text-black">{beneficio.titulo}</h4>
                             
                             {beneficio.pontosNecessarios && (
                               <div className="flex items-center space-x-2 mb-3">
-                                <div className="bg-white/20 text-white px-2 py-1 rounded text-xs font-medium flex items-center">
+                                <div className="bg-black/10 text-black px-2 py-1 rounded text-xs font-medium flex items-center">
                                   <span className="mr-1">📎</span>
-                                  {beneficio.pontosNecessarios}
+                                  {formatNumber(beneficio.pontosNecessarios)}
                                 </div>
                               </div>
                             )}
@@ -726,19 +737,11 @@ export default function Beneficios() {
                           
                           {beneficio.planosDisponiveis && beneficio.planosDisponiveis.length > 0 && (
                             <div className="mt-auto">
-                              <div className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full inline-block">
+                              <div className="text-sm font-medium bg-black/10 text-black px-3 py-1 rounded-full inline-block">
                                 {beneficio.planosDisponiveis.map((plano: string) => plano.charAt(0).toUpperCase() + plano.slice(1)).join('\\')}
                               </div>
                             </div>
                           )}
-                        </div>
-                        
-                        {/* Lado direito - Categoria */}
-                        <div className="flex-shrink-0 text-center">
-                          {/* Texto da categoria */}
-                          <div className="text-sm text-white/90 font-medium bg-white/20 px-3 py-2 rounded-lg">
-                            {capitalizeFirstLetter(beneficio.categoria)}
-                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -893,11 +896,11 @@ export default function Beneficios() {
             const proximoNivel = nivelAtualIndex !== -1 ? niveisJornada[nivelAtualIndex] : null;
             
             if (!proximoNivel) {
-              return <p className="text-gray-900 font-medium mb-3">Parabéns! Você atingiu o nível máximo com {gritosAtuais} Gritos</p>;
+              return <p className="text-gray-900 font-medium mb-3">Parabéns! Você atingiu o nível máximo com {formatNumber(gritosAtuais)} Gritos</p>;
             }
             
             const gritosRestantes = proximoNivel.gritos - gritosAtuais;
-            return <p className="text-gray-900 font-medium mb-3">Faltam {gritosRestantes} gritos para o próximo nível</p>;
+            return <p className="text-gray-900 font-medium mb-3">Faltam {formatNumber(gritosRestantes)} gritos para o próximo nível</p>;
           })()}
           {(() => {
             const gritosAtuais = extendedUserData?.gritos_atuais || 0;
@@ -920,7 +923,7 @@ export default function Beneficios() {
                   style={{ width: `${porcentagem}%` }}
                 />
                 <div className="absolute left-3 text-white font-bold text-sm">
-                  {gritosAtuais}
+                  {formatNumber(gritosAtuais)}
                 </div>
                 <div className="absolute right-3 text-white font-bold text-sm">
                   {gritosProximoNivel}
@@ -1193,22 +1196,16 @@ export default function Beneficios() {
                           {beneficio.pontosNecessarios && (
                             <div className="bg-white/20 text-white px-2 py-1 rounded text-xs font-medium inline-flex items-center">
                               <span className="mr-1">📎</span>
-                              {beneficio.pontosNecessarios}
+                              {formatNumber(beneficio.pontosNecessarios)}
                             </div>
                           )}
                         </div>
                         
-                        <div className="flex items-end justify-between">
-                          {beneficio.planosDisponiveis && beneficio.planosDisponiveis.length > 0 && (
-                            <div className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
-                              {beneficio.planosDisponiveis.map((plano: string) => plano.charAt(0).toUpperCase() + plano.slice(1)).join('/')}
-                            </div>
-                          )}
-                          
-                          <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                            <DynamicIcon iconName='Gift' className="w-4 h-4 text-white" />
+                        {beneficio.planosDisponiveis && beneficio.planosDisponiveis.length > 0 && (
+                          <div className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
+                            {beneficio.planosDisponiveis.map((plano: string) => plano.charAt(0).toUpperCase() + plano.slice(1)).join('/')}
                           </div>
-                        </div>
+                        )}
                       </div>
                     </motion.div>
                   ))}

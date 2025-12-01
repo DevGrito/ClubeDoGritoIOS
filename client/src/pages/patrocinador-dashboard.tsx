@@ -36,12 +36,21 @@ import {
   Filter,
   TrendingUp,
   BookOpen,
-  Award
+  Award,
+  ShoppingBag,
+  Briefcase,
+  Store,
+  Scissors,
+  Target,
+  GraduationCap,
+  ChevronUp,
+  ChevronDown
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
+import ImpactGestaoVista from "@/components/ImpactGestaoVista";
 
 interface ImpactMetrics {
   vidasImpactadas: number;
@@ -133,16 +142,129 @@ export default function PatrocinadorDashboard() {
   const [showHelpMenu, setShowHelpMenu] = useState(false);
   const { toast } = useToast();
 
-  // Buscar dados do PEC
+  // Estados para os modais de programas (igual ao doador)
+  const [showPsicossocialModal, setShowPsicossocialModal] = useState(false);
+  const [expandedPsicoCard, setExpandedPsicoCard] = useState<string | null>(null);
+  const [showNegociosModal, setShowNegociosModal] = useState(false);
+  const [expandedNegocioCard, setExpandedNegocioCard] = useState<string | null>(null);
+  const [showPECModal, setShowPECModal] = useState(false);
+  const [expandedPECCard, setExpandedPECCard] = useState<string | null>(null);
+  const [showInclusaoModal, setShowInclusaoModal] = useState(false);
+  const [expandedInclusaoCard, setExpandedInclusaoCard] = useState<string | null>(null);
+  const [showF3DModal, setShowF3DModal] = useState(false);
+  const [expandedF3DCard, setExpandedF3DCard] = useState<string | null>(null);
+
+  // Buscar dados do PEC (para modal detalhes)
   const { data: dadosPEC, isLoading: isLoadingPEC } = useQuery<any>({
     queryKey: ['/api/pec/dados-mensais'],
     enabled: showPECDetails
   });
 
-  // Buscar dados da Inclusão Produtiva
+  // Buscar dados da Inclusão Produtiva (para modal detalhes)
   const { data: dadosInclusao, isLoading: isLoadingInclusao } = useQuery<any>({
     queryKey: ['/api/inclusao-produtiva/dados-mensais'],
     enabled: showInclusaoDetails
+  });
+
+  // ============ Queries para os modais de programas (igual ao doador) ============
+  
+  // Buscar dados de indicadores Psicossocial
+  const { data: atencaoSocialData, isLoading: loadingAtencao } = useQuery<{
+    success: boolean;
+    data: {
+      visitasDomiciliares: { realizadas: number; meta: number; percentual: number };
+      atendimentosIndividuais: { realizados: number; meta: number; percentual: number };
+    };
+  }>({
+    queryKey: ['/api/psico/indicadores/atencao-social'],
+    enabled: showPsicossocialModal,
+    queryFn: () => apiRequest('/api/psico/indicadores/atencao-social'),
+  });
+
+  const { data: metodoGritoData, isLoading: loadingMetodo } = useQuery<{
+    success: boolean;
+    data: {
+      atendimentosColetivos: { realizados: number; percentualTurmas: number };
+      espacosColetivos: { total: number; meta: number; percentual: number };
+      caravanasComunitarias: number;
+      acoesSaudeColaboradores: number;
+    };
+  }>({
+    queryKey: ['/api/psico/indicadores/metodo-grito'],
+    enabled: showPsicossocialModal,
+    queryFn: () => apiRequest('/api/psico/indicadores/metodo-grito'),
+  });
+
+  // Buscar dados de Negócios Sociais
+  const { data: negociosSociaisData, isLoading: loadingNegocios } = useQuery<{
+    success: boolean;
+    data: {
+      outlet: {
+        doacoesRecebidas: number;
+        vendasPessoasImpactadas: number;
+        pecasVendidas: number;
+      };
+      griffte: {
+        pecasConfeccionadas: number;
+        clientesAtendidos: number;
+      };
+    };
+  }>({
+    queryKey: ['/api/negocios-sociais'],
+    enabled: showNegociosModal,
+  });
+
+  // Buscar dados de PEC para modal simplificado
+  const { data: pecData, isLoading: loadingPEC } = useQuery<{
+    success: boolean;
+    data: {
+      casaSonhar: {
+        atendidos: number;
+        atendimentos: number;
+        frequencia: number;
+        alimentacao: number;
+        horaAula: number;
+      };
+      programaEsporteCultura: {
+        atendidos: number;
+        atendimentos: number;
+        frequencia: number;
+        alimentacao: number;
+        horaAula: number;
+      };
+      serenata: {
+        atendidos: number;
+        atendimentos: number;
+        frequencia: number;
+        horaAula: number;
+      };
+    };
+  }>({
+    queryKey: ['/api/pec/dados-programas'],
+    enabled: showPECModal,
+  });
+
+  // Buscar dados de Inclusão Produtiva para modal simplificado
+  const { data: inclusaoData, isLoading: loadingInclusao } = useQuery<{
+    projetos: Array<{
+      nome: string;
+      indicadores: Array<{ nome: string; valor: number; meta: number }>;
+    }>;
+  }>({
+    queryKey: ['/api/inclusao-produtiva/indicadores'],
+    enabled: showInclusaoModal,
+  });
+
+  // Buscar dados de Favela 3D (F3D)
+  const { data: f3dData, isLoading: loadingF3D } = useQuery<{
+    meses: string[];
+    eixos: Array<{
+      nome: string;
+      indicadores: Array<{ nome: string; valor: number; impacto: number }>;
+    }>;
+  }>({
+    queryKey: ['/api/favela-3d/dados-mensais'],
+    enabled: showF3DModal,
   });
 
   // Helper functions para buscar valores mensais (igual ao Leo)
@@ -177,7 +299,26 @@ export default function PatrocinadorDashboard() {
 
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
   const userId = localStorage.getItem("userId");
+  const userEmail = localStorage.getItem("userEmail") || userData?.user?.email || "";
   const userName = localStorage.getItem("userName") || userData?.user?.nome || "Empresa Patrocinadora";
+
+  // Buscar dados do patrocinador pelo email (categoria, valor, nome da empresa)
+  const { data: patrocinadorInfo } = useQuery<{
+    success: boolean;
+    encontrado: boolean;
+    patrocinador?: {
+      id: number;
+      nome: string;
+      categoria: string;
+      categoriaNome: string;
+      valorPatrocinio: number;
+      email: string;
+    };
+  }>({
+    queryKey: ['/api/patrocinador/dados', userEmail],
+    queryFn: () => fetch(`/api/patrocinador/dados/${encodeURIComponent(userEmail)}`).then(res => res.json()),
+    enabled: !!userEmail
+  });
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -375,6 +516,11 @@ export default function PatrocinadorDashboard() {
 
   const { data: impactData } = useQuery<any>({
     queryKey: ['/api/gestao-vista/meta-realizado', { scope: 'annual', period: '2025' }],
+  });
+
+  // Buscar indicadores globais do banco Digital Ocean
+  const { data: indicadoresGlobais } = useQuery<any>({
+    queryKey: ['/api/indicadores-globais'],
   });
 
   // Buscar dados reais de progresso dos programas (mês 9 = setembro, último com dados)
@@ -609,40 +755,50 @@ export default function PatrocinadorDashboard() {
               }}
             >
               <div className="flex md:grid md:grid-cols-2 lg:grid-cols-4 gap-6 justify-center md:justify-start" style={{width: 'fit-content', minWidth: '100%', marginLeft: 'auto', marginRight: 'auto'}}>
-                <Card data-testid="card-vidas" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
+                {/* Card 1: Horas/Aula */}
+                <Card data-testid="card-horas-aula" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
                   <CardContent className="py-10 px-4">
                     <div className="flex flex-col items-center text-center justify-center h-full">
-                      <Users className="w-12 h-12 text-blue-600 mb-3" />
-                      <p className="text-sm text-gray-600 mb-2">Vidas Impactadas</p>
-                      <p className="text-3xl font-bold text-blue-600">
-                        <AnimatedCounter targetValue={patrocinadorData.impacto.vidasImpactadas} />
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Direta e Indiretamente</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card data-testid="card-projetos" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
-                  <CardContent className="py-10 px-4">
-                    <div className="flex flex-col items-center text-center justify-center h-full">
-                      <FolderKanban className="w-12 h-12 text-green-600 mb-3" />
-                      <p className="text-sm text-gray-600 mb-2">Projetos Apoiados</p>
-                      <p className="text-3xl font-bold text-green-600">
-                        <AnimatedCounter targetValue={patrocinadorData.impacto.projetosApoiados} />
+                      <p className="text-sm text-gray-600 mb-2">Horas/Aula</p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        <AnimatedCounter targetValue={indicadoresGlobais?.horasAula || 226359} />
                       </p>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card data-testid="card-comunidades" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
+                {/* Card 2: Impacto Direto e Indiretamente */}
+                <Card data-testid="card-impacto" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
                   <CardContent className="py-10 px-4">
                     <div className="flex flex-col items-center text-center justify-center h-full">
-                      <UsersRound className="w-12 h-12 text-purple-600 mb-3" />
-                      <p className="text-sm text-gray-600 mb-2">Famílias</p>
-                      <p className="text-3xl font-bold text-purple-600">
-                        <AnimatedCounter targetValue={patrocinadorData.impacto.comunidadesAtendidas} />
+                      <p className="text-sm text-gray-600 mb-2">Impacto Direto e Indiretamente</p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        <AnimatedCounter targetValue={indicadoresGlobais?.impactoDiretoIndireto || 317062} />
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">acompanhadas</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Card 3: Atendimentos Socioemocionais */}
+                <Card data-testid="card-atendimentos" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
+                  <CardContent className="py-10 px-4">
+                    <div className="flex flex-col items-center text-center justify-center h-full">
+                      <p className="text-sm text-gray-600 mb-2">Atendimentos Socioemocionais</p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        <AnimatedCounter targetValue={impactData?.kpis?.atendimentosSocioemocionais || 5024} />
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Card 4: Famílias Acompanhadas (exclusivo patrocinador) */}
+                <Card data-testid="card-familias" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
+                  <CardContent className="py-10 px-4">
+                    <div className="flex flex-col items-center text-center justify-center h-full">
+                      <p className="text-sm text-gray-600 mb-2">Famílias Acompanhadas</p>
+                      <p className="text-3xl font-bold text-gray-900">
+                        <AnimatedCounter targetValue={impactData?.kpis?.familiasAtivas || 219} />
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -651,7 +807,7 @@ export default function PatrocinadorDashboard() {
 
             {/* Indicadores do Carrossel (apenas mobile) */}
             <div className="flex justify-center space-x-2 mt-4 md:hidden">
-              {[0, 1, 2].map((index) => (
+              {[0, 1, 2, 3].map((index) => (
                 <button
                   key={index}
                   onClick={() => {
@@ -670,128 +826,134 @@ export default function PatrocinadorDashboard() {
             </div>
           </div>
 
-          {/* Projetos que Você Apoia */}
+          {/* Total Doado */}
           <div className="mb-8">
             <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Projetos que Você Apoia
+              Sua Doação no O Grito!
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {patrocinadorData.projetos.map((projeto) => (
-                <Card key={projeto.id} className="hover:shadow-lg transition-shadow" data-testid={`card-projeto-${projeto.id}`}>
-                  <CardContent className="pt-6">
-                    <div className="mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                        {projeto.nome}
-                      </h3>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-1">Seu Investimento:</p>
-                    <p className="text-2xl font-bold text-gray-900 mb-4">
-                      {formatCurrency(projeto.investimento)}
-                    </p>
-                    <Button 
-                      variant="outline" 
-                      className="w-full bg-yellow-400 text-black border-yellow-400 hover:bg-black hover:text-white active:bg-black active:text-white"
-                      data-testid={`button-ver-detalhes-${projeto.id}`}
-                      onClick={() => {
-                        if (projeto.nome.includes("Cultura e Esporte")) {
-                          setShowPECDetails(true);
-                        } else if (projeto.nome.includes("Inclusão Produtiva")) {
-                          setShowInclusaoDetails(true);
-                        }
-                      }}
-                    >
-                      Ver Detalhes
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          {/* Setores que Você Apoia */}
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">
-              Com seu apoio, o impacto é imenso!
-            </h2>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-              {/* PEC */}
-              <div 
-                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
-                data-testid="setor-pec"
-              >
-                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
-                  <BookOpen className="w-8 h-8 text-yellow-800" />
-                </div>
-                <span className="text-sm font-semibold text-gray-900">PEC</span>
-              </div>
-
-              {/* Inclusão Produtiva */}
-              <div 
-                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
-                data-testid="setor-inclusao"
-              >
-                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
-                  <Award className="w-8 h-8 text-yellow-800" />
-                </div>
-                <span className="text-sm font-semibold text-gray-900">Inclusão<br />Produtiva</span>
-              </div>
-
-              {/* Psicossocial */}
-              <div 
-                className="flex flex-col items-center p-4 rounded-2xl bg-yellow-100 cursor-default"
-                data-testid="setor-psicossocial"
-              >
-                <div className="w-16 h-16 rounded-full bg-yellow-300 flex items-center justify-center mb-3">
-                  <Heart className="w-8 h-8 text-yellow-800" />
-                </div>
-                <span className="text-sm font-semibold text-gray-900">Psicossocial</span>
-              </div>
-
-              {/* F3D */}
-              <div 
-                className="flex flex-col items-center p-4 rounded-2xl bg-purple-100 cursor-default"
-                data-testid="setor-f3d"
-              >
-                <div className="w-16 h-16 rounded-full bg-purple-300 flex items-center justify-center mb-3">
-                  <UsersRound className="w-8 h-8 text-purple-800" />
-                </div>
-                <span className="text-sm font-semibold text-gray-900">F3D</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Acompanhe o Progresso */}
-          <div className="mb-8">
-            <Card>
+            <Card className="hover:shadow-lg transition-shadow bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200" data-testid="card-total-investido">
               <CardContent className="pt-6">
-                <p className="text-gray-600 text-center mb-6">
-                  Acompanhe o progresso dos programas que você apoia
-                </p>
-
-                <div className="space-y-6">
-                  {patrocinadorData.programas.map((programa, index) => (
-                    <div key={index}>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          {programa.nome}
+                <div className="space-y-3">
+                  {/* Categoria do Patrocinador */}
+                  {patrocinadorInfo?.encontrado && patrocinadorInfo.patrocinador ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Award className="w-5 h-5 text-yellow-600" />
+                        <span className="text-sm font-medium text-gray-700">Patrocinador</span>
+                        <span className="px-3 py-1 bg-yellow-500 text-white text-sm font-bold rounded-full">
+                          {patrocinadorInfo.patrocinador.categoriaNome}
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-1000"
-                          style={{ 
-                            backgroundColor: programa.cor,
-                            width: `${programa.porcentagem}%`
-                          }}
-                        />
+                      
+                      {/* Nome da Empresa */}
+                      <p className="text-base font-semibold text-gray-800">
+                        {patrocinadorInfo.patrocinador.nome}
+                      </p>
+                      
+                      {/* Valor Total */}
+                      <div>
+                        <p className="text-sm text-gray-600 mb-1">Total Investido na Transformação!</p>
+                        <p className="text-3xl font-bold text-gray-900">
+                          {formatCurrency(patrocinadorInfo.patrocinador.valorPatrocinio)}
+                        </p>
                       </div>
-                    </div>
-                  ))}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Award className="w-5 h-5 text-gray-400" />
+                        <span className="text-sm font-medium text-gray-500">Cota não identificada</span>
+                      </div>
+                      
+                      <div>
+                        <p className="text-sm text-gray-500 mb-1">Total Investido na Transformação!</p>
+                        <p className="text-3xl font-bold text-gray-400">
+                          R$ --
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
+          </div>
+
+          {/* Seção Com seu apoio, o impacto é imenso! - Cards de Programas (igual ao doador) */}
+          <div className="mb-8">
+            <h2 className="text-lg font-bold text-gray-900 mb-4 font-sans">
+              Com seu apoio, o impacto é imenso!
+            </h2>
+            
+            {/* Carrossel horizontal com todos os cards */}
+            <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <div className="flex gap-4 w-max items-start">
+                {/* Card PEC */}
+                <button
+                  onClick={() => setShowPECModal(true)}
+                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                  data-testid="card-programa-pec"
+                >
+                  <div className="w-20 h-20 bg-yellow-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                    <BookOpen className="w-10 h-10 text-gray-800" />
+                  </div>
+                  <span className="text-sm text-gray-800 font-semibold text-center">PEC</span>
+                </button>
+
+                {/* Card Psicossocial */}
+                <button
+                  onClick={() => setShowPsicossocialModal(true)}
+                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                  data-testid="card-programa-psicossocial"
+                >
+                  <div className="w-20 h-20 bg-yellow-400 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                    <Heart className="w-10 h-10 text-gray-800" />
+                  </div>
+                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight">Psicossocial</span>
+                </button>
+
+                {/* Card F3D */}
+                <button
+                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                  onClick={() => setShowF3DModal(true)}
+                  data-testid="card-programa-f3d"
+                >
+                  <div className="w-20 h-20 bg-purple-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                    <Users className="w-10 h-10 text-gray-800" />
+                  </div>
+                  <span className="text-sm text-gray-800 font-semibold text-center">F3D</span>
+                </button>
+
+                {/* Card Negócios Sociais */}
+                <button
+                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                  onClick={() => setShowNegociosModal(true)}
+                  data-testid="card-programa-negocios"
+                >
+                  <div className="w-20 h-20 bg-yellow-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                    <ShoppingBag className="w-10 h-10 text-gray-800" />
+                  </div>
+                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Negócios Sociais</span>
+                </button>
+
+                {/* Card Inclusão Produtiva */}
+                <button
+                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                  onClick={() => setShowInclusaoModal(true)}
+                  data-testid="card-programa-inclusao"
+                >
+                  <div className="w-20 h-20 bg-amber-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
+                    <Briefcase className="w-10 h-10 text-gray-800" />
+                  </div>
+                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Inclusão Produtiva</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Gestão à Vista - igual ao doador */}
+          <div className="mb-6">
+            <ImpactGestaoVista mostrarAlunosEmFormacao={false} />
           </div>
 
           {/* Recursos e Contato */}
@@ -808,18 +970,15 @@ export default function PatrocinadorDashboard() {
                     Relatórios de Impacto
                   </h3>
                   <p className="text-sm text-gray-600 mb-4">
-                    Faça o download dos relatórios mensais e anuais para acompanhar a prestação de contas.
+                    Faça o download do relatório anual para acompanhar a prestação de contas.
                   </p>
-                  <div className="space-y-2">
-                    <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-q3">
-                      <Download className="w-4 h-4 mr-2" />
-                      Relatório de Impacto - Q3 2025
-                    </Button>
-                    <br />
-                    <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
-                      <Download className="w-4 h-4 mr-2" />
-                      Relatório Anual - 2024
-                    </Button>
+                  <div className="space-y-2 mt-4">
+                    <a href="/relatorio-anual-2024.pdf" download="Relatório Anual - 2024.pdf">
+                      <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
+                        <Download className="w-4 h-4 mr-2" />
+                        Relatório Anual - 2024
+                      </Button>
+                    </a>
                   </div>
                 </CardContent>
               </Card>
@@ -1403,91 +1562,6 @@ export default function PatrocinadorDashboard() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
-              {/* Separador - Alternar Visão */}
-              <div className="px-6 pt-6 pb-2">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Alternar Visão
-                </h4>
-              </div>
-
-              {/* Coordenador PEC */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200"
-                  onClick={() => {
-                    setShowHelpMenu(false);
-                    setTimeout(() => setLocation("/pec"), 150);
-                  }}
-                  data-testid="menu-pec"
-                >
-                  <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <FolderKanban className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base">
-                      Esporte e Cultura
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                      Coordenação PEC
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
-
-              {/* Coordenador Inclusão */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200"
-                  onClick={() => {
-                    setShowHelpMenu(false);
-                    setTimeout(() => setLocation("/coordenador/inclusao-produtiva"), 150);
-                  }}
-                  data-testid="menu-inclusao"
-                >
-                  <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <Users className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base">
-                      Inclusão Produtiva
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                      Coordenação Inclusão
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
-
-              {/* Coordenador Psicossocial */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200"
-                  onClick={() => {
-                    setShowHelpMenu(false);
-                    setTimeout(() => setLocation("/coordenador/psicossocial"), 150);
-                  }}
-                  data-testid="menu-psico"
-                >
-                  <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <Heart className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base">
-                      Psicossocial
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                      Coordenação Psicossocial
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
-
               {/* Canal de Transparência */}
               <div>
                 <div
@@ -1529,8 +1603,8 @@ export default function PatrocinadorDashboard() {
                   }}
                   data-testid="menu-deslogar"
                 >
-                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <LogOut className="w-6 h-6 text-black" />
+                  <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
+                    <LogOut className="w-6 h-6 text-gray-600" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base">
@@ -1548,6 +1622,599 @@ export default function PatrocinadorDashboard() {
           </motion.div>
         </div>
       )}
+
+      {/* ============ MODAIS DOS PROGRAMAS (igual ao doador) ============ */}
+
+      {/* Modal de Indicadores Psicossocial */}
+      <Dialog open={showPsicossocialModal} onOpenChange={setShowPsicossocialModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <Heart className="w-6 h-6 text-yellow-600" />
+              Indicadores Psicossocial
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {/* Botão/Card 1: Atenção Social */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedPsicoCard(expandedPsicoCard === 'atencao-social' ? null : 'atencao-social')}
+              data-testid="card-atencao-social"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Home className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Atenção Social</h3>
+                  </div>
+                  {expandedPsicoCard === 'atencao-social' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedPsicoCard === 'atencao-social' && (
+                  <div className="mt-4">
+                    {loadingAtencao ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {atencaoSocialData?.data.visitasDomiciliares.realizadas}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium mb-1">Visitas Domiciliares</p>
+                          <p className="text-xs text-gray-500">
+                            {atencaoSocialData?.data.visitasDomiciliares.percentual}% da Meta 2025
+                          </p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {atencaoSocialData?.data.atendimentosIndividuais.realizados}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Individuais</p>
+                          <p className="text-xs text-gray-500">
+                            {atencaoSocialData?.data.atendimentosIndividuais.percentual}% da Meta 2025
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Botão/Card 2: Método O Grito */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedPsicoCard(expandedPsicoCard === 'metodo-grito' ? null : 'metodo-grito')}
+              data-testid="card-metodo-grito"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Users className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Método O Grito</h3>
+                  </div>
+                  {expandedPsicoCard === 'metodo-grito' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+
+                {expandedPsicoCard === 'metodo-grito' && (
+                  <div className="mt-4">
+                    {loadingMetodo ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {metodoGritoData?.data.atendimentosColetivos.realizados.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Coletivos</p>
+                          <p className="text-xs text-gray-500">
+                            {metodoGritoData?.data.atendimentosColetivos.percentualTurmas}% das turmas
+                          </p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {metodoGritoData?.data.espacosColetivos.total}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium mb-1">#EspaçoOgrito</p>
+                          <p className="text-xs text-gray-500">
+                            {metodoGritoData?.data.espacosColetivos.percentual}% da Meta 2025
+                          </p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {metodoGritoData?.data.caravanasComunitarias}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Caravana Comunitária</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {metodoGritoData?.data.acoesSaudeColaboradores}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Ações de Saúde</p>
+                          <p className="text-xs text-gray-500">para colaboradores</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Negócios Sociais */}
+      <Dialog open={showNegociosModal} onOpenChange={setShowNegociosModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <ShoppingBag className="w-6 h-6 text-yellow-600" />
+              Negócios Sociais
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {/* Card Outlet */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedNegocioCard(expandedNegocioCard === 'outlet' ? null : 'outlet')}
+              data-testid="card-outlet"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Store className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Outlet</h3>
+                  </div>
+                  {expandedNegocioCard === 'outlet' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedNegocioCard === 'outlet' && (
+                  <div className="mt-4">
+                    {loadingNegocios ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {negociosSociaisData?.data.outlet.doacoesRecebidas.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Doações Recebidas</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {negociosSociaisData?.data.outlet.vendasPessoasImpactadas.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {negociosSociaisData?.data.outlet.pecasVendidas.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Peças / Itens Vendidos</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card Griffte */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedNegocioCard(expandedNegocioCard === 'griffte' ? null : 'griffte')}
+              data-testid="card-griffte"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Scissors className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Griffte</h3>
+                  </div>
+                  {expandedNegocioCard === 'griffte' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedNegocioCard === 'griffte' && (
+                  <div className="mt-4">
+                    {loadingNegocios ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {negociosSociaisData?.data.griffte.pecasConfeccionadas.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Peças Confeccionadas</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {negociosSociaisData?.data.griffte.clientesAtendidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Clientes Atendidos</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de PEC - Polo Esportivo Cultural */}
+      <Dialog open={showPECModal} onOpenChange={setShowPECModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <BookOpen className="w-6 h-6 text-yellow-600" />
+              PEC - Polo Esportivo Cultural
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {/* Card Casa Sonhar */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedPECCard(expandedPECCard === 'casa-sonhar' ? null : 'casa-sonhar')}
+              data-testid="card-casa-sonhar"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Home className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Casa Sonhar</h3>
+                  </div>
+                  {expandedPECCard === 'casa-sonhar' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedPECCard === 'casa-sonhar' && (
+                  <div className="mt-4">
+                    {loadingPEC ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.casaSonhar.atendidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.casaSonhar.atendimentos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.casaSonhar.frequencia}%
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Frequência</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.casaSonhar.alimentacao.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Alimentação</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.casaSonhar.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card Programa de Esporte e Cultura */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedPECCard(expandedPECCard === 'esporte-cultura' ? null : 'esporte-cultura')}
+              data-testid="card-esporte-cultura"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Target className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Programa de Esporte e Cultura</h3>
+                  </div>
+                  {expandedPECCard === 'esporte-cultura' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedPECCard === 'esporte-cultura' && (
+                  <div className="mt-4">
+                    {loadingPEC ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.programaEsporteCultura.atendidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.programaEsporteCultura.atendimentos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.programaEsporteCultura.frequencia}%
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Frequência</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.programaEsporteCultura.alimentacao.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Alimentação</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.programaEsporteCultura.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card Serenata */}
+            <div
+              className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedPECCard(expandedPECCard === 'serenata' ? null : 'serenata')}
+              data-testid="card-serenata"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <Award className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Serenata</h3>
+                  </div>
+                  {expandedPECCard === 'serenata' ? (
+                    <ChevronUp className="w-5 h-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-600" />
+                  )}
+                </div>
+                
+                {expandedPECCard === 'serenata' && (
+                  <div className="mt-4">
+                    {loadingPEC ? (
+                      <div className="text-center py-4 text-gray-500">Carregando...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.serenata.atendidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.serenata.atendimentos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.serenata.frequencia}%
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Frequência</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {pecData?.data.serenata.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Inclusão Produtiva */}
+      <Dialog open={showInclusaoModal} onOpenChange={setShowInclusaoModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <Briefcase className="w-6 h-6 text-yellow-600" />
+              Inclusão Produtiva
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {loadingInclusao ? (
+              <div className="text-center py-8 text-gray-500">Carregando...</div>
+            ) : inclusaoData?.projetos ? (
+              inclusaoData.projetos.map((projeto, index) => {
+                const bgColors = ['bg-yellow-50', 'bg-yellow-50', 'bg-yellow-50'];
+                const iconColors = ['bg-yellow-500', 'bg-yellow-500', 'bg-yellow-500'];
+                const textColors = ['text-yellow-600', 'text-yellow-600', 'text-yellow-600'];
+                const icons = [<Briefcase key="1" className="w-5 h-5 text-white" />, <GraduationCap key="2" className="w-5 h-5 text-white" />, <Target key="3" className="w-5 h-5 text-white" />];
+                
+                return (
+                  <div
+                    key={projeto.nome}
+                    className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
+                    onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === projeto.nome ? null : projeto.nome)}
+                    data-testid={`card-inclusao-${index}`}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
+                            {icons[index % 3]}
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-800">{projeto.nome}</h3>
+                        </div>
+                        {expandedInclusaoCard === projeto.nome ? (
+                          <ChevronUp className="w-5 h-5 text-gray-600" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-gray-600" />
+                        )}
+                      </div>
+                      
+                      {expandedInclusaoCard === projeto.nome && (
+                        <div className="mt-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            {projeto.indicadores.map((indicador, idx) => (
+                              <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                <div className={`text-3xl font-bold ${textColors[index % 3]} mb-1`}>
+                                  {indicador.valor.toLocaleString('pt-BR')}
+                                </div>
+                                <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                                {indicador.meta && (
+                                  <div className="mt-2">
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div 
+                                        className={`h-2 rounded-full ${iconColors[index % 3]}`}
+                                        style={{ width: `${Math.min(100, (indicador.valor / indicador.meta) * 100)}%` }}
+                                      />
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">Meta: {indicador.meta}</p>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Favela 3D (F3D) */}
+      <Dialog open={showF3DModal} onOpenChange={setShowF3DModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <Users className="w-6 h-6 text-purple-600" />
+              Favela 3D
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            {loadingF3D ? (
+              <div className="text-center py-8 text-gray-500">Carregando...</div>
+            ) : f3dData?.eixos ? (
+              f3dData.eixos.map((eixo: any, index: number) => {
+                const bgColors = ['bg-purple-50', 'bg-purple-50', 'bg-purple-50'];
+                const iconColors = ['bg-purple-500', 'bg-purple-500', 'bg-purple-500'];
+                const textColors = ['text-purple-600', 'text-purple-600', 'text-purple-600'];
+                const icons = [<Users key="1" className="w-5 h-5 text-white" />, <TrendingUp key="2" className="w-5 h-5 text-white" />, <Home key="3" className="w-5 h-5 text-white" />];
+                
+                return (
+                  <div
+                    key={eixo.nome}
+                    className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
+                    onClick={() => setExpandedF3DCard(expandedF3DCard === eixo.nome ? null : eixo.nome)}
+                    data-testid={`card-f3d-${index}`}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
+                            {icons[index % 3]}
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-800">{eixo.nome}</h3>
+                        </div>
+                        {expandedF3DCard === eixo.nome ? (
+                          <ChevronUp className="w-5 h-5 text-gray-600" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-gray-600" />
+                        )}
+                      </div>
+                      
+                      {expandedF3DCard === eixo.nome && (
+                        <div className="mt-4">
+                          <div className={`grid gap-3 ${eixo.indicadores.length === 1 ? 'grid-cols-1 max-w-[200px] mx-auto' : 'grid-cols-2'}`}>
+                            {eixo.indicadores.map((indicador: any, idx: number) => (
+                              <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                <div className={`text-2xl font-bold ${textColors[index % 3]} mb-1`}>
+                                  {(indicador.valor ?? 0).toLocaleString('pt-BR')}
+                                </div>
+                                <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                                {indicador.impacto > 0 && (
+                                  <p className="text-xs text-green-600 mt-1">Pessoas Impactadas: {indicador.impacto.toLocaleString('pt-BR')}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Bottom Navigation */}
       <BottomNavigation hidden={showStories} />

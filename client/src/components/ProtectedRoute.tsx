@@ -35,7 +35,7 @@ const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
   'user': ['/', '/plans', '/tdoador', '/welcome', '/busca', '/noticias', '/perfil', '/dados-cadastrais', '/pagamentos', '/configuracoes', '/sobre', '/change-plan', '/central-ajuda'],
   'conselho': ['/', '/plans', '/conselho', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'],
   'conselheiro': ['/', '/plans', '/conselho', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'],
-  'patrocinador': ['/', '/plans', '/patrocinador-dashboard', '/central-ajuda'],
+  'patrocinador': ['/', '/plans', '/patrocinador-dashboard', '/patrocinador', '/perfil-patrocinador', '/central-ajuda'],
   'responsavel': ['/', '/plans', '/responsavel', '/central-ajuda'],
   'colaborador': ['/', '/plans', '/colaborador', '/central-ajuda'],
   

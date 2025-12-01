@@ -9,6 +9,7 @@ import { useProfileImage } from "@/hooks/useProfileImage";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/logo";
 import { motion } from "framer-motion";
+import { UserAvatar } from "@/components/UserAvatar";
 
 interface Lance {
   id: number;
@@ -49,6 +50,13 @@ interface EstatisticasBeneficio {
     dataLance: string;
   };
 }
+
+// Função para formatar números com separador de milhar (ponto)
+const formatNumber = (num: number | string): string => {
+  const n = typeof num === 'string' ? parseInt(num) : num;
+  if (isNaN(n)) return '0';
+  return n.toLocaleString('pt-BR');
+};
 
 export default function MeusLances() {
   const [, setLocation] = useLocation();
@@ -259,7 +267,7 @@ export default function MeusLances() {
   return (
     <div className="min-h-screen bg-gray-50 font-inter">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
+      <header className="bg-gray-50">
         <div className="px-4 py-4 flex items-center justify-between">
           <button 
             onClick={() => setLocation('/beneficios')}
@@ -274,21 +282,12 @@ export default function MeusLances() {
             <Logo size="sm" />
           </div>
           
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-col items-center">
             {/* Foto de Perfil */}
-            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-300">
-              {profileImage ? (
-                <img 
-                  src={profileImage}
-                  alt="Foto de perfil"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-yellow-400 to-red-500 flex items-center justify-center text-white text-sm font-bold">
-                  {userData.nome ? userData.nome.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2) : 'U'}
-                </div>
-              )}
-            </div>
+            <UserAvatar
+              size="md"
+              className="border-2 border-gray-200 mb-1"
+            />
             
             {/* Badge do Plano */}
             <div className="bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1 rounded-full flex items-center space-x-1">
@@ -319,7 +318,7 @@ export default function MeusLances() {
             <p className="text-black mb-6">Você ainda não deu nenhum lance em prêmios</p>
             <Button
               onClick={() => setLocation('/beneficios')}
-              className="bg-gradient-to-r from-yellow-400 via-orange-400 to-red-500 hover:from-yellow-500 hover:via-orange-500 hover:to-red-600 text-white font-semibold px-8 py-3 rounded-xl"
+              className="bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-semibold px-8 py-3 rounded-xl"
               data-testid="btn-explorar-beneficios-empty"
             >
               Explorar Benefícios
@@ -386,7 +385,7 @@ export default function MeusLances() {
                             <div className="text-sm">
                               <span className="text-black">Lance:</span>
                               <span className="font-bold text-yellow-600 ml-1">
-                                {lance.pontosOfertados} Gritos
+                                {formatNumber(lance.pontosOfertados)} Gritos
                               </span>
                             </div>
                             <div className="text-sm text-gray-600">
@@ -458,7 +457,7 @@ export default function MeusLances() {
                           </span>
                         </div>
                         <div className="text-xs text-green-700">
-                          <span className="font-medium">{lance.pontosOfertados} Gritos</span> foram descontados
+                          <span className="font-medium">{formatNumber(lance.pontosOfertados)} Gritos</span> foram descontados
                         </div>
                       </div>
                       <p className="text-xs text-green-600 mt-2">
@@ -477,7 +476,7 @@ export default function MeusLances() {
                           </span>
                         </div>
                         <div className="text-xs text-blue-700">
-                          <span className="font-medium">+{lance.pontosOfertados} Gritos</span> na sua conta
+                          <span className="font-medium">+{formatNumber(lance.pontosOfertados)} Gritos</span> na sua conta
                         </div>
                       </div>
                       <p className="text-xs text-blue-600 mt-2">
@@ -598,7 +597,7 @@ export default function MeusLances() {
                               </div>
                             </div>
                             <div className="font-bold text-yellow-600">
-                              {lance.pontos} Gritos
+                              {formatNumber(lance.pontos)} Gritos
                             </div>
                           </div>
                         ))}
@@ -625,7 +624,7 @@ export default function MeusLances() {
                         <div className="flex justify-between items-center">
                           <div>
                             <div className="text-xl font-bold text-yellow-600">
-                              {estatisticas.lanceUsuario.pontos} Gritos
+                              {formatNumber(estatisticas.lanceUsuario.pontos)} Gritos
                             </div>
                             <div className="text-sm text-yellow-700">
                               Posição #{estatisticas.posicaoUsuario} de {estatisticas.totalLances}
@@ -701,7 +700,7 @@ export default function MeusLances() {
                     <h4 className="font-semibold text-gray-800 mb-2">Situação Atual</h4>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">Seu lance atual:</span>
-                      <span className="font-bold text-yellow-600">{estatisticas?.lanceUsuario.pontos} Gritos</span>
+                      <span className="font-bold text-yellow-600">{formatNumber(estatisticas?.lanceUsuario.pontos || 0)} Gritos</span>
                     </div>
                     <div className="flex justify-between items-center mt-1">
                       <span className="text-gray-600">Sua posição:</span>
@@ -737,7 +736,7 @@ export default function MeusLances() {
                     
                     {userStats && (
                       <div className="mt-3 text-center text-sm text-green-700">
-                        Você tem <span className="font-bold">{userStats.gritosTotal || 0} Gritos</span> disponíveis
+                        Você tem <span className="font-bold">{formatNumber(userStats.gritosTotal || 0)} Gritos</span> disponíveis
                       </div>
                     )}
                   </div>
@@ -748,7 +747,7 @@ export default function MeusLances() {
                     <ul className="text-sm text-blue-700 space-y-1">
                       <li>• Você ficará em <strong>1º lugar</strong></li>
                       <li>• Maiores chances de ganhar o prêmio</li>
-                      <li>• Diferença: +{novoLanceValor - (estatisticas?.lanceUsuario.pontos || 0)} Gritos</li>
+                      <li>• Diferença: +{formatNumber(novoLanceValor - (estatisticas?.lanceUsuario.pontos || 0))} Gritos</li>
                     </ul>
                   </div>
 

@@ -15,6 +15,7 @@ import {
   Tooltip, 
   ResponsiveContainer,
   PieChart,
+  PieChart as RechartsPieChart,
   Pie,
   Cell
 } from 'recharts';
@@ -1685,6 +1686,33 @@ export default function DevMarketing() {
     }
   });
 
+  // Buscar dados dos Doadores do Stripe (igual ao Leo)
+  const { data: doadoresStripeData } = useQuery<any>({
+    queryKey: ['/api/doadores/stats'],
+    refetchInterval: 900000,
+    refetchOnWindowFocus: true,
+  });
+
+  // Buscar doadores externos (doam fora do aplicativo)
+  const { data: doadoresExternosData } = useQuery<any>({
+    queryKey: ['/api/doadores-externos'],
+    refetchInterval: 900000,
+    refetchOnWindowFocus: true,
+  });
+
+  // Variáveis calculadas dos doadores do Stripe (igual ao Leo)
+  const statsDoadores = doadoresStripeData || {};
+  const totalDoadoresStripe = statsDoadores.totalDoadores || 0;
+  const arrecadacaoMensalStripe = statsDoadores.arrecadacaoMensal || 0;
+  const doacaoMediaStripe = statsDoadores.doacaoMedia || 0;
+  const taxaRetencaoStripe = statsDoadores.taxaRetencao || 0;
+  const porStatusStripe = statsDoadores.porStatus || { active: 0, trialing: 0, past_due: 0 };
+  const porPlanoStripe = statsDoadores.porPlano || [];
+  const evolucaoMensalStripe = statsDoadores.evolucaoMensal || [];
+  const distribuicaoPorValorStripe = statsDoadores.distribuicaoPorValor || [];
+  const listaDoadoresStripe = statsDoadores.doadores || [];
+  const CORES_PLANO = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'];
+
   // Queries para dashboard macro de leilões
   const { data: auctionsSummary = {}, isLoading: loadingAuctionsSummary } = useQuery({
     queryKey: ['/api/auctions/summary'],
@@ -1965,6 +1993,14 @@ export default function DevMarketing() {
         ordem: 0
       });
       toast({ title: editingBenefit ? "Benefício atualizado!" : "Benefício criado!" });
+    },
+    onError: (error: any) => {
+      console.error('❌ [BENEFIT ERROR]', error);
+      toast({ 
+        title: "Erro ao salvar benefício", 
+        description: error?.message || "Verifique se todos os campos estão preenchidos corretamente",
+        variant: "destructive" 
+      });
     }
   });
 
@@ -3785,167 +3821,255 @@ export default function DevMarketing() {
               </div>
             </TabsContent>
 
-            {/* Donor Dashboard Tab */}
+            {/* Donor Dashboard Tab - NOVA VERSÃO (igual ao Leo) */}
             <TabsContent value="donors" className="space-y-6 mt-6">
-              {/* Debug info */}
-              {(errorDonorStats || errorDoadores) && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                  <h4 className="text-red-800 font-semibold">Erros detectados:</h4>
-                  {errorDonorStats && <p className="text-red-700">Erro donor stats: {String(errorDonorStats)}</p>}
-                  {errorDoadores && <p className="text-red-700">Erro doadores: {String(errorDoadores)}</p>}
-                </div>
-              )}
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Dashboard de Doadores</h2>
-                  <p className="text-gray-600">Acompanhe métricas e estatísticas dos doadores</p>
+                  <p className="text-gray-600">Dados em tempo real do Stripe e doadores externos</p>
                 </div>
-                <Button data-testid="btn-export-donors">
-                  <Download className="w-4 h-4 mr-2" />
-                  Exportar CSV
-                </Button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <Users className="w-8 h-8 text-blue-500" />
-                      <div>
-                        <p className="text-sm text-gray-600">Doadores Ativos</p>
-                        <p className="text-2xl font-bold">{donorStats.totalAtivos || 0}</p>
-                      </div>
+              {/* Status de Doações */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Target className="w-5 h-5 text-purple-600" />
+                    Status de Doações
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                      <div className="text-3xl font-bold text-green-600">{porStatusStripe.active}</div>
+                      <p className="text-sm text-gray-600">Ativas</p>
+                      <p className="text-xs text-gray-400">Pagando normalmente</p>
                     </div>
+                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                      <div className="text-3xl font-bold text-blue-600">{porStatusStripe.trialing}</div>
+                      <p className="text-sm text-gray-600">Em Teste</p>
+                      <p className="text-xs text-gray-400">Período de trial</p>
+                    </div>
+                    <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                      <div className="text-3xl font-bold text-yellow-600">{porStatusStripe.past_due}</div>
+                      <p className="text-sm text-gray-600">Pendentes</p>
+                      <p className="text-xs text-gray-400">Pagamento atrasado</p>
+                    </div>
+                    <div className="text-center p-4 bg-orange-50 rounded-lg">
+                      <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
+                      <p className="text-sm text-gray-600">Externos</p>
+                      <p className="text-xs text-gray-400">Doações fora do app</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Gráficos: Distribuição por Plano e Faixa de Valor */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Distribuição por Plano */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Target className="w-5 h-5 text-blue-600" />
+                      Distribuição por Plano
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {porPlanoStripe.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <RechartsPieChart>
+                          <Pie
+                            data={porPlanoStripe.filter((p: any) => p.quantidade > 0)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ plano, quantidade }: any) => `${plano.split(' ')[0]}: ${quantidade}`}
+                            outerRadius={100}
+                            fill="#8884d8"
+                            dataKey="quantidade"
+                          >
+                            {porPlanoStripe.filter((p: any) => p.quantidade > 0).map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={CORES_PLANO[index % CORES_PLANO.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value: any, name: string, props: any) => [
+                            `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
+                            props.payload.plano
+                          ]} />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-[300px] text-gray-400">
+                        Carregando dados...
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-                
+
+                {/* Distribuição por Faixa de Valor */}
                 <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <Calendar className="w-8 h-8 text-green-500" />
-                      <div>
-                        <p className="text-sm text-gray-600">Missões Completadas</p>
-                        <p className="text-2xl font-bold">{donorStats.quantidadeMissoes || 0}</p>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+                      Distribuição por Faixa de Valor
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {distribuicaoPorValorStripe.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={distribuicaoPorValorStripe}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="faixa" />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="quantidade" fill="#6366f1" name="Doadores" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-[250px] text-gray-400">
+                        Carregando dados...
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle className="w-8 h-8 text-orange-500" />
-                      <div>
-                        <p className="text-sm text-gray-600">Check-ins Diários</p>
-                        <p className="text-2xl font-bold">{donorStats.quantidadeCheckinDiario || 0}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <TrendingUp className="w-8 h-8 text-purple-500" />
-                      <div>
-                        <p className="text-sm text-gray-600">Engajamento Médio</p>
-                        <p className="text-2xl font-bold">{donorStats.engajamentoMedio || 0}%</p>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Lista de Doadores</h3>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowCrmModal(true)}
-                      data-testid="button-ver-detalhes-dashboard"
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Ver Dashboard Detalhado
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => syncStripeMutation.mutate()}
-                      disabled={syncingStripe}
-                      data-testid="button-sync-stripe"
-                    >
-                      {syncingStripe ? (
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                      )}
-                      {syncingStripe ? 'Sincronizando...' : 'Sincronizar Stripe'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => syncPlansMutation.mutate()}
-                      disabled={syncingPlans}
-                      data-testid="button-sync-plans"
-                      className="bg-purple-50 hover:bg-purple-100"
-                    >
-                      {syncingPlans ? (
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                      )}
-                      {syncingPlans ? 'Sincronizando Planos...' : 'Sincronizar Planos'}
-                    </Button>
+              {/* Lista Individual de Doadores - Stripe */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-600" />
+                    Lista de Doadores Aplicativo - Dados em Tempo Real do Stripe
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {/* Campo de Pesquisa */}
+                  <div className="mb-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar doador por nome..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        data-testid="input-search-doadores-stripe"
+                      />
+                    </div>
                   </div>
-                </div>
-                {loadingDoadores ? (
-                  [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
-                ) : filteredDoadores.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <Users className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                    <p>Nenhum doador encontrado</p>
-                  </div>
-                ) : (
-                  // Ordenar doadores por data de início e adicionar número sequencial
-                  filteredDoadores
-                    .sort((a: any, b: any) => new Date(a.dataInicio).getTime() - new Date(b.dataInicio).getTime())
-                    .map((doador: any, index: number) => (
-                    <Card key={doador.id} className="p-6">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-sm font-mono text-gray-500">#{index + 1}</span>
-                            <h3 className="text-lg font-semibold">{doador.nome}</h3>
-                            <Badge variant="outline">{doador.plano?.charAt(0).toUpperCase() + doador.plano?.slice(1) || 'N/A'}</Badge>
-                            <Badge variant={doador.status === 'paid' ? "default" : "secondary"}>
-                              {doador.status === 'paid' ? 'Ativo' : 'Inativo'}
-                            </Badge>
-                          </div>
-                          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-gray-600 mb-2">
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-4 h-4 text-gray-400" />
-                              <span>{doador.telefone || 'Não informado'}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Mail className="w-4 h-4 text-gray-400" />
-                              <span>{doador.email || 'Não informado'}</span>
-                            </div>
-                          </div>
-                          <div className="flex gap-4 text-sm text-gray-500">
-                            <span>💰 Valor: R$ {doador.valor ? Number(doador.valor).toFixed(2) : '0.00'}</span>
-                            <span>📅 Início: {new Date(doador.dataInicio).toLocaleDateString('pt-BR')}</span>
-                            {doador.ultimaDoacao && (
-                              <span>✅ Último pagamento: {new Date(doador.ultimaDoacao).toLocaleDateString('pt-BR')}</span>
-                            )}
-                          </div>
-                        </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200">
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Telefone</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Plano</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Adesão</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Dias</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listaDoadoresStripe
+                          .filter((doador: any) => 
+                            !searchTerm || 
+                            doador.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            doador.plano?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            doador.telefone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            doador.email?.toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          .sort((a: any, b: any) => b.valor - a.valor)
+                          .map((doador: any, index: number) => (
+                            <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="py-3 px-4 text-gray-800">{doador.nome}</td>
+                              <td className="py-3 px-4 text-gray-600 text-sm">{doador.telefone || '-'}</td>
+                              <td className="py-3 px-4 text-gray-600 text-sm truncate max-w-[200px]" title={doador.email}>{doador.email || '-'}</td>
+                              <td className="py-3 px-4 text-right font-medium text-green-600">
+                                R$ {doador.valor?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                  doador.plano === "platinum" ? "bg-purple-100 text-purple-700" :
+                                  doador.plano === "grito" ? "bg-orange-100 text-orange-700" :
+                                  doador.plano === "voz" ? "bg-blue-100 text-blue-700" :
+                                  "bg-gray-100 text-gray-700"
+                                }`}>
+                                  {doador.plano === "platinum" ? "Platinum" :
+                                   doador.plano === "grito" ? "Grito" :
+                                   doador.plano === "voz" ? "Voz" : "Eco"}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center text-gray-600">{doador.periodicidade || "Mensal"}</td>
+                              <td className="py-3 px-4 text-center">
+                                <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                                  doador.status === 'active' ? 'bg-green-100 text-green-700' :
+                                  doador.status === 'trialing' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  {doador.status === 'active' ? 'Ativo' : 
+                                   doador.status === 'trialing' ? 'Trial' : 'Pendente'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center text-gray-600">{doador.dataAdesao}</td>
+                              <td className="py-3 px-4 text-center text-gray-600">{doador.diasComoDoador}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                    {listaDoadoresStripe.length === 0 && (
+                      <div className="text-center py-8 text-gray-400">
+                        Carregando doadores do Stripe...
                       </div>
-                    </Card>
-                  ))
-                )}
-              </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Lista de Doadores Externos */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-orange-600" />
+                    Doadores Externos - Doações fora do Aplicativo
+                  </CardTitle>
+                  <p className="text-sm text-gray-500">
+                    Total: {doadoresExternosData?.totalDoadores || 0} doadores | 
+                    Arrecadação: R$ {(doadoresExternosData?.arrecadacaoMensal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200">
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
+                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Observação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {doadoresExternosData?.doadores?.map((doador: any, index: number) => (
+                          <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-4 text-gray-800 font-medium">{doador.nome}</td>
+                            <td className="py-3 px-4 text-right font-medium text-orange-600">
+                              R$ {doador.valorMensal?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
+                            </td>
+                            <td className="py-3 px-4 text-center text-gray-500 text-sm">{doador.observacao || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(!doadoresExternosData?.doadores || doadoresExternosData.doadores.length === 0) && (
+                      <div className="text-center py-8 text-gray-400">
+                        Carregando doadores externos...
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* Stripe Tab */}

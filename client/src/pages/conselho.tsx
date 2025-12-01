@@ -688,101 +688,12 @@ export default function Conselho() {
 
         {/* Dashboard Financeiro - Omie ERP - Clean */}
         <div className="space-y-3">
-          {/* Header compacto com filtros inline */}
+          {/* Header compacto */}
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-bold text-black">Painel Financeiro</h3>
             </div>
-            
-            {/* Filtros como ícones */}
-            <div className="flex items-center gap-2">
-              <Popover open={showFinancePeriodPopover} onOpenChange={(open) => {
-                setShowFinancePeriodPopover(open);
-                if (!open) setSelectedYear(null);
-              }}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-gray-600 hover:text-black"
-                    data-testid="button-filter-period-financial"
-                  >
-                    <Calendar className="w-4 h-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-48 p-2" align="end">
-                  <div className="space-y-2">
-                    {!selectedYear ? (
-                      <>
-                        <p className="text-xs font-medium text-gray-700 px-2 py-1">Selecione o Ano</p>
-                        <div className="space-y-1">
-                          {[2025, 2024, 2023].map((year) => (
-                            <button
-                              key={year}
-                              onClick={() => setSelectedYear(year)}
-                              className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                                filtrosPeriodo.ano === year
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-gray-700 hover:bg-gray-100'
-                              }`}
-                            >
-                              {year}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between px-2 py-1">
-                          <button
-                            onClick={() => setSelectedYear(null)}
-                            className="text-xs text-gray-500 hover:text-gray-700"
-                          >
-                            ← Voltar
-                          </button>
-                          <p className="text-xs font-medium text-gray-700">{selectedYear}</p>
-                        </div>
-                        <div className="space-y-1 max-h-64 overflow-y-auto">
-                          {[
-                            { mes: null, label: `Todo ${selectedYear}` },
-                            { mes: 1, label: 'Janeiro' },
-                            { mes: 2, label: 'Fevereiro' },
-                            { mes: 3, label: 'Março' },
-                            { mes: 4, label: 'Abril' },
-                            { mes: 5, label: 'Maio' },
-                            { mes: 6, label: 'Junho' },
-                            { mes: 7, label: 'Julho' },
-                            { mes: 8, label: 'Agosto' },
-                            { mes: 9, label: 'Setembro' },
-                            { mes: 10, label: 'Outubro' },
-                            { mes: 11, label: 'Novembro' },
-                            { mes: 12, label: 'Dezembro' },
-                          ].map((period) => (
-                            <button
-                              key={period.mes || 'year'}
-                              onClick={() => {
-                                setFiltrosPeriodo({ ano: selectedYear, mes: period.mes });
-                                setShowFinancePeriodPopover(false);
-                                setSelectedYear(null);
-                              }}
-                              className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                                filtrosPeriodo.ano === selectedYear && filtrosPeriodo.mes === period.mes
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-gray-700 hover:bg-gray-100'
-                              }`}
-                            >
-                              {period.label}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
           </div>
-
 
           {/* Dashboard Financeiro Integrado */}
           <DashboardFinanceiro
@@ -790,6 +701,7 @@ export default function Conselho() {
             onRefresh={() => refetchOmie()}
             showRefreshControls={true}
             showData={showData}
+            onToggleShowData={() => setShowData(!showData)}
             className="space-y-6"
           />
 

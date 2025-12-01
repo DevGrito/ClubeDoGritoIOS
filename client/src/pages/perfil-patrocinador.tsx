@@ -17,7 +17,8 @@ import {
   ChevronRight,
   Menu,
   User,
-  BarChart3
+  BarChart3,
+  ExternalLink
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
@@ -301,6 +302,58 @@ export default function PerfilPatrocinador() {
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed">
                       Mostre quem você é nessa jornada.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Canal de Transparência */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    window.open("https://complaint-tracker-OGRITO.replit.app", "_blank");
+                  }}
+                  data-testid="menu-transparencia"
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      Canal de Transparência
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Denúncias e sugestões de forma anônima.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Deslogar */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    handleLogout();
+                  }}
+                  data-testid="menu-deslogar"
+                >
+                  <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
+                    <LogOut className="w-6 h-6 text-gray-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      Deslogar
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Encerrar sessão e deslogar.
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />

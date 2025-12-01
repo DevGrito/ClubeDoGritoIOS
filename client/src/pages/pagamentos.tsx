@@ -1245,6 +1245,9 @@ export default function Pagamentos() {
   // ✅ CORREÇÃO: Declarar userId PRIMEIRO
   const userId = localStorage.getItem("userId");
   
+  // Verificar se é usuário Influencer (esconder valores)
+  const isInfluencer = userData?.nome === "Influencer" || (userData as any)?.id === 142;
+  
   // Verificar se veio da central de ajuda
   const urlParams = new URLSearchParams(window.location.search);
   const fromHelp = urlParams.get('from') === 'help';
@@ -1597,14 +1600,15 @@ export default function Pagamentos() {
                   <span className="text-xs text-black/80 font-medium font-inter">TOTAL DOADO</span>
                 </div>
                 <div className="text-3xl font-bold text-black font-inter">
-                  R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}
+                  {isInfluencer ? "---" : `R$ ${impactData.valueContributed.toFixed(2).replace('.', ',')}`}
                 </div>
                 <div className="mt-2 text-xs text-black/70">
-                  Meta anual: R$ {impactData.annualValue.toFixed(2).replace('.', ',')} (R$ {impactData.monthlyValue.toFixed(2).replace('.', ',')} × {impactData.periodosPorAno} {impactData.periodoLabel})
+                  {isInfluencer ? "Acesso Influencer" : `Meta anual: R$ ${impactData.annualValue.toFixed(2).replace('.', ',')} (R$ ${impactData.monthlyValue.toFixed(2).replace('.', ',')} × ${impactData.periodosPorAno} ${impactData.periodoLabel})`}
                 </div>
               </div>
 
-              {/* Barra de Progresso da Causa Principal */}
+              {/* Barra de Progresso da Causa Principal - esconde para Influencer */}
+              {!isInfluencer && (
               <div className="bg-white p-6 rounded-lg border border-gray-100">
                 <ImpactProgressBar
                   causaName={causaDisplayNames[impactData.mainCausa as keyof typeof causaDisplayNames] || impactData.mainCausa.toUpperCase()}
@@ -1616,6 +1620,7 @@ export default function Pagamentos() {
                   periodicidade={impactData.periodicidade}
                 />
               </div>
+              )}
 
               {/* Banner de Progresso do Ano - Componente Interativo */}
               <div 
@@ -1630,11 +1635,17 @@ export default function Pagamentos() {
                 <div className="flex items-start space-x-4">
                   <TrendingUp className="w-6 h-6 text-yellow-600 mt-1 flex-shrink-0" />
                   <div className="text-sm text-gray-800 leading-relaxed">
-                    <span className="font-bold text-gray-900">Progresso do ano:</span> Seu impacto atual é de{' '}
-                    <span className="font-semibold text-gray-900">R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}</span>{' '}
-                    em {impactData.currentMonth} {impactData.currentMonth === 1 ? 'mês' : 'meses'}. Faltam{' '}
-                    <span className="font-semibold text-gray-900">R$ {impactData.valueRemaining.toFixed(2).replace('.', ',')}</span>{' '}
-                    para completar sua meta anual.
+                    {isInfluencer ? (
+                      <span className="text-gray-700">Você tem acesso Influencer ao app. Obrigado por divulgar o Clube do Grito!</span>
+                    ) : (
+                      <>
+                        <span className="font-bold text-gray-900">Progresso do ano:</span> Seu impacto atual é de{' '}
+                        <span className="font-semibold text-gray-900">R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}</span>{' '}
+                        em {impactData.currentMonth} {impactData.currentMonth === 1 ? 'mês' : 'meses'}. Faltam{' '}
+                        <span className="font-semibold text-gray-900">R$ {impactData.valueRemaining.toFixed(2).replace('.', ',')}</span>{' '}
+                        para completar sua meta anual.
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

@@ -75,13 +75,19 @@ interface IndicadorLineProps {
   prefersReducedMotion?: boolean;
 }
 
-function useGestaoVista(ano: number) {
+function useGestaoVista(ano: number, mes: number | null) {
   return useQuery<GestaoVistaData>({
-    queryKey: ['gestao-vista', ano],
+    // chave muda quando o mês muda → react-query refaz o fetch
+    queryKey: ['gestao-vista', ano, mes],
     queryFn: async () => {
-      const res = await fetch(`/api/gestao-vista?ano=${ano}`);
+      const params = new URLSearchParams();
+      params.set('ano', String(ano));
+      if (mes !== null) {
+        params.set('mes', String(mes)); // se tiver mês, manda pro backend
+      }
+
+      const res = await fetch(`/api/gestao-vista?${params.toString()}`);
       if (!res.ok) throw new Error('Erro ao buscar gestão à vista');
-      // O backend já retorna exatamente { periodo, indicadores, ... }
       return (await res.json()) as GestaoVistaData;
     },
     staleTime: 5 * 60 * 1000,

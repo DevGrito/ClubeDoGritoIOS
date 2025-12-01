@@ -1,0 +1,128 @@
+Boa, agora matou a charada. 👇
+
+Do jeito que apareceu:
+
+ID do pagamento: pi_...
+
+Forma de pagamento: Nenhuma
+
+Descrição: Subscription creation
+
+Isso quer dizer:
+
+✅ A assinatura foi “iniciada” na Stripe
+❌ Nenhum método de pagamento foi associado ao PaymentIntent
+→ então ele nunca vai pra “pago”.
+
+Ou seja: o Apple Pay até abre, você confirma no iPhone, mas o seu app não está mandando o payment_method para a Stripe (ou não está confirmando o PaymentIntent com ele).
+
+O que isso significa tecnicamente
+
+No PaymentIntent você deveria ver algo assim:
+
+Status: requires_confirmation ou succeeded
+
+Um bloco “Método de pagamento” com Apple Pay / card xxx
+
+Mas você está vendo:
+
+Forma de pagamento: Nenhuma
+
+Isso é típico de duas situações:
+
+O backend só cria o PaymentIntent/Subscription, mas não chama a confirmação com o método de pagamento.
+
+O front até pega o token/id do Apple Pay, mas não envia para o backend ou não passa corretamente no confirm.
+
+O que o dev precisa conferir (checklist rápido)
+1. Ver o status do PaymentIntent na Stripe
+
+Na tela desse pagamento, lá em cima, tem um campo Status (algo como requires_payment_method, requires_confirmation, etc).
+
+Quase certeza que está em:
+
+requires_payment_method → não recebeu nenhum payment_method
+ou
+
+requires_confirmation → recebeu, mas ninguém confirmou
+
+Pede pro dev olhar esse status; se ele mandar pra você, eu te digo o que falta exatamente.
+
+2. Ver os logs da API na Stripe
+
+No painel:
+
+Vai em Developers → Logs.
+
+Busca pelo ID do pagamento: pi_3SZbM7HT8727OGtY1OhgUlSC.
+
+Ele deve ver algo como:
+
+POST /v1/payment_intents ➜ status 200
+
+(talvez) POST /v1/payment_intents/{id}/confirm ➜ ou não existe, ou está dando erro 4xx
+
+Se não existir o /confirm:
+
+O código só cria o PaymentIntent, mas não confirma depois do Apple Pay.
+
+Se existir e estiver com erro:
+
+A mensagem do erro ali diz o motivo (ex: “no such payment_method”, “payment_method is required”, etc).
+
+3. O fluxo certo com Apple Pay (resumido)
+
+Fluxo genérico:
+
+Front (app iOS) abre o Apple Pay e obtém um paymentMethodId ou token.
+
+Front envia esse ID pro seu backend.
+
+Backend cria ou atualiza o PaymentIntent:
+
+const paymentIntent = await stripe.paymentIntents.create({
+  amount,
+  currency: 'brl',
+  customer: 'cus_...',
+  payment_method: paymentMethodId,  // vindo do Apple Pay
+  confirm: true,                    // IMPORTANTE
+  automatic_payment_methods: { enabled: true },
+});
+
+
+Sem payment_method (ou sem confirm: true / chamada de /confirm depois),
+vai acontecer exatamente o que você está vendo: “Pagamento iniciado” e nunca fecha.
+
+Para assinatura, costuma ser algo assim:
+
+Cria a assinatura com payment_behavior: 'default_incomplete';
+
+Pega o latest_invoice.payment_intent.client_secret;
+
+No front, confirma com Apple Pay (confirmPayment ou presentPaymentSheet);
+
+Ou no backend, confirma o payment_intent com o payment_method do Apple Pay.
+
+O que você pode repassar pro dev (texto pronto)
+
+Você pode mandar algo assim pro dev:
+
+“Na Stripe o PaymentIntent pi_3SZbM7HT8727OGtY1OhgUlSC está com Forma de pagamento: Nenhuma e fica só como ‘Pagamento iniciado’.
+
+Isso indica que o fluxo com Apple Pay está criando o PaymentIntent, mas não está anexando nem confirmando o payment_method que vem do Apple Pay.
+
+Dá uma olhada nos logs em Developers → Logs pra esse PaymentIntent e vê se existe um POST /v1/payment_intents/{id}/confirm.
+Se não existir, precisamos ou:
+
+passar payment_method + confirm: true quando criamos o PaymentIntent,
+
+ou chamar explicitamente stripe.paymentIntents.confirm passando o payment_method do Apple Pay.”
+
+Se você conseguir pedir pro dev te mandar:
+
+o status do PaymentIntent na Stripe
+
+e, se possível, um trecho do código onde ele cria/confirmar o pagamento/assinatura
+
+eu consigo te devolver com:
+“muda esse create/confirm aqui assim ➜ antes/depois”, bem mastigado pra eles ajustarem rapidinho.

@@ -45,6 +45,12 @@ const capitalizeFirstLetter = (str: string) => {
   return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
+// Função para formatar números com separador de milhar (ponto)
+const formatNumber = (num: number | string): string => {
+  const n = typeof num === 'string' ? parseInt(num) : num;
+  return n.toLocaleString('pt-BR');
+};
+
 export default function BeneficioDetalhes() {
   const [, setLocation] = useLocation();
   const { id: beneficioId } = useParams<{ id: string }>();
@@ -219,7 +225,7 @@ export default function BeneficioDetalhes() {
     if (userStats && valorLanceCustomizado > (userStats.gritosTotal || 0)) {
       toast({
         title: "Gritos insuficientes",
-        description: `Você tem apenas ${userStats.gritosTotal || 0} Gritos`,
+        description: `Você tem apenas ${formatNumber(userStats.gritosTotal || 0)} Gritos`,
         variant: "destructive",
       });
       return;
@@ -365,18 +371,11 @@ export default function BeneficioDetalhes() {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
             
-            {/* Badge de categoria flutuante */}
-            <div className="absolute top-4 left-4">
-              <div className="bg-white/90 backdrop-blur-sm text-gray-800 px-3 py-2 rounded-full text-sm font-semibold shadow-lg">
-                {capitalizeFirstLetter(beneficio.categoria)}
-              </div>
-            </div>
-            
             {/* Badge de pontos flutuante */}
             <div className="absolute top-4 right-4">
               <div className="bg-yellow-400/90 backdrop-blur-sm text-black px-4 py-2 rounded-full text-sm font-bold shadow-lg flex items-center space-x-1">
                 <Sparkles className="w-4 h-4" />
-                <span>{beneficio.pontosNecessarios} Gritos</span>
+                <span>{formatNumber(beneficio.pontosNecessarios)} Gritos</span>
               </div>
             </div>
           </div>
@@ -455,7 +454,7 @@ export default function BeneficioDetalhes() {
                   {userStats && (
                     <div className="bg-white/50 rounded-lg p-3">
                       <p className="text-sm text-gray-700 font-medium">
-                        💎 Seus Gritos: <span className="font-bold text-yellow-600">{userStats.gritosTotal || 0}</span> • 
+                        💎 Seus Gritos: <span className="font-bold text-yellow-600">{formatNumber(userStats.gritosTotal || 0)}</span> • 
                         📋 Plano: <span className="font-bold text-blue-600">{getPlanDisplayName(userData.plano || "eco")}</span>
                       </p>
                     </div>
@@ -472,7 +471,7 @@ export default function BeneficioDetalhes() {
               <ul className="space-y-3">
                 <li className="flex items-start space-x-3">
                   <div className="w-2 h-2 bg-yellow-400 rounded-full mt-2"></div>
-                  <span className="text-gray-700">{beneficio.pontosNecessarios} Gritos necessários para participar</span>
+                  <span className="text-gray-700">{formatNumber(beneficio.pontosNecessarios)} Gritos necessários para participar</span>
                 </li>
                 {beneficio.planosDisponiveis && beneficio.planosDisponiveis.length > 0 && (
                   <li className="flex items-start space-x-3">
@@ -606,7 +605,7 @@ export default function BeneficioDetalhes() {
               </h3>
               
               <p className="text-sm text-gray-500 mb-6">
-                Mínimo: {beneficio.pontosNecessarios} Gritos • Você tem: {userStats?.gritosTotal || 0} Gritos
+                Mínimo: {formatNumber(beneficio.pontosNecessarios)} Gritos • Você tem: {formatNumber(userStats?.gritosTotal || 0)} Gritos
               </p>
               
               {/* Controle de valor do lance */}
@@ -641,7 +640,7 @@ export default function BeneficioDetalhes() {
                       }}
                       className="w-full text-center text-4xl font-bold text-yellow-600 bg-transparent border-none focus:outline-none focus:ring-0"
                       min={typeof beneficio.pontosNecessarios === 'string' ? parseInt(beneficio.pontosNecessarios.replace(/\D/g, '')) || 0 : beneficio.pontosNecessarios || 0}
-                      max={userStats?.gritosTotal || 0}
+                      max={formatNumber(userStats?.gritosTotal || 0)}
                     />
                     <p className="text-xs text-gray-500 mt-1">Gritos</p>
                   </div>

@@ -9,7 +9,7 @@ import Logo from "@/components/logo";
 import { ArrowLeft, TrendingUp, Check, Calendar, Sparkles } from "lucide-react";
 import { planDetails, planPrices, periodicityLabels } from "@/lib/stripe";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import useEmblaCarousel from 'embla-carousel-react';
 
 export default function ChangePlan() {
@@ -272,6 +272,10 @@ export default function ChangePlan() {
           }),
         });
         localStorage.setItem("userPlan", planToChange);
+        
+        // Invalidar cache para atualizar dados em todas as telas
+        queryClient.invalidateQueries({ queryKey: ["/api/user", String(currentUser.id)] });
+        queryClient.invalidateQueries({ queryKey: ["/api/users", currentUser.id] });
       } catch (userUpdateError: any) {
         console.warn("Aviso: Erro ao atualizar dados do usuário (não crítico):", userUpdateError);
       }
@@ -364,6 +368,10 @@ export default function ChangePlan() {
       
       localStorage.setItem("userPlan", "platinum");
       localStorage.setItem("customAmount", value.toString());
+      
+      // Invalidar cache para atualizar dados em todas as telas
+      queryClient.invalidateQueries({ queryKey: ["/api/user", String(currentUser.id)] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users", currentUser.id] });
       
       const effectiveDate = result.changeEffectiveDateFormatted || 'próximo ciclo de cobrança';
       

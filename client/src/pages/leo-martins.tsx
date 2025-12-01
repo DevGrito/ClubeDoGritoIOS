@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import useEmblaCarousel from "embla-carousel-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import DashboardFinanceiro from "@/components/DashboardFinanceiro";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -54,7 +56,11 @@ import {
   ChevronUp,
   ChevronDown,
   ExternalLink,
-  ClipboardList
+  ClipboardList,
+  Eye,
+  EyeOff,
+  ShoppingBag,
+  Search
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -517,7 +523,7 @@ function RelatorioFinanceiroDetalhado() {
 }
 
 // Componente Carrossel de Métricas (movido para fora do escopo principal)
-function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, calcularAlunosAtivosMes, dadosMensais, dadosMensaisPEC }: any) {
+function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, calcularAlunosAtivosMes, dadosMensais, dadosMensaisPEC, doadoresData, colaboradoresCount }: any) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false, align: 'start' });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -536,13 +542,16 @@ function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, c
     emblaApi.on('select', onSelect);
   }, [emblaApi, onSelect]);
 
+  // Dados reais do Stripe
+  const totalDoadores = doadoresData?.totalDoadores || 0;
+
   const cards = [
     {
       title: "Total Doadores",
-      value: 15,
-      subtitle: "Doadores ativos",
-      meta: 1500,
-      percentual: ((15 / 1500) * 100).toFixed(1)
+      value: totalDoadores,
+      subtitle: "Assinaturas ativas (Stripe)",
+      meta: null,
+      percentual: null
     },
     {
       title: "Alunos Ativos",
@@ -561,7 +570,7 @@ function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, c
     },
     {
       title: "Colaboradores",
-      value: 45,
+      value: colaboradoresCount || 0,
       subtitle: "Equipe colaborativa",
       meta: null
     }
@@ -642,6 +651,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [gestaoVistaData, setGestaoVistaData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showFinanceiroData, setShowFinanceiroData] = useState(true);
   const [tempName, setTempName] = useState("");
   const [tempPhone, setTempPhone] = useState("");
   const [isComponentReady, setIsComponentReady] = useState(false);
@@ -662,6 +672,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [anoPatrocinador, setAnoPatrocinador] = useState<number>(2024); // Ano selecionado para patrocinadores (ano anterior)
   const [selectedArea, setSelectedArea] = useState<string | null>(null); // Área selecionada de cursos (tecnologia, beleza, etc.)
   const [selectedModalidade, setSelectedModalidade] = useState<string | null>(null); // Modalidade selecionada (presencial/ead)
+  const [searchDoadorTerm, setSearchDoadorTerm] = useState(""); // Pesquisa na lista de doadores
   const isMobile = useIsMobile();
   const anoAnterior = new Date().getFullYear() - 1;
 
@@ -943,9 +954,36 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     fetchMarketingData();
   }, []);
 
-  // Buscar dados dos Doadores
+  // Buscar dados dos Doadores (Stripe)
   const { data: doadoresData } = useQuery<any>({
     queryKey: ['/api/doadores/stats'],
+    refetchInterval: 900000, // 15 minutos
+    refetchOnWindowFocus: true,
+  });
+
+  // Buscar doadores externos (doam fora do aplicativo)
+  const { data: doadoresExternosData } = useQuery<any>({
+    queryKey: ['/api/doadores-externos'],
+    refetchInterval: 900000, // 15 minutos
+    refetchOnWindowFocus: true,
+  });
+
+  // Buscar dados de Negócios Sociais (Griffite e Outlet)
+  const { data: negociosSociaisData, isLoading: loadingNegocios } = useQuery<{
+    success: boolean;
+    data: {
+      outlet: {
+        doacoesRecebidas: number;
+        vendasPessoasImpactadas: number;
+        pecasVendidas: number;
+      };
+      griffte: {
+        pecasConfeccionadas: number;
+        clientesAtendidos: number;
+      };
+    };
+  }>({
+    queryKey: ['/api/negocios-sociais'],
   });
 
   // Buscar dados demográficos (Gênero, Raça/Cor, Idade)
@@ -2222,30 +2260,42 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </Card>
       )}
 
-      {/* Header Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-yellow-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Doadores</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">15</div>
-            <p className="text-xs text-gray-500">Doadores ativos</p>
-            <div className="mt-2 pt-2 border-t border-yellow-100">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-600">Meta:</span>
-                <span className="text-xs font-semibold text-gray-700">1.500</span>
-              </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-xs text-gray-600">Realizado:</span>
-                <span className="text-xs font-semibold text-yellow-600">
-                  {((15 / 1500) * 100).toFixed(1)}%
-                </span>
-              </div>
+      {/* Status de Doações Stripe - Linha própria */}
+      <Card className="border-purple-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+            <Target className="w-4 h-4 text-purple-600" />
+            Status de Doações
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-4 gap-4 text-center">
+            <div className="p-4 bg-green-50 rounded-lg">
+              <div className="text-3xl font-bold text-green-600">{doadoresData?.porStatus?.active || 0}</div>
+              <p className="text-sm text-gray-600">Ativas</p>
+              <p className="text-xs text-gray-400">Pagando normalmente</p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="text-3xl font-bold text-blue-600">{doadoresData?.porStatus?.trialing || 0}</div>
+              <p className="text-sm text-gray-600">Em Teste</p>
+              <p className="text-xs text-gray-400">Período de trial</p>
+            </div>
+            <div className="p-4 bg-yellow-50 rounded-lg">
+              <div className="text-3xl font-bold text-yellow-600">{doadoresData?.porStatus?.past_due || 0}</div>
+              <p className="text-sm text-gray-600">Pendentes</p>
+              <p className="text-xs text-gray-400">Pagamento atrasado</p>
+            </div>
+            <div className="p-4 bg-orange-50 rounded-lg">
+              <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
+              <p className="text-sm text-gray-600">Externos</p>
+              <p className="text-xs text-gray-400">Doações fora do app</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Header Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border-blue-200">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">Patrocinadores</CardTitle>
@@ -2594,7 +2644,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                 <div className="flex-1">
                   <p className="text-sm font-medium">Doadores Ativos</p>
-                  <p className="text-xs text-gray-500">15 doadores cadastrados</p>
+                  <p className="text-xs text-gray-500">{doadoresData?.totalDoadores || 0} assinaturas ativas</p>
                 </div>  
               </div>  
               
@@ -2678,377 +2728,161 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       case "dashboard":
         return renderDashboard();
       case "doador":
-        // Processar dados dos doadores do Stripe
-        const processarDoadoresStripe = () => {
-          if (!doadoresData?.customers) {
-            return [];
-          }
+        // ===== DADOS 100% REAIS DO STRIPE =====
+        const statsDoadores = doadoresData || {};
+        const totalDoadores = statsDoadores.totalDoadores || 0;
+        const arrecadacaoMensal = statsDoadores.arrecadacaoMensal || 0;
+        const doacaoMedia = statsDoadores.doacaoMedia || 0;
+        const taxaRetencao = statsDoadores.taxaRetencao || 0;
+        const porStatus = statsDoadores.porStatus || { active: 0, trialing: 0, past_due: 0 };
+        const porPlano = statsDoadores.porPlano || [];
+        const evolucaoMensal = statsDoadores.evolucaoMensal || [];
+        const distribuicaoPorValor = statsDoadores.distribuicaoPorValor || [];
+        const listaDoadores = statsDoadores.doadores || [];
 
-          return doadoresData.customers.map((customer: any) => {
-            // Extrair dados do customer
-            const id = customer.id;
-            const nome = customer.name || customer.email || 'Doador Anônimo';
-            const email = customer.email;
-            
-            // Pegar a primeira subscription ativa se houver
-            const subscription = customer.subscriptions?.data?.[0];
-            
-            // Calcular valor (em BRL, converter de centavos para reais)
-            let valor = 0;
-            if (subscription?.items?.data?.[0]?.price) {
-              valor = subscription.items.data[0].price.unit_amount / 100;
-            }
-            
-            // Calcular período baseado na data de criação da subscription
-            let periodo = "Sem assinatura";
-            if (subscription?.created) {
-              const mesesAtivo = Math.floor((Date.now() / 1000 - subscription.created) / (30 * 24 * 60 * 60));
-              if (mesesAtivo >= 36) periodo = "3 anos";
-              else if (mesesAtivo >= 24) periodo = "2 anos";
-              else if (mesesAtivo >= 12) periodo = "1 ano";
-              else if (mesesAtivo >= 1) periodo = "1 mês";
-              else periodo = "2 semanas";
-            }
-            
-            return { id, nome, email, valor, periodo };
-          });
-        };
-
-        const doadoresPlanilha = processarDoadoresStripe();
-
-        // Usar IDs únicos para evitar duplicação (vários podem ter nome "Doador Anônimo")
-        const totalDoadores = doadoresPlanilha.length;
-        const arrecadacaoTotal = doadoresPlanilha.reduce((acc, d) => acc + d.valor, 0);
-        const doacaoMedia = doadoresPlanilha.length > 0 ? arrecadacaoTotal / doadoresPlanilha.length : 0;
-
-        // Estatísticas por período
-        const doadoresPorPeriodo = doadoresPlanilha.reduce((acc: any, d) => {
-          if (!acc[d.periodo]) {
-            acc[d.periodo] = { quantidade: 0, total: 0 };
-          }
-          acc[d.periodo].quantidade++;
-          acc[d.periodo].total += d.valor;
-          return acc;
-        }, {});
-
-        const periodos = Object.keys(doadoresPorPeriodo).sort();
-
-        // Calcular evolução mensal (distribuição progressiva dos doadores)
-        const evolucaoMensal = [
-          { month: "Jul", valor: 650, quantidade: 2 },
-          { month: "Ago", valor: 1200, quantidade: 3 },
-          { month: "Set", valor: 2100, quantidade: 5 },
-          { month: "Out", valor: 2080.3, quantidade: 5 },
-          { month: "Nov", valor: 0, quantidade: 0 },
-          { month: "Dez", valor: 0, quantidade: 0 },
-        ];
-
-        // Calcular distribuição por faixa de valor
-        const distribuicaoPorValor = [
-          { faixa: "R$10-50", quantidade: 8 }, // 5 de 9.90, 1 de 25, 2 de 50
-          { faixa: "R$51-100", quantidade: 3 }, // 59.40, 100, 100
-          { faixa: "R$101-200", quantidade: 0 },
-          { faixa: "R$201-500", quantidade: 0 },
-          { faixa: "R$500+", quantidade: 4 }, // 605.40, 1000, 1000, 3000
-        ];
-
-        // Classificação de doadores: Novos (≤1 mês) vs Recorrentes (>1 ano)
-        const novosDoadores = doadoresPlanilha.filter(d => 
-          d.periodo === '1 mês' || d.periodo === '2 semanas'
-        );
-        const doadoresRecorrentes = doadoresPlanilha.filter(d => 
-          d.periodo === '1 ano' || d.periodo === '2 anos' || d.periodo === '3 anos'
-        );
-
-        // Dados de retenção para o gráfico (distribuição mensal progressiva)
-        const retentionData = [
-          { mes: "Jul", novos: 0, recorrentes: 3 },
-          { mes: "Ago", novos: 1, recorrentes: 4 },
-          { mes: "Set", novos: 2, recorrentes: 6 },
-          { mes: "Out", novos: 3, recorrentes: 9 },
-          { mes: "Nov", novos: 0, recorrentes: 0 },
-          { mes: "Dez", novos: 0, recorrentes: 0 },
-        ];
-
-        // Calcular taxa de retenção
-        const taxaRetencao =
-          totalDoadores > 0
-            ? Math.round((doadoresRecorrentes.length / totalDoadores) * 100)
-            : 0;
+        // Cores para os gráficos
+        const CORES_PLANO = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'];
+        const CORES_STATUS = { active: '#10b981', trialing: '#3b82f6', past_due: '#f59e0b' };
 
         return (
           <div className="space-y-6">
-            {/* Doador Header Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card className="border-yellow-200">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Total Doadores
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-yellow-600">
-                    {totalDoadores}
+            {/* Status de Doações */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="w-5 h-5 text-purple-600" />
+                  Status de Doações
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <div className="text-3xl font-bold text-green-600">{porStatus.active}</div>
+                    <p className="text-sm text-gray-600">Ativas</p>
+                    <p className="text-xs text-gray-400">Pagando normalmente</p>
                   </div>
-                  <p className="text-xs text-gray-500">Doadores ativos</p>
-                  <div className="mt-2 pt-2 border-t border-yellow-100">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-600">Meta:</span>
-                      <span className="text-xs font-semibold text-gray-700">1.500</span>
-                    </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <span className="text-xs text-gray-600">Realizado:</span>
-                      <span className="text-xs font-semibold text-yellow-600">
-                        {((totalDoadores / 1500) * 100).toFixed(1)}%
-                      </span>
-                    </div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <div className="text-3xl font-bold text-blue-600">{porStatus.trialing}</div>
+                    <p className="text-sm text-gray-600">Em Teste</p>
+                    <p className="text-xs text-gray-400">Período de trial</p>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                    <div className="text-3xl font-bold text-yellow-600">{porStatus.past_due}</div>
+                    <p className="text-sm text-gray-600">Pendentes</p>
+                    <p className="text-xs text-gray-400">Pagamento atrasado</p>
+                  </div>
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
+                    <p className="text-sm text-gray-600">Externos</p>
+                    <p className="text-xs text-gray-400">Doações fora do app</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-              <Card className="border-yellow-200">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Doação Média
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-yellow-600">
-                    R${" "}
-                    {doacaoMedia.toLocaleString("pt-BR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-500">--</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-blue-200">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Arrecadação Total
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-blue-600">
-                    R${" "}
-                    {arrecadacaoTotal.toLocaleString("pt-BR", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-500">--</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-green-200">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Taxa Retenção
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
-                    {taxaRetencao}%
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    {doadoresRecorrentes.length} recorrentes de {totalDoadores}{" "}
-                    total
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Doador Charts */}
+            {/* Gráficos: Distribuição por Plano e Evolução */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Monthly Donations Trend */}
+              {/* Distribuição por Plano */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChart className="w-5 h-5 text-blue-600" />
+                    Distribuição por Plano
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {porPlano.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <RechartsPieChart>
+                        <Pie
+                          data={porPlano.filter((p: any) => p.quantidade > 0)}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ plano, quantidade }: any) => `${plano.split(' ')[0]}: ${quantidade}`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="quantidade"
+                        >
+                          {porPlano.filter((p: any) => p.quantidade > 0).map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={CORES_PLANO[index % CORES_PLANO.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: any, name: string, props: any) => [
+                          `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
+                          props.payload.plano
+                        ]} />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[300px] text-gray-400">
+                      Carregando dados...
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Evolução Mensal de Adesões */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-green-600" />
-                    Evolução das Doações
+                    Evolução Mensal de Adesões
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {typeof window !== "undefined" && (
+                  {evolucaoMensal.length > 0 ? (
                     <ResponsiveContainer width="100%" height={300}>
                       <ComposedChart data={evolucaoMensal}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="month" />
+                        <XAxis dataKey="mes" />
                         <YAxis yAxisId="left" />
                         <YAxis yAxisId="right" orientation="right" />
                         <Tooltip
                           formatter={(value: any, name: string) => {
-                            if (name === "Valor (R$)") {
-                              return `R$ ${parseFloat(value).toLocaleString(
-                                "pt-BR",
-                                { minimumFractionDigits: 2 }
-                              )}`;
+                            if (name === "Valor Mensal (R$)") {
+                              return `R$ ${parseFloat(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
                             }
                             return value;
                           }}
                         />
                         <Legend />
-                        <Bar
-                          yAxisId="left"
-                          dataKey="valor"
-                          fill="#f59e0b"
-                          name="Valor (R$)"
-                        />
-                        <Line
-                          yAxisId="right"
-                          type="monotone"
-                          dataKey="quantidade"
-                          stroke="#3b82f6"
-                          strokeWidth={2}
-                          name="Quantidade"
-                        />
+                        <Bar yAxisId="left" dataKey="novosDoadores" fill="#f59e0b" name="Novos Doadores" />
+                        <Line yAxisId="right" type="monotone" dataKey="acumuladoDoadores" stroke="#3b82f6" strokeWidth={2} name="Acumulado" />
                       </ComposedChart>
                     </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[300px] text-gray-400">
+                      Carregando dados...
+                    </div>
                   )}
-                </CardContent>
-              </Card>
-
-              {/* Donation Value Distribution */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-blue-600" />
-                    Distribuição por Valor
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div
-                    key="doador-distribuicao-chart"
-                    style={{ width: "100%", height: "300px" }}
-                  >
-                    {typeof window !== "undefined" && (
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={distribuicaoPorValor}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="faixa" />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="quantidade" fill="#3b82f6" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                  </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Retention Rate Analysis */}
+            {/* Distribuição por Faixa de Valor */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-purple-600" />
-                  Análise de Retenção de Doadores
+                  <BarChart3 className="w-5 h-5 text-indigo-600" />
+                  Distribuição por Faixa de Valor
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div
-                  key="doador-retencao-chart"
-                  style={{ width: "100%", height: "350px" }}
-                >
-                  {typeof window !== "undefined" && (
-                    <ResponsiveContainer width="100%" height={350}>
-                      <AreaChart data={retentionData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="mes" />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Area
-                          type="monotone"
-                          dataKey="novos"
-                          stackId="1"
-                          stroke="#8b5cf6"
-                          fill="#8b5cf6"
-                          name="Novos Doadores"
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="recorrentes"
-                          stackId="1"
-                          stroke="#10b981"
-                          fill="#10b981"
-                          name="Doadores Recorrentes"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Estatísticas Macro por Período */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-indigo-600" />
-                  Estatísticas por Período de Doação
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {/* Gráfico de Doações por Período */}
-                {typeof window !== "undefined" && (
-                  <ResponsiveContainer width="100%" height={350}>
-                    <ComposedChart
-                      data={periodos.map((periodo) => ({
-                        periodo,
-                        doadores: doadoresPorPeriodo[periodo].quantidade,
-                        valorTotal: doadoresPorPeriodo[periodo].total,
-                      }))}
-                    >
+                {distribuicaoPorValor.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={distribuicaoPorValor}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="periodo" />
-                      <YAxis
-                        yAxisId="left"
-                        label={{
-                          value: "Doadores",
-                          angle: -90,
-                          position: "insideLeft",
-                        }}
-                      />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        label={{
-                          value: "Valor (R$)",
-                          angle: 90,
-                          position: "insideRight",
-                        }}
-                      />
-                      <Tooltip
-                        formatter={(value: any, name: string) => {
-                          if (name === "valorTotal") {
-                            return `R$ ${parseFloat(value).toLocaleString(
-                              "pt-BR",
-                              { minimumFractionDigits: 2 }
-                            )}`;
-                          }
-                          return value;
-                        }}
-                      />
-                      <Legend />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="doadores"
-                        fill="#6366f1"
-                        name="Quantidade de Doadores"
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="valorTotal"
-                        stroke="#10b981"
-                        strokeWidth={3}
-                        name="Valor Total (R$)"
-                      />
-                    </ComposedChart>
+                      <XAxis dataKey="faixa" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="quantidade" fill="#6366f1" name="Doadores" />
+                    </BarChart>
                   </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-[250px] text-gray-400">
+                    Carregando dados...
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -3058,64 +2892,154 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-600" />
-                  Lista de Doadores - Detalhamento Individual
+                  Lista de Doadores Aplicativo - Dados em Tempo Real do Stripe
                 </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Campo de Pesquisa */}
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      placeholder="Pesquisar doador por nome..."
+                      value={searchDoadorTerm}
+                      onChange={(e) => setSearchDoadorTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      data-testid="input-search-doadores"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-gray-200">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Plano</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Adesão</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Dias</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {listaDoadores
+                        .filter((doador: any) => 
+                          !searchDoadorTerm || 
+                          doador.nome?.toLowerCase().includes(searchDoadorTerm.toLowerCase()) ||
+                          doador.plano?.toLowerCase().includes(searchDoadorTerm.toLowerCase())
+                        )
+                        .sort((a: any, b: any) => b.valor - a.valor)
+                        .map((doador: any, index: number) => (
+                          <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-4 text-gray-800">{doador.nome}</td>
+                            <td className="py-3 px-4 text-right font-medium text-green-600">
+                              R$ {doador.valor?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                doador.plano === "platinum" ? "bg-purple-100 text-purple-700" :
+                                doador.plano === "grito" ? "bg-orange-100 text-orange-700" :
+                                doador.plano === "voz" ? "bg-blue-100 text-blue-700" :
+                                "bg-gray-100 text-gray-700"
+                              }`}>
+                                {doador.plano === "platinum" ? "Platinum" :
+                                 doador.plano === "grito" ? "Grito" :
+                                 doador.plano === "voz" ? "Voz" : "Eco"}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center text-gray-600">{doador.periodicidade || "Mensal"}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                                doador.status === 'active' ? 'bg-green-100 text-green-700' :
+                                doador.status === 'trialing' ? 'bg-blue-100 text-blue-700' :
+                                'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {doador.status === 'active' ? 'Ativo' : 
+                                 doador.status === 'trialing' ? 'Trial' : 'Pendente'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center text-gray-600">{doador.dataAdesao}</td>
+                            <td className="py-3 px-4 text-center text-gray-600">{doador.diasComoDoador}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  {listaDoadores.length === 0 && (
+                    <div className="text-center py-8 text-gray-400">
+                      Carregando doadores do Stripe...
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Lista de Doadores Externos */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-orange-600" />
+                  Doadores Externos - Doações fora do Aplicativo
+                </CardTitle>
+                <p className="text-sm text-gray-500">
+                  Total: {doadoresExternosData?.totalDoadores || 0} doadores | 
+                  Arrecadação: R$ {(doadoresExternosData?.arrecadacaoMensal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b-2 border-gray-200">
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">
-                          Nome
-                        </th>
-                        <th className="text-right py-3 px-4 font-semibold text-gray-700">
-                          Valor
-                        </th>
-                        <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                          Período
-                        </th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Plano</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Observação</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {/* Lista ordenada de doadores */}
-                      {doadoresPlanilha
-                        .sort((a, b) => b.valor - a.valor)
-                        .map((doador, index) => (
-                          <tr
-                            key={index}
-                            className="border-b border-gray-100 hover:bg-gray-50"
-                          >
+                      {(doadoresExternosData?.doadores || [])
+                        .map((doador: any, index: number) => (
+                          <tr key={doador.id || index} className={`border-b border-gray-100 hover:bg-gray-50 ${doador.observacao === 'DOADOR ANJO' ? 'bg-yellow-50' : ''}`}>
                             <td className="py-3 px-4 text-gray-800">
                               {doador.nome}
                             </td>
                             <td className="py-3 px-4 text-right font-medium text-green-600">
-                              R${" "}
-                              {doador.valor.toLocaleString("pt-BR", {
-                                minimumFractionDigits: 2,
-                              })}
+                              R$ {doador.valorMensal?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
                             </td>
                             <td className="py-3 px-4 text-center">
-                              <span
-                                className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                                  doador.periodo === "3 anos"
-                                    ? "bg-purple-100 text-purple-700"
-                                    : doador.periodo === "2 anos"
-                                    ? "bg-blue-100 text-blue-700"
-                                    : doador.periodo === "1 ano"
-                                    ? "bg-green-100 text-green-700"
-                                    : doador.periodo === "1 mês"
-                                    ? "bg-yellow-100 text-yellow-700"
-                                    : "bg-orange-100 text-orange-700"
-                                }`}
-                              >
-                                {doador.periodo}
+                              <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
+                                doador.plano === "platinum" ? "bg-purple-100 text-purple-700" :
+                                doador.plano === "grito" ? "bg-orange-100 text-orange-700" :
+                                doador.plano === "voz" ? "bg-blue-100 text-blue-700" :
+                                "bg-gray-100 text-gray-700"
+                              }`}>
+                                {doador.plano === "platinum" ? "Platinum" :
+                                 doador.plano === "grito" ? "Grito" :
+                                 doador.plano === "voz" ? "Voz" : "Eco"}
                               </span>
+                            </td>
+                            <td className="py-3 px-4 text-center text-gray-600">{doador.periodicidade || "Mensal"}
+                            </td>
+                            <td className="py-3 px-4 text-center text-gray-600">
+                              {doador.observacao === 'DOADOR ANJO' ? (
+                                <span className="inline-block px-3 py-1 rounded-full text-xs font-medium bg-yellow-400 text-yellow-900">
+                                  ✨ ANJO
+                                </span>
+                              ) : (doador.observacao || '-')}
                             </td>
                           </tr>
                         ))}
                     </tbody>
                   </table>
+                  {(!doadoresExternosData?.doadores || doadoresExternosData.doadores.length === 0) && (
+                    <div className="text-center py-8 text-gray-400">
+                      Carregando doadores externos...
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -4105,9 +4029,53 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       case "colaborador":
         return <ColaboradoresSection />;
       case "favela3d":
-        if (!dadosMensaisFavela3D) {
-          return <div className="p-6">Carregando dados do Favela 3D...</div>;
-        }
+        // Dados mensais Favela 3D - Decolagem
+        const dadosDecolagem = {
+          visitas: {
+            mensal: [276, 220, 297, 318, 371, 354, 329, 322, 281, 323, 157, 0],
+            semestre1: 1836,
+            semestre2: 1412,
+            totalAnual: 3248,
+            impacto: 12992
+          },
+          triangulo: {
+            mensal: [10, 39, 29, 23, 91, 73, 74, 45, 110, 121, 0, 0],
+            semestre1: 265,
+            semestre2: 350,
+            totalAnual: 615,
+            impacto: 2460
+          },
+          acompanhamentoFamiliar: {
+            mensal: [null, null, null, 133, null, null, 205, null, null, 182, null, 133],
+            semestre1: 387,
+            semestre2: 133,
+            totalAnual: 520,
+            impacto: 2080
+          },
+          familiasEmbarcadas: {
+            mensal: [238, 219, 219, 217, 217, 217, 217, 218, 219, 219, 0, 0],
+            semestre1: 221,
+            semestre2: 145,
+            totalAnual: null,
+            impacto: null
+          },
+          desligamentos: {
+            mensal: [20, 39, 39, 41, 41, 41, 41, 40, 39, 39, 0, null],
+            semestre1: 36,
+            semestre2: 31,
+            totalAnual: null,
+            impacto: null
+          }
+        };
+
+        const mesesNomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+        const getValorDecolagem = (indicador: keyof typeof dadosDecolagem, mes: number) => {
+          const valor = dadosDecolagem[indicador].mensal[mes];
+          if (valor === null) return "—";
+          return valor.toLocaleString('pt-BR');
+        };
+
         return (
           <div className="space-y-6">
             {/* Filtro de Mês */}
@@ -4126,20 +4094,136 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <SelectValue placeholder="Selecione o mês" />
                   </SelectTrigger>
                   <SelectContent>
-                    {dadosMensaisFavela3D.meses?.map(
-                      (mes: string, index: number) => (
-                        <SelectItem key={index} value={index.toString()}>
-                          {mes}
-                        </SelectItem>
-                      )
-                    )}
+                    {mesesNomes.map((mes: string, index: number) => (
+                      <SelectItem key={index} value={index.toString()}>
+                        {mes}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </CardContent>
             </Card>
 
-            {/* Indicadores por Eixo */}
-            {dadosMensaisFavela3D.eixos?.map((eixo: any) => (
+            {/* Totais Anuais - Resumo */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-purple-600" />
+                  Totais Anuais - Decolagem
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="text-center p-3 bg-purple-50 rounded-lg">
+                    <p className="text-2xl font-bold text-purple-600">
+                      {dadosDecolagem.visitas.totalAnual?.toLocaleString('pt-BR')}
+                    </p>
+                    <p className="text-xs text-gray-600">Visitas</p>
+                  </div>
+                  <div className="text-center p-3 bg-purple-50 rounded-lg">
+                    <p className="text-2xl font-bold text-purple-600">
+                      {dadosDecolagem.triangulo.totalAnual?.toLocaleString('pt-BR')}
+                    </p>
+                    <p className="text-xs text-gray-600">Triângulo</p>
+                  </div>
+                  <div className="text-center p-3 bg-purple-50 rounded-lg">
+                    <p className="text-2xl font-bold text-purple-600">
+                      {dadosDecolagem.acompanhamentoFamiliar.totalAnual?.toLocaleString('pt-BR')}
+                    </p>
+                    <p className="text-xs text-gray-600">Acomp. Familiar</p>
+                  </div>
+                  <div className="text-center p-3 bg-gray-50 rounded-lg">
+                    <p className="text-2xl font-bold text-gray-400">N/A</p>
+                    <p className="text-xs text-gray-600">Fam. Embarcadas</p>
+                  </div>
+                  <div className="text-center p-3 bg-gray-50 rounded-lg">
+                    <p className="text-2xl font-bold text-gray-400">N/A</p>
+                    <p className="text-xs text-gray-600">Desligamentos</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Decolagem - Valores do Mês Selecionado */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <img
+                      src={favela3dLogo}
+                      alt="Favela 3D"
+                      className="w-5 h-5"
+                    />
+                    Decolagem
+                  </CardTitle>
+                  <Badge variant="outline" className="bg-purple-50">
+                    {mesesNomes[mesSelecionadoFavela3D]}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="p-4 border rounded-lg">
+                    <p className="text-sm text-gray-600 mb-2">Visitas</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {getValorDecolagem('visitas', mesSelecionadoFavela3D)}
+                    </p>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <p className="text-sm text-gray-600 mb-2">Triângulo</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {getValorDecolagem('triangulo', mesSelecionadoFavela3D)}
+                    </p>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <p className="text-sm text-gray-600 mb-2">Acompanhamento Familiar</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {getValorDecolagem('acompanhamentoFamiliar', mesSelecionadoFavela3D)}
+                    </p>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <p className="text-sm text-gray-600 mb-2">Famílias Embarcadas</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {getValorDecolagem('familiasEmbarcadas', mesSelecionadoFavela3D)}
+                    </p>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <p className="text-sm text-gray-600 mb-2">Desligamentos</p>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {getValorDecolagem('desligamentos', mesSelecionadoFavela3D)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Gráfico de Evolução Mensal - Visitas */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold">
+                  Evolução Mensal - Visitas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart
+                    data={mesesNomes.map((mes: string, idx: number) => ({
+                      mes: mes.substring(0, 3),
+                      valor: dadosDecolagem.visitas.mensal[idx] || 0,
+                    }))}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="valor" fill="#8b5cf6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Indicadores por Eixo (do banco de dados) */}
+            {dadosMensaisFavela3D?.eixos?.filter((eixo: any) => eixo.nome !== "Decolagem").map((eixo: any) => (
               <Card key={eixo.nome}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -4180,7 +4264,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   </div>
 
                   {/* Gráfico de Evolução Mensal */}
-                  {eixo.indicadores?.[0] && (
+                  {eixo.indicadores?.[0] && eixo.indicadores[0].mensal && (
                     <div className="mt-6">
                       <h4 className="text-sm font-semibold mb-4">
                         Evolução Mensal - {eixo.indicadores[0].nome}
@@ -4190,7 +4274,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                           data={dadosMensaisFavela3D.meses?.map(
                             (mes: string, idx: number) => ({
                               mes,
-                              valor: eixo.indicadores[0].mensal[idx] || 0,
+                              valor: eixo.indicadores[0].mensal?.[idx] || 0,
                             })
                           )}
                         >
@@ -4209,157 +4293,176 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </div>
         );
       case "inclusao":
-        if (!dadosMensais) {
+        if (!indicadoresData) {
           return (
             <div className="p-6">Carregando dados de Inclusão Produtiva...</div>
           );
         }
+        
+        const inclusaoProjetoCores: { [key: string]: { bg: string; border: string; text: string; icon: string } } = {
+          "LAB. VOZES DO FUTURO": { bg: "bg-green-50", border: "border-l-green-500", text: "text-green-600", icon: "bg-green-500" },
+          "CURSOS PRESENCIAIS": { bg: "bg-green-50", border: "border-l-emerald-500", text: "text-emerald-600", icon: "bg-emerald-500" },
+          "CURSOS EAD CGD": { bg: "bg-green-50", border: "border-l-teal-500", text: "text-teal-600", icon: "bg-teal-500" }
+        };
+        
+        const getInclusaoIndicador = (projetoNome: string, indicadorNome: string) => {
+          const projeto = indicadoresData?.projetos?.find((p: any) => p.nome === projetoNome);
+          const indicador = projeto?.indicadores?.find((i: any) => i.nome === indicadorNome);
+          return indicador?.valor || 0;
+        };
+        
+        const totalAtendidosInclusao = indicadoresData?.projetos?.reduce((acc: number, p: any) => {
+          const atendidos = p.indicadores?.find((i: any) => i.nome === "Atendidos");
+          return acc + (atendidos?.valor || 0);
+        }, 0) || 0;
+        
+        const totalHorasAulaInclusao = indicadoresData?.projetos?.reduce((acc: number, p: any) => {
+          const horaAula = p.indicadores?.find((i: any) => i.nome === "Hora Aula");
+          return acc + (horaAula?.valor || 0);
+        }, 0) || 0;
+        
+        const totalEmpregados = indicadoresData?.projetos?.reduce((acc: number, p: any) => {
+          const empregados = p.indicadores?.find((i: any) => i.nome === "Empregados");
+          return acc + (empregados?.valor || 0);
+        }, 0) || 0;
+        
+        const totalEmpreendedores = indicadoresData?.projetos?.reduce((acc: number, p: any) => {
+          const empreendedores = p.indicadores?.find((i: any) => i.nome === "Empreendedores");
+          return acc + (empreendedores?.valor || 0);
+        }, 0) || 0;
+        
         return (
           <div className="space-y-6">
-            {/* Card de Acumulado do Ano */}
+            {/* Resumo Geral - Acumulado 2025 */}
             <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-green-700">
-                  <TrendingUp className="w-5 h-5" />
-                  Acumulado do Ano 2025
+                  <Briefcase className="w-5 h-5" />
+                  Inclusão Produtiva - Acumulado 2025
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* LAB - Vozes do Futuro */}
-                  {(() => {
-                    const labData = dadosMensais.projetos?.find((p: any) => p.projeto === "LAB. VOZES DO FUTURO");
-                    const alunosIndicador = labData?.indicadores?.find((i: any) => i.nome === "Alunos Ativos");
-                    const totalAlunos = alunosIndicador?.mensal?.reduce((acc: number, val: number) => acc + (val || 0), 0) || 0;
-                    
-                    return (
-                      <div className="p-4 bg-white border border-green-200 rounded-lg">
-                        <p className="text-sm font-semibold text-gray-700 mb-1">LAB</p>
-                        <p className="text-3xl font-bold text-green-600">{totalAlunos}</p>
-                        <p className="text-xs text-gray-500">Total de Alunos</p>
-                      </div>
-                    );
-                  })()}
-                  
-                  {/* Cursos EAD */}
-                  {(() => {
-                    const eadData = dadosMensais.projetos?.find((p: any) => p.projeto === "CURSOS EAD CGD");
-                    const alunosIndicador = eadData?.indicadores?.find((i: any) => i.nome === "Alunos Ativos");
-                    const totalAlunos = alunosIndicador?.mensal?.reduce((acc: number, val: number) => acc + (val || 0), 0) || 0;
-                    
-                    return (
-                      <div className="p-4 bg-white border border-green-200 rounded-lg">
-                        <p className="text-sm font-semibold text-gray-700 mb-1">Cursos EAD</p>
-                        <p className="text-3xl font-bold text-green-600">{totalAlunos}</p>
-                        <p className="text-xs text-gray-500">Total de Alunos</p>
-                      </div>
-                    );
-                  })()}
-                  
-                  {/* Curso 30h */}
-                  {(() => {
-                    const cursosData = dadosMensais.projetos?.find((p: any) => p.projeto === "CURSOS PRESENCIAIS");
-                    const alunosIndicador = cursosData?.indicadores?.find((i: any) => i.nome === "Alunos Ativos");
-                    const totalAlunos = alunosIndicador?.mensal?.reduce((acc: number, val: number) => acc + (val || 0), 0) || 0;
-                    
-                    return (
-                      <div className="p-4 bg-white border border-green-200 rounded-lg">
-                        <p className="text-sm font-semibold text-gray-700 mb-1">Curso 30h</p>
-                        <p className="text-3xl font-bold text-green-600">{totalAlunos}</p>
-                        <p className="text-xs text-gray-500">Total de Alunos</p>
-                      </div>
-                    );
-                  })()}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-green-600">{totalAtendidosInclusao.toLocaleString('pt-BR')}</p>
+                    <p className="text-sm text-gray-600">Atendidos</p>
+                  </div>
+                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-green-600">{totalHorasAulaInclusao.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                    <p className="text-sm text-gray-600">Horas/Aula</p>
+                  </div>
+                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-green-600">{totalEmpregados}</p>
+                    <p className="text-sm text-gray-600">Empregados</p>
+                  </div>
+                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-green-600">{totalEmpreendedores}</p>
+                    <p className="text-sm text-gray-600">Empreendedores</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Indicadores por Projeto (cada um com seu próprio filtro) */}
-            {dadosMensais.projetos?.map((projeto: any) => {
-              // Determinar qual estado de mês usar para cada projeto
-              const getMesSelecionado = () => {
-                if (projeto.projeto === "LAB. VOZES DO FUTURO") return mesSelecionadoLab;
-                if (projeto.projeto === "CURSOS PRESENCIAIS") return mesSelecionadoCursos30h;
-                if (projeto.projeto === "CURSOS EAD CGD") return mesSelecionadoEad;
-                return 0;
-              };
-
-              const setMesSelecionado = (value: number) => {
-                if (projeto.projeto === "LAB. VOZES DO FUTURO") setMesSelecionadoLab(value);
-                else if (projeto.projeto === "CURSOS PRESENCIAIS") setMesSelecionadoCursos30h(value);
-                else if (projeto.projeto === "CURSOS EAD CGD") setMesSelecionadoEad(value);
-              };
-
-              return (
-                <Card key={projeto.projeto}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5 text-green-600" />
-                        {projeto.projeto}
-                      </CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Filtro de Mês Individual */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Selecionar Mês</label>
-                      <Select value={getMesSelecionado().toString()} onValueChange={(value) => setMesSelecionado(parseInt(value))}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Selecione o mês" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {dadosMensais.meses?.map((mes: string, index: number) => (
-                            <SelectItem key={index} value={index.toString()}>
-                              {mes}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {projeto.indicadores?.map((indicador: any) => (
-                        <div key={indicador.nome} className="p-4 border rounded-lg">
-                          <p className="text-sm text-gray-600 mb-2">{indicador.nome}</p>
-                          <p className="text-2xl font-bold text-green-600">
-                            {getValorMensalInclusao(projeto.projeto, indicador.nome) || 0}
-                          </p>
-                          {indicador.meta && (
-                            <p className="text-xs text-gray-500">Meta: {indicador.meta}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  
-                  {/* Gráfico de Evolução Mensal */}
-                  {projeto.indicadores?.[0] && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold mb-4">
-                        Evolução Mensal - {projeto.indicadores[0].nome}
-                      </h4>
-                      <ResponsiveContainer width="100%" height={250}>
-                        <BarChart
-                          data={dadosMensais.meses?.map(
-                            (mes: string, idx: number) => ({
-                              mes,
-                              valor: projeto.indicadores[0].mensal[idx] || 0,
-                            })
-                          )}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="mes" />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="valor" fill="#10b981" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
+            {/* Gráficos Comparativos */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Gráfico Atendidos */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-700">Atendidos por Projeto</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
+                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
+                      valor: p.indicadores?.find((i: any) => i.nome === "Atendidos")?.valor || 0
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </CardContent>
               </Card>
-              );
-            })}
+              
+              {/* Gráfico Frequência */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-700">Frequência por Projeto (%)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
+                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
+                      valor: p.indicadores?.find((i: any) => i.nome === "Frequência")?.valor || 0
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
+                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+              
+              {/* Gráfico Hora Aula */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-700">Horas/Aula por Projeto</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
+                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
+                      valor: p.indicadores?.find((i: any) => i.nome === "Hora Aula")?.valor || 0
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                      <YAxis />
+                      <Tooltip formatter={(value: number) => value.toLocaleString('pt-BR')} />
+                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Cards por Projeto */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {indicadoresData?.projetos?.map((projeto: any, index: number) => {
+                const cores = inclusaoProjetoCores[projeto.nome] || { bg: "bg-gray-50", border: "border-l-gray-500", text: "text-gray-600", icon: "bg-gray-500" };
+                const icons = [<Briefcase key="1" className="w-5 h-5 text-white" />, <GraduationCap key="2" className="w-5 h-5 text-white" />, <Target key="3" className="w-5 h-5 text-white" />];
+                
+                return (
+                  <Card key={projeto.nome} className={`${cores.bg} border-l-4 ${cores.border}`}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <div className={`w-8 h-8 ${cores.icon} rounded-lg flex items-center justify-center`}>
+                          {icons[index % 3]}
+                        </div>
+                        <span className="text-gray-800">{projeto.nome === "LAB. VOZES DO FUTURO" ? "LAB - Vozes do Futuro" : projeto.nome === "CURSOS PRESENCIAIS" ? "Cursos Presenciais (30h)" : "Cursos EAD"}</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-3">
+                        {projeto.indicadores?.slice(0, 6).map((indicador: any, idx: number) => (
+                          <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className={`text-2xl font-bold ${cores.text} mb-1`}>
+                              {indicador.unidade === "%" 
+                                ? `${indicador.valor.toFixed(1)}%` 
+                                : indicador.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
 
             {/* NOVA SEÇÃO: Cursos Detalhados por Área */}
             <Card>
@@ -4977,98 +5080,157 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         }
         return (
           <div className="space-y-6">
-            {/* Filtro de Mês */}
+            {/* Resumo Geral */}
             <Card>
               <CardHeader>
-                <CardTitle>Selecionar Mês</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-orange-600" />
+                  Indicadores PEC
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <Select
-                  value={mesSelecionadoPEC.toString()}
-                  onValueChange={(value) =>
-                    setMesSelecionadoPEC(parseInt(value))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione o mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dadosMensaisPEC.meses?.map(
-                      (mes: string, index: number) => (
-                        <SelectItem key={index} value={index.toString()}>
-                          {mes}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+                {dadosMensaisPEC.resumo && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-orange-50 rounded-xl p-5 text-center">
+                      <p className="text-4xl font-bold text-orange-600 mb-2">
+                        {dadosMensaisPEC.resumo.totalAtendidos?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-sm text-gray-600">Total Atendidos</p>
+                    </div>
+                    <div className="bg-orange-50 rounded-xl p-5 text-center">
+                      <p className="text-4xl font-bold text-orange-600 mb-2">
+                        {dadosMensaisPEC.resumo.totalAtendimentos?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-sm text-gray-600">Total Atendimentos</p>
+                    </div>
+                    <div className="bg-orange-50 rounded-xl p-5 text-center">
+                      <p className="text-4xl font-bold text-orange-600 mb-2">
+                        {dadosMensaisPEC.resumo.frequenciaMedia || 0}%
+                      </p>
+                      <p className="text-sm text-gray-600">Frequência Média</p>
+                    </div>
+                    <div className="bg-red-50 rounded-xl p-5 text-center">
+                      <p className="text-4xl font-bold text-red-600 mb-2">
+                        {dadosMensaisPEC.resumo.totalEvasao?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-sm text-gray-600">Total Evasão</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Indicadores por Projeto */}
-            {dadosMensaisPEC.projetos?.map((projeto: any) => (
-              <Card key={projeto.projeto}>
+            {/* Projetos em Cards Separados */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {dadosMensaisPEC.projetos?.map((projeto: any, index: number) => {
+                const colors = [
+                  { border: 'border-l-orange-500', bg: 'bg-orange-500', text: 'text-orange-600' },
+                  { border: 'border-l-amber-600', bg: 'bg-amber-600', text: 'text-amber-600' },
+                  { border: 'border-l-yellow-600', bg: 'bg-yellow-600', text: 'text-yellow-600' }
+                ];
+                const color = colors[index % colors.length];
+                return (
+                  <Card key={projeto.nome} className={`border-l-4 ${color.border}`}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className={`text-lg font-bold ${color.text}`}>
+                        {projeto.nome}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {projeto.indicadores?.map((indicador: any) => (
+                          <div key={indicador.nome} className="flex justify-between items-center py-1 border-b border-gray-100 last:border-0">
+                            <span className="text-sm text-gray-600">{indicador.nome}</span>
+                            <span className={`font-bold ${color.text}`}>
+                              {typeof indicador.valor === 'number' 
+                                ? indicador.valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+                                : indicador.valor || 0}
+                              {indicador.suffix || ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Gráficos Comparativos */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Gráfico de Atendidos por Projeto */}
+              <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-orange-600" />
-                      {projeto.projeto}
-                    </CardTitle>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <Filter className="h-4 w-4 text-gray-500" />
-                    </Button>
-                  </div>
+                  <CardTitle className="text-sm font-semibold">Comparativo de Atendidos por Projeto</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    {projeto.indicadores?.map((indicador: any) => (
-                      <div
-                        key={indicador.nome}
-                        className="p-4 border rounded-lg"
-                      >
-                        <p className="text-sm text-gray-600 mb-2">
-                          {indicador.nome}
-                        </p>
-                        <p className="text-2xl font-bold text-orange-600">
-                          {getValorMensalPEC(projeto.projeto, indicador.nome) ||
-                            0}
-                        </p>
-                        {indicador.meta && (
-                          <p className="text-xs text-gray-500">
-                            Meta: {indicador.meta}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Gráfico de Evolução Mensal */}
-                  {projeto.indicadores?.[0] && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold mb-4">
-                        Evolução Mensal - {projeto.indicadores[0].nome}
-                      </h4>
-                      <ResponsiveContainer width="100%" height={250}>
-                        <BarChart
-                          data={dadosMensaisPEC.meses?.map(
-                            (mes: string, idx: number) => ({
-                              mes,
-                              valor: projeto.indicadores[0].mensal[idx] || 0,
-                            })
-                          )}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="mes" />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="valor" fill="#f97316" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart
+                      data={dadosMensaisPEC.projetos?.map((p: any) => ({
+                        nome: p.nome.length > 12 ? p.nome.substring(0, 12) + '...' : p.nome,
+                        atendidos: p.indicadores?.find((i: any) => i.nome === 'Atendidos')?.valor || 0,
+                        atendimentos: p.indicadores?.find((i: any) => i.nome === 'Atendimentos')?.valor || 0
+                      }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="atendidos" fill="#f97316" name="Atendidos" />
+                      <Bar dataKey="atendimentos" fill="#fdba74" name="Atendimentos" />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </CardContent>
               </Card>
-            ))}
+
+              {/* Gráfico de Frequência por Projeto */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">Frequência por Projeto (%)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart
+                      data={dadosMensaisPEC.projetos?.map((p: any) => ({
+                        nome: p.nome.length > 12 ? p.nome.substring(0, 12) + '...' : p.nome,
+                        frequencia: p.indicadores?.find((i: any) => i.nome === 'Frequência')?.valor || 0,
+                        horasAula: (p.indicadores?.find((i: any) => i.nome === 'Horas/Aula')?.valor || 0) / 100
+                      }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip />
+                      <Bar dataKey="frequencia" fill="#22c55e" name="Frequência %" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Gráfico de Horas/Aula */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold">Horas/Aula por Projeto</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart
+                    data={dadosMensaisPEC.projetos?.map((p: any) => ({
+                      nome: p.nome,
+                      horasAula: p.indicadores?.find((i: any) => i.nome === 'Horas/Aula')?.valor || 0
+                    }))}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="nome" type="category" tick={{ fontSize: 11 }} width={150} />
+                    <Tooltip formatter={(value: number) => value.toLocaleString('pt-BR')} />
+                    <Bar dataKey="horasAula" fill="#3b82f6" name="Horas/Aula" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </div>
         );
       case "psicossocial":
@@ -5077,64 +5239,78 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         }
         return (
           <div className="space-y-6">
-            {/* Filtro de Mês */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Selecionar Mês</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select
-                  value={mesSelecionadoPsicossocial.toString()}
-                  onValueChange={(value) =>
-                    setMesSelecionadoPsicossocial(parseInt(value))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione o mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dadosMensaisPsicossocial.meses?.map(
-                      (mes: string, index: number) => (
-                        <SelectItem key={index} value={index.toString()}>
-                          {mes}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
-
             {/* Indicadores */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-blue-600" />
-                    Indicadores Psicossocial
-                  </CardTitle>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                    <Filter className="h-4 w-4 text-gray-500" />
-                  </Button>
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  Indicadores Psicossocial
+                </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* Resumo Geral */}
+                {dadosMensaisPsicossocial.resumo && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-700">
+                        {dadosMensaisPsicossocial.resumo.totalAtendimentos?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Total Atendimentos</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-700">
+                        {dadosMensaisPsicossocial.resumo.totalVisitas?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Total Visitas</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-700">
+                        {dadosMensaisPsicossocial.resumo.totalEspacos?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Espaços Coletivos</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-green-600">
+                        {dadosMensaisPsicossocial.resumo.turmasAlcancadas || 0}%
+                      </p>
+                      <p className="text-xs text-gray-600">Turmas Alcançadas</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Indicadores Detalhados */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   {dadosMensaisPsicossocial.indicadores?.map(
                     (indicador: any) => (
                       <div
                         key={indicador.nome}
-                        className="p-4 border rounded-lg"
+                        className="p-4 border rounded-lg hover:shadow-md transition-shadow"
                       >
                         <p className="text-sm text-gray-600 mb-2">
                           {indicador.nome}
                         </p>
                         <p className="text-2xl font-bold text-blue-600">
-                          {getValorMensalPsicossocial(indicador.nome) || 0}
+                          {indicador.valor?.toLocaleString('pt-BR') || 0}
                         </p>
                         {indicador.meta && (
-                          <p className="text-xs text-gray-500">
-                            Meta: {indicador.meta}
+                          <div className="mt-2">
+                            <div className="flex justify-between text-xs text-gray-500 mb-1">
+                              <span>Meta: {indicador.meta}</span>
+                              <span className={indicador.percentual >= 80 ? 'text-green-600 font-semibold' : indicador.percentual >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                {indicador.percentual}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full ${indicador.percentual >= 80 ? 'bg-green-500' : indicador.percentual >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                style={{ width: `${Math.min(indicador.percentual || 0, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {indicador.percentual !== null && !indicador.meta && (
+                          <p className="text-xs text-green-600 mt-1">
+                            {indicador.percentual}% das turmas
                           </p>
                         )}
                       </div>
@@ -5146,26 +5322,22 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 {dadosMensaisPsicossocial.indicadores?.[0] && (
                   <div className="mt-6">
                     <h4 className="text-sm font-semibold mb-4">
-                      Evolução Mensal -{" "}
-                      {dadosMensaisPsicossocial.indicadores[0].nome}
+                      Comparativo de Indicadores
                     </h4>
                     <ResponsiveContainer width="100%" height={250}>
                       <BarChart
-                        data={dadosMensaisPsicossocial.meses?.map(
-                          (mes: string, idx: number) => ({
-                            mes,
-                            valor:
-                              dadosMensaisPsicossocial.indicadores[0].mensal[
-                                idx
-                              ] || 0,
-                          })
-                        )}
+                        data={dadosMensaisPsicossocial.indicadores?.slice(0, 4).map((ind: any) => ({
+                          nome: ind.nome.length > 15 ? ind.nome.substring(0, 15) + '...' : ind.nome,
+                          valor: ind.valor || 0,
+                          meta: ind.meta || 0
+                        }))}
                       >
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="mes" />
+                        <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
                         <YAxis />
                         <Tooltip />
-                        <Bar dataKey="valor" fill="#3b82f6" />
+                        <Bar dataKey="valor" fill="#3b82f6" name="Realizado" />
+                        <Bar dataKey="meta" fill="#93c5fd" name="Meta" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -5177,24 +5349,130 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       case "negocios":
         return (
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {sidebarItems.find((item) => item.id === activeSection)
-                    ?.label || activeSection}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  Seção em desenvolvimento. Os dados específicos para este
-                  programa serão exibidos em breve.
-                </p>
-              </CardContent>
-            </Card>
+            {loadingNegocios ? (
+              <div className="text-center py-8 text-gray-500">Carregando dados...</div>
+            ) : (
+              <>
+                {/* Resumo Geral - No topo */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-gray-700" />
+                      Resumo Geral
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold text-gray-800">
+                          {((negociosSociaisData?.data?.outlet?.doacoesRecebidas || 0) + 
+                            (negociosSociaisData?.data?.outlet?.pecasVendidas || 0)).toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-xs text-gray-600">Total Itens Movimentados</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold text-gray-800">
+                          {(negociosSociaisData?.data?.outlet?.vendasPessoasImpactadas || 0).toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-xs text-gray-600">Pessoas Impactadas (Outlet)</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold text-gray-800">
+                          {(negociosSociaisData?.data?.griffte?.pecasConfeccionadas || 0).toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-xs text-gray-600">Produção Griffte</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold text-gray-800">
+                          {(negociosSociaisData?.data?.griffte?.clientesAtendidos || 0).toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-xs text-gray-600">Clientes Griffte</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Card Outlet */}
+                <Card className="border-l-4 border-l-yellow-500">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-yellow-500 rounded-xl flex items-center justify-center">
+                        <ShoppingBag className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <span className="text-xl font-bold">Outlet</span>
+                        <p className="text-sm text-gray-500 font-normal">Loja social de roupas e acessórios</p>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
+                        <p className="text-4xl font-bold text-yellow-600 mb-2">
+                          {negociosSociaisData?.data?.outlet?.doacoesRecebidas?.toLocaleString('pt-BR') || '0'}
+                        </p>
+                        <p className="text-sm text-gray-700 font-medium">Doações Recebidas</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
+                        <p className="text-4xl font-bold text-yellow-600 mb-2">
+                          {negociosSociaisData?.data?.outlet?.vendasPessoasImpactadas?.toLocaleString('pt-BR') || '0'}
+                        </p>
+                        <p className="text-sm text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
+                        <p className="text-4xl font-bold text-yellow-600 mb-2">
+                          {negociosSociaisData?.data?.outlet?.pecasVendidas?.toLocaleString('pt-BR') || '0'}
+                        </p>
+                        <p className="text-sm text-gray-700 font-medium">Peças / Itens Vendidos</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Card Griffte */}
+                <Card className="border-l-4 border-l-rose-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-rose-800 rounded-xl flex items-center justify-center">
+                        <Star className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <span className="text-xl font-bold">Griffte</span>
+                        <p className="text-sm text-gray-500 font-normal">Ateliê de moda e confecção</p>
+                      </div>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-rose-50 rounded-xl p-5 text-center">
+                        <p className="text-4xl font-bold text-rose-800 mb-2">
+                          {negociosSociaisData?.data?.griffte?.pecasConfeccionadas?.toLocaleString('pt-BR') || '0'}
+                        </p>
+                        <p className="text-sm text-gray-700 font-medium">Peças Confeccionadas</p>
+                      </div>
+                      <div className="bg-rose-50 rounded-xl p-5 text-center">
+                        <p className="text-4xl font-bold text-rose-800 mb-2">
+                          {negociosSociaisData?.data?.griffte?.clientesAtendidos?.toLocaleString('pt-BR') || '0'}
+                        </p>
+                        <p className="text-sm text-gray-700 font-medium">Clientes Atendidos</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
         );
       case "investimento":
-        return <RelatorioFinanceiroDetalhado />;
+        return (
+          <DashboardFinanceiro
+            filtrosPeriodo={{ mes: null, ano: 2025 }}
+            showRefreshControls={true}
+            showData={showFinanceiroData}
+            onToggleShowData={() => setShowFinanceiroData(!showFinanceiroData)}
+            className="space-y-4"
+          />
+        );
       default:
         return isMobile ? renderMobileDashboard() : renderDashboard();
     }
@@ -5898,18 +6176,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 {sidebarItems.find((item) => item.id === activeSection)
                   ?.label || "Dashboard"}
               </h1>
-              <p className="text-sm text-gray-600">
-                {devAccess.hasDevAccess
-                  ? "Desenvolvedor - Acesso total ao painel administrativo de Leo Martins"
-                  : "Olá, Leo! Seja bem-vindo ao seu painel de controle administrativo"}
-              </p>
-              {activeSection === "dashboard" && (
-                <p className="text-xs text-yellow-600 mt-1">
-                  {devAccess.hasDevAccess
-                    ? "Modo desenvolvedor ativo - Todas as funcionalidades desbloqueadas"
-                    : "Aqui você tem acesso completo a todos os dados e sistemas do Clube do Grito"}
-                </p>
-              )}
             </div>
             <div className="flex items-center space-x-4">
               {devAccess.hasDevAccess && (
@@ -5939,25 +6205,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 p-6 pb-20">{renderSectionContent()}</main>
-
-        {/* Footer com botão Voltar para Doador */}
-        <footer className="fixed bottom-0 left-64 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
-          <div className="flex justify-center">
-            <Button
-              onClick={() => {
-                // Marcar preferência para não ir automaticamente para admin
-                sessionStorage.removeItem("preferAdminView");
-                setLocation("/tdoador");
-              }}
-              variant="outline"
-              className="flex items-center gap-2 bg-gradient-to-r from-yellow-400 to-red-500 text-white hover:from-yellow-500 hover:to-red-600 border-none"
-            >
-              <Heart className="w-4 h-4" />
-              Voltar para Doador
-            </Button>
-          </div>
-        </footer>
+        <main className="flex-1 p-6">{renderSectionContent()}</main>
       </div>
     </div>
   );

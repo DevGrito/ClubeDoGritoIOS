@@ -436,18 +436,15 @@ export default function PatrocinadorWelcome() {
                     Relatórios de Impacto
                   </h3>
                   <p className="text-sm text-gray-600 mb-4">
-                    Faça o download dos relatórios mensais e anuais para acompanhar a prestação de contas.
+                    Faça o download do relatório anual para acompanhar a prestação de contas.
                   </p>
-                  <div className="space-y-2">
-                    <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-q3">
-                      <Download className="w-4 h-4 mr-2" />
-                      Relatório de Impacto - Q3 2025
-                    </Button>
-                    <br />
-                    <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
-                      <Download className="w-4 h-4 mr-2" />
-                      Relatório Anual - 2024
-                    </Button>
+                  <div className="space-y-2 mt-4">
+                    <a href="/relatorio-anual-2024.pdf" download="Relatório Anual - 2024.pdf">
+                      <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
+                        <Download className="w-4 h-4 mr-2" />
+                        Relatório Anual - 2024
+                      </Button>
+                    </a>
                   </div>
                 </CardContent>
               </Card>

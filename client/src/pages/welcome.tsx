@@ -1253,7 +1253,7 @@ export default function Welcome() {
         {/* 1. Saudação personalizada */}
         <div className="mb-4 md:mb-6 -mt-4">
           <h2 className="text-xl md:text-2xl font-bold text-black mb-1">
-            Fala {userData.nome?.split(" ")[0] || "Doador"}, {getGreeting()}!
+            Fala {(userData?.nome === "Influencer" || (userData as any)?.id === 142) ? "Grito" : (userData.nome?.split(" ")[0] || "Doador")}, {getGreeting()}!
           </h2>
         </div>
 
@@ -1394,17 +1394,17 @@ export default function Welcome() {
                       <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
 
                       {/* Conteúdo do card */}
-                      <div className="relative h-full p-6 text-white flex justify-between items-start">
+                      <div className="relative h-full p-6 text-black flex justify-between items-start">
                         {/* Lado esquerdo - Conteúdo */}
                         <div className="flex-1 flex flex-col justify-between h-full max-w-[60%]">
                           <div>
-                            <h4 className="font-bold text-lg mb-3 leading-tight">
+                            <h4 className="font-bold text-lg mb-3 leading-tight text-black">
                               {beneficio.titulo}
                             </h4>
 
                             {beneficio.pontosNecessarios && (
                               <div className="flex items-center space-x-2 mb-3">
-                                <div className="bg-white/20 text-white px-2 py-1 rounded text-xs font-medium flex items-center">
+                                <div className="bg-black/10 text-black px-2 py-1 rounded text-xs font-medium flex items-center">
                                   <span className="mr-1">📎</span>
                                   {beneficio.pontosNecessarios}
                                 </div>
@@ -1415,7 +1415,7 @@ export default function Welcome() {
                           {beneficio.planosDisponiveis &&
                             beneficio.planosDisponiveis.length > 0 && (
                               <div className="mt-auto">
-                                <div className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full inline-block">
+                                <div className="text-sm font-medium bg-black/10 text-black px-3 py-1 rounded-full inline-block">
                                   {beneficio.planosDisponiveis
                                     .map(
                                       (plano) =>
@@ -1426,21 +1426,6 @@ export default function Welcome() {
                                 </div>
                               </div>
                             )}
-                        </div>
-
-                        {/* Lado direito - Box com ícone e texto */}
-                        <div className="flex-shrink-0 text-center">
-                          {/* Box do ícone */}
-                          <div className="w-16 h-16 bg-white/20 rounded-xl mb-2 flex items-center justify-center overflow-hidden">
-                            <DynamicIcon
-                              iconName="Gift"
-                              className="w-8 h-8 text-white"
-                            />
-                          </div>
-                          {/* Texto abaixo do ícone */}
-                          <div className="text-xs text-white/90 font-medium whitespace-pre-line">
-                            {capitalizeFirstLetter(beneficio.categoria)}
-                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -1571,6 +1556,8 @@ export default function Welcome() {
                 Indicadores Psicossocial
               </DialogTitle>
             </DialogHeader>
+            
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
             
             <div className="space-y-4 mt-4">
               {/* Botão/Card 1: Atenção Social */}
@@ -1713,6 +1700,8 @@ export default function Welcome() {
               </DialogTitle>
             </DialogHeader>
             
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            
             <div className="space-y-4 mt-4">
               {/* Card Outlet */}
               <div
@@ -1823,15 +1812,17 @@ export default function Welcome() {
           </DialogContent>
         </Dialog>
 
-        {/* Modal de PEC - Polo Esportivo Cultural */}
+        {/* Modal de PEC */}
         <Dialog open={showPECModal} onOpenChange={setShowPECModal}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <BookOpen className="w-6 h-6 text-yellow-600" />
-                PEC - Polo Esportivo Cultural
+                PEC
               </DialogTitle>
             </DialogHeader>
+            
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
             
             <div className="space-y-4 mt-4">
               {/* Card Casa Sonhar */}
@@ -1885,11 +1876,17 @@ export default function Welcome() {
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Alimentação</p>
                           </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
                               {pecData?.data.casaSonhar.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-casa-sonhar">
+                            <div className="text-3xl font-bold text-red-500 mb-1">
+                              {pecData?.data.casaSonhar.evasao || 0}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
                       )}
@@ -1949,11 +1946,17 @@ export default function Welcome() {
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Alimentação</p>
                           </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
                               {pecData?.data.programaEsporteCultura.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-esporte-cultura">
+                            <div className="text-3xl font-bold text-red-500 mb-1">
+                              {pecData?.data.programaEsporteCultura.evasao || 0}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
                       )}
@@ -2033,6 +2036,8 @@ export default function Welcome() {
               </DialogTitle>
             </DialogHeader>
             
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            
             <div className="space-y-4 mt-4">
               {loadingInclusao ? (
                 <div className="text-center py-8 text-gray-500">Carregando...</div>
@@ -2111,18 +2116,17 @@ export default function Welcome() {
               </DialogTitle>
             </DialogHeader>
             
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            
             <div className="space-y-4 mt-4">
               {loadingF3D ? (
                 <div className="text-center py-8 text-gray-500">Carregando...</div>
               ) : f3dData?.eixos ? (
-                f3dData.eixos.map((eixo, index) => {
+                f3dData.eixos.map((eixo: any, index: number) => {
                   const bgColors = ['bg-purple-50', 'bg-purple-50', 'bg-purple-50'];
                   const iconColors = ['bg-purple-500', 'bg-purple-500', 'bg-purple-500'];
                   const textColors = ['text-purple-600', 'text-purple-600', 'text-purple-600'];
-                  const icons = [<Users key="1" className="w-5 h-5 text-white" />, <TrendingUp key="2" className="w-5 h-5 text-white" />, <Star key="3" className="w-5 h-5 text-white" />];
-                  
-                  const ultimoMesComDados = eixo.indicadores[0]?.mensal?.reduce((acc, val, idx) => val !== null ? idx : acc, 0) || 0;
-                  const mesNome = f3dData.meses[ultimoMesComDados] || 'Atual';
+                  const icons = [<Users key="1" className="w-5 h-5 text-white" />, <TrendingUp key="2" className="w-5 h-5 text-white" />, <Home key="3" className="w-5 h-5 text-white" />];
                   
                   return (
                     <div
@@ -2148,19 +2152,18 @@ export default function Welcome() {
                         
                         {expandedF3DCard === eixo.nome && (
                           <div className="mt-4">
-                            <div className="grid grid-cols-1 gap-3">
-                              {eixo.indicadores.map((indicador, idx) => {
-                                const valorAtual = indicador.mensal.reduce((acc, val) => val !== null ? val : acc, 0) || 0;
-                                return (
-                                  <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
-                                    <div className={`text-3xl font-bold ${textColors[index % 3]} mb-1`}>
-                                      {(valorAtual ?? 0).toLocaleString('pt-BR')}
-                                    </div>
-                                    <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Último dado: {mesNome}</p>
+                            <div className={`grid gap-3 ${eixo.indicadores.length === 1 ? 'grid-cols-1 max-w-[200px] mx-auto' : 'grid-cols-2'}`}>
+                              {eixo.indicadores.map((indicador: any, idx: number) => (
+                                <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                  <div className={`text-2xl font-bold ${textColors[index % 3]} mb-1`}>
+                                    {(indicador.valor ?? 0).toLocaleString('pt-BR')}
                                   </div>
-                                );
-                              })}
+                                  <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                                  {indicador.impacto > 0 && (
+                                    <p className="text-xs text-green-600 mt-1">Pessoas Impactadas: {indicador.impacto.toLocaleString('pt-BR')}</p>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
@@ -2399,10 +2402,11 @@ export default function Welcome() {
           </div>
         </div>
 
-        {/* 10. Indique e Ganhe */}
+        {/* 10. Indique e Ganhe - DESATIVADO (descomentar para reativar)
         <div className="mb-6">
           <IndiqueGanhe />
         </div>
+        */}
 
         {/* Modal de edição */}
         {isEditing && (
@@ -2561,27 +2565,18 @@ export default function Welcome() {
                           )}
                         </div>
 
-                        <div className="flex items-end justify-between">
-                          {beneficio.planosDisponiveis &&
-                            beneficio.planosDisponiveis.length > 0 && (
-                              <div className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
-                                {beneficio.planosDisponiveis
-                                  .map(
-                                    (plano: string) =>
-                                      plano.charAt(0).toUpperCase() +
-                                      plano.slice(1)
-                                  )
-                                  .join("/")}
-                              </div>
-                            )}
-
-                          <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                            <DynamicIcon
-                              iconName="Gift"
-                              className="w-4 h-4 text-white"
-                            />
-                          </div>
-                        </div>
+                        {beneficio.planosDisponiveis &&
+                          beneficio.planosDisponiveis.length > 0 && (
+                            <div className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full mt-2">
+                              {beneficio.planosDisponiveis
+                                .map(
+                                  (plano: string) =>
+                                    plano.charAt(0).toUpperCase() +
+                                    plano.slice(1)
+                                )
+                                .join("/")}
+                            </div>
+                          )}
                       </div>
                     </motion.div>
                   ))}
@@ -2625,7 +2620,7 @@ export default function Welcome() {
             <div className="p-6 border-b">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-black">
-                  Fala {userData.nome?.split(" ")[0] || "Doador"}, tudo bem?
+                  Fala {(userData?.nome === "Influencer" || (userData as any)?.id === 142) ? "Grito" : (userData.nome?.split(" ")[0] || "Doador")}, tudo bem?
                 </h2>
                 <button
                   onClick={() => setShowHelpMenu(false)}
@@ -2995,6 +2990,8 @@ export default function Welcome() {
                   {programasData[programaAberto].nome}
                 </DialogTitle>
               </DialogHeader>
+            
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
 
               {/* Categorias e Dados */}
               <div className="mt-4 space-y-6">
