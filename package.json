@@ -5,10 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "build:web": "vite build",
-    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "build": "npm run build:web",
-    "postbuild": "npx cap sync ios",
+    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "db:push": "drizzle-kit push"
@@ -17,7 +14,6 @@
     "@capacitor/android": "^7.4.4",
     "@capacitor/cli": "^7.4.4",
     "@capacitor/core": "^7.4.4",
-    "@capacitor/ios": "^7.4.4",
     "@google-cloud/storage": "^7.17.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -75,6 +71,8 @@
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "firebase": "^12.6.0",
+    "firebase-admin": "^13.6.0",
     "framer-motion": "^11.13.1",
     "googleapis": "^164.0.0",
     "html2canvas": "^1.4.1",
@@ -103,6 +101,7 @@
     "react-resizable-panels": "^2.1.7",
     "react-to-print": "^3.1.1",
     "recharts": "^2.15.2",
+    "sharp": "^0.34.5",
     "stripe": "^18.5.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -116,7 +115,6 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
-    "@capacitor/assets": "^3.0.5",
     "@replit/vite-plugin-cartographer": "^0.2.7",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
     "@tailwindcss/typography": "^0.5.15",
@@ -135,6 +133,7 @@
     "drizzle-kit": "^0.31.5",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
+    "rollup": "^4.53.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.1",
     "typescript": "5.6.3",
