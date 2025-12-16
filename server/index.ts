@@ -39,6 +39,11 @@ app.use(
       // iOS WebView/TestFlight muitas vezes vem sem Origin -> permitir
       if (!origin) return cb(null, true);
 
+      // Permitir todos os domínios do Replit (dev e produção)
+      if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co')) {
+        return cb(null, true);
+      }
+
       if (ALLOW_LIST.includes(origin)) return cb(null, true);
       if (ALLOW_LIST.some((o) => origin.startsWith(o))) return cb(null, true);
 
@@ -126,17 +131,19 @@ app.use((req, res, next) => {
   };
 
   res.on("finish", () => {
-    if (pathName.startsWith("/api")) {
-      const took = Date.now() - start;
-      let line = `${req.method} ${pathName} ${res.statusCode} in ${took}ms`;
-      if (captured !== undefined) {
-        try {
-          line += ` :: ${JSON.stringify(captured)}`;
-        } catch {}
-      }
-      if (line.length > 80) line = line.slice(0, 79) + "…";
-      log(line);
+    // só loga rotas de API que NÃO sejam de activity
+    if (!pathName.startsWith("/api")) return;
+    if (pathName.startsWith("/api/activity")) return;
+
+    const took = Date.now() - start;
+    let line = `${req.method} ${pathName} ${res.statusCode} in ${took}ms`;
+    if (captured !== undefined) {
+      try {
+        line += ` :: ${JSON.stringify(captured)}`;
+      } catch {}
     }
+    if (line.length > 80) line = line.slice(0, 79) + "…";
+    log(line);
   });
 
   next();

@@ -6,7 +6,6 @@ import Stripe from "stripe";
 import pkg from 'pg';
 const { Pool } = pkg;
 import { storage } from "./storage";
-import { bucket, extractFilePathFromUrl, normalizeObjectKey, streamObjectToResponse, streamSignedObjectToResponse  } from './gcsService';
 import { getOrCreateStripeCustomer, attachPaymentMethodSafely, normalizePhoneToE164, getPhoneSearchVariants } from "./stripeHelpers";
 import { keysToCamelCase } from "./utils/caseConversion";
 import { HttpError } from "./utils/httpError";
@@ -15,12 +14,24 @@ import { registerAdminManualSubscription } from "./adminManualSubscription";
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 // GCS Service for image upload and storage
-import { uploadToGCS, deleteObject, extractFilePathFromUrl, getSignedUrl, fileExists as gcsFileExists } from "./gcsService";
-import crypto from 'crypto';
+import {
+  bucket,
+  uploadToGCS,
+  deleteObject,
+  extractFilePathFromUrl,
+  normalizeObjectKey,
+  streamObjectToResponse,
+  streamSignedObjectToResponse,
+  getSignedUrl,
+  fileExists as gcsFileExists,
+} from "./gcsService";
+import * as crypto from "crypto";
+// usa crypto.randomUUID()
+import sharp from "sharp";
 import bcrypt from 'bcryptjs';
 import * as gestaoVistaData from './services/gestaoVistaData';
 import {
-  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins, marketingLinks,
+  insertUserSchema, indicacoes, verificationSchema, postPaymentRegisterSchema, sorteios, doadores, typeformResponses, historicoDoacao, developers, missoesSemanais, missoesConcluidas, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, missaoTransacoes, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasInteracoes, impactData, referrals, users, userCausas, gritosHistorico, beneficios, beneficioLances, beneficioGanhadores, insertBeneficioGanhadoresSchema, validarLanceSchema, ingressos, cotasEmpresas, patrocinadores, checkins, marketingLinks,
   // 📊 GESTÃO À VISTA - Tabelas
   gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues,
   beneficioImagens,
@@ -105,6 +116,7 @@ import {
   type Coordenador,
   // 👥 MONITORES - LOGIN
   monitores,
+  professores,
   marketingUsers,
   // 💳 SUBSCRIPTION MANAGEMENT
   donorSubscriptions,
@@ -116,13 +128,17 @@ import {
   type BillingEvent,
   type InsertBillingEvent,
   // 📊 DADOS DEMOGRÁFICOS
-  dadosDemograficos
+  dadosDemograficos,
+  // 🔐 SEGURANÇA - CONSELHEIROS
+  conselheiros
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, or, sql, desc, ilike, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
 import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
 import { z } from "zod";
 import multer from "multer";
+import { putCache, getCache, deleteCache } from "./imports/importCache";
+import { buildInclusaoPreviewFromExcel } from "./imports/inclusaoImport";
 
 import { getDevModeStatus, toggleDevMode, getDevModeLogs } from "./routes/devMode";
 // pdf-parse será importado dinamicamente quando necessário (CommonJS module)
@@ -145,6 +161,7 @@ import { toE164BR,  } from "../client/src/utils/phone";
 
 import { isDevRequest } from "./middleware/devAccess"
 
+
 // Initialize Twilio client safely (lazy initialization)
 let twilioClient: any = null;
 let twilioInitError: string | null = null;
@@ -159,6 +176,21 @@ const memUpload = multer({
     const ext = path.extname(file.originalname).toLowerCase();
     return ok && allowedExt.includes(ext) ? cb(null, true) : cb(new Error('Formato não permitido'));
   }
+});
+
+const uploadExcel = multer({
+  storage: multer.memoryStorage(), // ✅ mais simples pra Excel
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    const ok =
+      file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || // xlsx
+      file.mimetype === "application/vnd.ms-excel" || // xls
+      file.originalname.endsWith(".xlsx") ||
+      file.originalname.endsWith(".xls");
+
+    if (!ok) return cb(new Error("Apenas arquivos Excel (.xlsx/.xls) são permitidos"));
+    cb(null, true);
+  },
 });
 
 function getTwilioClient() {
@@ -250,6 +282,7 @@ async function getOrCreateDonationProduct(): Promise<string> {
     throw error;
   }
 }
+
 // Google Slides setup (lazy initialization)
 let googleAuth: any = null;
 let googleSlides: any = null;
@@ -297,11 +330,9 @@ const verificationCodes = new Map<string, string>();
 function normalizePhoneToE164(phone: string): string {
   if (!phone) return '';
 
-  console.log(`📱 [E164 NORMALIZE] Input: "${phone}"`);
 
   // Remove all non-digit characters
   let cleaned = phone.replace(/\D/g, '');
-  console.log(`📱 [E164 NORMALIZE] After cleaning: "${cleaned}"`);
 
   // Remove leading zeros
   cleaned = cleaned.replace(/^0+/, '');
@@ -331,7 +362,6 @@ function normalizePhoneToE164(phone: string): string {
 
   // Return in E.164 format: +55 + DDD + number (always 14 characters)
   const result = `+55${cleaned}`;
-  console.log(`📱 [E164 NORMALIZE] Final result: "${result}"`);
 
   return result;
 }
@@ -382,19 +412,15 @@ const storage_multer = multer.diskStorage({
 const upload = multer({
   storage: storage_multer,
   limits: {
-    fileSize: 20 * 1024 * 1024 // 20MB limit
+    fileSize: 20 * 1024 * 1024 // 20MB
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      const allowedFormats = ['image/jpeg', 'image/jpg', 'image/png'];
-      if (allowedFormats.includes(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(new Error('Formato de arquivo não permitido. Use apenas .jpg, .jpeg ou .png'));
-      }
-    } else {
-      cb(new Error('Apenas imagens são permitidas'));
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Apenas imagens são permitidas"));
     }
+
+    // ✅ Agora aceita QUALQUER image/*
+    cb(null, true);
   }
 });
 
@@ -460,7 +486,13 @@ async function requireAuth(req: express.Request, res: express.Response, next: ex
       
       if (coordenador && coordenador.length > 0) {
         (req as any).coordenador = coordenador[0];
-        (req as any).user = { id: session.userId };
+        (req as any).user = { 
+          id: session.userId,
+          papel: session.userPapel,  // coordenador_psico, coordenador_pec, coordenador_inclusao
+          email: session.userEmail,
+          nome: session.userName,
+          role: session.userPapel
+        };
         return next();
       }
     }
@@ -474,31 +506,34 @@ async function requireAuth(req: express.Request, res: express.Response, next: ex
 
     // Permitir acesso em modo dev sem autenticação
     if (isDevMode) {
-      console.log('🔧 [DEV MODE] Bypass de autenticação para:', req.path, '| Referer:', req.headers.referer);
       (req as any).user = { id: 1, nome: 'Dev User', papel: 'dev' };
       (req as any).isDeveloper = true;
       return next();
     }
     
     const userId = req.headers['x-user-id'];
+    const userIdNum = parseInt(userId as string);
+    if (isNaN(userIdNum)) {
+      return res.status(401).json({ error: 'ID de usuário inválido' });
+    }
     if (!userId) {
       return res.status(401).json({ error: 'Autenticação obrigatória - cabeçalho x-user-id necessário' });
     }
 
     // Tentar buscar como usuário primeiro
-    let user = await storage.getUser(parseInt(userId as string));
+    let user = await storage.getUser(userIdNum);
     
     // Se não encontrar como usuário, tentar buscar como coordenador
     if (!user) {
       const coordenador = await db
         .select()
         .from(coordenadores)
-        .where(eq(coordenadores.userId, parseInt(userId as string)))
+        .where(eq(coordenadores.id, userIdNum))
         .limit(1);
 
       if (coordenador && coordenador.length > 0) {
         (req as any).coordenador = coordenador[0];
-        (req as any).user = { id: parseInt(userId as string) };
+        (req as any).user = { id: userIdNum };
         console.log('🔐 [AUTH] Coordenador autenticado via header:', coordenador[0].nome);
         return next();
       }
@@ -513,8 +548,6 @@ async function requireAuth(req: express.Request, res: express.Response, next: ex
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 }
-
-
 
 // Middleware para verificar autenticação de desenvolvedor
 async function requireDevAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -543,7 +576,6 @@ async function requireDevAuth(req: express.Request, res: express.Response, next:
     return res.status(500).json({ error: "Erro ao verificar autenticação" });
   }
 }
-
 
 // Middleware para verificar se usuário é admin
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -599,7 +631,6 @@ function requireRole(allowedRoles: string[]) {
 function ensureSelfAccess(user: any, targetId: number, resourceName: string = 'recurso'): { allowed: boolean; error?: any } {
   const userRole = user.papel || user.userPapel || user.tipo || user.role;
   if (userRole === 'dev') {
-    console.log(`✅ [DEV MODE] Bypass self-access para ${resourceName} (user ${user.id} → target ${targetId})`);
     return { allowed: true };
   }
 
@@ -682,7 +713,6 @@ function validateImageFile(
     }
   }
 }
-
 
 // Configuração segura do multer com validação aprimorada
 const secureUpload = multer({
@@ -1267,7 +1297,6 @@ const METAS_POR_DEPARTAMENTO: Record<string, MetasMensaisDepartamento> = {
  */
 function decodeHtmlEntities(text: string): string {
   // Debug: mostrar códigos dos caracteres
-  console.log(`🔍 [DEBUG] Input bytes:`, [...text].map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
 
   let decoded = text
     .replace(/&amp;/g, '&')
@@ -1278,7 +1307,6 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#x27;/g, "'");
 
   console.log(`🔄 [HTML DECODE] "${text}" → "${decoded}"`);
-  console.log(`🔍 [DEBUG] Output bytes:`, [...decoded].map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
 
   return decoded;
 }
@@ -1365,6 +1393,7 @@ async function findExistingDonor({
   const result = await query.limit(1);
   return result[0] || null;
 }
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
@@ -1726,6 +1755,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               currentPeriodStart: new Date(sub.current_period_start * 1000).toISOString(),
               currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
               cancelAtPeriodEnd: sub.cancel_at_period_end,
+          canceledAt: sub.canceled_at,
+          hasLocalUser: !!localUser,
               items: sub.items.data.map(item => ({
                 priceId: item.price.id,
                 amount: item.price.unit_amount ? item.price.unit_amount / 100 : 0,
@@ -1821,7 +1852,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payload = req.body;
       const data = JSON.parse(payload.toString());
 
-      console.log('📝 Typeform webhook received:', data);
 
       if (data.event_type === 'form_response') {
         const response = data.form_response;
@@ -1977,6 +2007,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const periodicity = req.body.periodicity || req.body.periodicidade || 'mensal';
       const refCode = req.body.referralCode || req.body.refCode || req.body.ref_code || req.body.ref || '';
 
+      // === LOG DETALHADO PARA DEBUG ===
+      console.log('\n🎯 [DONATION/CREATE] ==========================================');
+      console.log('🎯 [DONATION/CREATE] PLANO RECEBIDO:', plano);
+      console.log('🎯 [DONATION/CREATE] VALOR RECEBIDO:', rawValor, '-> valorNum:', valorNum);
+      console.log('🎯 [DONATION/CREATE] PERIODICITY:', periodicity);
+      console.log('🎯 [DONATION/CREATE] ==========================================\n');
+
       if (!nome || !telefone || !plano) {
         return res.status(400).json({ success: false, message: 'Dados obrigatórios faltando' });
       }
@@ -1984,6 +2021,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: 'Valor inválido' });
       }
       const amountInCents = Math.round(valorNum * 100);
+      
+      console.log('🎯 [DONATION/CREATE] AMOUNT IN CENTS:', amountInCents);
 
       console.log(`📝 [DONATION] Criando subscription para: ${nome} (${telefone})`);
 
@@ -2005,7 +2044,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const idempotencyKey = `donation-sub-${telefone.replace(/\D/g, '')}-${Date.now()}`;
       
       const subscription = await stripe.subscriptions.create({
-        customer: stripeCustomerId,
+        customer: user.stripeCustomerId,
         items: [{ price_data: { currency: 'brl', product: productId, unit_amount: amountInCents, recurring: { interval: intervalConfig.interval, interval_count: intervalConfig.interval_count || 1 }}}],
         payment_behavior: 'default_incomplete',
         collection_method: 'charge_automatically',
@@ -2028,13 +2067,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
         secretType = 'setup';
         clientSecret = setupIntentFull.client_secret;
       } else {
-        const newSetupIntent = await stripe.setupIntents.create({ customer: stripeCustomerId, payment_method_types: ['card'], usage: 'off_session', metadata: { subscriptionId: subscription.id }});
+        const newSetupIntent = await stripe.setupIntents.create({ customer: user.stripeCustomerId, payment_method_types: ['card'], usage: 'off_session', metadata: { subscriptionId: subscription.id }});
         setupIntent = newSetupIntent.id;
         secretType = 'setup';
         clientSecret = newSetupIntent.client_secret;
       }
 
-      return res.json({ success: true, subscriptionId: subscription.id, customerId: stripeCustomerId, invoiceId: invoice?.id || null, paymentIntentId: paymentIntent?.id || null, setupIntentId: setupIntent || null, secretType, clientSecret, requiresPolling: !clientSecret });
+      // ========== PERSISTÊNCIA LOCAL (CORREÇÃO DO FLUXO) ==========
+      let userId: number | null = null;
+      try {
+        // 1. Verificar se já existe usuário com esse telefone
+        const existingUser = await db.select().from(users).where(eq(users.telefone, telefone)).limit(1);
+        
+        if (existingUser.length > 0) {
+          // Usuário já existe - atualizar dados do Stripe
+          userId = existingUser[0].id;
+          await db.update(users).set({
+            stripeCustomerId: stripeCustomerId,
+            stripeSubscriptionId: subscription.id,
+            subscriptionStatus: subscription.status,
+            plano: plano,
+            nome: existingUser[0].nome || nome,
+            email: email || existingUser[0].email || null,
+          }).where(eq(users.id, userId));
+          console.log(`📝 [DONATION] Usuário existente atualizado: ID ${userId}`);
+        } else {
+          // Criar novo usuário
+          const [newUser] = await db.insert(users).values({
+            nome: nome,
+            telefone: telefone,
+            email: email || null,
+            plano: plano,
+            stripeCustomerId: stripeCustomerId,
+            stripeSubscriptionId: subscription.id,
+            subscriptionStatus: subscription.status,
+            role: 'doador',
+            verificado: false,
+            ativo: true,
+          }).returning();
+          userId = newUser.id;
+          console.log(`✅ [DONATION] Novo usuário criado: ID ${userId}`);
+        }
+
+        // 2. Verificar se já existe registro em doadores para este usuário
+        const existingDoador = await db.select().from(doadores)
+          .where(or(
+            eq(doadores.stripeSubscriptionId, subscription.id),
+            and(userId ? eq(doadores.userId, userId) : sql`1=0`, eq(doadores.ativo, true))
+          ))
+          .limit(1);
+
+        if (existingDoador.length === 0) {
+          // Criar registro na tabela doadores
+          const [newDoador] = await db.insert(doadores).values({
+            userId: userId,
+            plano: plano,
+            valor: valorNum.toString(),
+            periodicidade: periodicity,
+            stripeCustomerId: stripeCustomerId,
+            stripeSubscriptionId: subscription.id,
+            stripePaymentIntentId: paymentIntent?.id || null,
+            status: 'pending',
+            ativo: true,
+            dataDoacaoInicial: new Date(),
+          }).returning();
+          console.log(`✅ [DONATION] Registro de doador criado: ID ${newDoador.id}`);
+        } else {
+          console.log(`📝 [DONATION] Doador já existe: ID ${existingDoador[0].id}`);
+        }
+      } catch (dbError: any) {
+        console.error(`⚠️ [DONATION] Erro ao persistir no banco (não crítico):`, dbError?.message);
+      }
+      // ========== FIM DA PERSISTÊNCIA LOCAL ==========
+
+      return res.json({ success: true, subscriptionId: subscription.id, customerId: stripeCustomerId, invoiceId: invoice?.id || null, paymentIntentId: paymentIntent?.id || null, setupIntentId: setupIntent || null, secretType, clientSecret, requiresPolling: !clientSecret, userId });
     } catch (error: any) {
       console.error('❌ [DONATION] Erro:', error?.message);
       return res.status(500).json({ success: false, message: 'Erro ao criar doação', error: error?.message });
@@ -2043,12 +2149,222 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
 
-  // === ENDPOINT DE POLLING: Buscar client_secret quando vier null ===
+  
+
+  // ========== ENDPOINT DE SINCRONIZAÇÃO STRIPE -> BANCO LOCAL ==========
+  // Sincroniza doadores que existem no Stripe mas não no banco local
+  app.post('/api/admin/sync-stripe-donors', async (req, res) => {
+    try {
+      console.log('🔄 [SYNC] Iniciando sincronização Stripe -> Banco Local...');
+      
+      const results = {
+        totalStripeCustomers: 0,
+        totalStripeSubscriptions: 0,
+        usersCreated: 0,
+        usersUpdated: 0,
+        doadoresCreated: 0,
+        doadoresUpdated: 0,
+        errors: [] as string[],
+        details: [] as any[],
+      };
+
+      // 1. Buscar TODOS os customers do Stripe
+      let hasMore = true;
+      let startingAfter: string | undefined;
+      const allCustomers: any[] = [];
+
+      while (hasMore) {
+        const customersPage = await stripe.customers.list({
+          limit: 100,
+          starting_after: startingAfter,
+        });
+        allCustomers.push(...customersPage.data);
+        hasMore = customersPage.has_more;
+        if (customersPage.data.length > 0) {
+          startingAfter = customersPage.data[customersPage.data.length - 1].id;
+        }
+      }
+
+      results.totalStripeCustomers = allCustomers.length;
+      console.log(`📊 [SYNC] Encontrados ${allCustomers.length} customers no Stripe`);
+
+      // 2. Para cada customer, buscar subscriptions e sincronizar
+      for (const customer of allCustomers) {
+        try {
+          // Buscar subscriptions do customer
+          const subscriptions = await stripe.subscriptions.list({
+            customer: customer.id,
+            limit: 10,
+          });
+
+          results.totalStripeSubscriptions += subscriptions.data.length;
+
+          // Pular se não tem subscription
+          if (subscriptions.data.length === 0) continue;
+
+          // Usar a subscription mais recente
+          const subscription = subscriptions.data[0];
+          const telefone = customer.phone || '';
+          const nome = customer.name || 'Doador Stripe';
+          const email = customer.email || null;
+
+          // Extrair valor da subscription
+          const priceAmount = subscription.items.data[0]?.price?.unit_amount || 0;
+          const valorNum = priceAmount / 100;
+
+          // Extrair plano dos metadados ou inferir pelo valor
+          let plano = subscription.metadata?.plano || customer.metadata?.plano || 'eco';
+          if (valorNum >= 50) plano = 'platinum';
+          else if (valorNum >= 29) plano = 'grito';
+          else plano = 'eco';
+
+          // Extrair periodicidade
+          const interval = subscription.items.data[0]?.price?.recurring?.interval || 'month';
+          const intervalCount = subscription.items.data[0]?.price?.recurring?.interval_count || 1;
+          let periodicidade = 'mensal';
+          if (interval === 'year') periodicidade = 'anual';
+          else if (intervalCount === 3) periodicidade = 'trimestral';
+          else if (intervalCount === 6) periodicidade = 'semestral';
+
+          // Pular se não tem telefone
+          if (!telefone) {
+            results.errors.push(`Customer ${customer.id} (${nome}) sem telefone`);
+            continue;
+          }
+
+          // 3. Verificar/criar usuário
+          let userId: number | null = null;
+          const existingUser = await db.select().from(users)
+            .where(or(
+              eq(users.telefone, telefone),
+              eq(users.stripeCustomerId, customer.id)
+            ))
+            .limit(1);
+
+          if (existingUser.length > 0) {
+            // Atualizar usuário existente
+            userId = existingUser[0].id;
+            await db.update(users).set({
+              stripeCustomerId: customer.id,
+              stripeSubscriptionId: subscription.id,
+              subscriptionStatus: subscription.status,
+              plano: plano,
+              nome: existingUser[0].nome || nome,
+              email: email || existingUser[0].email || null,
+            }).where(eq(users.id, userId));
+            results.usersUpdated++;
+          } else {
+            // Criar novo usuário
+            const [newUser] = await db.insert(users).values({
+              nome: nome,
+              telefone: telefone,
+              email: email,
+              plano: plano,
+              stripeCustomerId: customer.id,
+              stripeSubscriptionId: subscription.id,
+              subscriptionStatus: subscription.status,
+              role: 'doador',
+              verificado: false,
+              ativo: true,
+            }).returning();
+            userId = newUser.id;
+            results.usersCreated++;
+            console.log(`✅ [SYNC] Novo usuário criado: ${nome} (ID ${userId})`);
+          }
+
+          // 4. Verificar/criar doador
+          const existingDoador = await db.select().from(doadores)
+            .where(or(
+              eq(doadores.stripeSubscriptionId, subscription.id),
+              eq(doadores.stripeCustomerId, customer.id)
+            ))
+            .limit(1);
+
+          if (existingDoador.length > 0) {
+            // Atualizar doador existente
+            await db.update(doadores).set({
+              userId: userId,
+              stripeSubscriptionId: subscription.id,
+              stripeCustomerId: customer.id,
+              plano: plano,
+              valor: valorNum.toString(),
+              periodicidade: periodicidade,
+              status: subscription.status === 'active' || subscription.status === 'trialing' ? 'paid' : 'pending',
+              ativo: subscription.status === 'active' || subscription.status === 'trialing',
+            }).where(eq(doadores.id, existingDoador[0].id));
+            results.doadoresUpdated++;
+          } else {
+            // Criar novo doador
+            const [newDoador] = await db.insert(doadores).values({
+              userId: userId,
+              plano: plano,
+              valor: valorNum.toString(),
+              periodicidade: periodicidade,
+              stripeCustomerId: customer.id,
+              stripeSubscriptionId: subscription.id,
+              status: subscription.status === 'active' || subscription.status === 'trialing' ? 'paid' : 'pending',
+              ativo: subscription.status === 'active' || subscription.status === 'trialing',
+              dataDoacaoInicial: new Date(subscription.created * 1000),
+            }).returning();
+            results.doadoresCreated++;
+            console.log(`✅ [SYNC] Novo doador criado: ${nome} (ID ${newDoador.id})`);
+          }
+
+          results.details.push({
+            customerId: customer.id,
+            nome: nome,
+            telefone: telefone,
+            valor: valorNum,
+            plano: plano,
+            status: subscription.status,
+            userId: userId,
+          });
+
+        } catch (customerError: any) {
+          results.errors.push(`Erro ao processar ${customer.id}: ${customerError?.message}`);
+        }
+      }
+
+      console.log(`✅ [SYNC] Sincronização concluída:`, {
+        usersCreated: results.usersCreated,
+        usersUpdated: results.usersUpdated,
+        doadoresCreated: results.doadoresCreated,
+        doadoresUpdated: results.doadoresUpdated,
+        errors: results.errors.length,
+      });
+
+      res.json({
+        success: true,
+        message: 'Sincronização concluída',
+        results: {
+          totalStripeCustomers: results.totalStripeCustomers,
+          totalStripeSubscriptions: results.totalStripeSubscriptions,
+          usersCreated: results.usersCreated,
+          usersUpdated: results.usersUpdated,
+          doadoresCreated: results.doadoresCreated,
+          doadoresUpdated: results.doadoresUpdated,
+          errorsCount: results.errors.length,
+          errors: results.errors.slice(0, 10), // Limitar erros retornados
+          details: results.details,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ [SYNC] Erro na sincronização:', error?.message);
+      res.status(500).json({
+        success: false,
+        error: 'Erro na sincronização',
+        message: error?.message,
+      });
+    }
+  });
+  // ========== FIM DO ENDPOINT DE SINCRONIZAÇÃO ==========
+
+// === ENDPOINT DE POLLING: Buscar client_secret quando vier null ===
   // === ENDPOINT: Attach Payment Method e Pagar Invoice (após SetupIntent) ===
   app.post('/api/subscriptions/:id/pay', async (req, res) => {
     try {
       const subscriptionId = req.params.id;
-      const { paymentMethodId } = req.body;
+      const { paymentMethodId, email } = req.body;
       
       if (!paymentMethodId) {
         return res.status(400).json({ error: 'paymentMethodId é obrigatório' });
@@ -2063,6 +2379,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const invoice = subscription.latest_invoice as any;
       const customerId = subscription.customer as string;
+
+      // Atualizar e-mail se fornecido
+      if (email) {
+        try {
+          // Atualizar no Stripe
+          await stripe.customers.update(customerId, { email: email });
+          console.log(`📧 [PAY-INVOICE] E-mail atualizado no Stripe: ${email}`);
+
+          // Atualizar no banco de dados local
+          const existingUser = await db.select().from(users)
+            .where(eq(users.stripeCustomerId, customerId))
+            .limit(1);
+          if (existingUser.length > 0) {
+            await db.update(users)
+              .set({ email: email })
+              .where(eq(users.id, existingUser[0].id));
+            console.log(`📧 [PAY-INVOICE] E-mail atualizado no banco: user ID ${existingUser[0].id}`);
+          }
+        } catch (emailError: any) {
+          console.error('⚠️ [PAY-INVOICE] Erro ao atualizar e-mail:', emailError?.message);
+        }
+      }
       
       if (!invoice) {
         return res.status(400).json({ error: 'Invoice não encontrada' });
@@ -2105,6 +2443,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoiceStatus: paidInvoice.status,
           paymentIntentId: paidInvoice.payment_intent,
           subscriptionStatus: subscription.status
+        });
+      } else if (invoice.status === 'void' || invoice.status === 'uncollectible') {
+        // Invoice anulada - criar nova subscription e pagar
+        console.log(`🔄 [PAY-INVOICE] Invoice ${invoice.status}, criando nova subscription...`);
+        
+        // Pegar o price da subscription atual
+        const priceId = subscription.items.data[0]?.price?.id;
+        if (!priceId) {
+          return res.status(400).json({ error: 'Não foi possível encontrar o preço da assinatura' });
+        }
+        
+        // Cancelar subscription atual
+        try {
+          await stripe.subscriptions.cancel(subscriptionId);
+        } catch (cancelErr) {
+          console.log('⚠️ [PAY-INVOICE] Erro ao cancelar subscription antiga (ignorando)');
+        }
+        
+        // Criar nova subscription com pagamento imediato
+        const newSubscription = await stripe.subscriptions.create({
+          customer: customerId,
+          items: [{ price: priceId }],
+          default_payment_method: paymentMethodId,
+          payment_behavior: 'default_incomplete',
+          expand: ['latest_invoice.payment_intent']
+        });
+        
+        const newInvoice = newSubscription.latest_invoice as any;
+        
+        // Pagar a nova invoice
+        if (newInvoice && (newInvoice.status === 'open' || newInvoice.status === 'draft')) {
+          const paidInvoice = await stripe.invoices.pay(newInvoice.id);
+          console.log(`✅ [PAY-INVOICE] Nova subscription criada e paga: ${newSubscription.id}`);
+          
+          // Atualizar banco com nova subscription
+          await pool.query('UPDATE users SET stripe_subscription_id = $1 WHERE stripe_customer_id = $2', [newSubscription.id, customerId]);
+          await pool.query('UPDATE doadores SET stripe_subscription_id = $1 WHERE stripe_customer_id = $2', [newSubscription.id, customerId]);
+          
+          return res.json({
+            success: true,
+            invoiceStatus: paidInvoice.status,
+            subscriptionId: newSubscription.id,
+            subscriptionStatus: newSubscription.status
+          });
+        }
+        
+        return res.json({
+          success: false,
+          error: 'Não foi possível criar nova assinatura',
+          invoiceStatus: newInvoice?.status
         });
       } else {
         console.log(`⚠️ [PAY-INVOICE] Invoice em status ${invoice.status}, não pode ser paga`);
@@ -2184,6 +2572,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
             status: sub.status,
             customerId: customer.id,
             customerName: customer.name
+          });
+        }
+
+        // Verificar assinaturas past_due (pagamento atrasado)
+        const pastDueSubs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'past_due',
+          limit: 1
+        });
+        
+        if (pastDueSubs.data.length > 0) {
+          const sub = pastDueSubs.data[0];
+          console.log(`⚠️ [VERIFY-SUB] Assinatura PAUSADA (past_due) encontrada: ${sub.id}`);
+          return res.json({ 
+            hasActiveSubscription: false,
+            isPaused: true,
+            subscriptionId: sub.id,
+            status: sub.status,
+            customerId: customer.id,
+            customerName: customer.name,
+            reason: 'subscription_paused'
+          });
+        }
+
+        // Verificar assinaturas unpaid (não paga)
+        const unpaidSubs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'unpaid',
+          limit: 1
+        });
+        
+        if (unpaidSubs.data.length > 0) {
+          const sub = unpaidSubs.data[0];
+          console.log(`⚠️ [VERIFY-SUB] Assinatura NÃO PAGA (unpaid) encontrada: ${sub.id}`);
+          return res.json({ 
+            hasActiveSubscription: false,
+            isPaused: true,
+            subscriptionId: sub.id,
+            status: sub.status,
+            customerId: customer.id,
+            customerName: customer.name,
+            reason: 'subscription_paused'
+          });
+        }
+
+        // Verificar assinaturas incomplete (pagamento não concluído)
+        // IMPORTANTE: Subscriptions "incomplete" NÃO devem bloquear o acesso
+        // A pessoa deve poder refazer o fluxo de doação
+        const incompleteSubs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'incomplete',
+          limit: 1
+        });
+        
+        if (incompleteSubs.data.length > 0) {
+          const sub = incompleteSubs.data[0];
+          console.log(`⚠️ [VERIFY-SUB] Assinatura INCOMPLETA encontrada: ${sub.id} - permitindo nova doação`);
+          // Cancelar a subscription incompleta para evitar problemas futuros
+          try {
+            await stripe.subscriptions.cancel(sub.id);
+            console.log(`✅ [VERIFY-SUB] Subscription incompleta ${sub.id} cancelada`);
+          } catch (cancelError: any) {
+            console.log(`⚠️ [VERIFY-SUB] Erro ao cancelar subscription incompleta: ${cancelError.message}`);
+          }
+          // Retornar como "sem assinatura" para permitir nova doação
+          return res.json({ 
+            hasActiveSubscription: false,
+            reason: 'incomplete_subscription_cleared',
+            message: 'Sua doação anterior não foi concluída. Por favor, faça uma nova doação.'
+          });
+        }
+
+        // Verificar assinaturas canceladas (para permitir reativação)
+        const canceledSubs = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: 'canceled',
+
+          limit: 1
+        });
+        
+        if (canceledSubs.data.length > 0) {
+          const sub = canceledSubs.data[0];
+          console.log(`⚠️ [VERIFY-SUB] Assinatura CANCELADA encontrada: ${sub.id}`);
+          return res.json({ 
+            hasActiveSubscription: false,
+            isPaused: true,
+            subscriptionId: sub.id,
+            status: sub.status,
+            customerId: customer.id,
+            customerName: customer.name,
+            reason: 'subscription_canceled'
           });
         }
       }
@@ -2283,7 +2762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint para confirmar doação após pagamento bem-sucedido
   app.post('/api/donation/confirm', async (req, res) => {
     try {
-      const { paymentIntentId, status } = req.body;
+      const { paymentIntentId, status, email } = req.body;
 
       // Buscar doador pelo PaymentIntent ID
       const doador = await db.select().from(doadores)
@@ -2292,6 +2771,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!doador[0]) {
         return res.status(404).json({ error: 'Donation not found' });
+      }
+
+      // Atualizar e-mail do usuário se fornecido
+      if (email && doador[0].userId) {
+        try {
+          // Atualizar no banco de dados local
+          await db.update(users)
+            .set({ email: email })
+            .where(eq(users.id, doador[0].userId));
+          console.log(`📧 [CONFIRM] E-mail atualizado para usuário ${doador[0].userId}: ${email}`);
+
+          // Atualizar no Stripe se tiver customerId
+          if (doador[0].stripeCustomerId) {
+            await stripe.customers.update(doador[0].stripeCustomerId, { email: email });
+            console.log(`📧 [CONFIRM] E-mail atualizado no Stripe customer: ${doador[0].stripeCustomerId}`);
+          }
+        } catch (emailError: any) {
+          console.error('⚠️ [CONFIRM] Erro ao atualizar e-mail:', emailError?.message);
+        }
       }
 
       // Se o pagamento foi bem-sucedido, salvar o payment method
@@ -2800,7 +3298,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/create-checkout-session", async (req, res) => {
     try {
       const { planId, customAmount } = req.body;
-      console.log('🔍 Debug - Received planId:', planId, 'customAmount:', customAmount);
       console.log('🔍 Debug - Available plans:', Object.keys(planPricing));
 
       let line_items;
@@ -3813,28 +4310,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Profile image file upload endpoint
-  app.post("/api/profile/upload-file", upload.single('file'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Nenhum arquivo foi enviado" });
-      }
-
-      console.log('🖼️ [PROFILE FILE] Upload de arquivo recebido:', req.file.filename);
-
-      // Construir URL da imagem
-      const imageUrl = `/uploads/${req.file.filename}`;
-
-      res.json({
-        success: true,
-        imageUrl,
-        message: "Imagem enviada com sucesso"
-      });
-
-    } catch (error: any) {
-      console.error("❌ [PROFILE FILE] Erro no upload de arquivo:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
+  
+app.post("/api/profile/upload-file", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhum arquivo foi enviado" });
     }
-  });
+
+    const originalPath = req.file.path;
+    const originalDir = path.dirname(originalPath);
+
+    // ✅ SEMPRE gera um NOVO nome final em JPG (nunca reutiliza o mesmo)
+    const jpgFilename = `profile-${Date.now()}.jpg`;
+    const jpgPath = path.join(originalDir, jpgFilename);
+
+    // ✅ Converte qualquer formato para JPG (ou reconverte JPG com segurança)
+    await sharp(originalPath)
+      .rotate()
+      .jpeg({ quality: 80 })
+      .toFile(jpgPath);
+
+    // ✅ Apaga o arquivo original, seja ele JPG, PNG, WEBP, HEIC, etc
+    await fs.promises.unlink(originalPath);
+
+    const imageUrl = `/uploads/${jpgFilename}`;
+
+    console.log("🖼️ [PROFILE FILE] Upload convertido e salvo:", imageUrl);
+
+    return res.json({
+      success: true,
+      imageUrl,
+      message: "Imagem enviada e convertida com sucesso"
+    });
+
+  } catch (error: any) {
+    console.error("❌ [PROFILE FILE] Erro no upload de arquivo:", error);
+    return res.status(500).json({ error: "Erro interno do servidor" });
+  }
+});
+
 
   // Create subscription for internal checkout
   app.post("/api/create-subscription", async (req, res) => {
@@ -3850,15 +4364,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'Autenticação necessária para criar assinatura' });
       }
 
-      console.log('💳 [SUBSCRIPTION CREATE] Request received:', {
-        planId,
-        customAmount,
-        paymentMethodId: paymentMethodId ? 'present' : 'missing',
-        periodicity: periodicity || 'mensal',
-        price: price || 'from planPricing',
-        userId: authenticatedUserId,
-        timestamp: new Date().toISOString()
-      });
 
       // Critical validation to prevent incorrect charging
       if (!planId) {
@@ -4769,6 +5274,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
                 .update(donorSubscriptions)
                 .set({
                   status: 'canceled',
+
                   canceledAt: deletedSubscription.canceled_at,
                   updatedAt: new Date(),
                 })
@@ -4780,13 +5286,28 @@ app.post('/api/webhook/stripe', async (req, res) => {
                 stripeSubscriptionId: deletedSubscription.id,
                 eventType: 'customer.subscription.deleted',
                 status: 'canceled',
+
                 processed: true,
               });
             }
 
-            console.log(
-              `Assinatura cancelada para usuário ${user.id}`
-            );
+            console.log(`Assinatura cancelada para usuário ${user.id}`);
+
+            // 🔴 ATUALIZAR STATUS DO USUÁRIO COMO INATIVO
+            await db.update(users)
+              .set({ ativo: false })
+              .where(eq(users.id, user.id));
+            console.log(`🔴 [CANCEL] User ${user.id} marcado como inativo`);
+
+            // 🔴 ATUALIZAR DOADOR COMO INATIVO E STATUS CANCELADO
+            await db.update(doadores)
+              .set({ 
+                ativo: false, 
+                status: 'canceled',
+ 
+              })
+              .where(eq(doadores.userId, user.id));
+            console.log(`🔴 [CANCEL] Doador do user ${user.id} marcado como inativo`);
           }
         } catch (error) {
           console.error(
@@ -4990,9 +5511,65 @@ app.post('/api/webhook/stripe', async (req, res) => {
                 );
               }
             } else {
-              console.log(
-                `⚠️ Doador não encontrado para PaymentIntent: ${paymentIntent.id}`
-              );
+              console.log(`⚠️ Doador não encontrado para PaymentIntent: ${paymentIntent.id}, tentando criar...`);
+              
+              // Tentar criar doador a partir do metadata do PaymentIntent
+              const metadata = paymentIntent.metadata || {};
+              const piNome = metadata.nome;
+              const piTelefone = metadata.telefone;
+              const piEmail = metadata.email;
+              const piPlano = metadata.plano;
+              const piValor = metadata.valor;
+              const piPeriodicidade = metadata.periodicidade || 'mensal';
+              
+              if (piTelefone && piPlano) {
+                // Buscar ou criar usuário pelo telefone
+                let piUser = await db.select().from(users).where(eq(users.telefone, piTelefone)).limit(1).then(rows => rows[0]);
+                
+                if (!piUser) {
+                  // Criar novo usuário
+                  const [newUser] = await db.insert(users).values({
+                    nome: piNome || 'Doador',
+                    telefone: piTelefone,
+                    email: piEmail || null,
+                    tipo: 'doador',
+                    fonte: 'doacao',
+                    plano: piPlano,
+                    ativo: true,
+                    dataCadastro: new Date(),
+                    stripeCustomerId: paymentIntent.customer as string || null,
+                    subscriptionStatus: 'active'
+                  }).returning();
+                  piUser = newUser;
+                  console.log(`✅ Usuário criado via webhook PI: ${piUser.id}`);
+                }
+                
+                // Criar doador
+                const [newDoador] = await db.insert(doadores).values({
+                  userId: piUser.id,
+                  plano: piPlano,
+                  valor: piValor ? parseFloat(piValor) : 9.90,
+                  periodicidade: piPeriodicidade,
+                  status: 'paid',
+                  dataDoacaoInicial: new Date(),
+                  ultimaDoacao: new Date(),
+                  stripePaymentIntentId: paymentIntent.id,
+                  stripeCustomerId: paymentIntent.customer as string || null,
+                  ativo: true
+                }).returning();
+                
+                console.log(`✅ Doador criado via webhook PI: ${newDoador.id} para usuário ${piUser.id}`);
+                
+                // Dar bônus de 50 Gritos para primeira doação se necessário
+                if ((piUser.gritosTotal || 0) === 0) {
+                  await db.update(users)
+                    .set({ gritosTotal: (piUser.gritosTotal || 0) + 50 })
+                    .where(eq(users.id, piUser.id));
+                  console.log(`🎁 Bônus de 50 Gritos dados ao usuário ${piUser.id}`);
+                }
+              } else {
+                console.log(`⚠️ Metadata insuficiente para criar doador - PI: ${paymentIntent.id}`);
+              }
             }
           }
         } catch (error) {
@@ -5779,6 +6356,447 @@ app.post('/api/webhook/stripe', async (req, res) => {
     }
   });
 
+  // Buscar informações do plano anterior para reativação
+  app.get('/api/billing/previous-plan', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+
+      if (!user) {
+        return res.status(400).json({
+          error: "Usuário não encontrado",
+          message: "Você não está autenticado"
+        });
+      }
+
+      console.log(`📋 [PREVIOUS-PLAN] Buscando plano anterior para user ${user.id}`);
+
+      // PRIORIDADE 1: Buscar do banco de dados (tabela doadores) - dados originais
+      const doadorResult = await pool.query(
+        `SELECT plano, valor, periodicidade FROM doadores WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+      );
+      
+      let nomePlano = user.plano || 'eco';
+      let valor = 9.90; // valor padrão eco
+      let valorCentavos = 990;
+      let periodicidade = 'mensal';
+
+      if (doadorResult.rows.length > 0) {
+        const doador = doadorResult.rows[0];
+        if (doador.plano) {
+          nomePlano = doador.plano;
+        }
+        if (doador.valor) {
+          valor = parseFloat(doador.valor);
+          valorCentavos = Math.round(valor * 100);
+        }
+        if (doador.periodicidade) {
+          periodicidade = doador.periodicidade;
+        }
+        console.log(`📋 [PREVIOUS-PLAN] Dados encontrados no banco: ${nomePlano}, R$ ${valor}, ${periodicidade}`);
+      } else {
+        // PRIORIDADE 2: Usar o plano salvo no usuário com valores padrão
+        const planPrices: Record<string, number> = {
+          'eco': 990,
+          'voz': 1990,
+          'grito': 2990,
+          'platinum': 9990
+        };
+        const planoLower = (user.plano || 'eco').toLowerCase();
+        valorCentavos = planPrices[planoLower] || 990;
+        valor = valorCentavos / 100;
+        nomePlano = planoLower;
+        console.log(`📋 [PREVIOUS-PLAN] Usando valores padrão do plano ${nomePlano}: R$ ${valor}`);
+      }
+
+      // Capitalizar nome do plano
+      const nomeCapitalizado = nomePlano.charAt(0).toUpperCase() + nomePlano.slice(1).toLowerCase();
+
+      console.log(`✅ [PREVIOUS-PLAN] Plano encontrado: ${nomeCapitalizado}, R$ ${valor}, ${periodicidade}`);
+
+      res.json({
+        success: true,
+        plano: {
+          nome: nomeCapitalizado,
+          valor: valor,
+          valorCentavos: valorCentavos,
+          periodicidade: periodicidade,
+          priceId: null,
+          status: 'canceled',
+
+        }
+      });
+    } catch (error: any) {
+      console.error("❌ [PREVIOUS-PLAN] Error:", error);
+      res.status(500).json({
+        error: "Erro ao buscar plano anterior",
+        message: error.message
+      });
+    }
+  });
+
+  // Reativar assinatura com Apple Pay/Google Pay ou Cartão (com seleção de plano/upgrade)
+  app.post('/api/billing/reactivate-with-setup', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { planoId, valorCentavos, periodicity } = req.body;
+      
+      // Mapear periodicidade para intervalo do Stripe
+      const intervalMapping: { [key: string]: { interval: 'month' | 'year', interval_count?: number } } = {
+        'mensal': { interval: 'month' },
+        'trimestral': { interval: 'month', interval_count: 3 },
+        'semestral': { interval: 'month', interval_count: 6 },
+        'anual': { interval: 'year' }
+      };
+      const intervalConfig = intervalMapping[periodicity || 'mensal'] || { interval: 'month' };
+      
+      console.log('🎯 [REACTIVATE] Dados recebidos:', { planoId, valorCentavos, periodicity, intervalConfig });
+
+      if (!user || !user.stripeSubscriptionId) {
+        return res.status(400).json({
+          error: "Assinatura não encontrada",
+          message: "Você não possui uma assinatura para reativar"
+        });
+      }
+
+      let stripeCustomerId = user.stripeCustomerId;
+      
+      // Verificar se o customer ainda existe no Stripe (e não foi deletado)
+      if (stripeCustomerId) {
+        try {
+          const existingCustomer = await stripe.customers.retrieve(stripeCustomerId) as any;
+          if (existingCustomer.deleted) {
+            console.log(`⚠️ [REACTIVATE-SETUP] Customer ${stripeCustomerId} foi DELETADO do Stripe, criando novo...`);
+            stripeCustomerId = null;
+          } else {
+            console.log(`✅ [REACTIVATE-SETUP] Customer ${stripeCustomerId} existe e está ativo no Stripe`);
+          }
+        } catch (customerError: any) {
+          console.log(`⚠️ [REACTIVATE-SETUP] Erro ao verificar customer: ${customerError.code} - ${customerError.message}`);
+          if (customerError.code === 'resource_missing') {
+            console.log(`⚠️ [REACTIVATE-SETUP] Customer ${stripeCustomerId} não existe mais no Stripe, criando novo...`);
+            stripeCustomerId = null;
+          } else {
+            throw customerError;
+          }
+        }
+      }
+      
+      // Se não tem customer válido, criar um novo
+      if (!stripeCustomerId) {
+        console.log(`🆕 [REACTIVATE-SETUP] Criando novo customer Stripe para user ${user.id}`);
+        const newCustomer = await stripe.customers.create({
+          email: user.email || undefined,
+          name: user.nome || 'Doador',
+          phone: user.telefone || undefined,
+          metadata: {
+            userId: String(user.id),
+            nome: user.nome || '',
+            reativacao: 'true'
+          }
+        });
+        stripeCustomerId = newCustomer.id;
+        console.log(`✅ [REACTIVATE-SETUP] Novo customer criado: ${stripeCustomerId}`);
+        
+        // Atualizar no banco
+        await pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [stripeCustomerId, user.id]); await pool.query('UPDATE doadores SET stripe_customer_id = $1 WHERE user_id = $2', [stripeCustomerId, user.id]);
+      }
+
+      console.log(`🔄 [REACTIVATE-SETUP] Iniciando setup para reativação - user ${user.id}, plano: ${planoId || 'anterior'}`);
+
+      // Tentar recuperar subscription antiga (pode não existir mais)
+      let subscription: any = null;
+      let priceId: string | null = null;
+      let needsToCancelOld = false;
+      
+      try {
+        subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+        priceId = subscription.items.data[0]?.price?.id;
+        needsToCancelOld = subscription.status !== 'canceled';
+        console.log(`📋 [REACTIVATE-SETUP] Subscription antiga encontrada: ${subscription.id}, status: ${subscription.status}`);
+      } catch (stripeError: any) {
+        // Subscription não existe mais no Stripe - criar nova
+        if (stripeError.code === 'resource_missing') {
+          console.log(`⚠️ [REACTIVATE-SETUP] Subscription antiga não existe mais no Stripe, criando nova...`);
+          needsToCancelOld = false;
+          
+          // Buscar o produto padrão de doação para criar um preço
+          const products = await stripe.products.list({ active: true, limit: 10 });
+          const doacaoProduct = products.data.find(p => 
+            p.name.toLowerCase().includes('doação') || 
+            p.name.toLowerCase().includes('doacao') ||
+            p.name.toLowerCase().includes('clube')
+          );
+          
+          if (doacaoProduct && valorCentavos) {
+            const newPrice = await stripe.prices.create({
+              product: doacaoProduct.id,
+              unit_amount: valorCentavos,
+              currency: 'brl',
+              recurring: { interval: 'month', interval_count: 1 },
+              metadata: { plano: planoId || 'eco', tipo: 'reativacao' }
+            });
+            priceId = newPrice.id;
+            console.log(`✅ [REACTIVATE-SETUP] Novo preço criado: ${priceId}`);
+          }
+        } else {
+          throw stripeError;
+        }
+      }
+
+      if (!priceId) {
+        return res.status(400).json({
+          error: "Plano não encontrado",
+          message: "Não foi possível recuperar ou criar o plano"
+        });
+      }
+      
+      // CORREÇÃO: Sempre usar o plano e valor SELECIONADOS pelo usuário
+      if (planoId && valorCentavos) {
+        console.log(`🎯 [REACTIVATE] Usando plano SELECIONADO: ${planoId} (R$ ${valorCentavos/100})`);
+        
+        // Buscar produto para criar preço
+        let productId: string;
+        
+        if (priceId) {
+          // Usar produto do preço existente
+          const existingPrice = await stripe.prices.retrieve(priceId);
+          productId = existingPrice.product as string;
+        } else {
+          // Buscar produto de doação
+          const products = await stripe.products.list({ active: true, limit: 10 });
+          const doacaoProduct = products.data.find(p => 
+            p.name.toLowerCase().includes('doação') || 
+            p.name.toLowerCase().includes('doacao') ||
+            p.name.toLowerCase().includes('clube')
+          );
+          productId = doacaoProduct?.id || (await stripe.products.create({
+            name: 'Doação Clube do Grito',
+            metadata: { tipo: 'doacao' }
+          })).id;
+        }
+        
+        // Criar novo preço com o valor e periodicidade SELECIONADOS
+        const newPrice = await stripe.prices.create({
+          product: productId,
+          unit_amount: valorCentavos,
+          currency: 'brl',
+          recurring: {
+            interval: intervalConfig.interval,
+            interval_count: intervalConfig.interval_count || 1
+          },
+          metadata: {
+            plano: planoId,
+            periodicidade: periodicity || 'mensal',
+            tipo: 'reativacao'
+          }
+        });
+        priceId = newPrice.id;
+        console.log(`✅ [REACTIVATE] Preço criado: ${priceId} (${valorCentavos} centavos, ${periodicity || 'mensal'})`);
+      }
+
+      // 🔄 Verificar se o preço está ativo, se não, buscar/criar um equivalente
+      if (!priceId) {
+        return res.status(400).json({
+          error: "Plano não encontrado",
+          message: "Não foi possível determinar o plano para reativação"
+        });
+      }
+      const originalPrice = await stripe.prices.retrieve(priceId);
+      console.log(`🔍 [REACTIVATE] Preço original: ${priceId}, ativo: ${originalPrice.active}`);
+      
+      if (!originalPrice.active) {
+        console.log(`⚠️ [REACTIVATE] Preço ${priceId} está inativo, buscando alternativa...`);
+        
+        // Buscar um preço ativo do mesmo produto com mesmos atributos
+        const activePrices = await stripe.prices.list({
+          product: originalPrice.product as string,
+          active: true,
+          limit: 10
+        });
+
+        // Filtrar para encontrar preço com mesmo valor, moeda e intervalo
+        const compatiblePrice = activePrices.data.find(p => 
+          p.unit_amount === originalPrice.unit_amount &&
+          p.currency === originalPrice.currency &&
+          p.recurring?.interval === originalPrice.recurring?.interval
+        );
+
+        if (compatiblePrice) {
+          priceId = compatiblePrice.id;
+          console.log(`✅ [REACTIVATE] Preço compatível encontrado: ${priceId}`);
+        } else {
+          // Criar novo preço ativo com os mesmos atributos
+          const newPrice = await stripe.prices.create({
+            product: originalPrice.product as string,
+            unit_amount: originalPrice.unit_amount!,
+            currency: originalPrice.currency,
+            recurring: originalPrice.recurring ? {
+              interval: originalPrice.recurring.interval,
+              interval_count: originalPrice.recurring.interval_count || 1
+            } : undefined
+          });
+          priceId = newPrice.id;
+          console.log(`🆕 [REACTIVATE] Novo preço criado: ${priceId}`);
+        }
+      }
+
+      if (needsToCancelOld) {
+        console.log(`🗑️ [REACTIVATE-SETUP] Cancelando subscription antiga: ${user.stripeSubscriptionId}`);
+        try {
+          await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+        } catch (cancelError: any) {
+          console.log(`⚠️ [REACTIVATE-SETUP] Erro ao cancelar subscription antiga (pode já estar cancelada): ${cancelError.message}`);
+        }
+      }
+
+      const newSubscription = await stripe.subscriptions.create({
+        customer: user.stripeCustomerId,
+        items: [{ price: priceId }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: {
+          save_default_payment_method: 'on_subscription',
+          payment_method_types: ['card']
+        },
+        expand: ['latest_invoice.payment_intent', 'pending_setup_intent']
+      });
+
+      console.log(`✅ [REACTIVATE-SETUP] Nova subscription criada: ${newSubscription.id}, status: ${newSubscription.status}`);
+
+      let clientSecret: string | null = null;
+      let secretType: 'setup' | 'payment' = 'setup';
+
+      if (newSubscription.pending_setup_intent) {
+        const setupIntent = typeof newSubscription.pending_setup_intent === 'string'
+          ? await stripe.setupIntents.retrieve(newSubscription.pending_setup_intent)
+          : newSubscription.pending_setup_intent;
+        clientSecret = setupIntent.client_secret;
+        secretType = 'setup';
+        console.log(`🔧 [REACTIVATE-SETUP] Usando SetupIntent: ${setupIntent.id}`);
+      } else if (newSubscription.latest_invoice) {
+        const invoice = typeof newSubscription.latest_invoice === 'string'
+          ? await stripe.invoices.retrieve(newSubscription.latest_invoice, { expand: ['payment_intent'] })
+          : newSubscription.latest_invoice;
+        
+        if (invoice.payment_intent) {
+          const paymentIntent = typeof invoice.payment_intent === 'string'
+            ? await stripe.paymentIntents.retrieve(invoice.payment_intent)
+            : invoice.payment_intent;
+          clientSecret = paymentIntent.client_secret;
+          secretType = 'payment';
+          console.log(`💳 [REACTIVATE-SETUP] Usando PaymentIntent: ${paymentIntent.id}`);
+        }
+      }
+
+      if (!clientSecret) {
+        console.log(`🔧 [REACTIVATE-SETUP] Criando SetupIntent manualmente...`);
+        const setupIntent = await stripe.setupIntents.create({
+          customer: user.stripeCustomerId,
+          payment_method_types: ['card'],
+          usage: 'off_session',
+        });
+        clientSecret = setupIntent.client_secret;
+        secretType = 'setup';
+      }
+
+      await storage.updateUserStripeInfo(
+        user.id,
+        user.stripeCustomerId,
+        newSubscription.id,
+        newSubscription.status
+      );
+
+      // Atualizar o plano no banco Digital Ocean
+      if (planoId) {
+        console.log(`📝 [REACTIVATE-SETUP] Atualizando plano no Digital Ocean: ${planoId}`);
+        await pool.query(`UPDATE users SET plano = $1 WHERE id = $2`, [planoId, user.id]);
+        console.log(`✅ [REACTIVATE-SETUP] Plano atualizado para: ${planoId}`);
+      }
+
+      res.json({
+        success: true,
+        subscriptionId: newSubscription.id,
+        clientSecret: clientSecret,
+        secretType: secretType,
+        status: newSubscription.status
+      });
+    } catch (error: any) {
+      console.error("❌ [REACTIVATE-SETUP] Error:", error);
+      res.status(500).json({
+        error: "Erro ao preparar reativação",
+        message: error.message
+      });
+    }
+  });
+
+  // Confirmar pagamento da reativação (após Apple Pay/Google Pay ou Cartão)
+  app.post('/api/billing/reactivate-confirm', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { subscriptionId, paymentMethodId } = req.body;
+
+      if (!subscriptionId) {
+        return res.status(400).json({
+          error: "Subscription ID obrigatório"
+        });
+      }
+
+      console.log(`✅ [REACTIVATE-CONFIRM] Confirmando reativação - subscription ${subscriptionId}`);
+
+      if (paymentMethodId) {
+        try {
+          await stripe.paymentMethods.attach(paymentMethodId, {
+            customer: user.stripeCustomerId,
+          });
+        } catch (attachError: any) {
+          if (!attachError.message?.includes('already been attached')) {
+            throw attachError;
+          }
+        }
+
+        await stripe.customers.update(user.stripeCustomerId, {
+          invoice_settings: {
+            default_payment_method: paymentMethodId,
+          },
+        });
+
+        await stripe.subscriptions.update(subscriptionId, {
+          default_payment_method: paymentMethodId,
+        });
+
+        console.log(`💳 [REACTIVATE-CONFIRM] Payment method ${paymentMethodId} definido como padrão`);
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+      await storage.updateUserStripeInfo(
+        user.id,
+        user.stripeCustomerId,
+        subscriptionId,
+        subscription.status
+      );
+
+      await pool.query(
+        `UPDATE users SET subscription_status = $1 WHERE id = $2`,
+        [subscription.status, user.id]
+      );
+
+      console.log(`✅ [REACTIVATE-CONFIRM] Reativação confirmada - status: ${subscription.status}`);
+
+      res.json({
+        success: true,
+        subscriptionId: subscriptionId,
+        status: subscription.status,
+        message: 'Assinatura reativada com sucesso'
+      });
+    } catch (error: any) {
+      console.error("❌ [REACTIVATE-CONFIRM] Error:", error);
+      res.status(500).json({
+        error: "Erro ao confirmar reativação",
+        message: error.message
+      });
+    }
+  });
 
   // Reativar assinatura expirada (incomplete_expired/void/unpaid)
   app.post('/api/billing/reactivate', requireAuth, async (req, res) => {
@@ -6421,7 +7439,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
       if (!phone) {
         return res.status(400).json({
           error: "Telefone é obrigatório",
-          eligible: false,
+          eligible: true,
           exists: false
         });
       }
@@ -6439,95 +7457,119 @@ app.post('/api/webhook/stripe', async (req, res) => {
         if (existingUser) {
           console.log(`✅ [LOGIN ELIGIBILITY] User exists: ${existingUser.nome} (${existingUser.id})`);
 
-          // VERIFICAÇÃO CRÍTICA: Se for doador, verificar assinatura ANTES de permitir login
-          if (existingUser.tipo === 'doador') {
-            console.log(`🔍 [LOGIN ELIGIBILITY] Verificando assinatura Stripe para doador: ${existingUser.nome}`);
+          // ✅ VERIFICAÇÃO DE ASSINATURA NO STRIPE (TEMPO REAL)
+          // Busca stripe_customer_id primeiro em doadores, depois em users
+          let hasActiveSubscription = false;
+          let verificouNoStripe = false; // Flag para indicar se verificamos no Stripe
+          
+          // Verificar se é doador ou tem tipo que indica doador
+          const tiposDoador = ['doador', 'patrocinador_2026'];
+          const isDoador = tiposDoador.includes(existingUser.tipo || '') || existingUser.tipo?.includes('doador');
+          
+          if (isDoador || existingUser.stripeCustomerId) {
+            console.log(`🔍 [LOGIN ELIGIBILITY] Verificando assinatura no Stripe para: ${existingUser.nome}`);
             
             try {
-              // Buscar dados do doador
+              // 1. Tentar buscar stripe_customer_id na tabela doadores
+              let stripeCustomerId: string | null = null;
+              
               const [doadorInfo] = await db
                 .select({ 
                   stripeCustomerId: doadores.stripeCustomerId,
                   status: doadores.status,
-                  ativo: doadores.ativo
+                  ativo: doadores.ativo,
                 })
                 .from(doadores)
                 .where(eq(doadores.userId, existingUser.id))
+                .orderBy(desc(doadores.ativo), desc(doadores.createdAt))
                 .limit(1);
 
-              if (!doadorInfo) {
-                console.log(`❌ [LOGIN ELIGIBILITY] Doador não encontrado na tabela: ${existingUser.id}`);
-                return res.json({
-                  eligible: false,
-                  exists: true,
-                  reason: 'SUBSCRIPTION_REQUIRED',
-                  message: 'Sua doação não foi encontrada. Faça uma nova doação para continuar.'
-                });
+              if (doadorInfo?.stripeCustomerId) {
+                stripeCustomerId = doadorInfo.stripeCustomerId;
+                console.log(`🔍 [LOGIN ELIGIBILITY] Customer ID encontrado em doadores: ${stripeCustomerId}`);
               }
-
-              // Se tem stripeCustomerId, verificar na Stripe
-              if (doadorInfo.stripeCustomerId && stripe) {
-                const subscriptions = await stripe.subscriptions.list({
-                  customer: doadorInfo.stripeCustomerId,
-                  status: 'all',
-                  limit: 10
-                });
-
-                const activeStatuses = ['active', 'trialing'];
-                const hasActiveSubscription = subscriptions.data.some(sub => 
-                  activeStatuses.includes(sub.status)
-                );
-
-                console.log(`🔍 [LOGIN ELIGIBILITY] Stripe: ${subscriptions.data.length} subs, ativas: ${hasActiveSubscription}`);
-
-                if (!hasActiveSubscription) {
-                  console.log(`❌ [LOGIN ELIGIBILITY] BLOQUEANDO - sem assinatura ativa na Stripe: ${existingUser.nome}`);
-                  return res.json({
-                    eligible: false,
-                    exists: true,
-                    reason: 'SUBSCRIPTION_INACTIVE',
-                    message: 'Sua assinatura não está ativa. Renove sua doação para continuar acessando.'
+              
+              // 2. Se não encontrou em doadores, buscar em users
+              if (!stripeCustomerId && existingUser.stripeCustomerId) {
+                stripeCustomerId = existingUser.stripeCustomerId;
+                console.log(`🔍 [LOGIN ELIGIBILITY] Customer ID encontrado em users: ${stripeCustomerId}`);
+              }
+              
+              // 3. Se encontrou customer_id, verificar no Stripe
+              if (stripeCustomerId && stripe) {
+                try {
+                  const subscriptions = await stripe.subscriptions.list({
+                    customer: user.stripeCustomerId,
+                    status: 'all',
+                    limit: 10
                   });
+
+                  const activeStatuses = ['active', 'trialing'];
+                  hasActiveSubscription = subscriptions.data.some(sub => 
+                    activeStatuses.includes(sub.status)
+                  );
+
+                  verificouNoStripe = true;
+                  console.log(`🔍 [LOGIN ELIGIBILITY] Stripe: ${subscriptions.data.length} assinaturas, ativa: ${hasActiveSubscription}`);
+                  
+                  if (!hasActiveSubscription && subscriptions.data.length > 0) {
+                    const latestSub = subscriptions.data[0];
+                    console.log(`⚠️ [LOGIN ELIGIBILITY] Última assinatura: ${latestSub.id} status: ${latestSub.status}`);
+                  }
+                } catch (stripeError: any) {
+                  console.error(`❌ [LOGIN ELIGIBILITY] Erro Stripe:`, stripeError?.message);
+                  // Se erro no Stripe, NÃO permitir login (segurança)
+                  hasActiveSubscription = false;
                 }
               } else {
-                // Sem stripeCustomerId - verificar status local
-                if (doadorInfo.status !== 'paid' || !doadorInfo.ativo) {
-                  console.log(`❌ [LOGIN ELIGIBILITY] BLOQUEANDO - status local inválido: ${doadorInfo.status}, ativo: ${doadorInfo.ativo}`);
-                  return res.json({
-                    eligible: false,
-                    exists: true,
-                    reason: 'SUBSCRIPTION_INACTIVE',
-                    message: 'Sua doação não está ativa. Entre em contato com o suporte.'
-                  });
-                }
+                console.log(`⚠️ [LOGIN ELIGIBILITY] Nenhum stripe_customer_id encontrado para ${existingUser.nome}`);
+                hasActiveSubscription = false;
               }
 
-              console.log(`✅ [LOGIN ELIGIBILITY] Assinatura verificada - permitindo login para: ${existingUser.nome}`);
-            } catch (stripeError) {
-              console.error(`❌ [LOGIN ELIGIBILITY] Erro ao verificar Stripe:`, stripeError);
-              return res.json({
-                eligible: false,
-                exists: true,
-                reason: 'VERIFICATION_ERROR',
-                message: 'Erro ao verificar sua assinatura. Tente novamente.'
-              });
+            } catch (error: any) {
+              console.error(`❌ [LOGIN ELIGIBILITY] Erro ao verificar assinatura:`, error?.message);
+              hasActiveSubscription = false;
             }
+          } else {
+            // Não é doador - verificar papel especial
+            console.log(`ℹ️ [LOGIN ELIGIBILITY] Usuário não é doador, tipo: ${existingUser.tipo}`);
           }
 
-          // User exists and passed verification - eligible for login
+          // ✅ VERIFICAR ASSINATURA ANTES DE PERMITIR LOGIN
+          // Roles especiais são sempre permitidos
+          const rolesEspeciais = ['desenvolvedor', 'conselho', 'professor', 'patrocinador', 'admin'];
+          const userPapel = (existingUser.papel || '').toLowerCase();
+          const isRoleEspecial = rolesEspeciais.includes(userPapel);
+          
+          if (verificouNoStripe && !hasActiveSubscription && !isRoleEspecial) {
+            console.log(`⚠️ [LOGIN ELIGIBILITY] PERMITINDO login com assinatura inativa para reativação: ${existingUser.nome}`);
+            return res.json({
+              eligible: true,
+              exists: true,
+              userId: existingUser.id,
+              userName: existingUser.nome,
+              userType: existingUser.tipo || 'user',
+              hasActiveSubscription: false,
+              reason: 'SUBSCRIPTION_INACTIVE',
+              message: 'Sua assinatura não está ativa. Renove sua doação para continuar acessando.'
+            });
+          }
+
+          console.log(`✅ [LOGIN ELIGIBILITY] PERMITINDO login para: ${existingUser.nome} (role especial: ${isRoleEspecial}, assinatura ativa: ${hasActiveSubscription})`);
           return res.json({
             eligible: true,
             exists: true,
             userId: existingUser.id,
             userName: existingUser.nome,
-            userType: existingUser.tipo || 'user'
+            userType: existingUser.tipo || 'user',
+            hasActiveSubscription: hasActiveSubscription
           });
         } else {
           console.log(`❌ [LOGIN ELIGIBILITY] User does not exist for phone: ${normalizedPhone}`);
 
           // User doesn't exist - requires payment first
           return res.json({
-            eligible: false,
+            eligible: true,
             exists: false,
             reason: 'PAYMENT_REQUIRED',
             message: 'Este número não está cadastrado. Complete o pagamento para se cadastrar.'
@@ -6539,7 +7581,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
         return res.status(400).json({
           error: "Formato de telefone inválido",
           message: normalizationError.message || "Número de telefone deve ser válido",
-          eligible: false,
+          eligible: true,
           exists: false
         });
       }
@@ -6548,7 +7590,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
       console.error("❌ [LOGIN ELIGIBILITY] Error:", error);
       res.status(500).json({
         error: "Erro interno do servidor",
-        eligible: false,
+        eligible: true,
         exists: false
       });
     }
@@ -6707,7 +7749,6 @@ app.post('/api/webhook/stripe', async (req, res) => {
         }
 
         if (storedCode !== code) {
-          console.log(`❌ [VERIFY OTP] Invalid code - Expected: ${storedCode}, Received: ${code}`);
           return res.status(400).json({ error: "Código inválido" });
         }
 
@@ -6774,11 +7815,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
               console.log(`🔍 [VERIFY OTP] Stripe subscriptions para ${user.nome}: ${subscriptions.data.length} total, ativas: ${hasActiveStripeSubscription}`);
               
               if (!hasActiveStripeSubscription) {
-                console.log(`❌ [VERIFY OTP] Bloqueando login - sem assinatura ativa na Stripe: ${user.nome}`);
-                return res.status(403).json({ 
-                  error: "SUBSCRIPTION_INACTIVE",
-                  message: "Sua assinatura não está mais ativa. Renove sua doação para continuar acessando."
-                });
+                console.log(`⚠️ [VERIFY OTP] Assinatura inativa na Stripe, mas permitindo login para reativação: ${user.nome}`);
+                donationStatus.hasActiveSubscription = false;
+                donationStatus.needsReactivation = true;
               }
 
               donationStatus.hasActiveSubscription = true;
@@ -6787,11 +7826,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
             } else {
               // Sem stripeCustomerId - verificar apenas banco local
               if (doadorInfo.status !== 'paid' || !doadorInfo.ativo) {
-                console.log(`❌ [VERIFY OTP] Bloqueando login - status local inválido: ${doadorInfo.status}, ativo: ${doadorInfo.ativo}`);
-                return res.status(403).json({ 
-                  error: "SUBSCRIPTION_INACTIVE",
-                  message: "Sua doação não está ativa. Entre em contato com o suporte."
-                });
+                console.log(`⚠️ [VERIFY OTP] Status local inativo, mas permitindo login para reativação: ${doadorInfo.status}, ativo: ${doadorInfo.ativo}`);
+                donationStatus.hasActiveSubscription = false;
+                donationStatus.needsReactivation = true;
               }
               donationStatus.hasActiveSubscription = true;
               donationStatus.isExistingDonor = true;
@@ -6921,28 +7958,6 @@ app.post('/api/webhook/stripe', async (req, res) => {
         return res.status(400).json({ error: "Telefone é obrigatório" });
       }
 
-      // Special handling for professor phone numbers
-      const professorNumbers = ["31987654321", "31987654322"];
-      const normalizedPhoneInput = telefone.replace(/\D/g, '').replace(/^55/, ''); // Remove non-digits and country code
-
-      if (professorNumbers.includes(normalizedPhoneInput)) {
-        const codigo = "123456"; // Fixed code for professor numbers
-
-        // Store verification code with both formats to handle frontend inconsistency
-        verificationCodes.set(telefone, codigo);
-        verificationCodes.set(normalizedPhoneInput, codigo);
-        setTimeout(() => {
-          verificationCodes.delete(telefone);
-          verificationCodes.delete(normalizedPhoneInput);
-        }, 10 * 60 * 1000);
-
-        return res.json({
-          success: true,
-          message: "Código de acesso gerado",
-          codigo: codigo // Show code for professor phone
-        });
-      }
-
       // Handle original test phone number
       if (telefone === "+5599999999999" || telefone.includes("99999999999")) {
         const codigo = "123456"; // Fixed code for test phone
@@ -6959,26 +7974,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
           codigo: codigo // Show code for test phone
         });
       }
-
-      // Handle professor test numbers (only for sending codes) - BACKUP
-      const professorTestPhones = ["+5531999990001", "+5531999990002", "+5531999990003"];
-      if (professorTestPhones.some(phone => telefone === phone || telefone.includes("999990001") || telefone.includes("999990002") || telefone.includes("999990003"))) {
-        const codigo = "123456"; // Fixed code for professor test phones
-        verificationCodes.set(telefone, codigo);
-
-        // Auto-expire in 10 minutes
-        setTimeout(() => {
-          verificationCodes.delete(telefone);
-        }, 10 * 60 * 1000);
-
-        return res.json({
-          success: true,
-          message: "Código de teste gerado",
-          codigo: codigo // Show code for test phone
-        });
-      }
-
-      // 🔒 NOVA VALIDAÇÃO DE SEGURANÇA: Verificar se telefone está cadastrado
+           // 🔒 NOVA VALIDAÇÃO DE SEGURANÇA: Verificar se telefone está cadastrado
       try {
         // Normalizar telefone para busca no banco
         const phoneForDB = telefone.replace(/\D/g, '');
@@ -7220,173 +8216,185 @@ app.post('/api/webhook/stripe', async (req, res) => {
   });
 
   // Verify login code (regular users - restored to original)
-  app.post("/api/verify-login-code", async (req, res) => {
-    try {
-      const { telefone, codigo } = req.body;
+ // Verify login code (regular users - restored to original)
+app.post("/api/verify-login-code", async (req, res) => {
+  try {
+    const { telefone, codigo } = req.body;
 
-      console.log(`🔍 VERIFY LOGIN CODE - Phone: ${telefone}, Code: ${codigo}, Time: ${new Date().toISOString()}`);
+    console.log(
+      `🔍 VERIFY LOGIN CODE - Phone: ${telefone}, Code: ${codigo}, Time: ${new Date().toISOString()}`
+    );
 
-      if (!telefone || !codigo) {
-        console.log(`❌ MISSING DATA - Phone: ${telefone}, Code: ${codigo}`);
-        return res.status(400).json({ error: "Telefone e código são obrigatórios" });
+    if (!telefone || !codigo) {
+      console.log(`❌ MISSING DATA - Phone: ${telefone}, Code: ${codigo}`);
+      return res
+        .status(400)
+        .json({ error: "Telefone e código são obrigatórios" });
+    }
+
+    // Check stored verification code for regular users
+    // Try multiple formats to match
+    const normalizedForCheck = telefone.replace(/\D/g, "").replace(/^55/, "");
+    const possibleKeys = [
+      telefone,
+      normalizedForCheck,
+      `+55${normalizedForCheck}`,
+      `+5531${normalizedForCheck.substring(2)}`,
+    ];
+
+    let storedCode: string | null = null;
+    let matchedKey: string | null = null;
+
+    for (const key of possibleKeys) {
+      storedCode = verificationCodes.get(key);
+      if (storedCode) {
+        matchedKey = key;
+        break;
       }
+    }
 
-      // Check stored verification code for regular users
-      // Try multiple formats to match
-      const normalizedForCheck = telefone.replace(/\D/g, '').replace(/^55/, '');
-      const possibleKeys = [
-        telefone,
-        normalizedForCheck,
-        `+55${normalizedForCheck}`,
-        `+5531${normalizedForCheck.substring(2)}`
-      ];
+    // 🎯 INFLUENCER: Se não tem código armazenado, verificar se é Influencer no banco
+    let isInfluencer = false;
+    if (!storedCode) {
+      try {
+        const phoneForInfluencer = telefone.replace(/\D/g, "");
+        const phoneWithoutCountry = phoneForInfluencer.replace(/^55/, "");
+        const phoneWith55 = "55" + phoneWithoutCountry;
 
-      let storedCode = null;
-      let matchedKey = null;
+        console.log(
+          "🎯 [INFLUENCER VERIFY] Verificando se código é de influencer no banco"
+        );
 
-      for (const key of possibleKeys) {
-        storedCode = verificationCodes.get(key);
-        if (storedCode) {
-          matchedKey = key;
-          break;
-        }
-      }
+        const influencerResult = await pool.query(
+          `SELECT id, nome, telefone, influencer_code 
+           FROM users 
+           WHERE influencer_code = $1 
+           AND (
+             regexp_replace(telefone, '[^0-9]', '', 'g') = $2
+             OR regexp_replace(telefone, '[^0-9]', '', 'g') = $3
+             OR regexp_replace(telefone, '[^0-9]', '', 'g') = $4
+           )`,
+          [codigo, phoneForInfluencer, phoneWith55, phoneWithoutCountry]
+        );
 
-      // 🎯 INFLUENCER: Se não tem código armazenado, verificar se é Influencer no banco
-      let isInfluencer = false;
-      if (!storedCode) {
-        try {
-          const phoneForInfluencer = telefone.replace(/\D/g, '');
-          const phoneWithoutCountry = phoneForInfluencer.replace(/^55/, '');
-          const phoneWith55 = '55' + phoneWithoutCountry;
-          
-          console.log('🎯 [INFLUENCER VERIFY] Verificando se código é de influencer no banco');
-          
-          const influencerResult = await pool.query(
-            `SELECT id, nome, telefone, influencer_code 
-             FROM users 
-             WHERE influencer_code = $1 
-             AND (
-               regexp_replace(telefone, '[^0-9]', '', 'g') = $2
-               OR regexp_replace(telefone, '[^0-9]', '', 'g') = $3
-               OR regexp_replace(telefone, '[^0-9]', '', 'g') = $4
-             )`,
-            [codigo, phoneForInfluencer, phoneWith55, phoneWithoutCountry]
+        if (influencerResult.rows && influencerResult.rows.length > 0) {
+          const influencer = influencerResult.rows[0] as any;
+          console.log(
+            "🎯 [INFLUENCER] ✅ Código válido para:",
+            influencer.nome,
+            "- ID:",
+            influencer.id
           );
-          
-          if (influencerResult.rows && influencerResult.rows.length > 0) {
-            const influencer = influencerResult.rows[0] as any;
-            console.log('🎯 [INFLUENCER] ✅ Código válido para:', influencer.nome, '- ID:', influencer.id);
-            isInfluencer = true;
-            storedCode = codigo; // Simula que encontrou o código
-          } else {
-            console.log('🎯 [INFLUENCER] Código não corresponde a nenhum influencer');
-            return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
-          }
-        } catch (influencerError) {
-          console.log('⚠️ [INFLUENCER] Erro ao verificar influencer:', influencerError);
-          return res.status(400).json({ error: "Código de verificação não encontrado ou expirado" });
+          isInfluencer = true;
+          storedCode = codigo; // Simula que encontrou o código
+        } else {
+          console.log(
+            "🎯 [INFLUENCER] Código não corresponde a nenhum influencer"
+          );
+          return res.status(400).json({
+            error: "Código de verificação não encontrado ou expirado",
+          });
         }
-      }
-
-      // Verify code for regular users (skip if is influencer - already validated)
-      if (!isInfluencer && storedCode !== codigo) {
-        return res.status(400).json({ error: "Código de verificação inválido" });
-      }
-
-      // Remove verification code after successful verification
-      // Clean all possible formats to prevent issues
-      verificationCodes.delete(telefone);
-      verificationCodes.delete(matchedKey);
-      for (const key of possibleKeys) {
-        verificationCodes.delete(key);
-      }
-
-      // Determine user role and name based on phone number first
-      let papel = "user";
-      let needsCouncilApproval = false;
-      let professorTipo = null;
-      let nome = "Usuário";
-
-      // Set specific names for test users
-      if (telefone === "+5531998783003" || telefone === "31998783003" ||
-        telefone === "+5531987830003" || telefone === "31987830003" ||
-        telefone === "+5531993741556" || telefone === "31993741556") {
-        nome = "Léo Martins";
-        papel = "leo";
-        // ❌ REMOVIDO: 31986631203 NÃO é Leo, é Tatiana (conselheiro)
-      } else if (telefone === "+5531999990001") {
-        nome = "Felipe";
-        papel = "lider";
-      } else if (telefone === "+5531999990002") {
-        nome = "Emily";
-        papel = "professor";
-        professorTipo = "português";
-      } else if (telefone === "+5531999990003") {
-        nome = "Tati";
-        papel = "professor";
-        professorTipo = "programação";
-      }
-
-      // Check if user exists, if not create a basic user
-      let user = await storage.getUserByTelefone(telefone);
-
-      if (!user) {
-        // Create basic user for login
-        user = await storage.createUser({
-          cpf: `TEMP${telefone.slice(-8)}`, // CPF temporário baseado no telefone
-          nome: nome, // Now properly initialized
-          sobrenome: "",
-          telefone,
-          email: "",
-          plano: "eco"
+      } catch (influencerError) {
+        console.log(
+          "⚠️ [INFLUENCER] Erro ao verificar influencer:",
+          influencerError
+        );
+        return res.status(400).json({
+          error: "Código de verificação não encontrado ou expirado",
         });
       }
+    }
 
-      // ✅ VERIFICAR PRIMEIRO SE É LEO (não pode ser sobrescrito)
-      if (telefone === "+5531998783003" || telefone === "31998783003" ||
-        telefone === "+5531987830003" || telefone === "31987830003") {
-        papel = "leo";
-        needsCouncilApproval = false; // Leo não precisa de aprovação
-        console.log(`✅ LEO MARTINS LOGIN - Phone: ${telefone}, Force Role: leo`);
-      }
-      // ✅ PRIORIZAR ROLE DO BANCO DE DADOS (coordenadores, professores, etc.) - MAS APENAS SE NÃO FOR LEO
-      else if (user.role && user.role !== 'user') {
-        papel = user.role;
-        needsCouncilApproval = false;
-        console.log(`✅ USER ROLE FROM DB - Phone: ${telefone}, Role: ${user.role}`);
-      }
-      // Check if user has council access approval
-      // ❌ REMOVIDO: 31986631203 NÃO é Leo, é Tatiana (conselheiro)
-      else if (telefone === "+5531999999999" || telefone === "31999999999") {
+    // Verify code for regular users (skip if is influencer - already validated)
+    if (!isInfluencer && storedCode !== codigo) {
+      return res.status(400).json({ error: "Código de verificação inválido" });
+    }
+
+    // Remove verification code after successful verification
+    // Clean all possible formats to prevent issues
+    verificationCodes.delete(telefone);
+    if (matchedKey) verificationCodes.delete(matchedKey);
+    for (const key of possibleKeys) {
+      verificationCodes.delete(key);
+    }
+
+    // =========================================
+    // DEFINIR PAPEL / ROLE DO USUÁRIO
+    // =========================================
+
+    let papel = "user";
+    let needsCouncilApproval = false;
+    let professorTipo: string | null = null;
+
+    // Buscar usuário no banco
+    let user = await storage.getUserByTelefone(telefone);
+
+    if (!user) {
+      // Create basic user for login
+      user = await storage.createUser({
+        cpf: `TEMP${telefone.slice(-8)}`, // CPF temporário baseado no telefone
+        nome: "Usuário",
+        sobrenome: "",
+        telefone,
+        email: "",
+        plano: "eco",
+      });
+    }
+
+    // Nome sempre vem do banco
+    const nome = user.nome || "Usuário";
+
+    // PRIORIDADE: role do banco de dados
+    if (user.role === "leo") {
+      // Léo identificado exclusivamente pelo role do banco
+      papel = "leo";
+      needsCouncilApproval = false; // Leo nunca precisa de aprovação
+      console.log(`✅ LEO MARTINS LOGIN - User ID: ${user.id}, Role: leo`);
+    } else if (user.role && user.role !== "user") {
+      papel = user.role;
+      needsCouncilApproval = false;
+      console.log(
+        `✅ USER ROLE FROM DB - Phone: ${telefone}, Role: ${user.role}`
+      );
+    } else {
+      console.log(
+        `👤 USER TYPE CHECK - Phone: ${telefone}, Type: ${user.tipo || "user"}`
+      );
+    }
+
+    // Se ainda está como "user", aplica lógica de conselho/admin/test phones
+    if (papel === "user") {
+      // Telefones de teste para admin e conselho
+      if (telefone === "+5531999999999" || telefone === "31999999999") {
         papel = "admin";
       } else if (telefone === "+5531888888888" || telefone === "31888888888") {
         papel = "conselho";
       } else {
         // Check user type to determine if approval is needed
-        const userType = user.tipo || 'user';
+        const userType = user.tipo || "user";
         console.log(`👤 USER TYPE CHECK - Phone: ${telefone}, Type: ${userType}`);
 
         // Doadores não precisam de aprovação - entram direto
-        if (userType === 'doador') {
+        if (userType === "doador") {
           papel = "doador";
           needsCouncilApproval = false;
           console.log(`✅ DOADOR LOGIN - No approval needed`);
         } else {
           // Outros tipos (conselho, patrocinador, etc.) precisam de aprovação
-          const conselhoStatus = user.conselhoStatus || 'pendente';
+          const conselhoStatus = user.conselhoStatus || "pendente";
 
-          if (conselhoStatus === 'aprovado') {
+          if (conselhoStatus === "aprovado") {
             papel = "conselho";
             needsCouncilApproval = false;
-          } else if (conselhoStatus === 'pendente') {
+          } else if (conselhoStatus === "pendente") {
             needsCouncilApproval = true;
-          } else if (conselhoStatus === 'recusado') {
+          } else if (conselhoStatus === "recusado") {
             needsCouncilApproval = true; // Still needs approval, but will show rejected status
           } else {
             // First time user - set to pending status for council approval
             try {
-              await storage.updateConselhoStatus(user.telefone, 'pendente');
+              await storage.updateConselhoStatus(user.telefone, "pendente");
               needsCouncilApproval = true;
             } catch (error) {
               console.error("Error updating council status:", error);
@@ -7395,49 +8403,106 @@ app.post('/api/webhook/stripe', async (req, res) => {
           }
         }
       }
-
-      // ✅ VERIFICAR STATUS DE PAGAMENTO PARA DOADORES
-      let hasActiveSubscription = false;
-      if (papel === 'doador') {
-        try {
-          const [paidDonation] = await db
-            .select({ id: doadores.id })
-            .from(doadores)
-            .where(and(
-              eq(doadores.userId, user.id),
-              eq(doadores.status, 'paid'),
-              eq(doadores.ativo, true)
-            ))
-            .limit(1);
-
-          hasActiveSubscription = !!paidDonation;
-          console.log(`💳 PAYMENT CHECK - User ${user.id}: ${hasActiveSubscription ? 'PAID' : 'PENDING'}`);
-        } catch (error) {
-          console.error('Error checking payment status:', error);
-        }
-      }
-
-      const responseData = {
-        success: true,
-        user: {
-          id: user.id,
-          nome: user.nome, // ✅ FIX: Usar nome do banco de dados, não variável local
-          email: user.email,
-          telefone: user.telefone,
-          papel: papel,
-          professorTipo: professorTipo
-        },
-        needsCouncilApproval,
-        hasActiveSubscription // ✅ INCLUIR STATUS DE PAGAMENTO
-      };
-
-      console.log(`📤 SENDING LOGIN RESPONSE:`, JSON.stringify(responseData, null, 2));
-      res.json(responseData);
-    } catch (error: any) {
-      console.error("Error verifying login code:", error);
-      res.status(500).json({ error: "Erro ao verificar código" });
     }
-  });
+
+    // =========================================
+    // VERIFICAR STATUS DE ASSINATURA (Stripe)
+    // =========================================
+    let hasActiveSubscription = false;
+
+    // Quem deve ter assinatura verificada?
+    const isDonorLike =
+      papel === "doador" || // doador normal
+      papel === "leo" || // Léo (role especial)
+      user.tipo === "doador"; // se tiver tipo "doador" no banco
+
+    if (isDonorLike) {
+      try {
+        const [doadorInfo] = await db
+          .select({
+            id: doadores.id,
+            status: doadores.status,
+            ativo: doadores.ativo,
+            stripeCustomerId: doadores.stripeCustomerId,
+            stripeSubscriptionId: doadores.stripeSubscriptionId,
+          })
+          .from(doadores)
+          .where(eq(doadores.userId, user.id))
+          .limit(1);
+
+        if (doadorInfo) {
+          console.log(
+            `🔍 [LOGIN] Doador encontrado: status=${doadorInfo.status}, ativo=${doadorInfo.ativo}, stripeSubId=${doadorInfo.stripeSubscriptionId}`
+          );
+
+          if (doadorInfo.stripeSubscriptionId) {
+            try {
+              const subscription = await stripe.subscriptions.retrieve(
+                doadorInfo.stripeSubscriptionId
+              );
+              const stripeStatus = subscription.status;
+              console.log(`🔍 [LOGIN] Status Stripe: ${stripeStatus}`);
+
+              // Apenas assinaturas ativas ou trialing contam como ativas
+              hasActiveSubscription = ["active", "trialing"].includes(
+                stripeStatus
+              );
+
+              if (!hasActiveSubscription) {
+                console.log(
+                  `⚠️ [LOGIN] Assinatura Stripe NÃO ativa (${stripeStatus}) - reativação necessária`
+                );
+              }
+            } catch (stripeError: any) {
+              console.error(
+                `❌ [LOGIN] Erro ao verificar Stripe:`,
+                stripeError.message
+              );
+              // Se não conseguir verificar no Stripe, usar dados locais
+              hasActiveSubscription =
+                doadorInfo.status === "paid" && doadorInfo.ativo === true;
+            }
+          } else {
+            // Sem subscription no Stripe, usar dados locais
+            hasActiveSubscription =
+              doadorInfo.status === "paid" && doadorInfo.ativo === true;
+          }
+        }
+
+        console.log(
+          `💳 [LOGIN] PAYMENT CHECK - User ${user.id}: ${
+            hasActiveSubscription ? "ATIVO" : "INATIVO"
+          }`
+        );
+      } catch (error) {
+        console.error("Error checking payment status:", error);
+      }
+    }
+
+    // =========================================
+    // RESPOSTA
+    // =========================================
+    const responseData = {
+      success: true,
+      user: {
+        id: user.id,
+        nome: user.nome, // usar nome do banco
+        email: user.email,
+        telefone: user.telefone,
+        papel: papel,
+        professorTipo: professorTipo,
+      },
+      needsCouncilApproval,
+      hasActiveSubscription, // status de pagamento
+    };
+
+    res.json(responseData);
+  } catch (error: any) {
+    console.error("Error verifying login code:", error);
+    res.status(500).json({ error: "Erro ao verificar código" });
+  }
+});
+
 
   // 🎯 FUNÇÃO HELPER: Verifica e completa missão de referral automaticamente
   async function checkAndCompleteMissaoReferral(userId: number, missaoId: number) {
@@ -7518,6 +8583,81 @@ app.post('/api/webhook/stripe', async (req, res) => {
       }
     } catch (error) {
       console.error(`❌ [REFERRAL AUTO] Erro ao verificar completude da missão ${missaoId} para usuário ${userId}:`, error);
+    }
+  }
+
+  // 🎯 FUNÇÃO HELPER: Verifica e completa missões de check-in automaticamente
+  async function checkAndCompleteCheckinMissions(userId: number, diasConsecutivos: number) {
+    try {
+      console.log(`🔍 [CHECKIN AUTO] Verificando missões de check-in para usuário ${userId} com ${diasConsecutivos} dias consecutivos`);
+
+      // 1. Buscar missões de check-in ativas (checkin_semanal, checkin_diario)
+      const missoesCheckin = await db
+        .select()
+        .from(missoesSemanais)
+        .where(
+          and(
+            eq(missoesSemanais.ativo, true),
+            sql`${missoesSemanais.tipoMissao} IN ('checkin_semanal', 'checkin_diario')`
+          )
+        );
+
+      if (missoesCheckin.length === 0) {
+        console.log(`⚠️ [CHECKIN AUTO] Nenhuma missão de check-in ativa encontrada`);
+        return;
+      }
+
+      for (const missao of missoesCheckin) {
+        // 2. Verificar se a missão já foi concluída
+        const missaoJaConcluida = await db
+          .select()
+          .from(missoesConcluidas)
+          .where(
+            and(
+              eq(missoesConcluidas.userId, userId),
+              eq(missoesConcluidas.missaoId, missao.id)
+            )
+          )
+          .limit(1);
+
+        if (missaoJaConcluida[0]) {
+          console.log(`⚠️ [CHECKIN AUTO] Missão ${missao.id} já foi concluída pelo usuário ${userId}. Pulando.`);
+          continue;
+        }
+
+        // 3. Verificar se atingiu a quantidade de dias necessários
+        const diasNecessarios = missao.quantidadeAmigos || 3; // Padrão: 3 dias consecutivos
+        
+        console.log(`📊 [CHECKIN AUTO] Usuário ${userId}, Missão ${missao.id} "${missao.titulo}": ${diasConsecutivos}/${diasNecessarios} dias consecutivos`);
+
+        if (diasConsecutivos >= diasNecessarios) {
+          console.log(`🎯 [CHECKIN AUTO] Threshold atingido! Completando missão ${missao.id} para usuário ${userId}`);
+
+          // 4. Dar gritos pela missão completa
+          const { addGritos } = await import('./gritosSystem');
+          await addGritos(
+            userId,
+            missao.recompensaGritos || 150,
+            `Missão de check-in completada: "${missao.titulo}" - ${diasConsecutivos} dias consecutivos`
+          );
+
+          // 5. Marcar missão como concluída
+          await db.insert(missoesConcluidas).values({
+            userId: userId,
+            missaoId: missao.id,
+            gritosRecebidos: missao.recompensaGritos || 150,
+            fotoComprovante: null,
+            evidenciaTexto: `Check-in automático: ${diasConsecutivos} dias consecutivos`,
+            evidenceType: 'automatico' as any
+          }).onConflictDoNothing();
+
+          console.log(`✅ [CHECKIN AUTO] Missão ${missao.id} completada automaticamente para usuário ${userId}! ${missao.recompensaGritos || 150} gritos adicionados.`);
+        } else {
+          console.log(`⏳ [CHECKIN AUTO] Missão ${missao.id} ainda não completada. Progresso: ${diasConsecutivos}/${diasNecessarios}`);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ [CHECKIN AUTO] Erro ao verificar missões de check-in para usuário ${userId}:`, error);
     }
   }
 
@@ -7705,8 +8845,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
       const cleanEmail = email.trim().toLowerCase();
       console.log(`📧 [EMAIL LOGIN] Tentativa de login: ${cleanEmail}`);
 
-      // Verificar se é conselheiro autorizado
-      const isConselho = isConselhoEmail(cleanEmail);
+      // 🔐 Verificar se é conselheiro autorizado (busca no banco de dados)
+      const [conselheiroDb] = await db.select().from(conselheiros).where(and(eq(conselheiros.email, cleanEmail), eq(conselheiros.ativo, true)));
+      const isConselho = !!conselheiroDb;
 
       // Se não é conselheiro, verificar se é patrocinador existente
       let isPatrocinador = false;
@@ -7821,7 +8962,6 @@ app.post('/api/webhook/stripe', async (req, res) => {
       }
 
       if (storedCode !== finalCode) {
-        console.log(`❌ INVALID CODE - Expected: ${storedCode}, Received: ${finalCode}`);
         return res.status(400).json({ error: "Código de verificação inválido" });
       }
 
@@ -7842,6 +8982,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
   app.get("/api/user/:id", async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -7859,15 +9002,16 @@ app.post('/api/webhook/stripe', async (req, res) => {
         id: user.id,
         nome: user.nome,
         sobrenome: user.sobrenome,
+        email: user.email,
         telefone: user.telefone,
         plano: user.plano,
         fotoPerfil: user.fotoPerfil,
         role: user.role,
         tipo: user.tipo,
         isVerified: user.verificado,
-        gritos_total: user.gritosTotal, // ADICIONADO
-        dias_consecutivos: user.diasConsecutivos, // ADICIONADO
-        ultimo_checkin: user.ultimoCheckin, // ADICIONADO
+        gritos_total: user.gritosTotal,
+        dias_consecutivos: user.diasConsecutivos,
+        ultimo_checkin: user.ultimoCheckin,
       });
     } catch (error: any) {
       console.error("Error getting user:", error);
@@ -7882,15 +9026,42 @@ app.post('/api/webhook/stripe', async (req, res) => {
       const userId = parseInt(req.params.id);
       console.log(`📥 [GET /api/users/${userId}] Iniciando busca...`);
 
-      // Buscar usuário do storage
-      const user = await storage.getUser(userId);
-
-      if (!user) {
-        console.log(`❌ [GET /api/users/${userId}] Usuário não encontrado no storage`);
+      // Buscar usuário do Digital Ocean (banco principal)
+      const userResult = await pool.query(
+        `SELECT id, nome, sobrenome, telefone, email, plano, foto_perfil, role, verificado, ativo,
+                stripe_customer_id, stripe_subscription_id, subscription_status, gritos_total,
+                nivel_atual, dias_consecutivos, ultimo_checkin
+         FROM users WHERE id = $1`,
+        [userId]
+      );
+      
+      if (!userResult.rows[0]) {
+        console.log(`❌ [GET /api/users/${userId}] Usuário não encontrado no Digital Ocean`);
         return res.status(404).json({ error: "Usuário não encontrado" });
       }
+      
+      const userRow = userResult.rows[0];
+      const user = {
+        id: userRow.id,
+        nome: userRow.nome,
+        sobrenome: userRow.sobrenome,
+        telefone: userRow.telefone,
+        email: userRow.email,
+        plano: userRow.plano,
+        fotoPerfil: userRow.foto_perfil,
+        role: userRow.role,
+        verificado: userRow.verificado,
+        ativo: userRow.ativo,
+        stripeCustomerId: userRow.stripe_customer_id,
+        stripeSubscriptionId: userRow.stripe_subscription_id,
+        subscriptionStatus: userRow.subscription_status,
+        gritosTotal: userRow.gritos_total,
+        nivelAtual: userRow.nivel_atual,
+        diasConsecutivos: userRow.dias_consecutivos,
+        ultimoCheckin: userRow.ultimo_checkin
+      };
 
-      console.log(`✅ [GET /api/users/${userId}] Usuário encontrado:`, {
+      console.log(`✅ [GET /api/users/${userId}] Usuário encontrado (DO):`, {
         id: user.id,
         nome: user.nome,
         plano: user.plano,
@@ -8011,6 +9182,105 @@ app.post('/api/webhook/stripe', async (req, res) => {
     } catch (error: any) {
       console.error("Error getting user payment status:", error);
       res.status(500).json({ error: "Erro ao buscar status de pagamento" });
+    }
+  });
+
+
+  // Endpoint para verificar status real da assinatura no Stripe
+  app.get("/api/users/:id/stripe-subscription-status", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      console.log(`🔍 [SUBSCRIPTION STATUS] Verificando status para user ${userId}`);
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      if (!user.stripeCustomerId) {
+        console.log(`⚠️ [SUBSCRIPTION STATUS] User ${userId} não tem stripeCustomerId`);
+        return res.json({
+          hasSubscription: false,
+          status: null,
+          needsReactivation: false,
+          message: "Usuário não tem conta no Stripe"
+        });
+      }
+
+      const subscriptions = await stripe.subscriptions.list({
+        customer: user.stripeCustomerId,
+        limit: 10,
+        expand: ['data.default_payment_method']
+      });
+
+      console.log(`📋 [SUBSCRIPTION STATUS] User ${userId} tem ${subscriptions.data.length} assinaturas`);
+
+      const activeSubscription = subscriptions.data.find(
+        sub => ['active', 'trialing'].includes(sub.status)
+      );
+
+      if (activeSubscription) {
+        console.log(`✅ [SUBSCRIPTION STATUS] User ${userId} tem assinatura ativa: ${activeSubscription.status}`);
+        return res.json({
+          hasSubscription: true,
+          status: activeSubscription.status,
+          subscriptionId: activeSubscription.id,
+          needsReactivation: false,
+          currentPeriodEnd: activeSubscription.current_period_end,
+          planAmount: activeSubscription.items.data[0]?.price?.unit_amount || 0,
+          hasPaymentMethod: !!activeSubscription.default_payment_method
+        });
+      }
+
+      const problemSubscription = subscriptions.data.find(
+        sub => ['past_due', 'unpaid', 'incomplete'].includes(sub.status)
+      );
+
+      if (problemSubscription) {
+        console.log(`⚠️ [SUBSCRIPTION STATUS] User ${userId} tem problema de pagamento: ${problemSubscription.status}`);
+        return res.json({
+          hasSubscription: true,
+          status: problemSubscription.status,
+          subscriptionId: problemSubscription.id,
+          needsReactivation: true,
+          reactivationType: 'payment_issue',
+          message: problemSubscription.status === 'past_due' 
+            ? 'Sua assinatura está em atraso. Atualize seu método de pagamento.'
+            : 'Há um problema com seu pagamento. Atualize seu cartão.',
+          planAmount: problemSubscription.items.data[0]?.price?.unit_amount || 0
+        });
+      }
+
+      const canceledSubscription = subscriptions.data.find(
+        sub => ['canceled', 'incomplete_expired'].includes(sub.status)
+      );
+
+      if (canceledSubscription) {
+        console.log(`❌ [SUBSCRIPTION STATUS] User ${userId} tem assinatura cancelada: ${canceledSubscription.status}`);
+        return res.json({
+          hasSubscription: false,
+          status: canceledSubscription.status,
+          subscriptionId: canceledSubscription.id,
+          needsReactivation: true,
+          reactivationType: 'canceled',
+          message: 'Sua assinatura foi cancelada. Reative para continuar apoiando.',
+          planAmount: canceledSubscription.items.data[0]?.price?.unit_amount || 0,
+          canceledAt: canceledSubscription.canceled_at
+        });
+      }
+
+      console.log(`📭 [SUBSCRIPTION STATUS] User ${userId} não tem nenhuma assinatura`);
+      return res.json({
+        hasSubscription: false,
+        status: null,
+        needsReactivation: true,
+        reactivationType: 'none',
+        message: "Você ainda não tem uma assinatura ativa."
+      });
+
+    } catch (error: any) {
+      console.error("❌ [SUBSCRIPTION STATUS] Erro:", error);
+      res.status(500).json({ error: "Erro ao verificar status da assinatura" });
     }
   });
 
@@ -8818,7 +10088,6 @@ app.post('/api/webhook/stripe', async (req, res) => {
 
   // Endpoint para buscar dados específicos de um projeto
   app.get("/api/projeto/:nomeProjeto", async (req, res) => {
-    console.log('🔵 [PROJETO] Buscando dados específicos do projeto:', req.params.nomeProjeto);
 
     try {
       // Primeiro buscar todos os projetos para encontrar o código
@@ -9394,7 +10663,6 @@ app.post('/api/webhook/stripe', async (req, res) => {
         plano_atual: currentPlan || 'eco'
       };
 
-      console.log(`📊 [USER STATS] User ${userId}: ${JSON.stringify(stats)}`);
       res.json(stats);
     } catch (error: any) {
       console.error("Error fetching user stats:", error);
@@ -9675,6 +10943,19 @@ app.post('/api/webhook/stripe', async (req, res) => {
   // =============================================================================
   app.get("/api/doadores/stats", async (req, res) => {
     try {
+      // Parâmetro de filtro por mês (0 = Janeiro, 11 = Dezembro)
+      const mesParam = req.query.mes !== undefined ? parseInt(req.query.mes as string) : undefined;
+      const anoAtual = 2025;
+      let inicioMes: number | undefined;
+      let fimMes: number | undefined;
+      
+      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
+        const dataInicio = new Date(anoAtual, mesParam, 1);
+        const dataFim = new Date(anoAtual, mesParam + 1, 0, 23, 59, 59);
+        inicioMes = Math.floor(dataInicio.getTime() / 1000);
+        fimMes = Math.floor(dataFim.getTime() / 1000);
+        console.log(`📅 [DOADORES] Filtrando por mês ${mesParam + 1}/${anoAtual} (${dataInicio.toLocaleDateString('pt-BR')} - ${dataFim.toLocaleDateString('pt-BR')})`);
+      }
       console.log('📊 [DOADORES] Buscando dados empresariais do Stripe...');
 
       if (!stripe) {
@@ -9684,20 +10965,22 @@ app.post('/api/webhook/stripe', async (req, res) => {
         });
       }
 
-      // Buscar subscriptions ativas, em teste e com pagamento pendente
-      const [activesSubs, trialingSubs, pastDueSubs] = await Promise.all([
+      // Buscar subscriptions ativas, em teste, com pagamento pendente e canceladas
+      const [activesSubs, trialingSubs, pastDueSubs, canceledSubs] = await Promise.all([
         stripe.subscriptions.list({ status: 'active', limit: 100, expand: ['data.customer', 'data.items.data.price'] }),
         stripe.subscriptions.list({ status: 'trialing', limit: 100, expand: ['data.customer', 'data.items.data.price'] }),
-        stripe.subscriptions.list({ status: 'past_due', limit: 100, expand: ['data.customer', 'data.items.data.price'] })
+        stripe.subscriptions.list({ status: 'past_due', limit: 100, expand: ['data.customer', 'data.items.data.price'] }),
+        stripe.subscriptions.list({ status: 'canceled', limit: 100, expand: ['data.customer', 'data.items.data.price'] })
       ]);
 
       const allSubscriptions = [
         ...activesSubs.data,
         ...trialingSubs.data,
-        ...pastDueSubs.data
+        ...pastDueSubs.data,
+        ...canceledSubs.data
       ];
 
-      console.log(`✅ [DOADORES] ${activesSubs.data.length} active, ${trialingSubs.data.length} trialing, ${pastDueSubs.data.length} past_due`);
+      console.log(`✅ [DOADORES] ${activesSubs.data.length} active, ${trialingSubs.data.length} trialing, ${pastDueSubs.data.length} past_due, ${canceledSubs.data.length} canceled`);
 
       // Buscar dados locais dos usuários para complementar (email, telefone, nome)
       const localUsersData = await db
@@ -9723,7 +11006,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
       // Mapear para formato de doador - cruzando com dados locais
       const todosDoadoresRaw = allSubscriptions.map(sub => {
         const customer = sub.customer as any;
-        const customerId = customer?.id || sub.id;
+        const customerId = typeof customer === 'string' ? customer : (customer?.id || sub.customer);
         const localUser = localUsersMap.get(customerId);
         
         const priceItem = sub.items.data[0];
@@ -9768,7 +11051,9 @@ app.post('/api/webhook/stripe', async (req, res) => {
           createdDate: new Date(sub.created * 1000).toISOString(),
           currentPeriodStart: sub.current_period_start,
           currentPeriodEnd: sub.current_period_end,
-          cancelAtPeriodEnd: sub.cancel_at_period_end
+          cancelAtPeriodEnd: sub.cancel_at_period_end,
+          canceledAt: sub.canceled_at,
+          hasLocalUser: !!localUser
         };
       });
 
@@ -9782,9 +11067,21 @@ app.post('/api/webhook/stripe', async (req, res) => {
         }
       }
 
-      const doadoresAtivos = Array.from(doadoresPorCustomer.values());
+      // Filtrar por período se mês foi especificado
+      let doadoresAtivos = Array.from(doadoresPorCustomer.values()).filter(d => d.hasLocalUser);
+      
+      if (inicioMes !== undefined && fimMes !== undefined) {
+        doadoresAtivos = doadoresAtivos.filter(d => {
+          // Assinatura criada antes ou durante o mês
+          const criadaAntesFimMes = d.created <= fimMes;
+          // Assinatura não cancelada ou cancelada depois do início do mês
+          const naoCandeladaOuDepoisInicio = !d.canceledAt || d.canceledAt >= inicioMes;
+          return criadaAntesFimMes && naoCandeladaOuDepoisInicio;
+        });
+        console.log(`📅 [DOADORES] Após filtro por período: ${doadoresAtivos.length} doadores`);
+      }
 
-      console.log(`📊 [DOADORES] Após deduplicação: ${doadoresAtivos.length} doadores únicos`);
+      console.log(`📊 [DOADORES] Após filtro (só usuários do app): ${doadoresAtivos.length} doadores vinculados`);
 
       // ===== ESTATÍSTICAS EMPRESARIAIS =====
 
@@ -9861,13 +11158,46 @@ app.post('/api/webhook/stripe', async (req, res) => {
         else if (d.valor <= 200) distribuicaoPorValor['R$101-200']++;
         else distribuicaoPorValor['R$200+']++;
       });
+      // 5. Status das assinaturas - buscar cancelados reais do banco
+      // Só conta como cancelado quem NÃO tem nenhuma assinatura ativa
+      let canceledFromDB: any[] = [];
+      try {
+        const canceledResult = await pool.query(`
+          SELECT u.id, u.nome, u.telefone, u.email, u.plano, u.stripe_customer_id, u.motivo_cancelamento
+          FROM users u
+          WHERE u.subscription_status = 'canceled'
+            AND u.stripe_customer_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM users u2 
+              WHERE u2.stripe_customer_id = u.stripe_customer_id 
+                AND u2.subscription_status IN ('active', 'trialing')
+            )
+          ORDER BY u.id
+        `);
+        canceledFromDB = canceledResult.rows;
+      } catch (err) {
+        console.log('⚠️ [DOADORES] Erro ao buscar cancelados do banco:', err);
+      }
 
-      // 5. Status das assinaturas
+
       const porStatus = {
         active: doadoresAtivos.filter(d => d.status === 'active').length,
         trialing: doadoresAtivos.filter(d => d.status === 'trialing').length,
-        past_due: doadoresAtivos.filter(d => d.status === 'past_due').length
+        past_due: doadoresAtivos.filter(d => d.status === 'past_due').length,
+        canceled: canceledFromDB.length
       };
+      
+      // Lista de cancelados para exibição no dashboard
+      const canceladosLista = canceledFromDB.map(u => ({
+        userId: u.id,
+        id: u.id,
+        nome: u.nome,
+        telefone: u.telefone,
+        email: u.email,
+        plano: u.plano,
+        status: 'canceled',
+
+      }));
 
       // 6. Taxa de retenção (doadores com mais de 1 mês)
       const agora = Date.now() / 1000;
@@ -9925,7 +11255,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
         },
         
         // Lista completa de doadores (com telefone/email do banco de dados)
-        doadores: await Promise.all(doadoresAtivos.map(async d => {
+        doadores: [...canceladosLista, ...await Promise.all(doadoresAtivos.filter(d => d.status !== 'canceled').map(async d => {
           // Buscar telefone e email do banco de dados Digital Ocean
           let telefoneDB = null;
           let emailDB = null;
@@ -9959,7 +11289,7 @@ app.post('/api/webhook/stripe', async (req, res) => {
             dataAdesao: new Date(d.created * 1000).toLocaleDateString('pt-BR'),
             diasComoDoador: Math.floor((agora - d.created) / (24 * 60 * 60))
           };
-        }))
+        }))]
       });
     } catch (error: any) {
       console.error('❌ [DOADORES] Erro ao buscar doadores do Stripe:', error);
@@ -9976,9 +11306,20 @@ app.post('/api/webhook/stripe', async (req, res) => {
   app.get("/api/doadores-externos", async (req, res) => {
     try {
       console.log('📊 [DOADORES EXTERNOS] Buscando doadores externos do banco DO...');
+      // Parâmetro de filtro por mês (0 = Janeiro, 11 = Dezembro)
+      const mesParam = req.query.mes !== undefined ? parseInt(req.query.mes as string) : undefined;
+      const anoAtual = 2025;
+      let whereClause = "ativo = true";
+      
+      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
+        const dataInicio = new Date(anoAtual, mesParam, 1);
+        const dataFim = new Date(anoAtual, mesParam + 1, 0);
+        whereClause += ` AND (data_inicio IS NULL OR data_inicio <= '${dataFim.toISOString().split("T")[0]}')`;
+        console.log(`📅 [DOADORES EXTERNOS] Filtrando por mês ${mesParam + 1}/${anoAtual}`);
+      }
       
       // Buscar do banco Digital Ocean
-      const doadoresExternosList = await pool.query("SELECT * FROM doadores_externos WHERE ativo = true ORDER BY valor_mensal DESC");
+      const doadoresExternosList = await pool.query(`SELECT * FROM doadores_externos WHERE ${whereClause} ORDER BY valor_mensal DESC`);
       const doadores = doadoresExternosList.rows || [];
       
       // Calcular totais
@@ -11413,38 +12754,86 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  app.get("/api/leo/colaborador-data", async (req, res) => {
+  // ========= COLABORADORES STATS =========
+  app.get("/api/colaboradores/stats", async (req, res) => {
     try {
-      const colaboradorData = {
-        totalColaboradores: 0,
-        colaboradoresAtivos: 0,
-        equipesTecnicas: 0,
-        horasTrabalho: 0,
-        distribuicaoFuncoes: [
-          { funcao: 'Coordenação', quantidade: 0 },
-          { funcao: 'Educação', quantidade: 0 },
-          { funcao: 'Psicossocial', quantidade: 0 },
-          { funcao: 'Administrativa', quantidade: 0 },
-          { funcao: 'Apoio', quantidade: 0 }
-        ],
-        produtividadeMensal: [
-          { mes: 'Jul', horas: 0, projetos: 0 },
-          { mes: 'Ago', horas: 0, projetos: 0 },
-          { mes: 'Set', horas: 0, projetos: 0 },
-          { mes: 'Out', horas: 0, projetos: 0 },
-          { mes: 'Nov', horas: 0, projetos: 0 },
-          { mes: 'Dez', horas: 0, projetos: 0 }
-        ],
-        proximasReunoes: []
-      };
-      res.json(colaboradorData);
+      const mesParam = req.query.mes !== undefined ? parseInt(req.query.mes as string) : undefined;
+      const anoAtual = 2025;
+      const result = await pool.query("SELECT * FROM colaboradores WHERE ativo = true");
+      let colaboradoresList = result.rows || [];
+      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
+        const dataFimMes = new Date(anoAtual, mesParam + 1, 0);
+        const dataInicioMes = new Date(anoAtual, mesParam, 1);
+        colaboradoresList = colaboradoresList.filter((c: any) => {
+          const dataAdmissao = c.data_admissao ? new Date(c.data_admissao) : (c.created_at ? new Date(c.created_at) : new Date(0));
+          const dataDesligamento = c.data_desligamento ? new Date(c.data_desligamento) : null;
+          const admitidoAntesOuDuranteMes = dataAdmissao <= dataFimMes;
+          const naoDesligadoAntes = !dataDesligamento || dataDesligamento >= dataInicioMes;
+          return admitidoAntesOuDuranteMes && naoDesligadoAntes;
+        });
+        console.log(`📅 [COLABORADORES] Filtrado por mês ${mesParam + 1}/${anoAtual}: ${colaboradoresList.length}`);
+      }
+      const distribuicao = colaboradoresList.reduce((acc: any, c: any) => {
+        const dept = c.departamento || "Outros";
+        if (!acc[dept]) acc[dept] = 0;
+        acc[dept]++;
+        return acc;
+      }, {});
+      const distribuicaoArray = Object.entries(distribuicao).map(([name, value]) => ({ name, value }));
+      res.json({
+        total: colaboradoresList.length,
+        totalColaboradores: colaboradoresList.length,
+        distribuicao: distribuicaoArray,
+        items: colaboradoresList.map((c: any) => ({
+          id: c.id, nome: c.nome, telefone: c.telefone, email: c.email,
+          departamento: c.departamento, satisfacao: c.satisfacao, ativo: c.ativo,
+          dataAdmissao: c.data_admissao, dataDesligamento: c.data_desligamento, createdAt: c.created_at
+        }))
+      });
     } catch (error: any) {
-      res.status(500).json({ error: "Erro ao carregar dados de colaboradores" });
+      console.error("❌ [COLABORADORES] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar colaboradores", message: error.message });
+    }
+  });
+
+  app.get("/api/colaboradores", async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 10;
+      const offset = (page - 1) * pageSize;
+      const mesParam = req.query.mes !== undefined ? parseInt(req.query.mes as string) : undefined;
+      const anoAtual = 2025;
+      const result = await pool.query("SELECT * FROM colaboradores WHERE ativo = true ORDER BY nome");
+      let colaboradoresList = result.rows || [];
+      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
+        const dataFimMes = new Date(anoAtual, mesParam + 1, 0);
+        const dataInicioMes = new Date(anoAtual, mesParam, 1);
+        colaboradoresList = colaboradoresList.filter((c: any) => {
+          const dataAdmissao = c.data_admissao ? new Date(c.data_admissao) : (c.created_at ? new Date(c.created_at) : new Date(0));
+          const dataDesligamento = c.data_desligamento ? new Date(c.data_desligamento) : null;
+          const admitidoAntesOuDuranteMes = dataAdmissao <= dataFimMes;
+          const naoDesligadoAntes = !dataDesligamento || dataDesligamento >= dataInicioMes;
+          return admitidoAntesOuDuranteMes && naoDesligadoAntes;
+        });
+      }
+      const total = colaboradoresList.length;
+      const paginatedList = colaboradoresList.slice(offset, offset + pageSize);
+      res.json({
+        total,
+        items: paginatedList.map((c: any) => ({
+          id: c.id, nome: c.nome, telefone: c.telefone, email: c.email,
+          departamento: c.departamento, satisfacao: c.satisfacao, ativo: c.ativo
+        }))
+      });
+    } catch (error: any) {
+      console.error("❌ [COLABORADORES] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar colaboradores", message: error.message });
     }
   });
 
   // Update user profile
   app.put("/api/update-profile", async (req, res) => {
+
     try {
       const { telefone, nome, novoTelefone } = req.body;
 
@@ -11895,18 +13284,18 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  // Update professor profile
-  app.put("/api/professor/profile/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { name, email } = req.body;
-      const updatedUser = await storage.updateProfessorProfile(id, { name, email });
-      res.json(updatedUser);
-    } catch (error) {
-      console.error("Error updating professor profile:", error);
-      res.status(500).json({ error: "Failed to update profile" });
-    }
-  });
+    // Update professor profile
+    app.put("/api/professor/profile/:id", async (req, res) => {
+      try {
+        const id = parseInt(req.params.id);
+        const { name, email } = req.body;
+        const updatedUser = await storage.updateProfessorProfile(id, { name, email });
+        res.json(updatedUser);
+      } catch (error) {
+        console.error("Error updating professor profile:", error);
+        res.status(500).json({ error: "Failed to update profile" });
+      }
+    });
 
   // Create new student
   app.post("/api/professor/students", async (req, res) => {
@@ -12017,7 +13406,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
   app.post("/api/professor/classes", async (req, res) => {
     try {
       const turmaData = req.body;
-      console.log("Received turma data:", turmaData);
 
       // Map frontend field names to backend schema
       const mappedTurmaData = {
@@ -12257,31 +13645,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     } catch (error) {
       console.error("Error creating event:", error);
       res.status(500).json({ error: "Failed to create event" });
-    }
-  });
-
-  // Update event
-  app.put("/api/professor/events/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const eventData = req.body;
-      const event = await storage.updateEvent(id, eventData);
-      res.json(event);
-    } catch (error) {
-      console.error("Error updating event:", error);
-      res.status(500).json({ error: "Failed to update event" });
-    }
-  });
-
-  // Delete event
-  app.delete("/api/professor/events/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      await storage.deleteEvent(id);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting event:", error);
-      res.status(500).json({ error: "Failed to delete event" });
     }
   });
 
@@ -12607,31 +13970,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       res.status(500).json({ error: "Erro ao excluir responsável: " + error.message });
     }
   });
-
-  // Class management routes (REMOVED DUPLICATES - USING ORIGINAL VERSIONS ABOVE)
-
-  app.put("/api/professor/classes/:id", async (req, res) => {
-    try {
-      const classId = parseInt(req.params.id);
-      const classData = req.body;
-      const updatedClass = await storage.updateClass(classId, classData);
-      res.json(updatedClass);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao atualizar turma: " + error.message });
-    }
-  });
-
-  app.delete("/api/professor/classes/:id", async (req, res) => {
-    try {
-      const classId = parseInt(req.params.id);
-      await storage.deleteClass(classId);
-      res.json({ success: true, message: "Turma excluída com sucesso" });
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao excluir turma: " + error.message });
-    }
-  });
-
-  // Class enrollment routes
   app.post("/api/professor/enroll", async (req, res) => {
     try {
       const enrollment = req.body;
@@ -12737,27 +14075,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  app.put("/api/professor/lesson-plans/:id", async (req, res) => {
-    try {
-      const lessonPlanId = parseInt(req.params.id);
-      const lessonPlanData = req.body;
-      const updatedLessonPlan = await storage.updatePlanoAula(lessonPlanId, lessonPlanData);
-      res.json(updatedLessonPlan);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao atualizar plano de aula: " + error.message });
-    }
-  });
-
-  app.delete("/api/professor/lesson-plans/:id", async (req, res) => {
-    try {
-      const lessonPlanId = parseInt(req.params.id);
-      await storage.deletePlanoAula(lessonPlanId);
-      res.json({ success: true, message: "Plano de aula excluído com sucesso" });
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao excluir plano de aula: " + error.message });
-    }
-  });
-
   // Removed duplicate attendance routes - keeping only the working ones above
 
   // Buscar histórico de chamadas por turma (com lógica de designação)
@@ -12819,38 +14136,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
   });
 
-  app.put("/api/professor/events/:id", async (req, res) => {
-    try {
-      const eventId = parseInt(req.params.id);
-      const eventData = req.body;
-      const updatedEvent = await storage.updateEvent(eventId, eventData);
-      res.json(updatedEvent);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao atualizar evento: " + error.message });
-    }
-  });
-
-  app.delete("/api/professor/events/:id", async (req, res) => {
-    try {
-      const eventId = parseInt(req.params.id);
-      await storage.deleteEvent(eventId);
-      res.json({ success: true, message: "Evento excluído com sucesso" });
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao excluir evento: " + error.message });
-    }
-  });
-
-  // Student observations routes
-  app.post("/api/professor/observations", async (req, res) => {
-    try {
-      const observationData = req.body;
-      const newObservation = await storage.createObservation(observationData);
-      res.json(newObservation);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao criar observação: " + error.message });
-    }
-  });
-
   app.get("/api/professor/observations/:professorId", async (req, res) => {
     try {
       const professorId = parseInt(req.params.professorId);
@@ -12868,61 +14153,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
       res.json(observations);
     } catch (error: any) {
       res.status(500).json({ error: "Erro ao buscar observações do aluno: " + error.message });
-    }
-  });
-
-  app.put("/api/professor/observations/:id", async (req, res) => {
-    try {
-      const observationId = parseInt(req.params.id);
-      const observationData = req.body;
-      const updatedObservation = await storage.updateObservation(observationId, observationData);
-      res.json(updatedObservation);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao atualizar observação: " + error.message });
-    }
-  });
-
-  app.delete("/api/professor/observations/:id", async (req, res) => {
-    try {
-      const observationId = parseInt(req.params.id);
-      await storage.deleteObservation(observationId);
-      res.json({ success: true, message: "Observação excluída com sucesso" });
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao excluir observação: " + error.message });
-    }
-  });
-
-  // Generate reports route
-  app.get("/api/professor/reports/:professorId", async (req, res) => {
-    try {
-      const professorId = parseInt(req.params.professorId);
-      const { type, period } = req.query;
-
-      // Generate report based on type and period
-      const students = await storage.getStudentsByProfessor(professorId);
-      const classes = await storage.getClassesByProfessor(professorId);
-      const lessons = await storage.getLessonsByProfessor(professorId);
-      const observations = await storage.getObservationsByProfessor(professorId);
-
-      const report = {
-        generatedAt: new Date().toISOString(),
-        type,
-        period,
-        summary: {
-          totalStudents: students.length,
-          totalClasses: classes.length,
-          totalLessons: lessons.length,
-          totalObservations: observations.length
-        },
-        students,
-        classes,
-        lessons,
-        observations
-      };
-
-      res.json(report);
-    } catch (error: any) {
-      res.status(500).json({ error: "Erro ao gerar relatório: " + error.message });
     }
   });
 
@@ -13510,9 +14740,6 @@ Gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
   // POST /api/monitor/:monitorId/atividades - Create new activity
   app.post("/api/monitor/:monitorId/atividades", requireAuth, requireMonitor, async (req, res) => {
-    console.log("[DEBUG] POST /api/monitor/:monitorId/atividades chamado");
-    console.log("[DEBUG] req.body:", JSON.stringify(req.body, null, 2));
-    console.log("[DEBUG] req.params:", req.params);
     try {
       const monitorId = parseInt(req.params.monitorId);
       const user = (req as any).user;
@@ -14978,6 +16205,34 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+  // DEV: Resetar check-in de um usuário específico
+  app.post("/api/dev/reset-checkin/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      if (!userId) {
+        return res.status(400).json({ error: "userId inválido" });
+      }
+      
+      // Setar ultimo_checkin para ontem para permitir check-in hoje
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      
+      await db.update(users)
+        .set({ 
+          ultimoCheckin: ontem,
+          diasConsecutivos: 0
+        })
+        .where(eq(users.id, userId));
+      
+      console.log(`✅ [DEV] Check-in resetado para usuário ${userId}`);
+      res.json({ success: true, message: `Check-in resetado para usuário ${userId}` });
+    } catch (error: any) {
+      console.error("Erro ao resetar check-in:", error);
+      res.status(500).json({ error: "Erro ao resetar check-in: " + error.message });
+    }
+  });
+
+
   // Get dev status for banner
   app.get("/api/dev/status", async (req, res) => {
     try {
@@ -15530,6 +16785,40 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+
+  // Update cancellation reason for a user
+  app.patch("/api/users/:userId/motivo-cancelamento", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { motivoCancelamento } = req.body;
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      if (!motivoCancelamento) {
+        return res.status(400).json({ error: "Motivo de cancelamento é obrigatório" });
+      }
+
+      // Update user cancellation reason in database
+      await pool.query(
+        `UPDATE users SET motivo_cancelamento = $1 WHERE id = $2`,
+        [motivoCancelamento, userId]
+      );
+
+      console.log(`✅ [MOTIVO CANCELAMENTO] Usuário ${userId} atualizado: ${motivoCancelamento}`);
+
+      res.json({
+        success: true,
+        message: "Motivo de cancelamento atualizado com sucesso",
+        motivoCancelamento
+      });
+    } catch (error: any) {
+      console.error("Error updating cancellation reason:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
   // Get user's latest donation plan
   app.get("/api/user/:userId/latest-donation", async (req, res) => {
     try {
@@ -15592,41 +16881,29 @@ app.get("/api/dev/users", async (req, res) => {
 
       // validação de senha (bcrypt ou texto puro para compatibilidade antiga)
       const saved = String(devUser.senha ?? "");
-      const looksLikeBcrypt = /^\$2[aby]\$/.test(saved);
+      const looksLikeBcrypt = /^$2[aby]$/.test(saved);
 
-      console.log(`🔐 [DEV LOGIN DEBUG] Usuario: ${usuario}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Senha recebida: "${senha}"`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Senha length: ${senha.length}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Hash salvo: "${saved.substring(0, 20)}..."`);
-      console.log(`🔐 [DEV LOGIN DEBUG] Hash completo length: ${saved.length}`);
-      console.log(`🔐 [DEV LOGIN DEBUG] É bcrypt?: ${looksLikeBcrypt}`);
       
       // Debug específico para devfull
       if (usuario === 'devfull') {
-        console.log(`🔍 [DEVFULL DEBUG] Hash completo: "${saved}"`);
-        console.log(`🔍 [DEVFULL DEBUG] Regex test: ${/^\$2[aby]\$/.test(saved)}`);
       }
 
       let ok = false;
       if (looksLikeBcrypt) {
         try {
           ok = await bcrypt.compare(senha, saved);
-          console.log(`🔐 [DEV LOGIN DEBUG] bcrypt.compare resultado: ${ok}`);
         } catch (bcryptError: any) {
           console.error(`❌ [DEV LOGIN DEBUG] Erro no bcrypt.compare:`, bcryptError.message);
           ok = false;
         }
       } else {
         ok = senha === saved;
-        console.log(`🔐 [DEV LOGIN DEBUG] Comparação plaintext: ${ok}`);
       }
 
       if (!ok) {
-        console.log(`❌ [DEV LOGIN DEBUG] Autenticação falhou para: ${usuario}`);
         return res.status(401).json({ error: "Credenciais inválidas" });
       }
 
-      console.log(`✅ [DEV LOGIN DEBUG] Autenticação bem-sucedida para: ${usuario}`);
 
 
       // ✅ Configurar sessão APÓS validação bem-sucedida
@@ -15802,75 +17079,19 @@ app.get("/api/dev/users", async (req, res) => {
       }
 
       console.log(`✅ [COORD LOGIN] Login bem-sucedido: ${coord.nome} (${coord.setor})`);
-
-      const coordinatorRoleMap: Record<string, string> = {
+   const coordinatorRoleMap: Record<string, string> = {
         psicossocial: "coordenador_psico",
         esporte_cultura: "coordenador_pec",
-        inclusao_produtiva: "coordenador_inclusao"
+        inclusao_produtiva: "coordenador_inclusao",
       };
+
       const targetRole = coordinatorRoleMap[coord.setor] ?? "coordenador";
 
-      let userId: number | null = null;
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, coord.email))
-        .limit(1);
-
-      if (existingUser.length > 0) {
-        userId = existingUser[0].id;
-
-        if (existingUser[0].role !== targetRole || existingUser[0].tipo !== "coordenador") {
-          await db
-            .update(users)
-            .set({ role: targetRole, tipo: "coordenador" })
-            .where(eq(users.id, userId));
-          console.log(`ℹ️ [COORD LOGIN] Atualizado role/tipo para usuário ${userId} (${coord.email})`);
-        }
-      } else {
-        let normalizedPhone: string | null = null;
-
-        if (coord.telefone?.trim()) {
-          try {
-            normalizedPhone = normalizePhoneToE164(coord.telefone.trim());
-          } catch (err) {
-            console.warn(`⚠️ [COORD LOGIN] Falha ao normalizar telefone "${coord.telefone}" para ${coord.email}:`, err);
-          }
-        }
-
-        if (!normalizedPhone) {
-          const fallbackSequence = `9${String(100000000 + coord.id).slice(-8)}`;
-          normalizedPhone = `+5599${fallbackSequence}`;
-          console.log(`⚠️ [COORD LOGIN] Telefone ausente/inválido para ${coord.email}; usando fallback ${normalizedPhone}`);
-        }
-
-        const [createdUser] = await db
-          .insert(users)
-          .values({
-            nome: coord.nome,
-            email: coord.email,
-            telefone: normalizedPhone,
-            role: targetRole,
-            tipo: "coordenador",
-            ativo: true,
-          })
-          .returning({ id: users.id });
-
-        userId = createdUser.id;
-        console.log(`✅ [COORD LOGIN] Usuário criado para coordenador ${coord.email} (userId=${userId})`);
-      }
-
-      if (!userId) {
-        throw new Error(`Não foi possível resolver userId para coordenador ${coord.email}`);
-      }
-
-      // Retornar dados do coordenador + rota de redirecionamento
-      
-     const sess = (req as any).session as any | undefined;
+      // 🔐 Sessão só com dados do coordenador (sem tocar na tabela users)
+      const sess = (req as any).session as any | undefined;
 
       if (sess) {
         sess.coordenadorId = coord.id;
-        sess.userId = userId;
         sess.userEmail = coord.email;
         sess.userName = coord.nome;
         sess.userPapel = targetRole;
@@ -15878,15 +17099,16 @@ app.get("/api/dev/users", async (req, res) => {
 
         console.log(
           `🔐 [COORD SESSION] Sessão criada para coordenador ${coord.nome} ` +
-          `(coordId=${coord.id}, userId=${userId})`
+            `(coordId=${coord.id})`
         );
       } else {
         console.warn(
           `⚠️ [COORD SESSION] req.session indefinido ao logar coordenador ${coord.email}. ` +
-          `Sessões não estão configuradas neste ambiente.`
+            `Sessões não estão configuradas neste ambiente.`
         );
       }
 
+      // 🔁 Resposta só com dados do coordenador (sem userId da tabela users)
       res.json({
         success: true,
         coordenador: {
@@ -15897,7 +17119,6 @@ app.get("/api/dev/users", async (req, res) => {
           redirectPath: coord.redirectPath,
           role: targetRole,
         },
-        userId,
         role: targetRole,
       });
 
@@ -16225,7 +17446,7 @@ app.get("/api/dev/users", async (req, res) => {
           email: monitor.email,
           programa: monitor.programa,
           role: role,
-          redirectPath: "/rbac/monitor",
+          redirectPath: "/monitor",
         },
         userId: userId,
       });
@@ -16237,6 +17458,125 @@ app.get("/api/dev/users", async (req, res) => {
   });
 
   // ==================== LOGIN DE DESENVOLVEDOR ====================
+  // ==================== LOGIN DE PROFESSOR ====================
+  app.post("/api/login/professor", express.json(), async (req, res) => {
+    try {
+      const { email, senha } = req.body;
+
+      if (!email || !email.trim()) {
+        return res.status(400).json({ error: "Email é obrigatório" });
+      }
+
+      if (!senha || !senha.trim()) {
+        return res.status(400).json({ error: "Senha é obrigatória" });
+      }
+
+      console.log(`🔑 [PROFESSOR LOGIN] Tentativa de login: ${email}`);
+
+      // Buscar professor na tabela professores por email
+      const professorResult = await pool.query(
+        'SELECT * FROM professores WHERE email = $1 LIMIT 1',
+        [email.toLowerCase().trim()]
+      );
+
+      if (!professorResult.rows || professorResult.rows.length === 0) {
+        console.log(`❌ [PROFESSOR LOGIN] Professor não encontrado: ${email}`);
+        return res.status(401).json({ error: "Email ou senha incorretos" });
+      }
+
+      const professor = professorResult.rows[0];
+
+      // Verificar se professor está ativo
+      if (!professor.ativo) {
+        console.log(`❌ [PROFESSOR LOGIN] Professor desativado: ${email}`);
+        return res.status(401).json({ error: "Email ou senha incorretos" });
+      }
+
+      // Validar senha com bcrypt.compare
+      const senhaValida = await bcrypt.compare(senha, professor.password_hash);
+      
+      if (!senhaValida) {
+        console.log(`❌ [PROFESSOR LOGIN] Senha incorreta para: ${email}`);
+        return res.status(401).json({ error: "Email ou senha incorretos" });
+      }
+
+      // Mapear programa do professor para role
+      let role: string;
+      switch (professor.programa) {
+        case 'pec':
+          role = 'professor_pec';
+          break;
+        case 'inclusao_produtiva':
+          role = 'professor_inclusao';
+          break;
+        case 'psicossocial':
+          role = 'professor_psico';
+          break;
+        default:
+          role = 'professor';
+      }
+
+      // Criar ou atualizar usuário na tabela users
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, professor.email))
+        .limit(1);
+
+      let userId: number;
+
+      if (existingUser && existingUser.length > 0) {
+        await db
+          .update(users)
+          .set({
+            nome: professor.nome,
+            role: role,
+            ativo: true,
+            tipo: 'professor'
+          })
+          .where(eq(users.id, existingUser[0].id));
+        
+        userId = existingUser[0].id;
+        console.log(`✅ [PROFESSOR LOGIN] Usuário atualizado: ${professor.nome} (ID: ${userId}, Role: ${role})`);
+      } else {
+        const newUser = await db
+          .insert(users)
+          .values({
+            email: professor.email,
+            nome: professor.nome,
+            telefone: professor.telefone || '',
+            role: role,
+            ativo: true,
+            tipo: 'professor',
+            verificado: true
+          })
+          .returning();
+        
+        userId = newUser[0].id;
+        console.log(`✅ [PROFESSOR LOGIN] Novo usuário criado: ${professor.nome} (ID: ${userId}, Role: ${role})`);
+      }
+
+      console.log(`✅ [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId})`);
+
+      res.json({
+        success: true,
+        professor: {
+          id: professor.id,
+          nome: professor.nome,
+          email: professor.email,
+          programa: professor.programa,
+          role: role,
+          redirectPath: "/professor",
+        },
+        userId: userId,
+      });
+
+    } catch (error: any) {
+      console.error("❌ [PROFESSOR LOGIN] Erro:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  });
+
   app.post("/api/login/developer", express.json(), async (req, res) => {
     try {
       const { usuario, senha } = req.body;
@@ -17904,6 +19244,9 @@ app.get("/api/dev/users", async (req, res) => {
         .where(eq(users.id, userId))
         .limit(1);
 
+
+      // 🎯 AUTO-COMPLETAR MISSÕES DE CHECK-IN
+      await checkAndCompleteCheckinMissions(userId, newStreak);
       return res.json({
         success: true,
         userId,
@@ -18751,6 +20094,35 @@ app.get("/api/dev/users", async (req, res) => {
     } catch (error) {
       console.error("❌ [MKT-LINK-STATS] Erro:", error);
       res.status(500).json({ error: "Erro ao buscar estatísticas" });
+    }
+  });
+
+  // 🔗 Rastrear clique em link de marketing (para ?ref= na URL)
+  app.post("/api/mkt/track-click/:code", async (req, res) => {
+    try {
+      const { code } = req.params;
+      console.log(`🖱️ [TRACK-CLICK] Clique registrado para: ${code}`);
+      
+      // Buscar o link pelo código
+      const link = await storage.getMarketingLinkByCode(code);
+      if (!link) {
+        console.log(`⚠️ [TRACK-CLICK] Link não encontrado: ${code}`);
+        return res.status(404).json({ error: "Link não encontrado" });
+      }
+      
+      // Registrar clique
+      await storage.createMktClick({
+        linkId: link.id,
+        campaignId: link.campaignId,
+        timestamp: new Date(),
+        ipHash: req.ip ? Buffer.from(req.ip).toString("base64").substring(0, 16) : null,
+        referer: req.headers.referer || null,
+      });
+      
+      res.json({ success: true, linkId: link.id });
+    } catch (error) {
+      console.error("❌ [TRACK-CLICK] Erro:", error);
+      res.status(500).json({ error: "Erro ao registrar clique" });
     }
   });
 
@@ -20055,7 +21427,7 @@ app.get("/api/dev/users", async (req, res) => {
       const paymentIntent = await stripe.paymentIntents.create({
         amount: valorCentavos,
         currency: 'brl',
-        customer: stripeCustomerId,
+        customer: user.stripeCustomerId,
         payment_method_types: ['card'],
         confirmation_method: 'automatic',
         confirm: true,
@@ -21231,9 +22603,6 @@ app.get("/api/dev/users", async (req, res) => {
       const missaoId = parseInt(req.params.id);
 
       // 🐛 DEBUG: Log dos dados recebidos do frontend
-      console.log('🔍 [DEBUG-PUT-MISSAO] ID da missão:', missaoId);
-      console.log('📥 [DEBUG-PUT-MISSAO] Dados recebidos do frontend:', JSON.stringify(req.body, null, 2));
-      console.log('📊 [DEBUG-PUT-MISSAO] Total de campos recebidos:', Object.keys(req.body).length);
 
       const { titulo, descricao, recompensaGritos, tipoMissao, imagemUrl, semanaInicio, semanaFim, ativo, nivelMinimo, limiteEnvios, reviewRequired, autoApprove, automatico, evidenceType, planoMinimo, habilitarLinkCompartilhamento, criteriosElegibilidade, dominiosPermitidos, distanciaMaxima, duracaoMaximaVideo, perguntasQuiz, percentualAcertoMinimo } = req.body;
 
@@ -21322,8 +22691,6 @@ app.get("/api/dev/users", async (req, res) => {
         if (percentual !== undefined) updateFields.percentualAcertoMinimo = percentual;
       }
 
-      console.log('🔧 [DEBUG-PUT-MISSAO] Campos sanitizados que serão atualizados no banco:', JSON.stringify(updateFields, null, 2));
-      console.log('📊 [DEBUG-PUT-MISSAO] Total de campos a serem atualizados:', Object.keys(updateFields).length);
 
       const [missaoAtualizada] = await db
         .update(missoesSemanais)
@@ -21332,11 +22699,9 @@ app.get("/api/dev/users", async (req, res) => {
         .returning();
 
       if (!missaoAtualizada) {
-        console.log('❌ [DEBUG-PUT-MISSAO] Missão não encontrada no banco:', missaoId);
         return res.status(404).json({ error: "Missão não encontrada" });
       }
 
-      console.log('✅ [DEBUG-PUT-MISSAO] Missão atualizada com sucesso:', JSON.stringify(missaoAtualizada, null, 2));
 
       res.json(missaoAtualizada);
     } catch (error) {
@@ -21667,6 +23032,66 @@ app.get("/api/dev/users", async (req, res) => {
 
   // ===== SISTEMA DE LANCES EM BENEFÍCIOS =====
 
+  // ✅ VERIFICAR SE USUÁRIO ACEITOU TERMO DE LANCES
+  app.get("/api/users/:id/termo-lances", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      
+      const [user] = await db
+        .select({
+          termoLancesAceito: users.termoLancesAceito,
+          termoLancesAceitoEm: users.termoLancesAceitoEm
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+      
+      res.json({
+        aceitou: user.termoLancesAceito || false,
+        aceitoEm: user.termoLancesAceitoEm
+      });
+    } catch (error: any) {
+      console.error("Erro ao verificar termo de lances:", error);
+      res.status(500).json({ error: "Erro ao verificar termo" });
+    }
+  });
+
+  // ✅ REGISTRAR ACEITE DO TERMO DE LANCES
+  app.post("/api/users/:id/termo-lances/aceitar", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      
+      const [updated] = await db
+        .update(users)
+        .set({
+          termoLancesAceito: true,
+          termoLancesAceitoEm: new Date()
+        })
+        .where(eq(users.id, userId))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+      
+      console.log(`✅ [TERMO-LANCES] Usuário ${userId} aceitou o termo de lances em ${new Date().toISOString()}`);
+      
+      res.json({
+        success: true,
+        message: "Termo de lances aceito com sucesso",
+        aceitoEm: updated.termoLancesAceitoEm
+      });
+    } catch (error: any) {
+      console.error("Erro ao registrar aceite do termo:", error);
+      res.status(500).json({ error: "Erro ao registrar aceite" });
+    }
+  });
+
+
   // ✅ PRODUCTION-SAFE: Lance em benefício com TODAS as validações críticas implementadas
   app.post("/api/beneficios/:id/lance", requireAuth, async (req, res) => {
     const userAuth = (req as any).user;
@@ -21710,7 +23135,7 @@ app.get("/api/dev/users", async (req, res) => {
           ))
           .limit(1);
 
-        if (existingLance.length > 0) {
+        if (existingLance.length > 0 && !aumentarLance) {
           console.log('✅ [DUPLICATE-PROTECTION] Lance já existe para este usuário/benefício');
           return {
             success: false,
@@ -21849,7 +23274,17 @@ app.get("/api/dev/users", async (req, res) => {
             .set({ gritosTotal: novosGritos })
             .where(eq(users.id, userId));
 
-          console.log(`✅ [PRODUCTION-SAFE-TX] Lance aumentado: ${pontosAnteriores} → ${valorLance} (diferença: ${diferencaPontos})`);
+          
+          // Registrar no histórico (valor negativo para desconto da diferença)
+          await tx.insert(gritosHistorico).values({
+            userId,
+            tipo: 'aumento_lance',
+            gritosGanhos: -diferencaPontos,
+            descricao: `Aumento de lance no benefício: ${beneficio.titulo}`,
+            dataGanho: new Date()
+          });
+
+          console.log(`✅ [PRODUCTION-SAFE-TX] Lance aumentado: ${pontosAnteriores} → ${valorLance} (diferença: ${diferencaPontos}, registrado no histórico)`);
 
           return {
             success: true,
@@ -21901,7 +23336,17 @@ app.get("/api/dev/users", async (req, res) => {
             .set({ gritosTotal: novosGritos })
             .where(eq(users.id, userId));
 
-          console.log(`✅ [PRODUCTION-SAFE] Novo lance criado: ${valorLance} pontos`);
+          
+          // Registrar no histórico (valor negativo para desconto)
+          await tx.insert(gritosHistorico).values({
+            userId,
+            tipo: 'lance_beneficio',
+            gritosGanhos: -valorLance,
+            descricao: `Lance no benefício: ${beneficio.titulo}`,
+            dataGanho: new Date()
+          });
+
+          console.log(`✅ [PRODUCTION-SAFE] Novo lance criado: ${valorLance} pontos (descontado do histórico)`);
 
           return {
             success: true,
@@ -22158,7 +23603,7 @@ app.get("/api/dev/users", async (req, res) => {
 
         // Calcular status do leilão
         const agora = new Date();
-        let statusLeilao = 'aguardando';
+        let statusLeilao = 'ativo'; // Default: ativo quando sem datas definidas
         let tempoRestante = null;
 
         if (beneficio.inicioLeilao && beneficio.prazoLances) {
@@ -22328,7 +23773,7 @@ app.get("/api/dev/users", async (req, res) => {
 
       // ✅ 4. Calcular tempo restante real baseado em prazoLances
       let tempoRestante = { horas: 0, minutos: 0, segundos: 0 };
-      let lanceEncerrado = true;
+      let lanceEncerrado = false; // Se não há prazo, lance está aberto
 
       if (beneficio.prazoLances) {
         const agora = new Date();
@@ -22336,12 +23781,17 @@ app.get("/api/dev/users", async (req, res) => {
         const diferenca = prazoFim.getTime() - agora.getTime();
 
         if (diferenca > 0) {
+          // Prazo ainda não expirou
+
           lanceEncerrado = false;
           const horas = Math.floor(diferenca / (1000 * 60 * 60));
           const minutos = Math.floor((diferenca % (1000 * 60 * 60)) / (1000 * 60));
           const segundos = Math.floor((diferenca % (1000 * 60)) / 1000);
 
           tempoRestante = { horas, minutos, segundos };
+        } else {
+          // Prazo expirou
+          lanceEncerrado = true;
         }
       }
 
@@ -22980,12 +24430,358 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+
+  // ================ APIS DE INDICAÇÃO NO PERFIL ================
+
+  // API para aplicar código de referral (usuário indica que foi convidado)
+  app.post("/api/aplicar-codigo-referral", async (req, res) => {
+    try {
+      const { userId, codigoReferral: codigoRaw } = req.body;
+
+      // Extrair código do link se for URL completa
+      let codigoReferral = codigoRaw.trim();
+      
+      // Se contém "ref=" ou "?ref=", extrair o código
+      if (codigoReferral.includes('ref=')) {
+        const match = codigoReferral.match(/[?&]ref=([^&]+)/);
+        if (match) {
+          codigoReferral = decodeURIComponent(match[1]);
+          console.log(`🔗 [APLICAR REFERRAL] Código extraído do link: ${codigoReferral}`);
+        }
+      }
+      
+      // Se é uma URL mas não tem ref=, tentar extrair última parte do path
+      if (codigoReferral.includes('://') && !codigoReferral.includes('ref=')) {
+        try {
+          const url = new URL(codigoReferral);
+          const pathParts = url.pathname.split('/').filter(Boolean);
+          if (pathParts.length > 0) {
+            codigoReferral = pathParts[pathParts.length - 1];
+            console.log(`🔗 [APLICAR REFERRAL] Código extraído do path: ${codigoReferral}`);
+          }
+        } catch (e) {
+          // Não é URL válida, usar como está
+        }
+      }
+
+      if (!userId || !codigoRaw) {
+        return res.status(400).json({ error: "userId e codigoReferral são obrigatórios" });
+      }
+
+      console.log(`🔗 [APLICAR REFERRAL] Usuário ${userId} tentando aplicar código: ${codigoReferral}`);
+
+      // Verificar se o usuário já tem um código aplicado em referrals
+      const jaIndicadoReferral = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.referredUserId, parseInt(userId)))
+        .limit(1);
+
+      // Também verificar na tabela indicacoes
+      const jaIndicadoIndicacoes = await db
+        .select()
+        .from(indicacoes)
+        .where(eq(indicacoes.indicadoId, parseInt(userId)))
+        .limit(1);
+
+      if (jaIndicadoReferral[0] || jaIndicadoIndicacoes[0]) {
+        console.log(`⚠️ [APLICAR REFERRAL] Usuário ${userId} já foi indicado antes`);
+        return res.status(400).json({ error: "Você já possui um código de indicação aplicado" });
+      }
+
+      // PRIMEIRO: Tentar buscar na tabela referrals (códigos tipo REF_xxx das missões)
+      const referralData = await db
+        .select()
+        .from(referrals)
+        .where(eq(referrals.codigoConvite, codigoReferral))
+        .limit(1);
+
+      if (referralData[0]) {
+        // É um código de missão (referral)
+        const referral = referralData[0];
+
+        // Verificar se o referral já foi usado
+        if (referral.referredUserId) {
+          console.log(`⚠️ [APLICAR REFERRAL] Código já foi usado por outro usuário`);
+          return res.status(400).json({ error: "Este código de indicação já foi utilizado" });
+        }
+
+        // Verificar se não está expirado
+        if (referral.expiradoEm && new Date(referral.expiradoEm) < new Date()) {
+          console.log(`⏰ [APLICAR REFERRAL] Código expirado: ${codigoReferral}`);
+          return res.status(400).json({ error: "Este código de indicação expirou" });
+        }
+
+        // Verificar se o usuário não está tentando usar seu próprio código
+        if (referral.referrerUserId === parseInt(userId)) {
+          console.log(`🚫 [APLICAR REFERRAL] Usuário tentando usar próprio código`);
+          return res.status(400).json({ error: "Você não pode usar seu próprio código de indicação" });
+        }
+
+        // Atualizar o referral com o usuário indicado
+        await db
+          .update(referrals)
+          .set({
+            referredUserId: parseInt(userId),
+            status: 'cadastrou',
+            cadastrouEm: new Date()
+          })
+          .where(eq(referrals.id, referral.id));
+
+        // Buscar nome de quem indicou
+        const indicador = await db
+          .select({ nome: users.nome, sobrenome: users.sobrenome })
+          .from(users)
+          .where(eq(users.id, referral.referrerUserId))
+          .limit(1);
+
+        const nomeIndicador = indicador[0] 
+          ? `${indicador[0].nome || ''} ${indicador[0].sobrenome || ''}`.trim() || 'Um amigo'
+          : 'Um amigo';
+
+        console.log(`✅ [APLICAR REFERRAL] Código de missão aplicado! Usuário ${userId} foi indicado por ${referral.referrerUserId}`);
+
+        return res.json({
+          success: true,
+          message: `Parabéns! Você foi indicado por ${nomeIndicador}`,
+          indicadorNome: nomeIndicador,
+          indicadorId: referral.referrerUserId,
+          tipo: 'missao'
+        });
+      }
+
+      // SEGUNDO: Tentar buscar na tabela marketing_links (códigos de campanhas de marketing)
+      const marketingLinkData = await db
+        .select()
+        .from(marketingLinks)
+        .where(eq(marketingLinks.code, codigoReferral))
+        .limit(1);
+
+      if (marketingLinkData[0]) {
+        // É um código de marketing
+        const marketingLink = marketingLinkData[0];
+
+        // Verificar se está ativo
+        if (!marketingLink.isActive) {
+          console.log(`❌ [APLICAR REFERRAL] Link de marketing inativo: ${codigoReferral}`);
+          return res.status(400).json({ error: "Este código de indicação não está mais ativo" });
+        }
+
+        // Verificar se não está expirado
+        if (marketingLink.expiresAt && new Date(marketingLink.expiresAt) < new Date()) {
+          console.log(`⏰ [APLICAR REFERRAL] Link de marketing expirado: ${codigoReferral}`);
+          return res.status(400).json({ error: "Este código de indicação expirou" });
+        }
+
+        // Verificar se o usuário não está tentando usar seu próprio código
+        if (marketingLink.rewardToUserId === parseInt(userId)) {
+          console.log(`🚫 [APLICAR REFERRAL] Usuário tentando usar próprio código de marketing`);
+          return res.status(400).json({ error: "Você não pode usar seu próprio código de indicação" });
+        }
+
+        // Registrar a indicação na tabela indicacoes (se tiver rewardToUserId)
+        if (marketingLink.rewardToUserId) {
+          const validade = new Date();
+          validade.setDate(validade.getDate() + 30);
+          
+          await db.insert(indicacoes).values({
+            indicouId: marketingLink.rewardToUserId,
+            indicadoId: parseInt(userId),
+            refCode: codigoReferral,
+            status: 'CONFIRMADA',
+            criadaEm: new Date(),
+            confirmadaEm: new Date(),
+            validade: validade
+          });
+        }
+
+        // Buscar nome de quem criou o link (se tiver rewardToUserId)
+        let nomeIndicador = 'Campanha do Clube do Grito';
+        if (marketingLink.rewardToUserId) {
+          const indicador = await db
+            .select({ nome: users.nome, sobrenome: users.sobrenome })
+            .from(users)
+            .where(eq(users.id, marketingLink.rewardToUserId))
+            .limit(1);
+
+          if (indicador[0]) {
+            nomeIndicador = `${indicador[0].nome || ''} ${indicador[0].sobrenome || ''}`.trim() || 'Um amigo';
+          }
+        }
+
+        console.log(`✅ [APLICAR REFERRAL] Código de marketing aplicado! Usuário ${userId} veio do link ${marketingLink.id}`);
+
+        return res.json({
+          success: true,
+          message: `Parabéns! Você foi indicado por ${nomeIndicador}`,
+          indicadorNome: nomeIndicador,
+          indicadorId: marketingLink.rewardToUserId || null,
+          tipo: 'marketing'
+        });
+      }
+
+      // Se não encontrou em nenhuma das duas tabelas
+      console.log(`❌ [APLICAR REFERRAL] Código não encontrado em nenhuma tabela: ${codigoReferral}`);
+      return res.status(404).json({ error: "Código de indicação não encontrado" });
+
+    } catch (error) {
+      console.error("❌ [APLICAR REFERRAL] Erro:", error);
+      res.status(500).json({ error: "Erro ao aplicar código de indicação" });
+    }
+  });
+
+  // API para listar quem o usuário indicou
+  app.get("/api/minhas-indicacoes-referral/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      console.log(`📋 [MINHAS INDICAÇÕES] Buscando indicações do usuário ${userId}`);
+
+      // Buscar todos os referrals onde este usuário é o referrer
+      const minhasIndicacoes = await db
+        .select({
+          id: referrals.id,
+          referredUserId: referrals.referredUserId,
+          codigoConvite: referrals.codigoConvite,
+          linkConvite: referrals.linkConvite,
+          status: referrals.status,
+          cadastrouEm: referrals.cadastrouEm,
+          doouEm: referrals.doouEm,
+          completadoEm: referrals.completadoEm,
+          createdAt: referrals.createdAt,
+          gritosRecompensa: referrals.gritosRecompensa,
+          indicadoNome: users.nome,
+          indicadoSobrenome: users.sobrenome,
+          indicadoTelefone: users.telefone
+        })
+        .from(referrals)
+        .leftJoin(users, eq(referrals.referredUserId, users.id))
+        .where(eq(referrals.referrerUserId, userId))
+        .orderBy(desc(referrals.createdAt));
+
+      // Formatar dados para resposta
+      const indicacoes = minhasIndicacoes.map(ind => ({
+        id: ind.id,
+        codigo: ind.codigoConvite,
+        link: ind.linkConvite,
+        status: ind.status,
+        indicado: ind.referredUserId ? {
+          id: ind.referredUserId,
+          nome: `${ind.indicadoNome || ''} ${ind.indicadoSobrenome || ''}`.trim() || 'Usuário',
+          telefone: ind.indicadoTelefone ? `****${ind.indicadoTelefone.slice(-4)}` : null
+        } : null,
+        cadastrouEm: ind.cadastrouEm,
+        doouEm: ind.doouEm,
+        completadoEm: ind.completadoEm,
+        criadoEm: ind.createdAt,
+        gritosRecompensa: ind.gritosRecompensa
+      }));
+
+      // Estatísticas
+      const stats = {
+        total: indicacoes.length,
+        pendentes: indicacoes.filter(i => i.status === 'pendente').length,
+        cadastrados: indicacoes.filter(i => i.status === 'cadastrou').length,
+        completos: indicacoes.filter(i => i.status === 'completo').length
+      };
+
+      console.log(`📊 [MINHAS INDICAÇÕES] Usuário ${userId}: ${stats.total} indicações (${stats.completos} completas)`);
+
+      res.json({
+        success: true,
+        indicacoes,
+        stats
+      });
+
+    } catch (error) {
+      console.error("❌ [MINHAS INDICAÇÕES] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar indicações" });
+    }
+  });
+
+  // API para verificar se usuário já tem código aplicado
+  app.get("/api/meu-indicador/:userId", async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+
+      if (isNaN(userId)) {
+        return res.status(400).json({ error: "ID de usuário inválido" });
+      }
+
+      // Buscar se este usuário foi indicado por alguém
+      const indicacao = await db
+        .select({
+          referralId: referrals.id,
+          indicadorId: referrals.referrerUserId,
+          codigoConvite: referrals.codigoConvite,
+          cadastrouEm: referrals.cadastrouEm,
+          indicadorNome: users.nome,
+          indicadorSobrenome: users.sobrenome
+        })
+        .from(referrals)
+        .leftJoin(users, eq(referrals.referrerUserId, users.id))
+        .where(eq(referrals.referredUserId, userId))
+        .limit(1);
+
+      if (!indicacao[0]) {
+        // Não encontrou em referrals, buscar na tabela indicacoes (marketing)
+        const indicacaoMkt = await db
+          .select({
+            indicouId: indicacoes.indicouId,
+            refCode: indicacoes.refCode,
+            criadaEm: indicacoes.criadaEm,
+            indicadorNome: users.nome,
+            indicadorSobrenome: users.sobrenome
+          })
+          .from(indicacoes)
+          .leftJoin(users, eq(indicacoes.indicouId, users.id))
+          .where(eq(indicacoes.indicadoId, userId))
+          .limit(1);
+
+        if (!indicacaoMkt[0]) {
+          return res.json({
+            temIndicador: false,
+            indicador: null
+          });
+        }
+
+        const indMkt = indicacaoMkt[0];
+        return res.json({
+          temIndicador: true,
+          indicador: {
+            id: indMkt.indicouId,
+            nome: `${indMkt.indicadorNome || ''} ${indMkt.indicadorSobrenome || ''}`.trim() || 'Um amigo',
+            codigoUsado: indMkt.refCode,
+            dataIndicacao: indMkt.criadaEm
+          }
+        });
+      }
+
+      const ind = indicacao[0];
+      res.json({
+        temIndicador: true,
+        indicador: {
+          id: ind.indicadorId,
+          nome: `${ind.indicadorNome || ''} ${ind.indicadorSobrenome || ''}`.trim() || 'Um amigo',
+          codigoUsado: ind.codigoConvite,
+          dataIndicacao: ind.cadastrouEm
+        }
+      });
+
+    } catch (error) {
+      console.error("❌ [MEU INDICADOR] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar indicador" });
+    }
+  });
   // ================ MONDAY.COM GV API ================
 
   // Função para mapear dados raw do Monday.com para formato estruturado
   function mapMondayDataToGVFormat(rawData: any): GVApiResponse {
     console.log('🔄 [MONDAY GV] Mapeando dados do Monday.com para formato GV');
-    console.log('📊 [MONDAY GV] Dados brutos recebidos:', JSON.stringify(rawData, null, 2));
 
     // Definir mapeamento de boards reais para programas GV
     const boardToProgram: Record<string, { slug: string; workstreams: string[] }> = {
@@ -23201,7 +24997,6 @@ app.get("/api/dev/users", async (req, res) => {
     }
 
     console.log(`✅ [MONDAY GV] Mapeamento concluído: ${mappedData.programs.length} programas processados`);
-    console.log('📊 [MONDAY GV] Estrutura final:', JSON.stringify(mappedData, null, 2));
 
     return mappedData;
   }
@@ -23262,7 +25057,6 @@ app.get("/api/dev/users", async (req, res) => {
       }
 
       const result = await response.json();
-      console.log('📊 [MONDAY GV] Dados raw recebidos do Monday.com:', JSON.stringify(result, null, 2));
 
       if (result.errors) {
         throw new Error(`Monday.com GraphQL errors: ${JSON.stringify(result.errors)}`);
@@ -23270,7 +25064,6 @@ app.get("/api/dev/users", async (req, res) => {
 
       // Mapear os dados raw do Monday.com para o formato estruturado esperado
       const mappedData = mapMondayDataToGVFormat(result.data);
-      console.log('✅ [MONDAY GV] Dados mapeados para GV:', JSON.stringify(mappedData, null, 2));
 
       return mappedData;
     } catch (error) {
@@ -23474,7 +25267,7 @@ app.get("/api/dev/users", async (req, res) => {
       if (isLeoMartins) {
         console.log(`👑 [LEO] Buscando invoices do Leo por customer (incluindo antigas)`);
         invoices = await stripe.invoices.list({
-          customer: stripeCustomerId,
+          customer: user.stripeCustomerId,
           status: 'paid',
           limit: 100
         });
@@ -23488,7 +25281,7 @@ app.get("/api/dev/users", async (req, res) => {
       } else {
         console.log(`⚠️ [DONATION STATS] Sem subscription, buscando por customer: ${stripeCustomerId}`);
         invoices = await stripe.invoices.list({
-          customer: stripeCustomerId,
+          customer: user.stripeCustomerId,
           status: 'paid',
           limit: 100
         });
@@ -23520,7 +25313,7 @@ app.get("/api/dev/users", async (req, res) => {
 
       // 4. Buscar assinatura ativa para determinar meta anual
       const subscriptions = await stripe.subscriptions.list({
-        customer: stripeCustomerId,
+        customer: user.stripeCustomerId,
         status: 'active',
         limit: 1
       });
@@ -25545,9 +27338,30 @@ app.get("/api/dev/users", async (req, res) => {
   // ===== PATROCINADORES (TABELA) =====
   app.get('/api/patrocinadores', async (req, res) => {
     try {
+      // Parâmetro de filtro por mês (0 = Janeiro, 11 = Dezembro)
+      const mesParam = req.query.mes !== undefined ? parseInt(req.query.mes as string) : undefined;
       const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
       
-      const patrocinadoresList = await storage.getPatrocinadores(ano);
+      let patrocinadoresList = await storage.getPatrocinadores(ano);
+      
+      // Filtrar por mês se especificado
+      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
+        const anoAtual = 2025;
+        const dataFimMes = new Date(anoAtual, mesParam + 1, 0);
+        const dataInicioMes = new Date(anoAtual, mesParam, 1);
+        
+        patrocinadoresList = patrocinadoresList.filter((p: any) => {
+          // Patrocinador ativo no mês se: data_inicio <= fim do mês E (data_fim >= início do mês OU data_fim é null)
+          const dataInicio = p.dataInicio ? new Date(p.dataInicio) : new Date(0);
+          const dataFim = p.dataFim ? new Date(p.dataFim) : null;
+          
+          const iniciadoAntesOuDuranteMes = dataInicio <= dataFimMes;
+          const naoTerminouAntes = !dataFim || dataFim >= dataInicioMes;
+          
+          return iniciadoAntesOuDuranteMes && naoTerminouAntes;
+        });
+        console.log(`📅 [PATROCINADORES] Filtrado por mês ${mesParam + 1}/${anoAtual}: ${patrocinadoresList.length} patrocinadores`);
+      }
       
       const totalPatrocinadores = patrocinadoresList.length;
       
@@ -25772,7 +27586,6 @@ app.get("/api/dev/users", async (req, res) => {
       
       const result = await response.json();
       
-      console.log(`📋 [CIELO SOP] Resposta Cielo:`, JSON.stringify(result, null, 2));
       
       // Verificar se pagamento foi autorizado
       const paymentStatus = result.Payment?.Status;
@@ -26015,7 +27828,6 @@ app.get("/api/dev/users", async (req, res) => {
         requiresAction: 0
       };
 
-      console.log(`✅ [DASHBOARD] Estatísticas: ${JSON.stringify(stats)}`);
 
       res.json(pagamentosFormatados);
     } catch (error) {
@@ -26079,7 +27891,6 @@ app.get("/api/dev/users", async (req, res) => {
         valorTotal: compradoresFormatados.reduce((sum, c) => sum + c.valorCentavos, 0)
       };
 
-      console.log(`✅ [COMPRADORES AVULSOS] Estatísticas: ${JSON.stringify(stats)}`);
 
       res.json({
         success: true,
@@ -26184,7 +27995,6 @@ app.get("/api/dev/users", async (req, res) => {
         parcelamentos: pagamentosFormatados.filter(p => (p.parcelas || 1) > 1).length
       };
 
-      console.log(`✅ [CIELO DASHBOARD] Estatísticas: ${JSON.stringify(stats)}`);
 
       res.json({
         success: true,
@@ -28044,6 +29854,105 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
+  // 📊 GET /api/indicadores-marketing - Indicadores Marketing e Tecnologia para Gestão à Vista
+  app.get('/api/indicadores-marketing', async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      console.log(`📊 [INDICADORES-MARKETING] Buscando indicadores para ${ano}...`);
+
+      const result = await db.execute(sql`
+        SELECT * FROM indicadores_marketing WHERE ano = ${ano} LIMIT 1
+      `);
+
+      if (!result.rows || result.rows.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            ano,
+            seguidores_ganhos: 0,
+            seguidores_ganhos_meta: 0,
+            seguidores_perdidos: 0,
+            seguidores_perdidos_meta: 0,
+            novos_doadores: 0,
+            novos_doadores_meta: 0,
+            materiais_distribuidos: 0,
+            materiais_distribuidos_meta: 0,
+            total_seguidores: 11225
+          }
+        });
+      }
+
+      res.json({ success: true, data: result.rows[0] });
+    } catch (error) {
+      console.error('❌ [INDICADORES-MARKETING] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar indicadores' });
+    }
+  });
+
+  // 📊 PUT /api/indicadores-marketing - Atualizar Indicadores Marketing
+  app.put('/api/indicadores-marketing', async (req, res) => {
+    try {
+      const { ano, seguidores_ganhos, seguidores_ganhos_meta, seguidores_perdidos, seguidores_perdidos_meta, novos_doadores, novos_doadores_meta, materiais_distribuidos, materiais_distribuidos_meta } = req.body;
+      
+      console.log(`📊 [INDICADORES-MARKETING] Atualizando indicadores para ${ano}...`);
+
+      await db.execute(sql`
+        INSERT INTO indicadores_marketing (ano, seguidores_ganhos, seguidores_ganhos_meta, seguidores_perdidos, seguidores_perdidos_meta, novos_doadores, novos_doadores_meta, materiais_distribuidos, materiais_distribuidos_meta, updated_at)
+        VALUES (${ano}, ${seguidores_ganhos || 0}, ${seguidores_ganhos_meta || 0}, ${seguidores_perdidos || 0}, ${seguidores_perdidos_meta || 0}, ${novos_doadores || 0}, ${novos_doadores_meta || 0}, ${materiais_distribuidos || 0}, ${materiais_distribuidos_meta || 0}, NOW())
+        ON CONFLICT (ano) DO UPDATE SET
+          seguidores_ganhos = EXCLUDED.seguidores_ganhos,
+          seguidores_ganhos_meta = EXCLUDED.seguidores_ganhos_meta,
+          seguidores_perdidos = EXCLUDED.seguidores_perdidos,
+          seguidores_perdidos_meta = EXCLUDED.seguidores_perdidos_meta,
+          novos_doadores = EXCLUDED.novos_doadores,
+          novos_doadores_meta = EXCLUDED.novos_doadores_meta,
+          materiais_distribuidos = EXCLUDED.materiais_distribuidos,
+          materiais_distribuidos_meta = EXCLUDED.materiais_distribuidos_meta,
+          updated_at = NOW()
+      `);
+
+      res.json({ success: true, message: 'Indicadores atualizados com sucesso' });
+    } catch (error) {
+      console.error('❌ [INDICADORES-MARKETING] Erro ao atualizar:', error);
+      res.status(500).json({ success: false, error: 'Erro ao atualizar indicadores' });
+    }
+  });
+
+  // 📊 GET /api/gestao-vista/evolucao-mensal - Dados de evolução mensal para gráfico
+  // Usa os mesmos dados do módulo gestaoVistaData (mesma fonte da tela do doador)
+  app.get('/api/gestao-vista/evolucao-mensal', async (req, res) => {
+    try {
+      const ano = req.query.ano as string || '2025';
+      console.log(`📊 [EVOLUCAO] Buscando dados mensais para ${ano}...`);
+
+      const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      
+      // Para 2025, usar dados do gestaoVistaData (mesma fonte da tela do doador)
+      if (ano === '2025') {
+        const { dadosMensais2025 } = gestaoVistaData;
+        
+        const dados = meses.map((mes, idx) => ({
+          mes,
+          visitas: dadosMensais2025.visitasDomicilio[idx] ?? 0,
+          atendimentos: dadosMensais2025.atendimentosPsico[idx] ?? 0
+        }));
+
+        res.json({ success: true, ano, dados });
+      } else {
+        // Para outros anos, retornar zeros
+        const dados = meses.map(mes => ({
+          mes,
+          visitas: 0,
+          atendimentos: 0
+        }));
+
+        res.json({ success: true, ano, dados });
+      }
+    } catch (error) {
+      console.error('❌ [EVOLUCAO] Erro:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar dados' });
+    }
+  });
   // =========  POST /api/user-causas  =========
   // Endpoint para salvar a escolha de "Grito" do usuário
   app.post('/api/user-causas', async (req, res) => {
@@ -28251,49 +30160,6 @@ app.get("/api/dev/users", async (req, res) => {
     }
   });
 
-
-  // ================ SISTEMA DE MARKETING (CAMPANHAS E LINKS) ================
-
-  // GET /api/mkt/campaigns - Listar todas as campanhas
-  app.get("/api/mkt/campaigns", async (_req, res) => {
-    try {
-      const campaigns = await storage.getAllMarketingCampaigns();
-      res.json(campaigns);
-    } catch (error) {
-      console.error("❌ [MKT CAMPAIGNS] Erro ao listar campanhas:", error);
-      res.status(500).json({ error: "Erro ao buscar campanhas" });
-    }
-  });
-
-  // POST /api/mkt/campaigns - Criar nova campanha
-  app.post("/api/mkt/campaigns", async (req, res) => {
-    try {
-      const userId = req.session?.userId;
-      if (!userId) {
-        return res.status(401).json({ error: "Não autenticado" });
-      }
-
-      const { name, description } = req.body;
-      if (!name || !name.trim()) {
-        return res.status(400).json({ error: "Nome da campanha é obrigatório" });
-      }
-
-      const campaign = await storage.createMarketingCampaign({
-        name: name.trim(),
-        description: description || null,
-        ownerUserId: userId,
-        isActive: true,
-      });
-
-      console.log(`✅ [MKT CAMPAIGNS] Campanha criada: ${campaign.name} (ID: ${campaign.id})`);
-      res.json(campaign);
-    } catch (error) {
-      console.error("❌ [MKT CAMPAIGNS] Erro ao criar campanha:", error);
-      res.status(500).json({ error: "Erro ao criar campanha" });
-    }
-  });
-
-
   // GET /api/mkt/active-campaign - Pegar campanha ativa com TODOS os links
   app.get("/api/mkt/active-campaign", async (req, res) => {
     try {
@@ -28335,7 +30201,11 @@ app.get("/api/dev/users", async (req, res) => {
         .from(marketingLinks)
         .where(and(
           eq(marketingLinks.campaignId, activeCampaign.id),
-          inArray(marketingLinks.rewardToUserId, paidIds)
+          or(
+            inArray(marketingLinks.rewardToUserId, paidIds), 
+            eq(marketingLinks.source, 'manual'),
+            eq(marketingLinks.source, 'doador')
+          )
         ))
         .orderBy(desc(marketingLinks.createdAt));
 
@@ -28657,7 +30527,6 @@ app.get("/api/dev/users", async (req, res) => {
         return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
       }
 
-      console.log(`🎯 [STRIPE WEBHOOK] Received: ${stripeEvent.type}`);
 
       // Traduzir eventos Stripe para eventos internos
       let internalEventName: string | null = null;
@@ -29806,7 +31675,237 @@ app.get("/api/dev/users", async (req, res) => {
   });
 
   // ==================== ROTAS DE PARTICIPANTES DE INCLUSÃO PRODUTIVA ====================
+  // CONFIGURAÇÕES DE IMPORT 
+  const normalizePreviewPayload = (p: any) => {
+  const rows =
+    p?.rows ??
+    p?.preview?.rows ??
+    p?.preview?.participantes ??
+    p?.participantes ??
+    [];
 
+  const columns =
+    p?.columns ??
+    p?.preview?.columns ??
+    p?.previewColumns ??
+    [];
+
+  const valid = rows.filter((r: any) => r?.isValid).length;
+  const invalid = rows.filter((r: any) => !r?.isValid).length;
+
+  const stats =
+    p?.stats?.valid !== undefined
+      ? p.stats
+      : { valid, invalid };
+
+  return { rows, columns, stats };
+};
+
+app.post(
+  "/api/inclusao/import/preview",
+  requireAuth,
+  requireRole("coordenador_inclusao"),
+  uploadExcel.single("file"),
+  async (req, res) => {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ error: "Arquivo não enviado" });
+    }
+
+    const preview = buildInclusaoPreviewFromExcel(req.file.buffer);
+    const importId = putCache(preview);
+
+    return res.json({
+      importId,
+      preview: {
+        programas: preview.programas,
+        turmas: preview.turmas,
+        cursos: preview.cursos,
+        participantes: preview.participantes,
+      },
+      stats: preview.stats,
+    });
+  }
+);
+
+
+ app.post(
+  "/api/inclusao/import/commit",
+  requireAuth,
+  requireRole("coordenador_inclusao"),
+  async (req, res) => {
+    try {
+      const { importId, selectedIndexes } = req.body as {
+        importId: string;
+        selectedIndexes?: number[];
+      };
+
+      if (!importId) return res.status(400).json({ error: "importId obrigatório" });
+
+   const cached = getCache(importId);
+    if (!cached) return res.status(404).json({ error: "Import não encontrado/expirado" });
+
+    // ✅ suporta os dois formatos: cache direto OU cache com { preview }
+    const preview = cached.preview ?? cached
+
+      const errors: any[] = [];
+      const imported = { programas: 0, turmas: 0, cursos: 0, participantes: 0 };
+
+      const key = (s: string) => String(s ?? "").trim().toLowerCase();
+      const turmaKey = (s: string) => String(s ?? "").trim().toUpperCase();
+
+      const programaIdByNome = new Map<string, number>();
+      const turmaIdByCodigo = new Map<string, number>();
+
+      // ✅ 1) PROGRAMAS: importa TODOS válidos (não filtra por selectedIndexes)
+      for (const row of (preview.programas || []).filter((r: any) => r.isValid)) {
+        try {const programaPayload = {
+          nome: row.data.nome,
+          modalidade: row.data.modalidade,
+          duracao: row.data.duracao,
+          numeroVagas: row.data.vagasDisponiveis,      // ✅ se o create usa numeroVagas
+          taxaOcupacao: row.data.taxaOcupacaoPercent,  // ✅ se o create usa taxaOcupacao
+          status: row.data.status,
+          descricao: row.data.descricao,
+          categoria: row.data.categoria,
+        };
+          const created = await storage.createPrograma(programaPayload);
+          programaIdByNome.set(key(created.nome), created.id);
+          imported.programas++;
+        } catch (e: any) {
+          errors.push({ entity: "programas", index: row.index, message: e.message || String(e) });
+        }
+      }
+
+      // ✅ 2) TURMAS: importa TODOS válidos
+      for (const row of (preview.turmas || []).filter((r: any) => r.isValid)) {
+        try {
+          const programaId = programaIdByNome.get(key(row.data.programaNome));
+          if (!programaId) {
+            errors.push({
+              entity: "turmas",
+              index: row.index,
+              message: `programaNome "${row.data.programaNome}" não encontrado no import`,
+            });
+            continue;
+          }
+
+         const turmaPayload: any = {
+          programaId,
+          nome: row.data.nome,
+          codigo: row.data.codigo,
+          numeroVagas: row.data.vagasDisponiveis, // ✅ se create usa numeroVagas
+          dataInicio: row.data.dataInicio,
+          horaInicio: row.data.horaInicio,
+          dataFim: row.data.dataFim,
+          horaFim: row.data.horaFim,
+          local: row.data.local,
+          status: row.data.status,
+          descricao: row.data.descricao,
+        };
+
+        const created = await storage.createTurma(turmaPayload);
+          turmaIdByCodigo.set(turmaKey(created.codigo), created.id);
+          imported.turmas++;
+        } catch (e: any) {
+          errors.push({ entity: "turmas", index: row.index, message: e.message || String(e) });
+        }
+      }
+
+      // ✅ 3) CURSOS: importa TODOS válidos
+      for (const row of (preview.cursos || []).filter((r: any) => r.isValid)) {
+        try {
+          const programaId = programaIdByNome.get(key(row.data.programaNome));
+          if (!programaId) {
+            errors.push({
+              entity: "cursos",
+              index: row.index,
+              message: `programaNome "${row.data.programaNome}" não encontrado no import`,
+            });
+            continue;
+          }
+
+          const turmaIds =
+            row.data.turmasCodigos
+              ? row.data.turmasCodigos
+                  .split(";")
+                  .map((s: string) => s.trim())
+                  .filter(Boolean)
+                  .map((codigo: string) => turmaIdByCodigo.get(turmaKey(codigo)))
+                  .filter((id: any) => typeof id === "number")
+              : [];
+
+      const cursoPayload: any = {
+        programaId,
+        nome: row.data.nome,
+        categoria: row.data.categoria,
+        cargaHoraria: row.data.cargaHorariaHoras, // ✅ se create usa cargaHoraria
+        horarioEntrada: row.data.horarioEntrada,
+        horarioSaida: row.data.horarioSaida,
+        status: row.data.status,
+        descricao: row.data.descricao,
+      };
+
+      await storage.createCurso(cursoPayload, turmaIds.length ? turmaIds : undefined);
+          imported.cursos++;
+        } catch (e: any) {
+          errors.push({ entity: "cursos", index: row.index, message: e.message || String(e) });
+        }
+      }
+
+      // ✅ 4) PARTICIPANTES: AQUI sim usa selectedIndexes (porque seu modal seleciona isso)
+      const set = new Set(selectedIndexes || []);
+      const participantesSelecionados = (preview.participantes || [])
+        .filter((r: any) => r.isValid)
+        .filter((r: any) => set.size === 0 || set.has(r.index));
+
+      for (const row of participantesSelecionados) {
+        try {
+          const turmaIds =
+            row.data.turmasCodigos
+              ? row.data.turmasCodigos
+                  .split(";")
+                  .map((s: string) => s.trim())
+                  .filter(Boolean)
+                  .map((codigo: string) => turmaIdByCodigo.get(turmaKey(codigo)))
+                  .filter((id: any) => typeof id === "number")
+              : [];
+
+         const participantePayload: any = {
+            nome: row.data.nome,
+            cpf: row.data.cpf,
+            genero: row.data.genero,
+            idade: row.data.idade,
+            codigoMatricula: row.data.codigoMatricula,
+            identificador: row.data.identificador,
+            dataIngresso: row.data.dataIngresso,
+            email: row.data.email,
+            telefone: row.data.telefone,
+            endereco: row.data.endereco,
+            escolaridade: row.data.escolaridade,
+            experienciaProfissional: row.data.experienciaProfissional,
+            objetivosProfissionais: row.data.objetivosProfissionais,
+          };
+
+          await storage.createParticipante(participantePayload, turmaIds.length ? turmaIds : undefined);
+          imported.participantes++;
+        } catch (e: any) {
+          errors.push({ entity: "participantes", index: row.index, message: e.message || String(e) });
+        }
+      }
+
+      return res.json({ imported, errors });
+      console.log("COMMIT IMPORT:", {
+        programas: preview.programas?.length,
+        turmas: preview.turmas?.length,
+        cursos: preview.cursos?.length,
+        participantes: preview.participantes?.length,
+      });
+    } catch (error: any) {
+      console.error("Erro no commit do import:", error);
+      return res.status(500).json({ error: "Erro ao importar dados" });
+    }
+  }
+);
   // Listar todos os participantes
   app.get("/api/participantes-inclusao", async (req, res) => {
     try {
@@ -29850,75 +31949,120 @@ app.get("/api/dev/users", async (req, res) => {
 
   // Criar novo participante
   app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
+  try {
+    const coordenadorIdRaw = req.user?.id;
+    const coordenadorId = coordenadorIdRaw ? Number(coordenadorIdRaw) : null;
+
+    const { turmaIds: turmaIdsRaw, ...participanteData } = req.body;
+
+    // ✅ turmaIds pode vir: [1,2] | "1,2" | "[1,2]" | "1" | 1 | null
+    let turmaIds: number[] = [];
+    if (Array.isArray(turmaIdsRaw)) {
+      turmaIds = turmaIdsRaw.map((x: any) => Number(x)).filter((n) => Number.isFinite(n));
+    } else if (typeof turmaIdsRaw === "string" && turmaIdsRaw.trim() !== "") {
+      const s = turmaIdsRaw.trim();
+      if (s.startsWith("[")) {
+        try {
+          const arr = JSON.parse(s);
+          if (Array.isArray(arr)) {
+            turmaIds = arr.map((x: any) => Number(x)).filter(Number.isFinite);
+          }
+        } catch {}
+      } else {
+        turmaIds = s.split(",").map((x) => Number(x.trim())).filter(Number.isFinite);
+      }
+    } else if (typeof turmaIdsRaw === "number") {
+      turmaIds = [Number(turmaIdsRaw)].filter(Number.isFinite);
+    }
+
+    // ✅ campos que no Excel vêm como number → converter pra string
+    ["cpf", "telefone", "codigoMatricula", "identificador"].forEach((f) => {
+      if (participanteData[f] !== undefined && participanteData[f] !== null) {
+        participanteData[f] = String(participanteData[f]).trim();
+      }
+    });
+
+    // ✅ data: só converte se for válida (evita Invalid Date)
+    if (participanteData.dataIngresso) {
+      const d = new Date(participanteData.dataIngresso);
+      participanteData.dataIngresso = Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // ✅ Normalizar campos vazios para null
+    ["email", "cpf", "telefone", "codigoMatricula", "identificador"].forEach((field) => {
+      const v = participanteData[field];
+      if (v === "" || v === "null" || v === "undefined") {
+        participanteData[field] = null;
+      }
+    });
+
+    // ✅ Validar dados com Zod
+    const validationResult = insertParticipanteInclusaoSchema.safeParse({
+      ...participanteData,
+      coordenadorId,
+    });
+
+    if (!validationResult.success) {
+      console.error("❌ [VALIDAÇÃO PARTICIPANTE]", {
+        userId: req.user?.id,
+        issues: validationResult.error.issues,
+        body: req.body,
+      });
+
+      return res.status(400).json({
+        error: "Dados inválidos",
+        details: validationResult.error.issues,
+      });
+    }
+
+    const participante = await storage.createParticipante(validationResult.data, turmaIds);
+
+    // 🔗 VINCULAÇÃO AUTOMÁTICA COM PSICOSSOCIAL
     try {
-      const coordenadorId = req.user?.id;
-      const { turmaIds, ...participanteData } = req.body;
+      const vinculoExistente = await db
+        .select()
+        .from(psicoInclusaoVinculo)
+        .where(eq(psicoInclusaoVinculo.participanteInclusaoId, participante.id))
+        .limit(1);
 
-      if (participanteData.dataIngresso) {
-        participanteData.dataIngresso = new Date(participanteData.dataIngresso)
-      }
-
-      // Normalizar campos vazios para null
-      ['email', 'cpf', 'telefone', 'codigoMatricula', 'identificador', 'dataIngresso'].forEach(field => {
-        if (participanteData[field] === '') {
-          participanteData[field] = null;
-        }
-      });
-
-      // Validar dados com Zod
-      const validationResult = insertParticipanteInclusaoSchema.safeParse({
-        ...participanteData,
-        coordenadorId
-      });
-
-      if (!validationResult.success) {
-        return res.status(400).json({
-          error: "Dados inválidos",
-          details: validationResult.error.errors
-        });
-      }
-
-      const participante = await storage.createParticipante(validationResult.data, turmaIds);
-
-
-      // 🔗 VINCULAÇÃO AUTOMÁTICA COM PSICOSSOCIAL
-      try {
-        const vinculoExistente = await db.select()
-          .from(psicoInclusaoVinculo)
-          .where(eq(psicoInclusaoVinculo.participanteInclusaoId, participante.id))
-          .limit(1);
-
-        if (vinculoExistente.length === 0) {
-          const [novaFamilia] = await db.insert(psicoFamilias).values({
+      if (vinculoExistente.length === 0) {
+        const [novaFamilia] = await db
+          .insert(psicoFamilias)
+          .values({
             nomeResponsavel: participante.nome,
             numeroMembros: 1,
             telefone: participante.telefone || null,
             endereco: participante.endereco || null,
-            status: 'ativo',
-            coordenadorId: coordenadorId ? parseInt(coordenadorId.toString()) : null,
-            observacoes: `Família criada automaticamente - Inclusão: ${participante.nome}`
-          }).returning();
+            status: "ativo",
+            coordenadorId: coordenadorId, // ✅ já é number|null, não precisa parseInt/stringify
+            observacoes: `Família criada automaticamente - Inclusão: ${participante.nome}`,
+          })
+          .returning();
 
-          await db.insert(psicoInclusaoVinculo).values({
-            participanteInclusaoId: participante.id,
-            psicoFamiliaId: novaFamilia.id,
-            papel: 'atendido',
-            observacoes: 'Vínculo criado automaticamente ao cadastrar participante'
-          });
+        await db.insert(psicoInclusaoVinculo).values({
+          participanteInclusaoId: participante.id,
+          psicoFamiliaId: novaFamilia.id,
+          papel: "atendido",
+          observacoes: "Vínculo criado automaticamente ao cadastrar participante",
+        });
 
-          console.log(`✅ [INCLUSÃO→PSICO] Participante ${participante.id} vinculado automaticamente à família ${novaFamilia.id}`);
-        } else {
-          console.log(`ℹ️ [INCLUSÃO→PSICO] Participante ${participante.id} já possui vínculo psicossocial`);
-        }
-      } catch (vinculoError) {
-        console.error('⚠️ [INCLUSÃO→PSICO] Erro ao criar vínculo automático (participante continuou):', vinculoError);
+        console.log(
+          `✅ [INCLUSÃO→PSICO] Participante ${participante.id} vinculado automaticamente à família ${novaFamilia.id}`
+        );
+      } else {
+        console.log(`ℹ️ [INCLUSÃO→PSICO] Participante ${participante.id} já possui vínculo psicossocial`);
       }
-      res.status(201).json(participante);
-    } catch (error: any) {
-      console.error("Erro ao criar participante:", error);
-      res.status(500).json({ error: "Erro ao criar participante" });
+    } catch (vinculoError) {
+      console.error("⚠️ [INCLUSÃO→PSICO] Erro ao criar vínculo automático (participante continuou):", vinculoError);
     }
-  });
+
+    return res.status(201).json(participante);
+  } catch (error: any) {
+    console.error("Erro ao criar participante:", error);
+    return res.status(500).json({ error: "Erro ao criar participante" });
+  }
+});
+
 
   // Atualizar participante
   app.patch("/api/participantes-inclusao/:id", async (req, res) => {
@@ -31220,6 +33364,1268 @@ app.post("/api/activity/batch", (req, res) => {
 
   res.json({ ok: true });
 });
+
+
+  // ================ PUSH NOTIFICATIONS ROUTES ================
+  
+  const { registerDeviceToken, revokeDeviceToken, sendPushToUser, sendPushToUsers, sendPushToAllDonors, getPushStats } = await import('./pushNotifications');
+  // Importar funções de push
+
+  // Registrar token de dispositivo
+  app.post("/api/push/register", async (req, res) => {
+    console.log("📱 [PUSH API] Recebida requisição de registro de token");
+    try {
+      const { userId, token, platform } = req.body;
+      
+      console.log("📱 [PUSH API] userId:", userId, "platform:", platform, "token existe:", !!token);
+      
+      if (!token || !platform) {
+        console.log("📱 [PUSH API] ❌ Token ou platform ausentes");
+        return res.status(400).json({ error: "Token e platform são obrigatórios" });
+      }
+      
+      if (!["web", "android", "ios"].includes(platform)) {
+        console.log("📱 [PUSH API] ❌ Platform inválido:", platform);
+        return res.status(400).json({ error: "Platform deve ser web, android ou ios" });
+      }
+      
+      console.log("📱 [PUSH API] Chamando registerDeviceToken...");
+      const success = await registerDeviceToken(userId || null, token, platform);
+      console.log("📱 [PUSH API] registerDeviceToken retornou:", success);
+      
+      if (success) {
+        console.log("📱 [PUSH API] ✅ Token registrado com sucesso!");
+        res.json({ success: true, message: "Token registrado com sucesso" });
+      } else {
+        console.log("📱 [PUSH API] ❌ Falha ao registrar token");
+        res.status(500).json({ error: "Erro ao registrar token" });
+      }
+    } catch (error: any) {
+      console.error("❌ [PUSH API] Erro ao registrar token:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Revogar/remover token de dispositivo
+  app.post("/api/push/unregister", async (req, res) => {
+    try {
+      const { token } = req.body;
+      
+      if (!token) {
+        return res.status(400).json({ error: "Token é obrigatório" });
+      }
+      
+      const success = await revokeDeviceToken(token);
+      
+      if (success) {
+        res.json({ success: true, message: "Token removido com sucesso" });
+      } else {
+        res.status(500).json({ error: "Erro ao remover token" });
+      }
+    } catch (error: any) {
+      console.error("❌ [PUSH API] Erro ao remover token:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Enviar notificação para um usuário específico (requer admin)
+  app.post("/api/push/send-to-user", async (req, res) => {
+    try {
+      const { userId, title, body, data, sentBy } = req.body;
+      
+      if (!userId || !title || !body) {
+        return res.status(400).json({ error: "userId, title e body são obrigatórios" });
+      }
+      
+      const result = await sendPushToUser(
+        Number(userId),
+        { title, body, data },
+        sentBy ? Number(sentBy) : undefined
+      );
+      
+      res.json({ 
+        success: true, 
+        message: `Notificação enviada: ${result.success} sucesso, ${result.failure} falhas`,
+        ...result 
+      });
+    } catch (error: any) {
+      console.error("❌ [PUSH API] Erro ao enviar notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Enviar notificação para todos os doadores ativos (requer admin)
+  app.post("/api/push/send-to-all-donors", async (req, res) => {
+    try {
+      const { title, body, data, sentBy } = req.body;
+      
+      if (!title || !body) {
+        return res.status(400).json({ error: "title e body são obrigatórios" });
+      }
+      
+      const result = await sendPushToAllDonors(
+        { title, body, data },
+        sentBy ? Number(sentBy) : undefined
+      );
+      
+      res.json({ 
+        success: true, 
+        message: `Notificação enviada para doadores: ${result.success} sucesso, ${result.failure} falhas`,
+        ...result 
+      });
+    } catch (error: any) {
+      console.error("❌ [PUSH API] Erro ao enviar notificação para doadores:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Obter estatísticas de push notifications (requer admin)
+  app.get("/api/push/stats", async (req, res) => {
+    try {
+      const stats = await getPushStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("❌ [PUSH API] Erro ao obter estatísticas:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+
+
+
+
+  // ================ LAUNCH DASHBOARD STATS ================
+  
+  // Estatísticas de lançamento do app (01/12/2025) - Usando mesma lógica do Stripe
+  app.get("/api/launch-stats", async (req, res) => {
+    try {
+      const LAUNCH_DATE = new Date('2025-12-01T00:00:00Z');
+      const META_DOADORES = 1000;
+      
+      if (!stripe) {
+        return res.status(500).json({ 
+          error: 'Stripe não configurado',
+          totalDoadores: 0 
+        });
+      }
+      
+      // Buscar TODAS as subscriptions (active, trialing, past_due) - mesma lógica do /api/doadores/stats
+      const [activesSubs, trialingSubs, pastDueSubs] = await Promise.all([
+        stripe.subscriptions.list({ status: 'active', limit: 100 }),
+        stripe.subscriptions.list({ status: 'trialing', limit: 100 }),
+        stripe.subscriptions.list({ status: 'past_due', limit: 100 })
+      ]);
+      
+      const allSubscriptions = [
+        ...activesSubs.data,
+        ...trialingSubs.data,
+        ...pastDueSubs.data
+      ];
+      
+      // Contar doadores antes e depois do lançamento baseado na data de criação da subscription
+      let doadoresAntes = 0;
+      let novosDoadores = 0;
+      
+      allSubscriptions.forEach(sub => {
+        const createdAt = new Date(sub.created * 1000); // Stripe usa timestamp em segundos
+        if (createdAt < LAUNCH_DATE) {
+          doadoresAntes++;
+        } else {
+          novosDoadores++;
+        }
+      });
+      
+      const totalDoadores = allSubscriptions.length;
+      const porcentagemMeta = Math.round((totalDoadores / META_DOADORES) * 100 * 10) / 10;
+      
+      console.log(`📊 [LAUNCH STATS] Antes: ${doadoresAntes}, Novos: ${novosDoadores}, Total: ${totalDoadores}`);
+      
+      res.json({
+        dataLancamento: '2025-12-01',
+        metaDoadores: META_DOADORES,
+        doadoresAntes,
+        novosDoadores,
+        totalDoadores,
+        porcentagemMeta,
+        faltamParaMeta: Math.max(0, META_DOADORES - totalDoadores)
+      });
+    } catch (error: any) {
+      console.error("❌ Erro ao buscar estatísticas de lançamento:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+
+  // ================ IN-APP NOTIFICATIONS ROUTES ================
+  
+  // Buscar notificações ativas para o usuário atual
+  app.get("/api/in-app-notifications/active", async (req, res) => {
+    try {
+      const userId = req.query.userId ? Number(req.query.userId) : null;
+      
+      // Buscar informações do usuário para filtrar por público-alvo
+      let userInfo: { email?: string; subscription_status?: string } | null = null;
+      if (userId) {
+        const userResult = await pool.query(
+          `SELECT email, subscription_status FROM users WHERE id = $1`,
+          [userId]
+        );
+        userInfo = userResult.rows[0] || null;
+      }
+      
+      // Buscar notificações ativas não expiradas e que já passaram do agendamento
+      // Usa horário de Brasília (UTC-3) para comparação
+      const result = await pool.query(`
+        SELECT n.* FROM in_app_notifications n
+        WHERE n.active = true
+          AND (n.expires_at IS NULL OR n.expires_at > NOW() AT TIME ZONE 'America/Sao_Paulo')
+          AND (
+            n.scheduled_at IS NULL 
+            OR (
+              n.scheduled_at <= NOW() AT TIME ZONE 'America/Sao_Paulo'
+              AND n.scheduled_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '24 hours'
+            )
+          )
+          ${userId ? `
+            AND NOT EXISTS (
+              SELECT 1 FROM in_app_notification_dismissals d
+              WHERE d.notification_id = n.id AND d.user_id = $1
+            )
+          ` : ''}
+        ORDER BY n.priority DESC, n.created_at DESC
+      `, userId ? [userId] : []);
+      
+      // Filtrar por público-alvo
+      const notifications = result.rows;
+      let matchedNotification = null;
+      
+      for (const n of notifications) {
+        const target = n.target_audience || 'all';
+        
+        if (target === 'all') {
+          matchedNotification = n;
+          break;
+        }
+        
+        if (target === 'donors_only') {
+          // Todos os usuários logados são considerados doadores
+          if (userId) {
+            matchedNotification = n;
+            break;
+          }
+        }
+        
+        if (target === 'no_email' && userInfo) {
+          // Usuários sem email cadastrado
+          if (!userInfo.email || userInfo.email.trim() === '') {
+            matchedNotification = n;
+            break;
+          }
+        }
+        
+        if (target === 'no_subscription' && userInfo) {
+          // Usuários sem assinatura ativa
+          if (!userInfo.subscription_status || userInfo.subscription_status !== 'active') {
+            matchedNotification = n;
+            break;
+          }
+        }
+      }
+      
+      res.json(matchedNotification);
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao buscar notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Listar todas as notificações (admin)
+  app.get("/api/in-app-notifications", async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT n.*, u.nome as created_by_name,
+          (SELECT COUNT(*) FROM in_app_notification_dismissals d WHERE d.notification_id = n.id AND d.action = 'clicked_primary') as primary_clicks,
+          (SELECT COUNT(*) FROM in_app_notification_dismissals d WHERE d.notification_id = n.id AND d.action = 'clicked_secondary') as secondary_clicks,
+          (SELECT COUNT(*) FROM in_app_notification_dismissals d WHERE d.notification_id = n.id AND d.action = 'dismissed') as dismissals
+        FROM in_app_notifications n
+        LEFT JOIN users u ON n.created_by = u.id
+        ORDER BY n.created_at DESC
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao listar notificações:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Criar nova notificação in-app
+  app.post("/api/in-app-notifications", async (req, res) => {
+    try {
+      const { 
+        title, 
+        message, 
+        primaryButtonText, 
+        primaryButtonAction,
+        secondaryButtonText,
+        secondaryButtonAction,
+        targetAudience,
+        priority,
+        progressDuration,
+        expiresAt,
+        sendAsPush,
+        createdBy,
+        notificationType,
+        blockedRoutes,
+        requirementField,
+        scheduledAt
+      } = req.body;
+      
+      if (!title || !message) {
+        return res.status(400).json({ error: "Título e mensagem são obrigatórios" });
+      }
+      
+      const result = await pool.query(`
+        INSERT INTO in_app_notifications (
+          title, message, 
+          primary_button_text, primary_button_action,
+          secondary_button_text, secondary_button_action,
+          target_audience, priority, progress_duration,
+          expires_at, send_as_push, created_by, scheduled_at,
+          notification_type, blocked_routes, requirement_field
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        RETURNING *
+      `, [
+        title, message,
+        primaryButtonText || null, primaryButtonAction || null,
+        secondaryButtonText || null, secondaryButtonAction || null,
+        targetAudience || 'all', priority || 1, progressDuration || 5,
+        expiresAt || null, sendAsPush || false, createdBy || null,
+        scheduledAt || null,
+        notificationType || 'normal', blockedRoutes ? JSON.stringify(blockedRoutes) : null, requirementField || null
+      ]);
+      
+      const notification = result.rows[0];
+      
+      // Se deve enviar também como push
+      if (sendAsPush) {
+        try {
+          const { sendPushToAllDonors } = await import('./pushNotifications');
+          await sendPushToAllDonors(
+            { 
+              title, 
+              body: message, 
+              data: { 
+                type: 'in_app_notification',
+                notificationId: notification.id.toString(),
+                action: primaryButtonAction
+              }
+            },
+            createdBy || undefined
+          );
+          
+          // Atualizar timestamp de push enviado
+          await pool.query(
+            'UPDATE in_app_notifications SET push_sent_at = NOW() WHERE id = $1',
+            [notification.id]
+          );
+          
+          notification.push_sent_at = new Date();
+        } catch (pushError) {
+          console.error("❌ [IN-APP] Erro ao enviar push:", pushError);
+        }
+      }
+      
+      console.log("✅ [IN-APP] Notificação criada:", notification.id);
+      res.status(201).json(notification);
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao criar notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Atualizar notificação
+  app.put("/api/in-app-notifications/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { 
+        title, message, 
+        primaryButtonText, primaryButtonAction,
+        secondaryButtonText, secondaryButtonAction,
+        targetAudience, priority, progressDuration,
+        active, expiresAt, scheduledAt
+      } = req.body;
+      
+      const result = await pool.query(`
+        UPDATE in_app_notifications SET
+          title = COALESCE($2, title),
+          message = COALESCE($3, message),
+          primary_button_text = $4,
+          primary_button_action = $5,
+          secondary_button_text = $6,
+          secondary_button_action = $7,
+          target_audience = COALESCE($8, target_audience),
+          priority = COALESCE($9, priority),
+          progress_duration = COALESCE($10, progress_duration),
+          active = COALESCE($11, active),
+          expires_at = $12,
+          scheduled_at = $13,
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `, [
+        id, title, message,
+        primaryButtonText, primaryButtonAction,
+        secondaryButtonText, secondaryButtonAction,
+        targetAudience, priority, progressDuration,
+        active, expiresAt, scheduledAt || null,
+        notificationType || 'normal', blockedRoutes ? JSON.stringify(blockedRoutes) : null, requirementField || null
+      ]);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Notificação não encontrada" });
+      }
+      
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao atualizar notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Excluir notificação
+  app.delete("/api/in-app-notifications/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(
+        'DELETE FROM in_app_notifications WHERE id = $1 RETURNING id',
+        [id]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Notificação não encontrada" });
+      }
+      
+      res.json({ success: true, message: "Notificação excluída" });
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao excluir notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+  
+  // Dispensar/interagir com notificação
+  app.post("/api/in-app-notifications/:id/dismiss", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { userId, action } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId é obrigatório" });
+      }
+      
+      if (!action || !['dismissed', 'clicked_primary', 'clicked_secondary'].includes(action)) {
+        return res.status(400).json({ error: "action inválida" });
+      }
+      
+      await pool.query(`
+        INSERT INTO in_app_notification_dismissals (notification_id, user_id, action)
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+      `, [id, userId, action]);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ [IN-APP] Erro ao dispensar notificação:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+
+  // ================ DONOR PLATFORM STATISTICS ================
+  // Estatísticas de origem/plataforma dos doadores (Web, Android, iOS)
+  app.get("/api/admin/donor-platforms", async (req, res) => {
+    try {
+      // MESMA LÓGICA EXATA DO /api/doadores/stats (incluindo canceladas na deduplicação)
+      
+      // 1. Buscar TODAS as assinaturas incluindo CANCELADAS (igual ao /api/doadores/stats)
+      const [activesSubs, trialingSubs, pastDueSubs, canceledSubs] = await Promise.all([
+        stripe.subscriptions.list({ status: 'active', limit: 100, expand: ['data.customer'] }),
+        stripe.subscriptions.list({ status: 'trialing', limit: 100, expand: ['data.customer'] }),
+        stripe.subscriptions.list({ status: 'past_due', limit: 100, expand: ['data.customer'] }),
+        stripe.subscriptions.list({ status: 'canceled', limit: 100, expand: ['data.customer'] }),
+      ]);
+      
+      const allSubscriptions = [
+        ...activesSubs.data,
+        ...trialingSubs.data,
+        ...pastDueSubs.data,
+        ...canceledSubs.data
+      ];
+      
+      // 2. Buscar usuários locais (igual ao /api/doadores/stats)
+      const localUsersData = await db.select({
+        id: users.id,
+        nome: users.nome,
+        email: users.email,
+        telefone: users.telefone,
+        stripeCustomerId: users.stripeCustomerId,
+      }).from(users).where(sql`${users.stripeCustomerId} IS NOT NULL`);
+      
+      const localUsersMap = new Map<string, any>();
+      localUsersData.forEach(u => {
+        if (u.stripeCustomerId) {
+          localUsersMap.set(u.stripeCustomerId, u);
+        }
+      });
+      
+      // 3. Mapear assinaturas com hasLocalUser (igual ao /api/doadores/stats)
+      const todosDoadoresRaw = allSubscriptions.map(sub => {
+        const customer = sub.customer as any;
+        const customerId = typeof customer === 'string' ? customer : (customer?.id || sub.customer);
+        const localUser = localUsersMap.get(customerId);
+        const fonte = customer?.metadata?.fonte || 'desconhecido';
+        
+        return {
+          customerId: customerId,
+          status: sub.status,
+          created: sub.created,
+          fonte: fonte,
+          hasLocalUser: !!localUser
+        };
+      });
+      
+      // 4. DEDUPLICAR por customerId (mantém a mais recente) - igual ao /api/doadores/stats
+      const doadoresPorCustomer = new Map<string, typeof todosDoadoresRaw[0]>();
+      
+      for (const doador of todosDoadoresRaw) {
+        const existente = doadoresPorCustomer.get(doador.customerId);
+        if (!existente || doador.created > existente.created) {
+          doadoresPorCustomer.set(doador.customerId, doador);
+        }
+      }
+      
+      // 5. Filtrar só os que têm hasLocalUser = true (igual ao /api/doadores/stats)
+      const doadoresAtivos = Array.from(doadoresPorCustomer.values()).filter(d => d.hasLocalUser);
+      
+      // 6. Calcular porStatus (igual ao /api/doadores/stats)
+      const porStatus = {
+        active: doadoresAtivos.filter(d => d.status === 'active').length,
+        trialing: doadoresAtivos.filter(d => d.status === 'trialing').length,
+        past_due: doadoresAtivos.filter(d => d.status === 'past_due').length,
+        canceled: doadoresAtivos.filter(d => d.status === 'canceled').length,
+      };
+      
+      console.log(`📊 [DONOR-PLATFORMS] porStatus = active: ${porStatus.active}, trialing: ${porStatus.trialing}, past_due: ${porStatus.past_due}, canceled: ${porStatus.canceled}`);
+
+      // 7. Agrupar por fonte (só os ativos, não trial nem cancelados)
+      const sourceCount: { [key: string]: number } = {};
+      const monthlyData: { [key: string]: { [source: string]: number } } = {};
+
+      doadoresAtivos.filter(d => d.status === 'active').forEach((doador) => {
+        const fonte = doador.fonte;
+        sourceCount[fonte] = (sourceCount[fonte] || 0) + 1;
+
+        const createdDate = new Date(doador.created * 1000);
+        const monthKey = createdDate.toISOString().slice(0, 7);
+        
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = {};
+        }
+        monthlyData[monthKey][fonte] = (monthlyData[monthKey][fonte] || 0) + 1;
+      });
+
+      // Formatar dados para o frontend
+      const platforms = Object.entries(sourceCount).map(([fonte, count]) => ({
+        platform: fonte === 'doacao_web' ? 'Web App' : 
+                  fonte === 'doacao' ? 'App/Doação' :
+                  fonte === 'desconhecido' ? 'Não identificado' : fonte,
+        platformKey: fonte,
+        totalUsers: count,
+        totalDonors: count,
+      }));
+
+      // Formatar dados mensais (últimos 12 meses)
+      const now = new Date();
+      const last12Months: string[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        last12Months.push(d.toISOString().slice(0, 7));
+      }
+
+      const monthlyTrend = last12Months.map(month => ({
+        month,
+        doacao_web: monthlyData[month]?.doacao_web || 0,
+        doacao: monthlyData[month]?.doacao || 0,
+        desconhecido: monthlyData[month]?.desconhecido || 0,
+      }));
+
+      res.json({
+        success: true,
+        platforms,
+        monthlyTrend,
+        summary: {
+          totalDonors: porStatus.active,
+          totalAtivos: porStatus.active,
+          totalTrial: porStatus.trialing,
+          totalPastDue: porStatus.past_due,
+          webApp: sourceCount['doacao_web'] || 0,
+          doacao: sourceCount['doacao'] || 0,
+          desconhecido: sourceCount['desconhecido'] || 0,
+        }
+      });
+    } catch (error: any) {
+      console.error("❌ [DONOR-PLATFORMS] Erro ao buscar estatísticas:", error);
+      res.status(500).json({ error: "Erro interno", message: error.message });
+    }
+  });
+
+
+  // =====================================================
+  // CRUD - GESTÃO DE EQUIPE (Professores, Monitores, Coordenadores)
+  // =====================================================
+
+  // --- PROFESSORES ---
+  app.get("/api/dev/professores", async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT id, nome, email, telefone, programa, ativo, data_admissao, data_desligamento, created_at 
+        FROM professores 
+        ORDER BY nome
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("Erro ao listar professores:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/dev/professores", express.json(), async (req, res) => {
+    try {
+      const { nome, email, senha, telefone, programa } = req.body;
+      if (!nome || !email || !senha || !programa) {
+        return res.status(400).json({ error: "Campos obrigatórios: nome, email, senha, programa" });
+      }
+      const passwordHash = await bcrypt.hash(senha, 10);
+      const result = await pool.query(`
+        INSERT INTO professores (nome, email, password_hash, telefone, programa, redirect_path, ativo)
+        VALUES ($1, $2, $3, $4, $5, '/professor', true)
+        RETURNING id, nome, email, telefone, programa, ativo
+      `, [nome, email, passwordHash, telefone || null, programa]);
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao criar professor:", error);
+      if (error.code === '23505') {
+        return res.status(400).json({ error: "Email já cadastrado" });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/dev/professores/:id", express.json(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nome, email, telefone, programa, ativo, senha } = req.body;
+      let query = `UPDATE professores SET nome = $1, email = $2, telefone = $3, programa = $4, ativo = $5, updated_at = NOW()`;
+      let params: any[] = [nome, email, telefone || null, programa, ativo];
+      
+      if (senha) {
+        const passwordHash = await bcrypt.hash(senha, 10);
+        query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, programa, ativo`;
+        params.push(passwordHash, id);
+      } else {
+        query += ` WHERE id = $6 RETURNING id, nome, email, telefone, programa, ativo`;
+        params.push(id);
+      }
+      
+      const result = await pool.query(query, params);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Professor não encontrado" });
+      }
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao atualizar professor:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/dev/professores/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`DELETE FROM professores WHERE id = $1 RETURNING id`, [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Professor não encontrado" });
+      }
+      res.json({ success: true, message: "Professor removido" });
+    } catch (error: any) {
+      console.error("Erro ao deletar professor:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- MONITORES ---
+  app.get("/api/dev/monitores", async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT id, nome, email, telefone, programa, ativo, data_admissao, data_desligamento, created_at 
+        FROM monitores 
+        ORDER BY nome
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("Erro ao listar monitores:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/dev/monitores", express.json(), async (req, res) => {
+    try {
+      const { nome, email, senha, telefone, programa } = req.body;
+      if (!nome || !email || !senha || !programa) {
+        return res.status(400).json({ error: "Campos obrigatórios: nome, email, senha, programa" });
+      }
+      const passwordHash = await bcrypt.hash(senha, 10);
+      const result = await pool.query(`
+        INSERT INTO monitores (nome, email, password_hash, telefone, programa, redirect_path, ativo)
+        VALUES ($1, $2, $3, $4, $5, '/monitor', true)
+        RETURNING id, nome, email, telefone, programa, ativo
+      `, [nome, email, passwordHash, telefone || null, programa]);
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao criar monitor:", error);
+      if (error.code === '23505') {
+        return res.status(400).json({ error: "Email já cadastrado" });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/dev/monitores/:id", express.json(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nome, email, telefone, programa, ativo, senha } = req.body;
+      let query = `UPDATE monitores SET nome = $1, email = $2, telefone = $3, programa = $4, ativo = $5, updated_at = NOW()`;
+      let params: any[] = [nome, email, telefone || null, programa, ativo];
+      
+      if (senha) {
+        const passwordHash = await bcrypt.hash(senha, 10);
+        query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, programa, ativo`;
+        params.push(passwordHash, id);
+      } else {
+        query += ` WHERE id = $6 RETURNING id, nome, email, telefone, programa, ativo`;
+        params.push(id);
+      }
+      
+      const result = await pool.query(query, params);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Monitor não encontrado" });
+      }
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao atualizar monitor:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/dev/monitores/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`DELETE FROM monitores WHERE id = $1 RETURNING id`, [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Monitor não encontrado" });
+      }
+      res.json({ success: true, message: "Monitor removido" });
+    } catch (error: any) {
+      console.error("Erro ao deletar monitor:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- COORDENADORES ---
+  app.get("/api/dev/coordenadores", async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT id, nome, email, telefone, setor, ativo, data_admissao, data_desligamento, created_at 
+        FROM coordenadores 
+        ORDER BY nome
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("Erro ao listar coordenadores:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/dev/coordenadores", express.json(), async (req, res) => {
+    try {
+      const { nome, email, senha, telefone, setor } = req.body;
+      if (!nome || !email || !senha || !setor) {
+        return res.status(400).json({ error: "Campos obrigatórios: nome, email, senha, setor" });
+      }
+      const passwordHash = await bcrypt.hash(senha, 10);
+      const result = await pool.query(`
+        INSERT INTO coordenadores (nome, email, password_hash, telefone, setor, redirect_path, ativo)
+        VALUES ($1, $2, $3, $4, $5, '/coordenador', true)
+        RETURNING id, nome, email, telefone, setor, ativo
+      `, [nome, email, passwordHash, telefone || null, setor]);
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao criar coordenador:", error);
+      if (error.code === '23505') {
+        return res.status(400).json({ error: "Email já cadastrado" });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/dev/coordenadores/:id", express.json(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nome, email, telefone, setor, ativo, senha } = req.body;
+      let query = `UPDATE coordenadores SET nome = $1, email = $2, telefone = $3, setor = $4, ativo = $5, updated_at = NOW()`;
+      let params: any[] = [nome, email, telefone || null, setor, ativo];
+      
+      if (senha) {
+        const passwordHash = await bcrypt.hash(senha, 10);
+        query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, setor, ativo`;
+        params.push(passwordHash, id);
+      } else {
+        query += ` WHERE id = $6 RETURNING id, nome, email, telefone, setor, ativo`;
+        params.push(id);
+      }
+      
+      const result = await pool.query(query, params);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Coordenador não encontrado" });
+      }
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao atualizar coordenador:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/dev/coordenadores/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`DELETE FROM coordenadores WHERE id = $1 RETURNING id`, [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Coordenador não encontrado" });
+      }
+      res.json({ success: true, message: "Coordenador removido" });
+    } catch (error: any) {
+      console.error("Erro ao deletar coordenador:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+
+  return httpServer;
+
+  // ================ GANHADORES DE BENEFÍCIOS ================
+
+  // Listar todos os ganhadores (público - para galeria)
+  app.get("/api/beneficios/ganhadores", async (req, res) => {
+    try {
+      const result = await db
+        .select({
+          id: beneficioGanhadores.id,
+          beneficioId: beneficioGanhadores.beneficioId,
+          userId: beneficioGanhadores.userId,
+          fotoUrl: beneficioGanhadores.fotoUrl,
+          lancesTotais: beneficioGanhadores.lancesTotais,
+          gritosTotais: beneficioGanhadores.gritosTotais,
+          depoimento: beneficioGanhadores.depoimento,
+          dataGanhou: beneficioGanhadores.dataGanhou,
+          nomeUsuario: users.nome,
+          beneficioTitulo: beneficios.titulo,
+          beneficioImagem: beneficios.imagem,
+          beneficioValor: beneficios.valorEstimado,
+        })
+        .from(beneficioGanhadores)
+        .innerJoin(users, eq(beneficioGanhadores.userId, users.id))
+        .innerJoin(beneficios, eq(beneficioGanhadores.beneficioId, beneficios.id))
+        .where(eq(beneficioGanhadores.visivel, true))
+        .orderBy(desc(beneficioGanhadores.dataGanhou));
+
+      res.json({ success: true, ganhadores: result });
+    } catch (error: any) {
+      console.error("Erro ao listar ganhadores:", error);
+      res.status(500).json({ success: false, message: "Erro ao listar ganhadores" });
+    }
+  });
+
+  // Listar ganhadores para admin (todos, incluindo não visíveis)
+  app.get("/api/admin/beneficios/ganhadores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const result = await db
+        .select({
+          id: beneficioGanhadores.id,
+          beneficioId: beneficioGanhadores.beneficioId,
+          userId: beneficioGanhadores.userId,
+          fotoUrl: beneficioGanhadores.fotoUrl,
+          lancesTotais: beneficioGanhadores.lancesTotais,
+          gritosTotais: beneficioGanhadores.gritosTotais,
+          depoimento: beneficioGanhadores.depoimento,
+          visivel: beneficioGanhadores.visivel,
+          dataGanhou: beneficioGanhadores.dataGanhou,
+          createdAt: beneficioGanhadores.createdAt,
+          nomeUsuario: users.nome,
+          telefoneUsuario: users.telefone,
+          beneficioTitulo: beneficios.titulo,
+          beneficioImagem: beneficios.imagem,
+        })
+        .from(beneficioGanhadores)
+        .innerJoin(users, eq(beneficioGanhadores.userId, users.id))
+        .innerJoin(beneficios, eq(beneficioGanhadores.beneficioId, beneficios.id))
+        .orderBy(desc(beneficioGanhadores.dataGanhou));
+
+      res.json({ success: true, ganhadores: result });
+    } catch (error: any) {
+      console.error("Erro ao listar ganhadores (admin):", error);
+      res.status(500).json({ success: false, message: "Erro ao listar ganhadores" });
+    }
+  });
+
+  // Criar ganhador
+  app.post("/api/admin/beneficios/ganhadores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { beneficioId, userId, depoimento } = req.body;
+
+      if (!beneficioId || !userId) {
+        return res.status(400).json({ success: false, message: "beneficioId e userId são obrigatórios" });
+      }
+
+      // Buscar lances do usuário neste benefício
+      const lancesUsuario = await db
+        .select()
+        .from(beneficioLances)
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.userId, userId)
+        ));
+
+      const lancesTotais = lancesUsuario.length;
+      const gritosTotais = lancesUsuario.reduce((acc, l) => acc + (l.pontosOfertados || 0), 0);
+
+      // Inserir ganhador
+      const [novoGanhador] = await db.insert(beneficioGanhadores).values({
+        beneficioId,
+        userId,
+        lancesTotais,
+        gritosTotais,
+        depoimento: depoimento || null,
+        visivel: true,
+        dataGanhou: new Date(),
+      }).returning();
+
+      // Atualizar status dos lances para 'ganho'
+      await db.update(beneficioLances)
+        .set({ status: 'ganho', dataResultado: new Date() })
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.userId, userId)
+        ));
+
+      console.log("✅ [GANHADORES] Novo ganhador registrado: user " + userId + " - benefício " + beneficioId);
+      res.json({ success: true, ganhador: novoGanhador });
+    } catch (error: any) {
+      console.error("Erro ao criar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao criar ganhador" });
+    }
+  });
+
+  // Upload de foto do ganhador
+  app.post("/api/admin/beneficios/ganhadores/:id/foto", requireAuth, requireAdmin, memoryUpload.single('foto'), async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+      
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+      }
+
+      // Upload para GCS
+      const fileName = "ganhadores/" + ganhadorId + "_" + Date.now() + ".jpg";
+      const fotoUrl = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+
+      // Atualizar ganhador com URL da foto
+      await db.update(beneficioGanhadores)
+        .set({ fotoUrl, updatedAt: new Date() })
+        .where(eq(beneficioGanhadores.id, ganhadorId));
+
+      console.log("📸 [GANHADORES] Foto upload: ganhador " + ganhadorId);
+      res.json({ success: true, fotoUrl });
+    } catch (error: any) {
+      console.error("Erro ao fazer upload da foto:", error);
+      res.status(500).json({ success: false, message: "Erro ao fazer upload da foto" });
+    }
+  });
+
+  // Atualizar ganhador (visibilidade, depoimento)
+  app.put("/api/admin/beneficios/ganhadores/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+      const { visivel, depoimento } = req.body;
+
+      const updates: any = { updatedAt: new Date() };
+      if (typeof visivel === 'boolean') updates.visivel = visivel;
+      if (depoimento !== undefined) updates.depoimento = depoimento;
+
+      const [updated] = await db.update(beneficioGanhadores)
+        .set(updates)
+        .where(eq(beneficioGanhadores.id, ganhadorId))
+        .returning();
+
+      res.json({ success: true, ganhador: updated });
+    } catch (error: any) {
+      console.error("Erro ao atualizar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao atualizar ganhador" });
+    }
+  });
+
+  // Deletar ganhador
+  app.delete("/api/admin/beneficios/ganhadores/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+
+      await db.delete(beneficioGanhadores).where(eq(beneficioGanhadores.id, ganhadorId));
+
+      console.log("🗑️ [GANHADORES] Ganhador " + ganhadorId + " removido");
+      res.json({ success: true, message: "Ganhador removido" });
+    } catch (error: any) {
+      console.error("Erro ao deletar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao deletar ganhador" });
+    }
+  });
+
+  // Buscar usuários que ganharam um benefício específico (lances com status 'ganho')
+  app.get("/api/admin/beneficios/:id/vencedores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+
+      const vencedores = await db
+        .select({
+          userId: beneficioLances.userId,
+          nomeUsuario: users.nome,
+          telefone: users.telefone,
+          pontosOfertados: beneficioLances.pontosOfertados,
+          status: beneficioLances.status,
+          dataResultado: beneficioLances.dataResultado,
+        })
+        .from(beneficioLances)
+        .innerJoin(users, eq(beneficioLances.userId, users.id))
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.status, 'ganho')
+        ));
+
+      res.json({ success: true, vencedores });
+    } catch (error: any) {
+      console.error("Erro ao buscar vencedores:", error);
+      res.status(500).json({ success: false, message: "Erro ao buscar vencedores" });
+    }
+  });
+
+  // ================ GANHADORES DE BENEFÍCIOS ================
+
+  // Listar todos os ganhadores (público - para galeria)
+  app.get("/api/beneficios/ganhadores", async (req, res) => {
+    try {
+      const result = await db
+        .select({
+          id: beneficioGanhadores.id,
+          beneficioId: beneficioGanhadores.beneficioId,
+          userId: beneficioGanhadores.userId,
+          fotoUrl: beneficioGanhadores.fotoUrl,
+          lancesTotais: beneficioGanhadores.lancesTotais,
+          gritosTotais: beneficioGanhadores.gritosTotais,
+          depoimento: beneficioGanhadores.depoimento,
+          dataGanhou: beneficioGanhadores.dataGanhou,
+          nomeUsuario: users.nome,
+          beneficioTitulo: beneficios.titulo,
+          beneficioImagem: beneficios.imagem,
+          beneficioValor: beneficios.valorEstimado,
+        })
+        .from(beneficioGanhadores)
+        .innerJoin(users, eq(beneficioGanhadores.userId, users.id))
+        .innerJoin(beneficios, eq(beneficioGanhadores.beneficioId, beneficios.id))
+        .where(eq(beneficioGanhadores.visivel, true))
+        .orderBy(desc(beneficioGanhadores.dataGanhou));
+
+      res.json({ success: true, ganhadores: result });
+    } catch (error: any) {
+      console.error("Erro ao listar ganhadores:", error);
+      res.status(500).json({ success: false, message: "Erro ao listar ganhadores" });
+    }
+  });
+
+  // Listar ganhadores para admin (todos, incluindo não visíveis)
+  app.get("/api/admin/beneficios/ganhadores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const result = await db
+        .select({
+          id: beneficioGanhadores.id,
+          beneficioId: beneficioGanhadores.beneficioId,
+          userId: beneficioGanhadores.userId,
+          fotoUrl: beneficioGanhadores.fotoUrl,
+          lancesTotais: beneficioGanhadores.lancesTotais,
+          gritosTotais: beneficioGanhadores.gritosTotais,
+          depoimento: beneficioGanhadores.depoimento,
+          visivel: beneficioGanhadores.visivel,
+          dataGanhou: beneficioGanhadores.dataGanhou,
+          createdAt: beneficioGanhadores.createdAt,
+          nomeUsuario: users.nome,
+          telefoneUsuario: users.telefone,
+          beneficioTitulo: beneficios.titulo,
+          beneficioImagem: beneficios.imagem,
+        })
+        .from(beneficioGanhadores)
+        .innerJoin(users, eq(beneficioGanhadores.userId, users.id))
+        .innerJoin(beneficios, eq(beneficioGanhadores.beneficioId, beneficios.id))
+        .orderBy(desc(beneficioGanhadores.dataGanhou));
+
+      res.json({ success: true, ganhadores: result });
+    } catch (error: any) {
+      console.error("Erro ao listar ganhadores (admin):", error);
+      res.status(500).json({ success: false, message: "Erro ao listar ganhadores" });
+    }
+  });
+
+  // Criar ganhador
+  app.post("/api/admin/beneficios/ganhadores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { beneficioId, userId, depoimento } = req.body;
+
+      if (!beneficioId || !userId) {
+        return res.status(400).json({ success: false, message: "beneficioId e userId são obrigatórios" });
+      }
+
+      // Buscar lances do usuário neste benefício
+      const lancesUsuario = await db
+        .select()
+        .from(beneficioLances)
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.userId, userId)
+        ));
+
+      const lancesTotais = lancesUsuario.length;
+      const gritosTotais = lancesUsuario.reduce((acc, l) => acc + (l.pontosOfertados || 0), 0);
+
+      // Inserir ganhador
+      const [novoGanhador] = await db.insert(beneficioGanhadores).values({
+        beneficioId,
+        userId,
+        lancesTotais,
+        gritosTotais,
+        depoimento: depoimento || null,
+        visivel: true,
+        dataGanhou: new Date(),
+      }).returning();
+
+      // Atualizar status dos lances para 'ganho'
+      await db.update(beneficioLances)
+        .set({ status: 'ganho', dataResultado: new Date() })
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.userId, userId)
+        ));
+
+      console.log("✅ [GANHADORES] Novo ganhador registrado: user " + userId + " - benefício " + beneficioId);
+      res.json({ success: true, ganhador: novoGanhador });
+    } catch (error: any) {
+      console.error("Erro ao criar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao criar ganhador" });
+    }
+  });
+
+  // Upload de foto do ganhador
+  app.post("/api/admin/beneficios/ganhadores/:id/foto", requireAuth, requireAdmin, memoryUpload.single('foto'), async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+      
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+      }
+
+      // Upload para GCS
+      const fileName = "ganhadores/" + ganhadorId + "_" + Date.now() + ".jpg";
+      const fotoUrl = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+
+      // Atualizar ganhador com URL da foto
+      await db.update(beneficioGanhadores)
+        .set({ fotoUrl, updatedAt: new Date() })
+        .where(eq(beneficioGanhadores.id, ganhadorId));
+
+      console.log("📸 [GANHADORES] Foto upload: ganhador " + ganhadorId);
+      res.json({ success: true, fotoUrl });
+    } catch (error: any) {
+      console.error("Erro ao fazer upload da foto:", error);
+      res.status(500).json({ success: false, message: "Erro ao fazer upload da foto" });
+    }
+  });
+
+  // Atualizar ganhador (visibilidade, depoimento)
+  app.put("/api/admin/beneficios/ganhadores/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+      const { visivel, depoimento } = req.body;
+
+      const updates: any = { updatedAt: new Date() };
+      if (typeof visivel === 'boolean') updates.visivel = visivel;
+      if (depoimento !== undefined) updates.depoimento = depoimento;
+
+      const [updated] = await db.update(beneficioGanhadores)
+        .set(updates)
+        .where(eq(beneficioGanhadores.id, ganhadorId))
+        .returning();
+
+      res.json({ success: true, ganhador: updated });
+    } catch (error: any) {
+      console.error("Erro ao atualizar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao atualizar ganhador" });
+    }
+  });
+
+  // Deletar ganhador
+  app.delete("/api/admin/beneficios/ganhadores/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const ganhadorId = parseInt(req.params.id);
+
+      await db.delete(beneficioGanhadores).where(eq(beneficioGanhadores.id, ganhadorId));
+
+      console.log("🗑️ [GANHADORES] Ganhador " + ganhadorId + " removido");
+      res.json({ success: true, message: "Ganhador removido" });
+    } catch (error: any) {
+      console.error("Erro ao deletar ganhador:", error);
+      res.status(500).json({ success: false, message: "Erro ao deletar ganhador" });
+    }
+  });
+
+  // Buscar usuários que ganharam um benefício específico (lances com status 'ganho')
+  app.get("/api/admin/beneficios/:id/vencedores", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const beneficioId = parseInt(req.params.id);
+
+      const vencedores = await db
+        .select({
+          userId: beneficioLances.userId,
+          nomeUsuario: users.nome,
+          telefone: users.telefone,
+          pontosOfertados: beneficioLances.pontosOfertados,
+          status: beneficioLances.status,
+          dataResultado: beneficioLances.dataResultado,
+        })
+        .from(beneficioLances)
+        .innerJoin(users, eq(beneficioLances.userId, users.id))
+        .where(and(
+          eq(beneficioLances.beneficioId, beneficioId),
+          eq(beneficioLances.status, 'ganho')
+        ));
+
+      res.json({ success: true, vencedores });
+    } catch (error: any) {
+      console.error("Erro ao buscar vencedores:", error);
+      res.status(500).json({ success: false, message: "Erro ao buscar vencedores" });
+    }
+  });
+
 
   return httpServer;
 }

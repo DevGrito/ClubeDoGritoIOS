@@ -4,16 +4,32 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import type { Response } from "express";
 import { Readable } from "node:stream";  
-// === inicialização (igual à sua) ===
+
+// === inicialização com suporte a Base64 ou arquivo ===
+let gcsClientInstance: Storage;
+
+const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_B64;
 const credentialsPath = path.join(process.cwd(), "gcs-service-account.json");
-if (!fs.existsSync(credentialsPath)) {
-  console.error("❌ Arquivo de credenciais GCS não encontrado:", credentialsPath);
-  throw new Error("GCS credentials file not found");
+
+if (credentialsBase64) {
+  const credentials = JSON.parse(Buffer.from(credentialsBase64, 'base64').toString('utf-8'));
+  gcsClientInstance = new Storage({
+    credentials,
+    projectId: credentials.project_id || "infra-optics-454414-g5",
+  });
+  console.log("✅ GCS inicializado via GOOGLE_CREDENTIALS_B64");
+} else if (fs.existsSync(credentialsPath)) {
+  gcsClientInstance = new Storage({
+    keyFilename: credentialsPath,
+    projectId: "infra-optics-454414-g5",
+  });
+  console.log("✅ GCS inicializado via arquivo de credenciais");
+} else {
+  console.error("❌ Credenciais GCS não encontradas (nem B64 nem arquivo)");
+  throw new Error("GCS credentials not found");
 }
-export const gcsClient = new Storage({
-  keyFilename: credentialsPath,
-  projectId: "infra-optics-454414-g5",
-});
+
+export const gcsClient = gcsClientInstance;
 export const BUCKET_NAME = process.env.GCS_BUCKET_NAME || "clubedogrito";
 export const bucket = gcsClient.bucket(BUCKET_NAME);
 export const UPLOAD_PREFIX = "uploads/beneficios";
@@ -104,7 +120,6 @@ export async function deleteObject(objectPath: string): Promise<void> {
 }
 
 // ---------- NOVO: helper para streamar objeto ----------
-import type { Response } from "express";
 export async function streamObjectToResponse(keyOrUrl: string, res: Response): Promise<void> {
   const objectKey = normalizeObjectKey(keyOrUrl);
   const file = bucket.file(objectKey);

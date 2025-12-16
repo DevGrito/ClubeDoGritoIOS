@@ -4,9 +4,6 @@ import path from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
-import * as fs from 'node:fs';
-import * as path from 'node:path'; 
-
 
 
 const viteLogger = createLogger();

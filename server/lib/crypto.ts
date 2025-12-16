@@ -1,26 +1,14 @@
 import crypto from "crypto";
 
-// Chave mestra de 32 bytes (256 bits) para AES-256-GCM
-// OBRIGATÓRIO: deve ser armazenada como variável de ambiente PAYMENT_ENCRYPTION_KEY
-/* const MASTER_KEY_BASE64 = process.env.PAYMENT_ENCRYPTION_KEY;
+const MASTER_KEY_BASE64 = process.env.PAYMENT_ENCRYPTION_KEY;
 
-if (!MASTER_KEY_BASE64) {
-  throw new Error("❌ PAYMENT_ENCRYPTION_KEY não configurada. Configure essa variável de ambiente para usar criptografia de credenciais.");
-}
+const key = MASTER_KEY_BASE64 ? Buffer.from(MASTER_KEY_BASE64, "base64") : null;
 
-const key = Buffer.from(MASTER_KEY_BASE64, "base64");
-
-if (key.length !== 32) {
-  throw new Error("❌ PAYMENT_ENCRYPTION_KEY deve ter exatamente 32 bytes (256 bits). Use generateMasterKey() para gerar uma chave válida.");
-}
-
-/**
- * Criptografa um texto usando AES-256-GCM
- * @param plain - Texto a ser criptografado
- * @returns String base64 contendo [IV|Tag|Dados Criptografados]
- */
-/* export function seal(plain: string): string {
-  const iv = crypto.randomBytes(12); // 96 bits para GCM
+export function seal(plain: string): string {
+  if (!key || key.length !== 32) {
+    throw new Error("❌ PAYMENT_ENCRYPTION_KEY não configurada ou inválida. Configure essa variável de ambiente.");
+  }
+  const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   
   const encrypted = Buffer.concat([
@@ -28,18 +16,14 @@ if (key.length !== 32) {
     cipher.final()
   ]);
   
-  const tag = cipher.getAuthTag(); // 128 bits
-  
-  // Formato: [IV (12 bytes) | Tag (16 bytes) | Encrypted Data (N bytes)]
+  const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, encrypted]).toString("base64");
-} */
+}
 
-/**
- * Descriptografa um texto criptografado com seal()
- * @param b64 - String base64 contendo [IV|Tag|Dados Criptografados]
- * @returns Texto descriptografado
- */
-/* export function open(b64: string): string {
+export function open(b64: string): string {
+  if (!key || key.length !== 32) {
+    throw new Error("❌ PAYMENT_ENCRYPTION_KEY não configurada ou inválida. Configure essa variável de ambiente.");
+  }
   const buffer = Buffer.from(b64, "base64");
   
   const iv = buffer.subarray(0, 12);
@@ -55,13 +39,8 @@ if (key.length !== 32) {
   ]);
   
   return decrypted.toString("utf8");
-} */
+}
 
-/**
- * Gera uma nova chave mestra de 32 bytes em base64
- * Use isso para gerar MASTER_KEY_BASE64
- */
-/* export function generateMasterKey(): string {
+export function generateMasterKey(): string {
   return crypto.randomBytes(32).toString("base64");
 }
- */

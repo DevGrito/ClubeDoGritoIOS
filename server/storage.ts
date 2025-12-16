@@ -2770,31 +2770,42 @@ export class DatabaseStorage implements IStorage {
         }
 
         // 🎯 USAR CAMPO DEDICADO diasNecessarios (padrão 3 se não especificado)
-        const diasNecessarios = missao.diasNecessarios || 3;
+        const diasNecessarios = missao.diasNecessarios ?? 3;
         
         console.log(`🔍 [AUTO-MISSÃO] Verificando "${missao.titulo}" - Necessita: ${diasNecessarios} dias | Usuário tem: ${diasConsecutivos} dias`);
 
-        if (diasConsecutivos >= diasNecessarios) {
-          // Completar automaticamente a missão
-          await db.insert(missoesConcluidas).values({
+     if (diasConsecutivos >= diasNecessarios) {
+        const gritos = missao.recompensaGritos ?? 150;
+
+        // ✅ Tenta concluir e pega retorno
+        const inserted = await db
+          .insert(missoesConcluidas)
+          .values({
             userId,
             missaoId: missao.id,
-            gritosRecebidos: missao.recompensaGritos || 150
-          }).onConflictDoNothing();
+            gritosRecebidos: gritos,
+          })
+          .onConflictDoNothing()
+          .returning({ missaoId: missoesConcluidas.missaoId });
 
-          // Adicionar gritos ao usuário
-          await this.addGritosToUser(userId, missao.recompensaGritos || 150);
+        // ✅ Se não inseriu, não premia (já tinha / race / chamada duplicada)
+        if (inserted.length === 0) {
+          console.log(`✅ [AUTO-MISSÃO] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
+          continue;
+        }
 
-          // Criar histórico
-          await this.createGritosHistorico({
-            userId,
-            tipo: 'missao_automatica',
-            gritosGanhos: missao.recompensaGritos || 150,
-            descricao: `Missão completada automaticamente: ${missao.titulo} (${diasConsecutivos} dias consecutivos)`
-          });
+        await this.addGritosToUser(userId, gritos);
 
-          console.log(`🎯 [AUTO-MISSÃO COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${missao.recompensaGritos || 150} gritos`);
-        } else {
+        await this.createGritosHistorico({
+          userId,
+          tipo: 'missao_automatica',
+          gritosGanhos: gritos,
+          descricao: `Missão completada automaticamente: ${missao.titulo} (${diasConsecutivos} dias consecutivos)`,
+        });
+
+        console.log(`🎯 [AUTO-MISSÃO COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
+      }
+      else {
           console.log(`⏳ [AUTO-MISSÃO PENDENTE] Usuário ${userId} precisa de ${diasNecessarios} dias para "${missao.titulo}" (atual: ${diasConsecutivos})`);
         }
       }
@@ -2880,26 +2891,34 @@ export class DatabaseStorage implements IStorage {
           console.log(`✅ [AUTO-PERFIL] Usuário ${userId} já completou missão ${missao.id}: ${missao.titulo}`);
           continue;
         }
+        const gritos = missao.recompensaGritos ?? 150;
 
-        // Completar automaticamente a missão
-        await db.insert(missoesConcluidas).values({
-          userId,
-          missaoId: missao.id,
-          gritosRecebidos: missao.recompensaGritos || 150
-        }).onConflictDoNothing();
+        const inserted = await db
+          .insert(missoesConcluidas)
+          .values({
+            userId,
+            missaoId: missao.id,
+            gritosRecebidos: gritos,
+          })
+          .onConflictDoNothing()
+          .returning({ missaoId: missoesConcluidas.missaoId });
 
-        // Adicionar gritos ao usuário
-        await this.addGritosToUser(userId, missao.recompensaGritos || 150);
+        if (inserted.length === 0) {
+          console.log(`✅ [AUTO-PERFIL] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
+          continue;
+        }
 
-        // Criar histórico
+        await this.addGritosToUser(userId, gritos);
+
         await this.createGritosHistorico({
           userId,
           tipo: 'missao_automatica',
-          gritosGanhos: missao.recompensaGritos || 150,
-          descricao: `Missão completada automaticamente: ${missao.titulo} (perfil 100% completo)`
+          gritosGanhos: gritos,
+          descricao: `Missão completada automaticamente: ${missao.titulo} (perfil 100% completo)`,
         });
 
-        console.log(`🎯 [AUTO-PERFIL COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${missao.recompensaGritos || 150} gritos`);
+       console.log(`🎯 [AUTO-PERFIL COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
+
       }
     } catch (error) {
       console.error(`❌ [AUTO-PERFIL ERRO] Usuário ${userId}:`, error);
@@ -2959,42 +2978,53 @@ export class DatabaseStorage implements IStorage {
         }
 
         // Contar referrals completos (com doação) do usuário para esta missão específica
-        const referralsCompletos = await db
-          .select()
-          .from(referrals)
-          .where(and(
-            eq(referrals.referrerUserId, userId),
-            eq(referrals.status, 'doou_completou'),
-            // Se a missão tem ID específico, filtrar por ela; senão contar todos os referrals completos
-            missao.quantidadeAmigos ? sql`1 = 1` : sql`1 = 1`
-          ));
+          const [{ count }] = await db
+      .select({
+        count: sql<number>`COUNT(DISTINCT ${referrals.referredUserId})`,
+      })
+      .from(referrals)
+      .where(and(
+        eq(referrals.referrerUserId, userId),
+        eq(referrals.status, 'doou_completou'),
+      ));
 
-        const quantidadeNecessaria = missao.quantidadeAmigos || 1;
-        const referralsCompletosCount = referralsCompletos.length;
+    const referralsCompletosCount = Number(count) || 0;
+    const quantidadeNecessaria = missao.quantidadeAmigos ?? 1;
 
-        console.log(`📊 [AUTO-CONVITE] Usuário ${userId}, Missão ${missao.id}: ${referralsCompletosCount}/${quantidadeNecessaria} amigos indicados com doação`);
+    console.log(
+      `📊 [AUTO-CONVITE] Usuário ${userId}, Missão ${missao.id}: ${referralsCompletosCount}/${quantidadeNecessaria} amigos indicados com doação`
+    )
 
         // Verificar se atingiu o threshold necessário
         if (referralsCompletosCount >= quantidadeNecessaria) {
           console.log(`🎯 [AUTO-CONVITE] Threshold atingido! Usuário ${userId} indicou ${referralsCompletosCount} amigos para missão: ${missao.titulo}`);
 
           // Completar automaticamente a missão
-          await db.insert(missoesConcluidas).values({
-            userId,
-            missaoId: missao.id,
-            gritosRecebidos: missao.recompensaGritos || 200
-          }).onConflictDoNothing();
+      const gritos = missao.recompensaGritos ?? 200;
 
-          // Adicionar gritos ao usuário
-          await this.addGritosToUser(userId, missao.recompensaGritos || 200);
+      const inserted = await db
+        .insert(missoesConcluidas)
+        .values({
+          userId,
+          missaoId: missao.id,
+          gritosRecebidos: gritos,
+        })
+        .onConflictDoNothing()
+        .returning({ missaoId: missoesConcluidas.missaoId });
 
-          // Criar histórico
-          await this.createGritosHistorico({
-            userId,
-            tipo: 'missao_automatica',
-            gritosGanhos: missao.recompensaGritos || 200,
-            descricao: `Missão completada automaticamente: ${missao.titulo} (${referralsCompletosCount} amigos indicados com doação)`
-          });
+      if (inserted.length === 0) {
+        console.log(`✅ [AUTO-CONVITE] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
+        continue;
+      }
+
+      await this.addGritosToUser(userId, gritos);
+
+      await this.createGritosHistorico({
+        userId,
+        tipo: 'missao_automatica',
+        gritosGanhos: gritos,
+        descricao: `Missão completada automaticamente: ${missao.titulo} (${referralsCompletosCount} amigos indicados com doação)`,
+      });
 
           console.log(`🎯 [AUTO-CONVITE COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${missao.recompensaGritos || 200} gritos`);
         } else {
@@ -3532,15 +3562,29 @@ export class DatabaseStorage implements IStorage {
     
     const activeCampaign = activeCampaigns[0];
     
+    // CORREÇÃO: Verificar se já existe QUALQUER link para este usuário nesta campanha (pelo userId, não pelo código)
+    const [existingLinkByUser] = await db
+      .select()
+      .from(marketingLinks)
+      .where(and(
+        eq(marketingLinks.campaignId, activeCampaign.id),
+        eq(marketingLinks.rewardToUserId, userId)
+      ))
+      .limit(1);
+    
+    if (existingLinkByUser) {
+      console.log(`ℹ️ [AUTO-LINK] Usuário ${userId} já tem link nesta campanha: ${existingLinkByUser.code}`);
+      return existingLinkByUser;
+    }
+    
     // Garantir que o usuário tem um ref_slug
     const refSlug = await this.ensureUserHasRefSlug(userId);
     
-    // Verificar se já existe um link para este usuário nesta campanha
-    const existingLink = await this.getMarketingLinkByCode(refSlug);
-    
-    if (existingLink) {
-      console.log(`ℹ️ [AUTO-LINK] Link já existe para usuário ${userId}: ${refSlug}`);
-      return existingLink;
+    // Verificar se o código já existe (evitar duplicata de código)
+    const existingCode = await this.getMarketingLinkByCode(refSlug);
+    if (existingCode) {
+      console.log(`ℹ️ [AUTO-LINK] Código ${refSlug} já existe, usando link existente`);
+      return existingCode;
     }
     
     // Criar link de marketing vinculado à campanha ativa
@@ -3630,7 +3674,6 @@ export class DatabaseStorage implements IStorage {
       ))
       .limit(1);
 
-    console.log(`🔍 [DEBUG CHECKIN] Usuário ${userId}, Hoje: ${hoje}, Query retornou:`, checkinsHoje.length, 'registros', checkinsHoje);
 
     if (checkinsHoje.length > 0) {
       const checkinHoje = checkinsHoje[0];
@@ -3787,7 +3830,6 @@ export class DatabaseStorage implements IStorage {
         .from(gritosHistorico)
         .where(eq(gritosHistorico.userId, userId));
       
-      console.log(`🔍 [GRITOS SYNC DEBUG] Usuário ${userId} - Histórico completo:`, historico);
       
       // Somar todos os gritos do histórico
       const [result] = await db
@@ -3797,8 +3839,6 @@ export class DatabaseStorage implements IStorage {
         .from(gritosHistorico)
         .where(eq(gritosHistorico.userId, userId));
 
-      console.log(`🔍 [GRITOS SYNC DEBUG] Resultado da query SUM:`, result);
-      console.log(`🔍 [GRITOS SYNC DEBUG] Tipo de result.total:`, typeof result.total, result.total);
 
       const gritosCalculados = result.total;
 
@@ -4561,7 +4601,6 @@ export class DatabaseStorage implements IStorage {
         .from(doadores)
         .where(eq(doadores.userId, userId));
       
-      console.log(`🔍 [DEBUG] Total de registros para userId ${userId}:`, allUserDonations.length);
       allUserDonations.forEach((d: any) => {
         console.log(`  - ID: ${d.id}, Status: ${d.status}, Ativo: ${d.ativo}, Valor: ${d.valor}`);
       });
@@ -6598,37 +6637,43 @@ export class DatabaseStorage implements IStorage {
     try {
       const agora = new Date();
 
-      // Contar leilões ativos (dentro do prazo de lances)
-      const [leiloesAtivos] = await db
-        .select({ count: sql<number>`count(*)` })
+      // Buscar todos os benefícios ativos para calcular status
+      const beneficiosAtivos = await db
+        .select({
+          id: beneficios.id,
+          inicioLeilao: beneficios.inicioLeilao,
+          prazoLances: beneficios.prazoLances,
+        })
         .from(beneficios)
-        .where(and(
-          eq(beneficios.ativo, true),
-          gt(beneficios.prazoLances, agora)
-        ));
+        .where(eq(beneficios.ativo, true));
 
-      // Contar leilões aguardando (ainda não iniciaram)
-      const [leiloesAguardando] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(beneficios)
-        .where(and(
-          eq(beneficios.ativo, true),
-          gt(beneficios.inicioLeilao, agora)
-        ));
+      let ativos = 0;
+      let aguardando = 0;
+      let finalizados = 0;
 
-      // Contar leilões finalizados (prazo expirado)
-      const [leiloesFinalizados] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(beneficios)
-        .where(and(
-          eq(beneficios.ativo, true),
-          lt(beneficios.prazoLances, agora)
-        ));
+      for (const b of beneficiosAtivos) {
+        if (b.inicioLeilao && b.prazoLances) {
+          const inicio = new Date(b.inicioLeilao);
+          const prazo = new Date(b.prazoLances);
+          
+          if (agora < inicio) {
+            aguardando++;
+          } else if (agora >= inicio && agora < prazo) {
+            ativos++;
+          } else {
+            finalizados++;
+          }
+        } else {
+          // Benefícios com ativo=true sem datas são considerados ATIVOS
+          // porque já estão visíveis para os doadores darem lances
+          ativos++;
+        }
+      }
 
       return {
-        leiloesAtivos: leiloesAtivos.count || 0,
-        leiloesAguardando: leiloesAguardando.count || 0,
-        leiloesFinalizados: leiloesFinalizados.count || 0,
+        leiloesAtivos: ativos,
+        leiloesAguardando: aguardando,
+        leiloesFinalizados: finalizados,
       };
     } catch (error) {
       console.error('Erro ao buscar resumo de leilões:', error);

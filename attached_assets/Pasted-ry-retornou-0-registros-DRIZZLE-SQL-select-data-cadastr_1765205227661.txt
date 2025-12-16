@@ -1,0 +1,410 @@
+ry retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:29:49 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:29:53 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:29:55 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:29:58 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:01 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:05 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:07 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:10 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:13 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:16 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:19 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:23 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:25 PM [express] GET /api/users/24/can-checkin 200 in 146ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:28 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:31 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:35 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:37 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:40 PM [express] GET /api/users/24/can-checkin 200 in 147ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:44 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:46 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:49 PM [express] GET /api/users/24/can-checkin 200 in 146ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:52 PM [express] GET /api/users/24/can-checkin 200 in 149ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:55 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:30:58 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:01 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:05 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:07 PM [express] GET /api/users/24/can-checkin 200 in 147ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:10 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:14 PM [express] GET /api/users/24/can-checkin 200 in 150ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:16 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:19 PM [express] GET /api/users/24/can-checkin 200 in 150ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:22 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:25 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:28 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:31 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:35 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:37 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:40 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:44 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:46 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:49 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:52 PM [express] GET /api/users/24/can-checkin 200 in 149ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:55 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:31:58 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:01 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:04 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:07 PM [express] GET /api/users/24/can-checkin 200 in 149ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:10 PM [express] GET /api/users/24/can-checkin 200 in 144ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:13 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:16 PM [express] GET /api/users/24/can-checkin 200 in 147ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:19 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:22 PM [express] GET /api/users/24/can-checkin 200 in 146ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:25 PM [express] GET /api/users/24/can-checkin 200 in 143ms :: {"canCheckin":true,"diasConsecuti…
+🔍 [DRIZZLE SQL]: select "id", "user_id", "data_checkin", "gritos_ganhos", "created_at" from "checkins" where ("checkins"."user_id" = $1 and "checkins"."data_checkin" = $2) limit $3
+🔍 [DRIZZLE PARAMS]: [ 24, '2025-12-08', 1 ]
+🔍 [DEBUG CHECKIN] Usuário 24, Hoje: 2025-12-08, Query retornou: 0 registros []
+🔍 [DRIZZLE SQL]: select "data_cadastro", "dias_consecutivos", "ultimo_checkin" from "users" where "users"."id" = $1 limit $2
+🔍 [DRIZZLE PARAMS]: [ 24, 1 ]
+2:32:28 PM [express] GET /api/users/24/can-checkin 200 in 145ms :: {"canCheckin":true,"diasConsecuti…
+2:32:30 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/components/AutoRedirect.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/CheckinCard.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/DashboardFinanceiro.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/FinanceChartCarousel.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/ImpactGestaoVista.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/MarketingLinksSection.tsx
+2:32:30 PM [vite] (client) hmr update /src/components/ProtectedRoute.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/components/SplashGate.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/StoriesViewer.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/conselho-approval-manager.tsx
+2:32:30 PM [vite] (client) hmr update /src/components/logo.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/pec/forms.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/pages/noticias.tsx, /src/pages/missoes-semanais.tsx, /src/pages/beneficios.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/pages/conselho.tsx, /src/pages/aluno.tsx, /src/pages/leo-martins.tsx, /src/components/ProtectedRoute.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/pages/welcome.tsx, /src/pages/conselho.tsx, /src/pages/perfil.tsx, /src/pages/central-ajuda.tsx, /src/pages/impacto.tsx, /src/pages/beneficio-detalhes.tsx, /src/pages/pagamentos.tsx, /src/pages/meus-lances.tsx, /src/pages/beneficios.tsx, /src/pages/dev-marketing.tsx, /src/pages/dados-cadastrais.tsx, /src/components/UserAvatar.tsx, /src/components/ProfileImageUploader.tsx, /src/components/profile/ProfileEditForm.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/App.tsx, /src/pages/register.tsx, /src/pages/donation-flow.tsx, /src/pages/verify.tsx, /src/pages/sorteio.tsx, /src/pages/entrar.tsx, /src/pages/stripe-payment.tsx, /src/pages/welcome.tsx, /src/pages/link-afiliado-cadastro.tsx, /src/pages/aguardando-aprovacao.tsx, /src/pages/dev.tsx, /src/pages/professor.tsx, /src/pages/sorteio-admin.tsx, /src/pages/patrocinador-dashboard.tsx, /src/pages/beneficio-detalhes.tsx, /src/pages/pagamentos.tsx, /src/pages/missoes-semanais.tsx, /src/pages/meus-lances.tsx, /src/pages/beneficios.tsx, /src/components/InAppNotification.tsx, /src/pages/grito-selection.tsx, /src/pages/dev-marketing.tsx, /src/pages/link-indicacao.tsx, /src/pages/dev-login-page.tsx, /src/pages/monitor-login.tsx, /src/pages/marketing-login.tsx, /src/pages/rbac/monitor.tsx, /src/pages/change-plan.tsx, /src/pages/rbac/coordenador-inclusao.tsx, /src/pages/conselho.tsx, /src/pages/perfil.tsx, /src/pages/central-ajuda.tsx, /src/pages/impacto.tsx, /src/pages/dados-cadastrais.tsx, /src/components/UserAvatar.tsx, /src/components/ProfileImageUploader.tsx, /src/components/profile/ProfileEditForm.tsx, /src/components/StripeKeyManager.tsx, /src/components/CheckinCard.tsx, /src/pages/rbac/coordenador-pec.tsx, /src/components/StoriesViewer.tsx, /src/pages/rbac/coordenador-psico.tsx, /src/pages/noticias.tsx, /src/components/conselho-approval-manager.tsx, /src/components/AddPaymentMethodFlow.tsx, /src/pages/gestao-vista.tsx, /src/components/FormularioEvidencia.tsx, /src/components/MarketingLinksSection.tsx, /src/components/AlterarSenhaMarketing.tsx, /src/components/AlterarSenhaMonitor.tsx, /src/components/SubscriptionDrawer.tsx, /src/components/AlterarSenha.tsx, /src/components/MissoesCarousel.tsx, /src/components/pec/forms.tsx, /src/components/comprehensive-student-form.tsx, /src/components/pec/AttendanceControl.tsx, /src/index.css
+2:32:30 PM [vite] (client) page reload src/main.tsx
+2:32:30 PM [vite] (client) hmr update /src/pages/beneficio-detalhes.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/beneficios.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/change-plan.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/configuracoes.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/conselho.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/pages/conselho/components/ConselhoKpisSection.tsx
+2:32:30 PM [vite] (client) hmr update /src/pages/coordenador-login.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/dados-cadastrais.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/dev-marketing.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/dev.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/donation-flow.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/entrar.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/impacto.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/ingresso-resgate-identificar.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/ingresso.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/leo-martins.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/meus-lances.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/missoes-semanais.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/pagamento-aprovado.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/pagamentos.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/patrocinador-dashboard.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/AlterarSenha.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/AlterarSenhaMarketing.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/AlterarSenhaMonitor.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/components/InAppNotification.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/components/NotificationPermissionPrompt.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/components/profile/IndicacoesSection.tsx
+2:32:30 PM [vite] (client) hmr update /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+2:32:30 PM [vite] (client) page reload src/lib/firebase-config.ts
+2:32:30 PM [vite] (client) hmr update /src/index.css, /src/pages/verify.tsx, /src/pages/configuracoes.tsx
+2:32:30 PM [vite] (client) hmr update /src/pages/assinatura-pausada.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/dev-login-page.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/dev-login.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/marketing-login.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/monitor-login.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/painel/dashboard-lancamento.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/rbac/marketing.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/perfil-patrocinador.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/perfil.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/plans.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/rbac/coordenador-inclusao.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/rbac/coordenador-pec.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/rbac/coordenador-psico.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/rbac/monitor.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/scanner-login.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/sobre.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/verify.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/welcome.tsx, /src/index.css
+2:32:30 PM [vite] (client) hmr update /src/pages/professor.tsx
+2:32:34 PM [vite] (client) Pre-transform error: /home/runner/workspace/client/src/pages/ingresso.tsx: Identifier 'logoEventoImg' has already been declared. (16:7)
+
+  14 |
+  15 | // Importar imagens usando @assets do Vite
+> 16 | import logoEventoImg from "@assets/logo-evento.png";
+     |        ^
+  17 |
+  18 | interface TicketData {
+  19 |   id: number;
+  Plugin: vite:react-babel
+  File: /home/runner/workspace/client/src/pages/ingresso.tsx:16:7
+  14 |  
+  15 |  // Importar imagens usando @assets do Vite
+  16 |  import logoEventoImg from "@assets/logo-evento.png";
+     |         ^
+  17 |  
+  18 |  interface TicketData {

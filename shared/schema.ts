@@ -253,10 +253,13 @@ export const users = pgTable("users", {
   fotoPerfil: text("foto_perfil"), // URL da foto de perfil do usuário
   verificado: boolean("verificado").default(false),
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   plano: text("plano"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   subscriptionStatus: text("subscription_status"), // 'active', 'canceled', 'incomplete', 'past_due'
+  motivoCancelamento: text("motivo_cancelamento"), // Motivo do cancelamento da assinatura
   role: text("role"), // Papéis RBAC: professor, monitor, coordenador_inclusao, coordenador_pec, coordenador_psico, admin, etc.
   tipo: text("tipo"), // Campo unificado para tipo de usuário
   fonte: text("fonte"), // Origem do cadastro: 'doacao', 'educacao', 'familia', 'admin', 'referral', 'reativado_indicado'
@@ -287,12 +290,19 @@ export const users = pgTable("users", {
   // Sistema de Controle de Primeira Entrada e Onboarding
   beneficiosOnboardingVisto: boolean("beneficios_onboarding_visto").default(false),
   
+  // Sistema de Termos de Lances - Aceite obrigatório para dar lances em benefícios
+  termoLancesAceito: boolean("termo_lances_aceito").default(false),
+  termoLancesAceitoEm: timestamp("termo_lances_aceito_em"),
+  
   // Campos para Stripe Subscription Schedules (REMOVIDO TEMPORARIAMENTE)
   // subscriptionScheduleId: text("subscription_schedule_id"),
   
   // ✅ PROJETOS APOIADOS: Array de projetos que o usuário apoia
   projetosApoiados: text("projetos_apoiados").array().default(sql`'{}'::text[]`), // Array de slugs dos projetos
   
+  // 🎯 INFLUENCER: Código especial para acesso de influenciadores (bypass SMS)
+  influencerCode: text("influencer_code"), // Código fixo do influencer (ex: "123456")
+
   // 🎯 SISTEMA DE INDICAÇÃO: Código único para referral
   refCode: text("ref_code").unique(), // Código único de indicação (ex: GRITO-AB12CD)
   refSlug: text("ref_slug").unique(), // Slug personalizado baseado no nome (ex: juliana-correa) para link de indicação
@@ -313,6 +323,22 @@ export const councilRequests = pgTable("council_requests", {
   processedBy: text("processed_by"),
 });
 
+// ================ TABELA DE CONSELHEIROS (SEGURANÇA) ================
+// Armazena emails autorizados do conselho - verificação feita pelo backend
+export const conselheiros = pgTable("conselheiros", {
+  id: serial("id").primaryKey(),
+  email: text("email").unique().notNull(),
+  nome: text("nome"),
+  tipo: text("tipo").default("conselho"), // 'conselho', 'admin', 'leo'
+  ativo: boolean("ativo").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertConselheiroSchema = createInsertSchema(conselheiros).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertConselheiro = z.infer<typeof insertConselheiroSchema>;
+export type Conselheiro = typeof conselheiros.$inferSelect;
+
 // Developer Access table
 export const developers = pgTable("developers", {
   id: serial("id").primaryKey(),
@@ -320,7 +346,10 @@ export const developers = pgTable("developers", {
   nome: text("nome").notNull(),
   email: text("email").unique(),
   senha: text("senha").notNull(),
+  tipo: text("tipo").default("dev").notNull(), // 'dev' ou 'marketing'
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   ultimoAcesso: timestamp("ultimo_acesso"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -341,7 +370,9 @@ export const doadores = pgTable("doadores", {
   typeformResponseId: text("typeform_response_id"), // ID da resposta do Typeform
   dataDoacaoInicial: timestamp("data_doacao_inicial").defaultNow(),
   ultimaDoacao: timestamp("ultima_doacao"),
-  ativo: boolean("ativo").default(true), // ✅ Campo para controle de ativo/inativo
+  ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"), // ✅ Campo para controle de ativo/inativo
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -479,6 +510,36 @@ export type InsertDonorSubscription = z.infer<typeof insertDonorSubscriptionSche
 export type DonorSubscription = typeof donorSubscriptions.$inferSelect;
 export type InsertBillingEvent = z.infer<typeof insertBillingEventSchema>;
 export type BillingEvent = typeof billingEvents.$inferSelect;
+
+// ================ MÓDULO 1.6B: DOADORES EXTERNOS (NÃO-STRIPE) ================
+
+// Tabela de doadores externos que doam mensalmente fora do aplicativo
+export const doadoresExternos = pgTable("doadores_externos", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull(),
+  valorMensal: decimal("valor_mensal", { precision: 10, scale: 2 }).notNull(),
+  formaPagamento: text("forma_pagamento").default("pix"), // pix, transferencia, boleto, debito_automatico
+  observacao: text("observacao"), // ex: "DOADOR ANJO"
+  dataInicio: timestamp("data_inicio").defaultNow(),
+  status: text("status").default("ativo"), // ativo, inativo, pausado
+  email: text("email"),
+  telefone: text("telefone"),
+  ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Tipos e schemas para doadores externos
+export const insertDoadorExternoSchema = createInsertSchema(doadoresExternos).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDoadorExterno = z.infer<typeof insertDoadorExternoSchema>;
+export type DoadorExterno = typeof doadoresExternos.$inferSelect;
 
 // ================ MÓDULO 1.7: SISTEMA DE INDICAÇÃO ================
 
@@ -1005,6 +1066,8 @@ export const sorteios = pgTable("sorteios", {
   tipoSorteio: text("tipo_sorteio").default("mensal"), // mensal, trimestral, anual
   regras: text("regras"), // Texto com regras do sorteio
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   maxParticipantes: integer("max_participantes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1046,6 +1109,8 @@ export const sorteioConfiguracoes = pgTable("sorteio_configuracoes", {
   descricao: text("descricao"),
   tipo: text("tipo").default("string"), // string, number, boolean, json
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -1521,6 +1586,8 @@ export const niveis = pgTable("niveis", {
   proximoNivel: text("proximo_nivel"),
   recompensas: json("recompensas"), // JSON com benefícios do nível
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   ordem: integer("ordem").notNull(),
 });
 
@@ -1559,6 +1626,8 @@ export const beneficios = pgTable("beneficios", {
   icone: text("icone").notNull(), // ícone do benefício (obrigatório)
   categoria: text("categoria").notNull(), // 'financeiro', 'educacional', 'saude', 'lazer'
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   ordem: integer("ordem").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1585,6 +1654,8 @@ export const beneficioImagens = pgTable("beneficio_imagens", {
   largura: integer("largura"), // largura da imagem em pixels
   altura: integer("altura"), // altura da imagem em pixels
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1657,6 +1728,46 @@ export const beneficioLancesRelations = relations(beneficioLances, ({ one }) => 
   }),
 }));
 
+// ================ GANHADORES DE BENEFÍCIOS ================
+
+// Tabela para registrar os ganhadores dos benefícios com foto
+export const beneficioGanhadores = pgTable("beneficio_ganhadores", {
+  id: serial("id").primaryKey(),
+  beneficioId: integer("beneficio_id").references(() => beneficios.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  fotoUrl: text("foto_url"), // URL da foto do ganhador (upload pelo admin)
+  lancesTotais: integer("lances_totais").notNull().default(0), // Total de lances que o ganhador fez
+  gritosTotais: integer("gritos_totais").notNull().default(0), // Total de gritos usados no benefício
+  depoimento: text("depoimento"), // Depoimento opcional do ganhador
+  visivel: boolean("visivel").default(true), // Se deve aparecer na galeria
+  dataGanhou: timestamp("data_ganhou").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Schema de inserção para ganhadores
+export const insertBeneficioGanhadoresSchema = createInsertSchema(beneficioGanhadores).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Tipos para ganhadores
+export type BeneficioGanhador = typeof beneficioGanhadores.$inferSelect;
+export type InsertBeneficioGanhador = z.infer<typeof insertBeneficioGanhadoresSchema>;
+
+// Relations para ganhadores
+export const beneficioGanhadoresRelations = relations(beneficioGanhadores, ({ one }) => ({
+  usuario: one(users, {
+    fields: [beneficioGanhadores.userId],
+    references: [users.id],
+  }),
+  beneficio: one(beneficios, {
+    fields: [beneficioGanhadores.beneficioId],
+    references: [beneficios.id],
+  }),
+}));
+
 // ================ SISTEMA DE MISSÕES DA SEMANA ================
 
 // Tabela para missões semanais (sistema profissional)
@@ -1687,6 +1798,8 @@ export const missoesSemanais = pgTable("missoes_semanais", {
   semanaInicio: date("semana_inicio").notNull(),
   semanaFim: date("semana_fim").notNull(),
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1949,6 +2062,8 @@ export const historiasInspiradoras = pgTable("historias_inspiradoras", {
   imagemBox: text("imagem_box"), // Imagem para o card/box (329x201px)
   imagemStory: text("imagem_story"), // Imagem para o story completo (1080x1920px)
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   ordem: integer("ordem").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -2039,6 +2154,8 @@ export const premios = pgTable("premios", {
   imagemUrl: text("imagem_url"),
   estoque: integer("estoque").default(1),
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3636,6 +3753,74 @@ export const configuracoesInclusao = pgTable("configuracoes_inclusao", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Enum para tipo de programa
+export const programTypeEnum = pgEnum("program_type", ["pec", "inclusao"]);
+
+// Relação monitor-participante para acompanhamento individualizado
+// Suporta alunos de PEC e Inclusão Produtiva
+export const monitorParticipantes = pgTable("monitor_participantes", {
+  id: serial("id").primaryKey(),
+  monitorUserId: integer("monitor_user_id").references(() => users.id).notNull(),
+  
+  // Tipo de programa (PEC ou Inclusão Produtiva)
+  programType: programTypeEnum("program_type").notNull().default("inclusao"),
+  
+  // FK para Inclusão Produtiva (nullable)
+  inclusaoParticipanteId: integer("inclusao_participante_id").references(() => participantesInclusao.id),
+  
+  // FK para PEC (nullable)
+  pecAlunoCpf: text("pec_aluno_cpf").references(() => aluno.cpf),
+  
+  // Campos de acompanhamento
+  acompanhamentoStatus: text("acompanhamento_status").default("ativo"),
+  observacoesPrivadas: text("observacoes_privadas"),
+  ultimaInteracao: timestamp("ultima_interacao"),
+  acompanhamentoTags: text("acompanhamento_tags").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Atividades criadas por monitores
+export const atividadesMonitor = pgTable("atividades_monitor", {
+  id: serial("id").primaryKey(),
+  monitorUserId: integer("monitor_user_id").references(() => users.id).notNull(),
+  titulo: text("titulo").notNull(),
+  descricao: text("descricao"),
+  tipo: text("tipo").notNull(), // "reforco", "recreativa", "oficina", "outro"
+  grupo: text("grupo"), // "Grupo A", "Grupo B", etc
+  data: timestamp("data").notNull(),
+  horarioInicio: text("horario_inicio").notNull(), // "14:00"
+  horarioFim: text("horario_fim").notNull(), // "16:00"
+  local: text("local"),
+  participantesEsperados: integer("participantes_esperados").default(0),
+  participantesPresentes: integer("participantes_presentes").default(0),
+  status: text("status").default("planejada"), // "planejada", "em_andamento", "concluida", "cancelada"
+  observacoes: text("observacoes"),
+  materiaisNecessarios: text("materiais_necessarios").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Grupos gerenciados por monitores
+export const monitorGrupos = pgTable("monitor_grupos", {
+  id: serial("id").primaryKey(),
+  monitorUserId: integer("monitor_user_id")
+    .references(() => users.id)
+    .notNull(),
+  turmaId: integer("turma_id").references(() => turma.id),
+  nome: text("nome").notNull(),
+  nivel: text("nivel"),
+  alunos: integer("alunos").default(0),
+  frequencia: numeric("frequencia", { precision: 5, scale: 2 }).default("0"),
+  atividade: text("atividade"),
+  status: text("status").default("ativo"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type MonitorGrupo = typeof monitorGrupos.$inferSelect;
+export type InsertMonitorGrupo = typeof monitorGrupos.$inferInsert;
+
 // Relations para inclusão produtiva
 export const participantesInclusaoRelations = relations(participantesInclusao, ({ one, many }) => ({
   coordenador: one(users, {
@@ -3646,6 +3831,29 @@ export const participantesInclusaoRelations = relations(participantesInclusao, (
   candidaturas: many(candidaturasVagas),
   acompanhamentos: many(acompanhamentoInclusao),
   turmas: many(participantesTurmas),
+  monitorAssignments: many(monitorParticipantes),
+}));
+
+export const monitorParticipantesRelations = relations(monitorParticipantes, ({ one }) => ({
+  monitor: one(users, {
+    fields: [monitorParticipantes.monitorUserId],
+    references: [users.id],
+  }),
+  participanteInclusao: one(participantesInclusao, {
+    fields: [monitorParticipantes.inclusaoParticipanteId],
+    references: [participantesInclusao.id],
+  }),
+  alunoPec: one(aluno, {
+    fields: [monitorParticipantes.pecAlunoCpf],
+    references: [aluno.cpf],
+  }),
+}));
+
+export const atividadesMonitorRelations = relations(atividadesMonitor, ({ one }) => ({
+  monitor: one(users, {
+    fields: [atividadesMonitor.monitorUserId],
+    references: [users.id],
+  }),
 }));
 
 export const programasInclusaoRelations = relations(programasInclusao, ({ one, many }) => ({
@@ -3753,6 +3961,12 @@ export type InsertConfiguracaoInclusao = typeof configuracoesInclusao.$inferInse
 export type PresencaInclusao = typeof presencasInclusao.$inferSelect;
 export type InsertPresencaInclusao = typeof presencasInclusao.$inferInsert;
 
+export type MonitorParticipante = typeof monitorParticipantes.$inferSelect;
+export type InsertMonitorParticipante = typeof monitorParticipantes.$inferInsert;
+
+export type SelectAtividadeMonitor = typeof atividadesMonitor.$inferSelect;
+export type InsertAtividadeMonitor = typeof atividadesMonitor.$inferInsert;
+
 // Schemas para validação
 export const insertParticipanteInclusaoSchema = createInsertSchema(participantesInclusao);
 export const insertProgramaInclusaoSchema = createInsertSchema(programasInclusao);
@@ -3764,6 +3978,31 @@ export const insertAcompanhamentoInclusaoSchema = createInsertSchema(acompanhame
 export const insertRelatorioInclusaoSchema = createInsertSchema(relatoriosInclusao);
 export const insertConfiguracaoInclusaoSchema = createInsertSchema(configuracoesInclusao);
 export const insertPresencaInclusaoSchema = createInsertSchema(presencasInclusao).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, monitorUserId: true, participanteId: true, createdAt: true, updatedAt: true }).partial();
+export const insertAtividadeMonitorSchema = createInsertSchema(atividadesMonitor).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertMonitorGrupoSchema = createInsertSchema(monitorGrupos).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMonitorGrupoSchema = z.infer<typeof insertMonitorGrupoSchema>;
+
+// Registros de Atividades (Activity Reports/Logs) - para atividades já realizadas
+export const registrosAtividades = pgTable("registros_atividades", {
+  id: serial("id").primaryKey(),
+  monitorUserId: integer("monitor_user_id").references(() => users.id).notNull(),
+  dataAtividade: date("data_atividade").notNull(),
+  grupo: text("grupo").notNull(),
+  titulo: text("titulo").notNull(),
+  descricao: text("descricao"),
+  duracaoMinutos: integer("duracao_minutos"),
+  participantes: integer("participantes"),
+  resultadosObservacoes: text("resultados_observacoes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type RegistroAtividade = typeof registrosAtividades.$inferSelect;
+export type InsertRegistroAtividade = typeof registrosAtividades.$inferInsert;
+
+export const insertRegistroAtividadeSchema = createInsertSchema(registrosAtividades).omit({ id: true, createdAt: true, updatedAt: true });
 
 // ================ MÓDULO 19: PATROCINADORES ================
 
@@ -3794,6 +4033,7 @@ export const statusPatrocinioEnum = pgEnum("status_patrocinio_enum", [
 export const patrocinadores = pgTable("patrocinadores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(),
+  ano: integer("ano").notNull(),
   tipo: tipoPatrocinadorEnum("tipo").notNull().default("empresa"),
   categoria: categoriaPatrocinioEnum("categoria").notNull(),
   valorPatrocinio: decimal("valor_patrocinio", { precision: 10, scale: 2 }),
@@ -3818,6 +4058,27 @@ export const insertPatrocinadorSchema = createInsertSchema(patrocinadores).omit(
   updatedAt: true 
 });
 
+// ================ INDICADORES GLOBAIS DE IMPACTO ================
+
+// Tabela para armazenar indicadores globais que aparecem nas telas de doador e patrocinador
+export const indicadoresGlobais = pgTable("indicadores_globais", {
+  id: serial("id").primaryKey(),
+  chave: text("chave").notNull().unique(), // 'horas_aula', 'impacto_direto_indireto', etc.
+  valor: integer("valor").notNull(),
+  descricao: text("descricao"), // Descrição do indicador
+  ano: integer("ano").notNull().default(2025),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: text("updated_by"), // Quem atualizou
+});
+
+export type IndicadorGlobal = typeof indicadoresGlobais.$inferSelect;
+export type InsertIndicadorGlobal = typeof indicadoresGlobais.$inferInsert;
+
+export const insertIndicadorGlobalSchema = createInsertSchema(indicadoresGlobais).omit({ 
+  id: true, 
+  updatedAt: true 
+});
+
 // ================ MÓDULO 20: COLABORADORES ================
 
 // Tabela de colaboradores
@@ -3829,6 +4090,8 @@ export const colaboradores = pgTable("colaboradores", {
   departamento: text("departamento").notNull(), // Departamentos flexíveis
   satisfacao: integer("satisfacao"), // 0-100 scale
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4041,6 +4304,143 @@ export const psicoPecVinculo = pgTable("psico_pec_vinculo", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ================ INDICADORES PSICOSSOCIAL PARA DOADORES ================
+// Tabela de indicadores de Atenção Social
+export const indicadoresPsicoAtencaoSocial = pgTable("indicadores_psico_atencao_social", {
+  id: serial("id").primaryKey(),
+  visitasDomiciliaresRealizadas: integer("visitas_domiciliares_realizadas").notNull().default(198),
+  visitasDomiciliaresMeta: integer("visitas_domiciliares_meta").notNull().default(220),
+  atendimentosIndividuaisRealizados: integer("atendimentos_individuais_realizados").notNull().default(171),
+  atendimentosIndividuaisMeta: integer("atendimentos_individuais_meta").notNull().default(220),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Tabela de indicadores do Método O Grito
+export const indicadoresPsicoMetodoGrito = pgTable("indicadores_psico_metodo_grito", {
+  id: serial("id").primaryKey(),
+  atendimentosColetivoRealizados: integer("atendimentos_coletivos_realizados").notNull().default(2117),
+  turmasAlcancadasPercentual: integer("turmas_alcancadas_percentual").notNull().default(100),
+  espacosColetivos: integer("espacos_coletivos").notNull().default(12),
+  espacosColetivosMeta: integer("espacos_coletivos_meta").notNull().default(12),
+  caravanasComunitarias: integer("caravanas_comunitarias").notNull().default(1),
+  acoesSaudeColaboradores: integer("acoes_saude_colaboradores").notNull().default(2),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE TECNOLOGIA ================
+// Tabela de cursos de tecnologia para indicadores de Inclusão Produtiva
+export const cursosTecnologia = pgTable("cursos_tecnologia", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE BELEZA ================
+export const cursosBeleza = pgTable("cursos_beleza", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE ARTESANATO ================
+export const cursosArtesanato = pgTable("cursos_artesanato", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE EMPREENDEDORISMO ================
+export const cursosEmpreendedorismo = pgTable("cursos_empreendedorismo", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento", "Iniciar"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE ADMINISTRATIVO ================
+export const cursosAdministrativo = pgTable("cursos_administrativo", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento", "Iniciar"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE SOCIOEMOCIONAL ================
+export const cursosSocioemocional = pgTable("cursos_socioemocional", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 100 }).notNull(), // "Concluído", "Em Andamento", "Iniciar"
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE EDUCACIONAL ================
+export const cursosEducacional = pgTable("cursos_educacional", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 50 }),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE OPERACIONAL ================
+export const cursosOperacional = pgTable("cursos_operacional", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 50 }),
+});
+
+// ================ INCLUSÃO PRODUTIVA - CURSOS DE GASTRONOMIA ================
+export const cursosGastronomia = pgTable("cursos_gastronomia", {
+  id: serial("id").primaryKey(),
+  curso: varchar("curso", { length: 255 }).notNull(),
+  modalidade: varchar("modalidade", { length: 50 }).notNull(), // "Presencial" ou "EAD"
+  inscritos: integer("inscritos"),
+  formados: integer("formados"),
+  evasao: integer("evasao"),
+  situacao: varchar("situacao", { length: 50 }),
+});
+
 // ================ SISTEMA DE SECRETS CRIPTOGRAFADOS ================
 // Armazena credenciais sensíveis criptografadas (ex: Rede PV/Token)
 export const appSecrets = pgTable("app_secrets", {
@@ -4056,6 +4456,28 @@ export type PsicoInclusaoVinculo = typeof psicoInclusaoVinculo.$inferSelect;
 export type InsertPsicoInclusaoVinculo = typeof psicoInclusaoVinculo.$inferInsert;
 export type PsicoPecVinculo = typeof psicoPecVinculo.$inferSelect;
 export type InsertPsicoPecVinculo = typeof psicoPecVinculo.$inferInsert;
+export type IndicadoresPsicoAtencaoSocial = typeof indicadoresPsicoAtencaoSocial.$inferSelect;
+export type InsertIndicadoresPsicoAtencaoSocial = typeof indicadoresPsicoAtencaoSocial.$inferInsert;
+export type IndicadoresPsicoMetodoGrito = typeof indicadoresPsicoMetodoGrito.$inferSelect;
+export type InsertIndicadoresPsicoMetodoGrito = typeof indicadoresPsicoMetodoGrito.$inferInsert;
+export type CursoTecnologia = typeof cursosTecnologia.$inferSelect;
+export type InsertCursoTecnologia = typeof cursosTecnologia.$inferInsert;
+export type CursoBeleza = typeof cursosBeleza.$inferSelect;
+export type InsertCursoBeleza = typeof cursosBeleza.$inferInsert;
+export type CursoArtesanato = typeof cursosArtesanato.$inferSelect;
+export type InsertCursoArtesanato = typeof cursosArtesanato.$inferInsert;
+export type CursoEmpreendedorismo = typeof cursosEmpreendedorismo.$inferSelect;
+export type InsertCursoEmpreendedorismo = typeof cursosEmpreendedorismo.$inferInsert;
+export type CursoAdministrativo = typeof cursosAdministrativo.$inferSelect;
+export type InsertCursoAdministrativo = typeof cursosAdministrativo.$inferInsert;
+export type CursoSocioemocional = typeof cursosSocioemocional.$inferSelect;
+export type InsertCursoSocioemocional = typeof cursosSocioemocional.$inferInsert;
+export type CursoEducacional = typeof cursosEducacional.$inferSelect;
+export type InsertCursoEducacional = typeof cursosEducacional.$inferInsert;
+export type CursoOperacional = typeof cursosOperacional.$inferSelect;
+export type InsertCursoOperacional = typeof cursosOperacional.$inferInsert;
+export type CursoGastronomia = typeof cursosGastronomia.$inferSelect;
+export type InsertCursoGastronomia = typeof cursosGastronomia.$inferInsert;
 export type AppSecret = typeof appSecrets.$inferSelect;
 export type InsertAppSecret = typeof appSecrets.$inferInsert;
 
@@ -4068,6 +4490,54 @@ export const insertPsicoInclusaoVinculoSchema = createInsertSchema(psicoInclusao
 export const insertPsicoPecVinculoSchema = createInsertSchema(psicoPecVinculo).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertIndicadoresPsicoAtencaoSocialSchema = createInsertSchema(indicadoresPsicoAtencaoSocial).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertIndicadoresPsicoMetodoGritoSchema = createInsertSchema(indicadoresPsicoMetodoGrito).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoTecnologiaSchema = createInsertSchema(cursosTecnologia).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoBelezaSchema = createInsertSchema(cursosBeleza).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoArtesanatoSchema = createInsertSchema(cursosArtesanato).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoEmpreendedorismoSchema = createInsertSchema(cursosEmpreendedorismo).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoAdministrativoSchema = createInsertSchema(cursosAdministrativo).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCursoSocioemocionalSchema = createInsertSchema(cursosSocioemocional).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 // ================ CONSELHO - DADOS REALIZADOS MENSAIS ================
@@ -4090,6 +4560,31 @@ export type InsertConselhoDadosRealizados = typeof conselhoDadosRealizados.$infe
 
 // Schema para validação
 export const insertConselhoDadosRealizadosSchema = createInsertSchema(conselhoDadosRealizados).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ CONSELHO - DADOS REALIZADOS ANUAIS ================
+// Armazena totais financeiros anuais por departamento (valores diretos, não calculados)
+// Estes são os "números grandes" que aparecem nos gráficos do Conselho
+export const conselhoDadosRealizadosAnual = pgTable("conselho_dados_realizados_anual", {
+  id: serial("id").primaryKey(),
+  ano: integer("ano").notNull(),
+  departamento: text("departamento").notNull(), // Nome do departamento
+  contasAReceber: decimal("contas_a_receber", { precision: 14, scale: 2 }).default("0"),
+  contasAPagar: decimal("contas_a_pagar", { precision: 14, scale: 2 }).default("0"),
+  saldo: decimal("saldo", { precision: 14, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type ConselhoDadosRealizadosAnual = typeof conselhoDadosRealizadosAnual.$inferSelect;
+export type InsertConselhoDadosRealizadosAnual = typeof conselhoDadosRealizadosAnual.$inferInsert;
+
+// Schema para validação
+export const insertConselhoDadosRealizadosAnualSchema = createInsertSchema(conselhoDadosRealizadosAnual).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -4126,11 +4621,14 @@ export const coordenadores = pgTable("coordenadores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(), // "Coordenador Psico", "Coordenador PEC", "Coordenador Inclusão Produtiva"
   email: text("email").unique().notNull(),
+  passwordHash: text("password_hash").notNull(), // Hash bcrypt da senha
   telefone: text("telefone"),
   formacao: text("formacao"), // Registro profissional
   setor: text("setor").notNull(), // 'psicossocial', 'esporte_cultura', 'inclusao_produtiva'
   redirectPath: text("redirect_path").notNull().default("/coordenador"), // rota de redirecionamento
   ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4144,4 +4642,319 @@ export const insertCoordenadorSchema = createInsertSchema(coordenadores).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+});
+
+// ================ MONITORES - SISTEMA DE LOGIN ================
+// Tabela independente de monitores (sem vínculo com users)
+// Banco: Digital Ocean (não está no Neon)
+export const monitores = pgTable("monitores", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull(),
+  email: text("email").unique().notNull(),
+  passwordHash: text("password_hash").notNull(), // Hash bcrypt da senha
+  telefone: text("telefone"),
+  programa: text("programa").notNull(), // 'pec', 'inclusao_produtiva', 'psicossocial'
+  redirectPath: text("redirect_path").notNull().default("/monitor"),
+  ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type Monitor = typeof monitores.$inferSelect;
+export type InsertMonitor = typeof monitores.$inferInsert;
+
+// Schema para validação
+export const insertMonitorSchema = createInsertSchema(monitores).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ PROFESSORES - SISTEMA DE LOGIN ================
+// Tabela independente de professores (sem vínculo com users)
+// Banco: Digital Ocean (não está no Neon)
+export const professores = pgTable("professores", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull(),
+  email: text("email").unique().notNull(),
+  passwordHash: text("password_hash").notNull(),
+  telefone: text("telefone"),
+  programa: text("programa").notNull(), // 'pec', 'inclusao_produtiva', 'psicossocial'
+  redirectPath: text("redirect_path").notNull().default("/professor"),
+  ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type Professor = typeof professores.$inferSelect;
+export type InsertProfessor = typeof professores.$inferInsert;
+
+// Schema para validação
+export const insertProfessorSchema = createInsertSchema(professores).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ MARKETING - SISTEMA DE LOGIN ================
+// Tabela independente de usuários de marketing
+export const marketingUsers = pgTable("marketing_users", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  telefone: text("telefone"),
+  cargo: text("cargo"), // 'gestor', 'analista', 'assistente'
+  ativo: boolean("ativo").default(true),
+  dataAdmissao: date("data_admissao"),
+  dataDesligamento: date("data_desligamento"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type MarketingUser = typeof marketingUsers.$inferSelect;
+export type InsertMarketingUser = typeof marketingUsers.$inferInsert;
+
+// Schema para validação
+export const insertMarketingUserSchema = createInsertSchema(marketingUsers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ NEGÓCIOS SOCIAIS - INDICADORES ================
+// Armazena dados de impacto dos negócios sociais (Outlet e Griffte)
+export const negociosSociaisDados = pgTable("negocios_sociais_dados", {
+  id: serial("id").primaryKey(),
+  ano: integer("ano").notNull().default(2025),
+  mes: integer("mes"), // Null para dados anuais, 1-12 para dados mensais
+  // Outlet
+  outletDoacoesRecebidas: integer("outlet_doacoes_recebidas").default(0),
+  outletVendasPessoasImpactadas: integer("outlet_vendas_pessoas_impactadas").default(0),
+  outletPecasVendidas: integer("outlet_pecas_vendidas").default(0),
+  // Griffte
+  grifftePecasConfeccionadas: integer("griffte_pecas_confeccionadas").default(0),
+  griffteClientesAtendidos: integer("griffte_clientes_atendidos").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type NegociosSociaisDados = typeof negociosSociaisDados.$inferSelect;
+export type InsertNegociosSociaisDados = typeof negociosSociaisDados.$inferInsert;
+
+// Schema para validação
+export const insertNegociosSociaisDadosSchema = createInsertSchema(negociosSociaisDados).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ PEC - POLO ESPORTIVO CULTURAL ================
+// Armazena dados dos 3 programas do PEC (Casa Sonhar, Programa de Esporte e Cultura, Serenata)
+export const pecDados = pgTable("pec_dados", {
+  id: serial("id").primaryKey(),
+  ano: integer("ano").notNull().default(2025),
+  mes: integer("mes"), // Null para dados anuais, 1-12 para dados mensais
+  // Casa Sonhar
+  casaSonharAtendidos: integer("casa_sonhar_atendidos").default(0),
+  casaSonharAtendimentos: integer("casa_sonhar_atendimentos").default(0),
+  casaSonharFrequencia: numeric("casa_sonhar_frequencia", { precision: 5, scale: 2 }).default("0"), // Ex: 80.60
+  casaSonharAlimentacao: integer("casa_sonhar_alimentacao").default(0),
+  casaSonharHoraAula: numeric("casa_sonhar_hora_aula", { precision: 10, scale: 2 }).default("0"), // Ex: 2729.75
+  // Programa de Esporte e Cultura
+  programaEsporteCulturaAtendidos: integer("programa_esporte_cultura_atendidos").default(0),
+  programaEsporteCulturaHoraAula: numeric("programa_esporte_cultura_hora_aula", { precision: 10, scale: 2 }).default("0"),
+  programaEsporteCulturaAtendimentos: integer("programa_esporte_cultura_atendimentos").default(0),
+  programaEsporteCulturaAlimentacao: integer("programa_esporte_cultura_alimentacao").default(0),
+  programaEsporteCulturaFrequencia: numeric("programa_esporte_cultura_frequencia", { precision: 5, scale: 2 }).default("0"),
+  // Serenata
+  serenataAtendidos: integer("serenata_atendidos").default(0),
+  serenataAtendimentos: integer("serenata_atendimentos").default(0),
+  serenataHoraAula: numeric("serenata_hora_aula", { precision: 10, scale: 2 }).default("0"),
+  serenataFrequencia: numeric("serenata_frequencia", { precision: 5, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type PecDados = typeof pecDados.$inferSelect;
+export type InsertPecDados = typeof pecDados.$inferInsert;
+
+// Schema para validação
+export const insertPecDadosSchema = createInsertSchema(pecDados).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ INCLUSÃO PRODUTIVA - INDICADORES ================
+// Armazena dados dos 3 programas de Inclusão Produtiva (LAB, Presencial, EAD)
+export const inclusaoProdutivaDados = pgTable("inclusao_produtiva_dados", {
+  id: serial("id").primaryKey(),
+  ano: integer("ano").notNull().default(2025),
+  mes: integer("mes"), // Null para dados anuais, 1-12 para dados mensais
+  // LAB. VOZES DO FUTURO
+  labHoraAula: numeric("lab_hora_aula", { precision: 10, scale: 2 }).default("0"),
+  labAtendimentos: integer("lab_atendimentos").default(0),
+  labLanche: integer("lab_lanche").default(0),
+  labFrequencia: numeric("lab_frequencia", { precision: 5, scale: 2 }).default("0"),
+  labEmpregados: integer("lab_empregados").default(0),
+  labEmpreendedores: integer("lab_empreendedores").default(0),
+  labAtendidos: integer("lab_atendidos").default(0),
+  labEvasao: integer("lab_evasao").default(0),
+  // CURSOS PRESENCIAIS
+  presencialHoraAula: numeric("presencial_hora_aula", { precision: 10, scale: 2 }).default("0"),
+  presencialAtendimentos: integer("presencial_atendimentos").default(0),
+  presencialLanche: integer("presencial_lanche").default(0),
+  presencialFrequencia: numeric("presencial_frequencia", { precision: 5, scale: 2 }).default("0"),
+  presencialEmpregados: integer("presencial_empregados").default(0),
+  presencialEmpreendedores: integer("presencial_empreendedores").default(0),
+  presencialAtendidos: integer("presencial_atendidos").default(0),
+  presencialEvasao: integer("presencial_evasao").default(0),
+  // CURSOS EAD CGD (ONLINE)
+  eadHoraAula: numeric("ead_hora_aula", { precision: 10, scale: 2 }).default("0"),
+  eadAtendimentos: integer("ead_atendimentos").default(0),
+  eadLanche: integer("ead_lanche").default(0),
+  eadFrequencia: numeric("ead_frequencia", { precision: 5, scale: 2 }).default("0"),
+  eadEmpregados: integer("ead_empregados").default(0),
+  eadEmpreendedores: integer("ead_empreendedores").default(0),
+  eadAtendidos: integer("ead_atendidos").default(0),
+  eadEvasao: integer("ead_evasao").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type InclusaoProdutivaDados = typeof inclusaoProdutivaDados.$inferSelect;
+export type InsertInclusaoProdutivaDados = typeof inclusaoProdutivaDados.$inferInsert;
+
+// Schema para validação
+export const insertInclusaoProdutivaDadosSchema = createInsertSchema(inclusaoProdutivaDados).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ================ PUSH NOTIFICATIONS - DEVICE TOKENS ================
+// Armazena tokens de dispositivos para Firebase Cloud Messaging
+
+export const platformEnum = pgEnum("platform_enum", ["web", "android", "ios"]);
+
+export const deviceTokens = pgTable("device_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
+  platform: text("platform").notNull(), // 'web', 'android', 'ios'
+  token: text("token").notNull().unique(),
+  subscriptionStatus: text("subscription_status").default("active"), // 'active', 'expired', 'revoked'
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Tabela para histórico de notificações enviadas
+export const pushNotifications = pgTable("push_notifications", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data"), // dados adicionais (url, tipo, etc)
+  targetType: text("target_type").notNull(), // 'all', 'topic', 'user', 'users'
+  targetValue: text("target_value"), // topic name, user id, etc
+  sentBy: integer("sent_by").references(() => users.id),
+  sentAt: timestamp("sent_at").defaultNow(),
+  successCount: integer("success_count").default(0),
+  failureCount: integer("failure_count").default(0),
+});
+
+// Types
+export type DeviceToken = typeof deviceTokens.$inferSelect;
+export type InsertDeviceToken = typeof deviceTokens.$inferInsert;
+export type PushNotification = typeof pushNotifications.$inferSelect;
+export type InsertPushNotification = typeof pushNotifications.$inferInsert;
+
+// Schema para validação
+export const insertDeviceTokenSchema = createInsertSchema(deviceTokens).omit({
+  id: true,
+  lastSeenAt: true,
+  revokedAt: true,
+  createdAt: true,
+});
+
+export const insertPushNotificationSchema = createInsertSchema(pushNotifications).omit({
+  id: true,
+  sentAt: true,
+  successCount: true,
+  failureCount: true,
+});
+
+// ================ IN-APP NOTIFICATIONS ================
+// Notificações que aparecem DENTRO do app (cards interativos)
+
+export const inAppNotifications = pgTable("in_app_notifications", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  // Botão primário (amarelo)
+  primaryButtonText: text("primary_button_text"),
+  primaryButtonAction: text("primary_button_action"), // URL ou rota do app (ex: /perfil, /editar-dados)
+  // Botão secundário (preto)
+  secondaryButtonText: text("secondary_button_text"),
+  secondaryButtonAction: text("secondary_button_action"), // 'dismiss' ou rota
+  // Configurações
+  targetAudience: text("target_audience").default("all"), // 'all', 'donors', 'no_email', 'no_subscription'
+  priority: integer("priority").default(1), // 1-10, maior = mais importante
+  progressDuration: integer("progress_duration").default(5), // segundos para a barra encher
+  // Status
+  active: boolean("active").default(true),
+  expiresAt: timestamp("expires_at"),
+  // Enviar também como push?
+  sendAsPush: boolean("send_as_push").default(false),
+  pushSentAt: timestamp("push_sent_at"),
+  // Tipo de notificação: normal ou com requisito (ex: pedir e-mail)
+  notificationType: text("notification_type").default("normal"), // 'normal', 'email_required'
+  // Rotas bloqueadas até o requisito ser atendido (JSON array)
+  blockedRoutes: text("blocked_routes"), // JSON array ex: ["/beneficios", "/missoes"]
+  // Campo de input para coletar (apenas para tipos com requisito)
+  requirementField: text("requirement_field"), // 'email', 'telefone', etc
+  // Agendamento
+  scheduledAt: timestamp("scheduled_at"),
+  // Tracking
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Rastrear quais usuários viram/dispensaram cada notificação
+export const inAppNotificationDismissals = pgTable("in_app_notification_dismissals", {
+  id: serial("id").primaryKey(),
+  notificationId: integer("notification_id").references(() => inAppNotifications.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  action: text("action").notNull(), // 'dismissed', 'clicked_primary', 'clicked_secondary'
+  dismissedAt: timestamp("dismissed_at").defaultNow(),
+});
+
+// Types
+export type InAppNotification = typeof inAppNotifications.$inferSelect;
+export type InsertInAppNotification = typeof inAppNotifications.$inferInsert;
+export type InAppNotificationDismissal = typeof inAppNotificationDismissals.$inferSelect;
+export type InsertInAppNotificationDismissal = typeof inAppNotificationDismissals.$inferInsert;
+
+// Schema para validação
+export const insertInAppNotificationSchema = createInsertSchema(inAppNotifications).omit({
+  id: true,
+  pushSentAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInAppNotificationDismissalSchema = createInsertSchema(inAppNotificationDismissals).omit({
+  id: true,
+  dismissedAt: true,
 });

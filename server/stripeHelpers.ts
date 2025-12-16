@@ -3,10 +3,18 @@ import { db } from './db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
+// 🔑 (OPCIONAL) Log só pra debug – cuidado em produção!
+// Se quiser, mascara um pedaço da chave:
+console.log(
+  "🔑 Stripe key carregada:",
+  process.env.STRIPE_SECRET_KEY
+  ? process.env.STRIPE_SECRET_KEY.slice(0, 10) + "...(masked)"
+  : "NÃO DEFINIDA"
+);
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-08-27.basil',
 });
-
 /**
  * Normaliza telefone brasileiro para formato E.164 (+5511987654321)
  */
@@ -81,8 +89,17 @@ export async function getOrCreateStripeCustomer(
     if (user.stripeCustomerId) {
       try {
         const customer = await stripe.customers.retrieve(user.stripeCustomerId);
-        if (!customer.deleted) {
+        if (!customer.deleted && 'email' in customer) {
           console.log(`✅ [GET_OR_CREATE_CUSTOMER] Customer existente encontrado: ${user.stripeCustomerId}`);
+          
+          // 🔧 FIX: Salvar email do Stripe se o usuário não tem email no banco
+          if (!user.email && customer.email) {
+            console.log(`📧 [GET_OR_CREATE_CUSTOMER] Salvando email do Stripe: ${customer.email}`);
+            await db.update(users)
+              .set({ email: customer.email })
+              .where(eq(users.id, userId));
+          }
+          
           return user.stripeCustomerId;
         } else {
           console.warn(`⚠️  [GET_OR_CREATE_CUSTOMER] Customer ${user.stripeCustomerId} foi deletado, criando novo`);
@@ -117,8 +134,15 @@ export async function getOrCreateStripeCustomer(
               if (existingCustomer) {
                 console.log(`✅ [GET_OR_CREATE_CUSTOMER] Customer encontrado por telefone (variação: ${variant}): ${existingCustomer.id} (${existingCustomer.phone})`);
                 
+                // 🔧 FIX: Salvar email do Stripe junto com customerId
+                const updateData: any = { stripeCustomerId: existingCustomer.id };
+                if (existingCustomer.email && !user.email) {
+                  updateData.email = existingCustomer.email;
+                  console.log(`📧 [GET_OR_CREATE_CUSTOMER] Salvando email do Stripe: ${existingCustomer.email}`);
+                }
+                
                 await db.update(users)
-                  .set({ stripeCustomerId: existingCustomer.id })
+                  .set(updateData)
                   .where(eq(users.id, userId));
                 
                 return existingCustomer.id;
@@ -142,8 +166,15 @@ export async function getOrCreateStripeCustomer(
         if (!existingCustomer.deleted) {
           console.log(`✅ [GET_OR_CREATE_CUSTOMER] Customer encontrado por email: ${existingCustomer.id}`);
           
+          // 🔧 FIX: Salvar email do Stripe junto com customerId
+          const updateData: any = { stripeCustomerId: existingCustomer.id };
+          if (existingCustomer.email && !user.email) {
+            updateData.email = existingCustomer.email;
+            console.log(`📧 [GET_OR_CREATE_CUSTOMER] Salvando email do Stripe: ${existingCustomer.email}`);
+          }
+          
           await db.update(users)
-            .set({ stripeCustomerId: existingCustomer.id })
+            .set(updateData)
             .where(eq(users.id, userId));
           
           return existingCustomer.id;
@@ -178,8 +209,16 @@ export async function getOrCreateStripeCustomer(
 
     console.log(`✅ [GET_OR_CREATE_CUSTOMER] Novo customer criado: ${newCustomer.id}`);
 
+    // 🔧 FIX: Salvar email junto com customerId quando criar novo customer
+    const updateData: any = { stripeCustomerId: newCustomer.id };
+    const emailToSave = email && email.includes('@') ? email : null;
+    if (emailToSave && !user.email) {
+      updateData.email = emailToSave;
+      console.log(`📧 [GET_OR_CREATE_CUSTOMER] Salvando email: ${emailToSave}`);
+    }
+    
     await db.update(users)
-      .set({ stripeCustomerId: newCustomer.id })
+      .set(updateData)
       .where(eq(users.id, userId));
 
     return newCustomer.id;
@@ -233,4 +272,5 @@ export async function attachPaymentMethodSafely(
     console.error(`❌ [ATTACH_PM] Erro ao anexar payment method:`, error);
     throw error;
   }
+ 
 }

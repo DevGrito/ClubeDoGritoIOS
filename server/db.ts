@@ -5,15 +5,22 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
 // EXIGIR Digital Ocean - sem fallback!
-if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
-  throw new Error("❌ ERRO CRÍTICO: Credenciais Digital Ocean (DB_*) não encontradas! Sistema DEVE usar Digital Ocean como PRIMARY.");
+// USAR BANCO CONFIGURADO VIA DB_* (container Docker)
+if (
+  !process.env.DB_HOST ||
+  !process.env.DB_USER ||
+  !process.env.DB_PASSWORD ||
+  !process.env.DB_NAME ||
+  !process.env.DB_PORT
+) {
+  throw new Error("❌ ERRO CRÍTICO: Variáveis DB_* não configuradas corretamente!");
 }
 
-const host = process.env.DB_HOST;
-const user = process.env.DB_USER;
-const password = process.env.DB_PASSWORD;
-const database = process.env.DB_NAME;
-const port = process.env.DB_PORT || '5433';
+const host = process.env.DB_HOST!;
+const user = process.env.DB_USER!;
+const password = process.env.DB_PASSWORD!;
+const database = process.env.DB_NAME!;
+const port = process.env.DB_PORT || "5432";
 
 console.log(`🔌 CONECTANDO AO BANCO PRIMARY: Digital Ocean PostgreSQL (${host}:${port}/${database})`);
 

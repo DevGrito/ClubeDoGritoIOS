@@ -1,0 +1,1 @@
+// Placeholder para GraficoPizza - será implementado pelo subagent
