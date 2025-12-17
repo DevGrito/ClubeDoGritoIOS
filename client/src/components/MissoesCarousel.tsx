@@ -5,6 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { EvidenceType } from "@shared/schema";
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
+import { Clipboard } from '@capacitor/clipboard';
 
 interface MissaoSemanal {
   id: number;
@@ -41,44 +44,95 @@ export function MissoesCarousel({ userId, onConcluirMissao }: MissoesCarouselPro
     refetchOnWindowFocus: false,
   });
 
-  const handleGenerateReferralLink = async (missaoId: number) => {
-    if (!userId) {
+ const handleGenerateReferralLink = async (missaoId: number) => {
+  if (!userId) {
+    toast({
+      title: "Erro",
+      description: "Você precisa estar logado para gerar links de convite.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setIsGeneratingLink(missaoId);
+
+  try {
+    const result: any = await apiRequest(`/api/gerar-referral/${userId}/${missaoId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const link = result?.linkConvite as string | undefined;
+    if (!link) {
       toast({
         title: "Erro",
-        description: "Você precisa estar logado para gerar links de convite.",
+        description: "Link não retornou do servidor.",
         variant: "destructive",
       });
       return;
     }
 
-    setIsGeneratingLink(missaoId);
-    
     try {
-      const result = await apiRequest(`/api/gerar-referral/${userId}/${missaoId}`, {
-        method: "POST",
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      if (Capacitor.isNativePlatform()) {
+        await Share.share({
+          title: "Clube do Grito",
+          text: "Entra pelo meu convite 👇",
+          url: link,
+          dialogTitle: "Compartilhar convite",
+        });
+
+        toast({
+          title: "Compartilhar aberto!",
+          description: "Escolha por onde enviar o convite.",
+        });
+        return;
+      }
+
+      // Web: tenta share primeiro, depois clipboard
+      if (navigator.share) {
+        await navigator.share({
+          title: "Clube do Grito",
+          text: "Entra pelo meu convite 👇",
+          url: link,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(link);
+      toast({
+        title: "Link copiado!",
+        description: "Agora é só colar e enviar para seus amigos!",
       });
-      
-      if (result.linkConvite) {
-        await navigator.clipboard.writeText(result.linkConvite);
-        
+    } catch (e: any) {
+      // usuário cancelou? não trate como erro
+      const msg = String(e?.message || e);
+      if (msg.toLowerCase().includes("cancel")) return;
+
+      // fallback: clipboard nativo
+      try {
+        await Clipboard.write({ string: link });
         toast({
           title: "Link copiado!",
-          description: "O link foi copiado para a área de transferência. Compartilhe com seus amigos!",
+          description: "Copiamos o link. Agora é só colar e mandar!",
+        });
+      } catch {
+        toast({
+          title: "Erro",
+          description: "Não foi possível compartilhar/copiar agora.",
+          variant: "destructive",
         });
       }
-    } catch (error: any) {
-      toast({
-        title: "Erro",
-        description: error.message || "Não foi possível gerar o link. Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGeneratingLink(null);
     }
-  };
+  } catch (error: any) {
+    toast({
+      title: "Erro",
+      description: error?.message || "Não foi possível gerar o link. Tente novamente.",
+      variant: "destructive",
+    });
+  } finally {
+    setIsGeneratingLink(null);
+  }
+};
 
   const handleConcluirMissao = (missaoId: number) => {
     if (onConcluirMissao) {

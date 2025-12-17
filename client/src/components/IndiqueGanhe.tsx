@@ -5,6 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Copy, Share2, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
+import { Clipboard } from '@capacitor/clipboard';
 
 interface Indicacao {
   id: number;
@@ -42,29 +45,79 @@ export function IndiqueGanhe() {
   // Log de debug
   console.log('🔍 [INDIQUE-GANHE] linkData:', linkData, 'isLoading:', isLoadingLink, 'error:', linkError);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+ const copyToClipboard = async (text: string) => {
+  try {
+    if (!text) throw new Error('Sem link para copiar');
+
+    if (Capacitor.isNativePlatform()) {
+      // iOS/Android (TestFlight) => clipboard nativo
+      await Clipboard.write({ string: text });
+    } else {
+      // Web
+      await navigator.clipboard.writeText(text);
+    }
+
     toast({
       title: "Copiado!",
       description: "Link copiado para a área de transferência",
     });
-  };
+  } catch (err) {
+    console.error('[COPY] erro:', err);
+    toast({
+      title: "Erro",
+      description: "Não foi possível copiar o link.",
+      variant: "destructive",
+    });
+  }
+};
 
-  const shareLink = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Clube do Grito - Instituto O Grito',
-          text: 'Junte-se a mim no Clube do Grito e faça parte da transformação social!',
-          url: shareUrl,
-        });
-      } catch (err) {
-        console.log('Compartilhamento cancelado');
-      }
-    } else {
-      copyToClipboard(shareUrl);
+const shareLink = async () => {
+  try {
+    if (!shareUrl) {
+      toast({
+        title: "Erro",
+        description: "Link indisponível para compartilhar.",
+        variant: "destructive",
+      });
+      return;
     }
-  };
+
+    if (Capacitor.isNativePlatform()) {
+      // iOS/Android => Share Sheet nativo
+      await Share.share({
+        title: 'Clube do Grito - Instituto O Grito',
+        text: 'Junte-se a mim no Clube do Grito e faça parte da transformação social!',
+        url: shareUrl,
+        dialogTitle: 'Compartilhar convite',
+      });
+      return;
+    }
+
+    // Web
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Clube do Grito - Instituto O Grito',
+        text: 'Junte-se a mim no Clube do Grito e faça parte da transformação social!',
+        url: shareUrl,
+      });
+      return;
+    }
+
+    // fallback web
+    await copyToClipboard(shareUrl);
+  } catch (err: any) {
+    // iOS às vezes joga erro quando usuário cancela — não trate como erro fatal
+    const msg = String(err?.message || err);
+    if (msg.toLowerCase().includes('cancel')) return;
+
+    console.error('[SHARE] erro:', err);
+    toast({
+      title: "Erro",
+      description: "Não foi possível abrir o compartilhamento.",
+      variant: "destructive",
+    });
+  }
+};
 
   const getStatusBadge = (status: string) => {
     switch (status) {

@@ -15,6 +15,9 @@ import { useToast } from "@/hooks/use-toast";
 import useActivityTracker from "@/hooks/useActivityTracker";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useProfileImage } from "@/hooks/useProfileImage";
+import { Capacitor } from '@capacitor/core';
+import { Share } from '@capacitor/share';
+import { Clipboard } from '@capacitor/clipboard';
 
 interface MissaoSemanal {
   id: number;
@@ -348,22 +351,60 @@ export default function MissoesSemanais() {
         },
       });
       
-      if (result.linkConvite) {
-        // 📋 Copiar link direto para clipboard
-        await navigator.clipboard.writeText(result.linkConvite);
-        
-        toast({
-          title: "Link copiado!",
-          description: "O link de convite foi copiado para sua área de transferência. Agora você pode compartilhar!",
-        });
-      }
-    } catch (error) {
-      console.error("Erro ao gerar link de referral:", error);
+   if (result.linkConvite) {
+  const link = result.linkConvite as string;
+
+  try {
+    if (Capacitor.isNativePlatform()) {
+      await Share.share({
+        title: 'Clube do Grito',
+        text: 'Entra pelo meu convite 👇',
+        url: link,
+        dialogTitle: 'Compartilhar convite',
+      });
+
+      toast({
+        title: "Compartilhar aberto!",
+        description: "Escolha por onde enviar o convite.",
+      });
+      return;
+    }
+
+    // Web
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Clube do Grito',
+        text: 'Entra pelo meu convite 👇',
+        url: link,
+      });
+      return;
+    }
+
+    await navigator.clipboard.writeText(link);
+    toast({
+      title: "Link copiado!",
+      description: "Agora é só colar e mandar para seus amigos!",
+    });
+
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    if (msg.toLowerCase().includes('cancel')) return;
+
+    try {
+      await Clipboard.write({ string: link });
+      toast({
+        title: "Link copiado!",
+        description: "Copiamos o link. Agora é só colar e mandar!",
+      });
+    } catch {
       toast({
         title: "Erro",
-        description: "Não foi possível gerar o link de convite. Tente novamente.",
+        description: "Não foi possível compartilhar agora.",
         variant: "destructive",
       });
+    }
+  }
+}
     } finally {
       setIsGeneratingLink(null);
     }
