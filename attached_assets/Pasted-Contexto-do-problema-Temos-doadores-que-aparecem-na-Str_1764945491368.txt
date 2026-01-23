@@ -1,0 +1,112 @@
+Contexto do problema
+
+Temos doadores que aparecem na Stripe (customer + subscription criados normalmente),
+mas não aparecem:
+
+na tela “Lista de Doadores Aplicativo – Dados em Tempo Real do Stripe”;
+
+nem passam no /api/auth/check-login-eligibility (log mostra User does not exist).
+
+Exemplo concreto: Mônica de Paula Antunes Frauches Chaves.
+
+Como o fluxo está hoje
+
+Hoje existem dois fluxos de criação de doação/assinatura:
+
+POST /api/donation/create (fluxo antigo / doação web)
+
+Cria customer e subscription na Stripe.
+
+Não grava nada no Postgres (nem em users, nem em doadores).
+
+Só retorna subscriptionId, customerId, paymentIntentId etc. no JSON.
+
+POST /api/payments/create-for-new-user (fluxo novo do app)
+
+Também cria customer + subscription na Stripe.
+
+Grava um registro na tabela doadores:
+
+const newDonation = await db.insert(doadores).values({
+  userId: null,
+  plano: tier,
+  valor: finalAmount / 100,
+  stripeCustomerId: customer.id,
+  stripePaymentIntentId: paymentIntent?.id || null,
+  stripeSubscriptionId: subscription.id,
+  periodicidade: selectedPeriodicity,
+  status: 'pending',
+  ativo: true,
+})
+
+
+Mesmo aqui, ainda não existe criação/atualização automática de users (só doadores).
+
+Além disso, a rota GET /api/doadores/stats, que alimenta a tela “Dados em Tempo Real do Stripe”, faz o seguinte:
+
+Busca subscriptions na Stripe (active, trialing, past_due, canceled);
+
+Monta um mapa de usuários locais:
+
+const localUsersData = await db
+  .select({...})
+  .from(users)
+  .where(isNotNull(users.stripeCustomerId));
+
+const localUsersMap = new Map();
+localUsersData.forEach(u => localUsersMap.set(u.stripeCustomerId, {...}));
+
+
+Cada subscription vira um “doador” com flag hasLocalUser (true só se existir users.stripeCustomerId):
+
+Depois ele filtra:
+
+let doadoresAtivos = Array.from(doadoresPorCustomer.values())
+  .filter(d => d.hasLocalUser);
+
+
+Ou seja: só entra na lista quem tem um users vinculado ao stripe_customer_id.
+
+O que aconteceu especificamente com a Mônica
+
+A Mônica fez a doação pelo fluxo que usa /api/donation/create.
+
+Esse endpoint:
+
+Criou customer e subscription na Stripe ✅
+
+Não inseriu nada na tabela doadores ❌
+
+Não criou usuário na tabela users (não há nenhuma lógica ali pra isso) ❌
+
+Quando o app tenta checar login por telefone, o backend faz busca só na tabela users:
+
+Não encontra telefone +5531999815752 → log mostra
+❌ [PHONE NOT FOUND] Nenhum usuário encontrado
+❌ [LOGIN ELIGIBILITY] User does not exist for phone...
+
+Quando o painel chama GET /api/doadores/stats:
+
+Ele até enxerga a subscription da Mônica na Stripe,
+
+mas como não existe users com stripe_customer_id dela, hasLocalUser fica false,
+
+e essa subscription é descartada pelo filtro:
+
+.filter(d => d.hasLocalUser)
+
+
+Resultado: ela não aparece na lista do painel, mesmo já doando.
+
+Como /api/donation/create também não insere nada em doadores, o endpoint /api/donation/confirm não acha nada quando tenta:
+
+const doador = await db.select().from(doadores)
+  .where(eq(doadores.stripePaymentIntentId, paymentIntentId))
+// → 0 linhas para esse fluxo
+
+
+Então, o problema não é a Stripe em si, e sim que o fluxo antigo só fala com a Stripe e não persiste nada no nosso banco, enquanto o dashboard e o login dependem totalmente das tabelas users e doadores.
+
+Resumo pra dev (em 1 parágrafo)
+
+Temos dois fluxos de criação de assinaturas: /api/donation/create (legado) e /api/payments/create-for-new-user (novo). O primeiro só cria a subscription/customer na Stripe e não grava nada nas tabelas users e doadores. A rota /api/doadores/stats e o /api/auth/check-login-eligibility dependem dessas tabelas (especialmente de users.stripe_customer_id), então qualquer doador que entra pelo fluxo antigo (caso da Mônica) fica invisível pro painel e pro login, mesmo já estando ativo na Stripe. Precisamos unificar o comportamento: ou descontinuar /api/donation/create e usar só o fluxo novo, ou fazer /api/donation/create também criar/atualizar users e doadores (idealmente via uma função helper compartilhada).

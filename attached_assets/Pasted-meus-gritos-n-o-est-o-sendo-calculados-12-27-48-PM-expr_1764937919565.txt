@@ -1,0 +1,61 @@
+meus gritos não estão sendo calculados:
+
+12:27:48 PM [express] GET /api/user/48 200 in 3ms :: {"id":48,"nome":"Pedro Vinicius Pinto Correa","s…
+backend-1  | ✅ [GRITOS SYNC] Usuário 48: Gritos recalculados para 1150
+backend-1  | Error fetching gritos: error: column "data_admissao" does not exist
+backend-1  |     at /app/node_modules/pg-pool/index.js:45:11
+backend-1  |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+backend-1  |     at async file:///app/node_modules/drizzle-orm/node-postgres/session.js:83:22
+backend-1  |     at async DatabaseStorage.getNivelByGritos (file:///app/dist/index.js:6400:25)
+backend-1  |     at async file:///app/dist/index.js:23875:26 {
+backend-1  |   length: 114,
+backend-1  |   severity: 'ERROR',
+backend-1  |   code: '42703',
+backend-1  |   detail: undefined,
+backend-1  |   hint: undefined,
+backend-1  |   position: '105',
+backend-1  |   internalPosition: undefined,
+backend-1  |   internalQuery: undefined,
+backend-1  |   where: undefined,
+backend-1  |   schema: undefined,
+backend-1  |   table: undefined,
+backend-1  |   column: undefined,
+backend-1  |   dataType: undefined,
+backend-1  |   constraint: undefined,
+backend-1  |   file: 'parse_relation.c',
+backend-1  |   line: '3722',
+backend-1  |   routine: 'errorMissingColumn'
+backend-1  | }
+backend-1  | 12:27:48 PM [express] GET /api/users/48/gritos 500 in 33ms :: {"error":"Erro interno do servidor"}
+
+
+Esse erro ta quebrando a aplicação toda:
+ 12:29:23 PM [express] POST /api/dev/login 500 in 11ms :: {"error":"Erro interno do servidor"}
+backend-1  | ✅ search_path definido para public
+backend-1  | 12:29:37 PM [express] POST /api/dev/login 500 in 10ms :: {"error":"Erro interno do servidor"}
+backend-1  | Error in developer login: error: column "data_admissao" does not exist
+backend-1  |     at /app/node_modules/pg-pool/index.js:45:11
+backend-1  |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+backend-1  |     at async file:///app/node_modules/drizzle-orm/node-postgres/session.js:83:22
+backend-1  |     at async file:///app/dist/index.js:22337:20 {
+backend-1  |   length: 113,
+backend-1  |   severity: 'ERROR',
+backend-1  |   code: '42703',
+backend-1  |   detail: undefined,
+backend-1  |   hint: undefined,
+backend-1  |   position: '68',
+backend-1  |   internalPosition: undefined,
+backend-1  |   internalQuery: undefined,
+backend-1  |   where: undefined,
+backend-1  |   schema: undefined,
+backend-1  |   table: undefined,
+backend-1  |   column: undefined,
+backend-1  |   dataType: undefined,
+backend-1  |   constraint: undefined,
+backend-1  |   file: 'parse_relation.c',
+backend-1  |   line: '3722',
+backend-1  |   routine: 'errorMissingColumn'
+backend-1  | }
+
+
+oq pode ser ?
