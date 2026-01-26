@@ -296,6 +296,7 @@ __export(schema_exports, {
   monitorGrupos: () => monitorGrupos,
   monitorParticipantes: () => monitorParticipantes,
   monitorParticipantesRelations: () => monitorParticipantesRelations,
+  monitorPerfis: () => monitorPerfis,
   monitores: () => monitores,
   negociosSociaisDados: () => negociosSociaisDados,
   niveis: () => niveis,
@@ -321,6 +322,7 @@ __export(schema_exports, {
   premiosRelations: () => premiosRelations,
   presencasInclusao: () => presencasInclusao,
   prioridadeCasoEnum: () => prioridadeCasoEnum,
+  professorLogins: () => professorLogins,
   professores: () => professores,
   programTypeEnum: () => programTypeEnum,
   programasInclusao: () => programasInclusao,
@@ -425,7 +427,7 @@ function validateBrazilianPhone(phone) {
   }
   return false;
 }
-var roleEnum, cpfSchema, gvIndicators, gvWorkstreams, gvPrograms, insertGVIndicatorSchema, insertGVWorkstreamSchema, insertGVProgramSchema, impactData, insertImpactDataSchema, dadosDemograficos, insertDadosDemograficosSchema, ROUTE_PERMISSIONS, users, councilRequests, conselheiros, insertConselheiroSchema, developers, doadores, historicoDoacao, typeformResponses, doadoresRelations, historicoRelations, donorSubscriptions, billingEvents, donorSubscriptionsRelations, billingEventsRelations, insertDonorSubscriptionSchema, insertBillingEventSchema, doadoresExternos, insertDoadorExternoSchema, indicacoes, indicacaoPontosLedger, stripeEvents, indicacoesRelations, indicacaoPontosLedgerRelations, insertIndicacaoSchema, insertIndicacaoPontosSchema, marketingCampaigns, marketingLinks, mktClicks, marketingCampaignsRelations, marketingLinksRelations, mktClicksRelations, insertMarketingCampaignSchema, insertMarketingLinkSchema, insertMktClickSchema, pais, maes, responsaveis, aluno, turma, alunoTurma, chamada2, chamadaAluno2, calendarioEvento, planoAula, aulaRegistrada, acompanhamento, relatorioGerado, sorteios, sorteioParticipacoes, sorteioResultados, sorteioConfiguracoes, sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade, sorteioInsertSchema, sorteioParticipacaoInsertSchema, sorteioResultadoInsertSchema, sorteioConfiguracaoInsertSchema, usersRelations, paisRelations, maesRelations, responsaveisRelations, alunoRelations, turmaRelations, alunoTurmaRelations, chamadaRelations, chamadaAlunoRelations, insertUserSchema, insertCouncilRequestSchema, postPaymentRegisterSchema, insertDeveloperSchema, insertPaiSchema, insertMaeSchema, insertResponsavelSchema, insertAlunoSchema, insertTurmaSchema, insertAlunoTurmaSchema, insertSistemaTelaSchema, insertSistemaAlteracaoSchema, insertSistemaErroSchema, insertSistemaComentarioSchema, insertSistemaDeployLogSchema, insertSistemaAtividadeSchema, insertChamadaSchema2, insertChamadaAlunoSchema2, insertCalendarioEventoSchema, insertPlanoAulaSchema, insertAulaRegistradaSchema, insertAcompanhamentoSchema, insertRelatorioGeradoSchema, verificationSchema, userCausas, checkins, gritosHistorico, niveis, insertCheckinsSchema, insertGritosHistoricoSchema, insertNiveisSchema, beneficios, beneficioImagens, insertBeneficiosSchema, insertBeneficioImagensSchema, beneficioLances, insertBeneficioLancesSchema, validarLanceSchema, beneficioLancesRelations, beneficioGanhadores, insertBeneficioGanhadoresSchema, beneficioGanhadoresRelations, missoesSemanais, missaoEnvios, missoesConcluidas, missaoTransacoes, missoesSemanaisRelations, missoesConcluidasRelations, missaoEnviosRelations, missaoTransacoesRelations, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, insertMissaoEnviosSchema, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasSlidesRelations, insertHistoriasInspiradorasSchema, insertHistoriasSlidesSchema, historiasInteracoes, historiasInteracoesRelations, historiasInspiradorasRelations, insertHistoriasInteracoesSchema, premios, leiloes, lances, premiosRelations, leiloesRelations, lancesRelations, insertPremiosSchema, insertLeiloesSchema, insertLancesSchema, referrals, referralsRelations, insertReferralsSchema, donorFiltersSchema, donorIdSchema, cotasEmpresas, insertCotaEmpresaSchema, ingressos, insertIngressoSchema, pagbankOauthTokens, insertPagBankOAuthTokenSchema, activityEvents, userInterests, insertActivityEventSchema, insertUserInterestSchema, ActivityEventType, EntityType, verificationCodes, insertVerificationCodeSchema, activityStatus, activitySituation, periodOfDay, sessionStatus, controlModeEnum, attendanceStatusEnum, projects2, pecActivities, activityInstances, staffAssignments, enrollments, instanceEnrollments, sessions, attendance2, photos, physicalAssessments, insertProjectSchema, insertActivitySchema, insertActivityInstanceSchema, insertStaffAssignmentSchema, insertEnrollmentSchema, insertSessionSchema, insertAttendanceSchema, insertPhotoSchema, insertPhysicalAssessmentSchema, educadores, educadorPrograma, alunoPrograma, insertEducadorSchema, insertEducadorProgramaSchema, insertAlunoProgramaSchema, gvScopeEnum, gvProfileTypeEnum, gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues, gvTargetAllocations, gvUserAccessControl, gvMonthlyData, gvExcelMetadata, gvSectorsRelations, gvProjectsRelations, gvMgmtIndicatorsRelations, gvIndicatorAssignmentsRelations, gvIndicatorTargetsRelations, gvIndicatorValuesRelations, gvTargetAllocationsRelations, gvUserAccessControlRelations, insertGVSectorSchema, insertGVProjectSchema, insertGVMgmtIndicatorSchema, insertGVIndicatorAssignmentSchema, insertGVIndicatorTargetSchema, insertGVIndicatorValueSchema, insertGVTargetAllocationSchema, insertGVUserAccessControlSchema, gritoEvents, gritoWebhookSubscriptions, gritoWebhookDeliveries, gritoAutomations, gritoEventsRelations, gritoWebhookSubscriptionsRelations, gritoWebhookDeliveriesRelations, statusParticipanteEnum, statusCursoEnum, tipoParceiroenum, participantesInclusao, programasInclusao, turmasInclusao, participantesTurmas, cursosInclusao, cursosTurmas, inscricoesCursos, presencasInclusao, parceirosEmpresa, vagasEmprego, candidaturasVagas, acompanhamentoInclusao, relatoriosInclusao, configuracoesInclusao, programTypeEnum, monitorParticipantes, atividadesMonitor, monitorGrupos, monitorGrupoAlunos, participantesInclusaoRelations, monitorParticipantesRelations, atividadesMonitorRelations, programasInclusaoRelations, turmasInclusaoRelations, participantesTurmasRelations, cursosInclusaoRelations, cursosTurmasRelations, parceirosEmpresaRelations, vagasEmpregoRelations, insertParticipanteInclusaoSchema, insertProgramaInclusaoSchema, insertTurmaInclusaoSchema, insertCursoInclusaoSchema, insertParceiroEmpresaSchema, insertVagaEmpregoSchema, insertAcompanhamentoInclusaoSchema, insertRelatorioInclusaoSchema, insertConfiguracaoInclusaoSchema, insertPresencaInclusaoSchema, insertMonitorParticipanteSchema, updateMonitorParticipanteSchema, insertAtividadeMonitorSchema, insertMonitorGrupoSchema, registrosAtividades, insertRegistroAtividadeSchema, categoriaPatrocinioEnum, tipoPatrocinadorEnum, statusPatrocinioEnum, patrocinadores, insertPatrocinadorSchema, indicadoresGlobais, insertIndicadorGlobalSchema, colaboradores, insertColaboradorSchema, statusFamiliaEnum, prioridadeCasoEnum, statusCasoEnum, tipoAtendimentoEnum, psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos, insertPsicoFamiliaSchema, insertPsicoCasoSchema, insertPsicoAtendimentoSchema, insertPsicoPlanoSchema, updatePsicoFamiliaSchema, updatePsicoCasoSchema, psicoIdSchema, psicoInclusaoVinculo, psicoPecVinculo, indicadoresPsicoAtencaoSocial, indicadoresPsicoMetodoGrito, cursosTecnologia, cursosBeleza, cursosArtesanato, cursosEmpreendedorismo, cursosAdministrativo, cursosSocioemocional, cursosEducacional, cursosOperacional, cursosGastronomia, appSecrets, insertPsicoInclusaoVinculoSchema, insertPsicoPecVinculoSchema, insertIndicadoresPsicoAtencaoSocialSchema, insertIndicadoresPsicoMetodoGritoSchema, insertCursoTecnologiaSchema, insertCursoBelezaSchema, insertCursoArtesanatoSchema, insertCursoEmpreendedorismoSchema, insertCursoAdministrativoSchema, insertCursoSocioemocionalSchema, conselhoDadosRealizados, insertConselhoDadosRealizadosSchema, conselhoDadosRealizadosAnual, insertConselhoDadosRealizadosAnualSchema, conselhoMetasMensais, insertConselhoMetasMensaisSchema, coordenadores, insertCoordenadorSchema, monitores, insertMonitorSchema, professores, insertProfessorSchema, marketingUsers, insertMarketingUserSchema, negociosSociaisDados, insertNegociosSociaisDadosSchema, pecDados, insertPecDadosSchema, inclusaoProdutivaDados, insertInclusaoProdutivaDadosSchema, platformEnum, deviceTokens, pushNotifications, insertDeviceTokenSchema, insertPushNotificationSchema, inAppNotifications, inAppNotificationDismissals, insertInAppNotificationSchema, insertInAppNotificationDismissalSchema, documentosParticipante, insertDocumentoParticipanteSchema;
+var roleEnum, cpfSchema, gvIndicators, gvWorkstreams, gvPrograms, insertGVIndicatorSchema, insertGVWorkstreamSchema, insertGVProgramSchema, impactData, insertImpactDataSchema, dadosDemograficos, insertDadosDemograficosSchema, ROUTE_PERMISSIONS, users, councilRequests, conselheiros, insertConselheiroSchema, developers, doadores, historicoDoacao, typeformResponses, doadoresRelations, historicoRelations, donorSubscriptions, billingEvents, donorSubscriptionsRelations, billingEventsRelations, insertDonorSubscriptionSchema, insertBillingEventSchema, doadoresExternos, insertDoadorExternoSchema, indicacoes, indicacaoPontosLedger, stripeEvents, indicacoesRelations, indicacaoPontosLedgerRelations, insertIndicacaoSchema, insertIndicacaoPontosSchema, marketingCampaigns, marketingLinks, mktClicks, marketingCampaignsRelations, marketingLinksRelations, mktClicksRelations, insertMarketingCampaignSchema, insertMarketingLinkSchema, insertMktClickSchema, pais, maes, responsaveis, aluno, turma, alunoTurma, chamada2, chamadaAluno2, calendarioEvento, planoAula, aulaRegistrada, acompanhamento, relatorioGerado, sorteios, sorteioParticipacoes, sorteioResultados, sorteioConfiguracoes, sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade, sorteioInsertSchema, sorteioParticipacaoInsertSchema, sorteioResultadoInsertSchema, sorteioConfiguracaoInsertSchema, usersRelations, paisRelations, maesRelations, responsaveisRelations, alunoRelations, turmaRelations, alunoTurmaRelations, chamadaRelations, chamadaAlunoRelations, insertUserSchema, insertCouncilRequestSchema, postPaymentRegisterSchema, insertDeveloperSchema, insertPaiSchema, insertMaeSchema, insertResponsavelSchema, insertAlunoSchema, insertTurmaSchema, insertAlunoTurmaSchema, insertSistemaTelaSchema, insertSistemaAlteracaoSchema, insertSistemaErroSchema, insertSistemaComentarioSchema, insertSistemaDeployLogSchema, insertSistemaAtividadeSchema, insertChamadaSchema2, insertChamadaAlunoSchema2, insertCalendarioEventoSchema, insertPlanoAulaSchema, insertAulaRegistradaSchema, insertAcompanhamentoSchema, insertRelatorioGeradoSchema, verificationSchema, userCausas, checkins, gritosHistorico, niveis, insertCheckinsSchema, insertGritosHistoricoSchema, insertNiveisSchema, beneficios, beneficioImagens, insertBeneficiosSchema, insertBeneficioImagensSchema, beneficioLances, insertBeneficioLancesSchema, validarLanceSchema, beneficioLancesRelations, beneficioGanhadores, insertBeneficioGanhadoresSchema, beneficioGanhadoresRelations, missoesSemanais, missaoEnvios, missoesConcluidas, missaoTransacoes, missoesSemanaisRelations, missoesConcluidasRelations, missaoEnviosRelations, missaoTransacoesRelations, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, insertMissaoEnviosSchema, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasSlidesRelations, insertHistoriasInspiradorasSchema, insertHistoriasSlidesSchema, historiasInteracoes, historiasInteracoesRelations, historiasInspiradorasRelations, insertHistoriasInteracoesSchema, premios, leiloes, lances, premiosRelations, leiloesRelations, lancesRelations, insertPremiosSchema, insertLeiloesSchema, insertLancesSchema, referrals, referralsRelations, insertReferralsSchema, donorFiltersSchema, donorIdSchema, cotasEmpresas, insertCotaEmpresaSchema, ingressos, insertIngressoSchema, pagbankOauthTokens, insertPagBankOAuthTokenSchema, activityEvents, userInterests, insertActivityEventSchema, insertUserInterestSchema, ActivityEventType, EntityType, verificationCodes, insertVerificationCodeSchema, activityStatus, activitySituation, periodOfDay, sessionStatus, controlModeEnum, attendanceStatusEnum, projects2, pecActivities, activityInstances, staffAssignments, enrollments, instanceEnrollments, sessions, attendance2, photos, physicalAssessments, insertProjectSchema, insertActivitySchema, insertActivityInstanceSchema, insertStaffAssignmentSchema, insertEnrollmentSchema, insertSessionSchema, insertAttendanceSchema, insertPhotoSchema, insertPhysicalAssessmentSchema, educadores, educadorPrograma, alunoPrograma, insertEducadorSchema, insertEducadorProgramaSchema, insertAlunoProgramaSchema, gvScopeEnum, gvProfileTypeEnum, gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues, gvTargetAllocations, gvUserAccessControl, gvMonthlyData, gvExcelMetadata, gvSectorsRelations, gvProjectsRelations, gvMgmtIndicatorsRelations, gvIndicatorAssignmentsRelations, gvIndicatorTargetsRelations, gvIndicatorValuesRelations, gvTargetAllocationsRelations, gvUserAccessControlRelations, insertGVSectorSchema, insertGVProjectSchema, insertGVMgmtIndicatorSchema, insertGVIndicatorAssignmentSchema, insertGVIndicatorTargetSchema, insertGVIndicatorValueSchema, insertGVTargetAllocationSchema, insertGVUserAccessControlSchema, gritoEvents, gritoWebhookSubscriptions, gritoWebhookDeliveries, gritoAutomations, gritoEventsRelations, gritoWebhookSubscriptionsRelations, gritoWebhookDeliveriesRelations, statusParticipanteEnum, statusCursoEnum, tipoParceiroenum, participantesInclusao, programasInclusao, turmasInclusao, participantesTurmas, cursosInclusao, cursosTurmas, inscricoesCursos, presencasInclusao, parceirosEmpresa, vagasEmprego, candidaturasVagas, acompanhamentoInclusao, relatoriosInclusao, configuracoesInclusao, programTypeEnum, monitorParticipantes, atividadesMonitor, monitorGrupos, monitorGrupoAlunos, participantesInclusaoRelations, monitorParticipantesRelations, atividadesMonitorRelations, programasInclusaoRelations, turmasInclusaoRelations, participantesTurmasRelations, cursosInclusaoRelations, cursosTurmasRelations, parceirosEmpresaRelations, vagasEmpregoRelations, insertParticipanteInclusaoSchema, insertProgramaInclusaoSchema, insertTurmaInclusaoSchema, insertCursoInclusaoSchema, insertParceiroEmpresaSchema, insertVagaEmpregoSchema, insertAcompanhamentoInclusaoSchema, insertRelatorioInclusaoSchema, insertConfiguracaoInclusaoSchema, insertPresencaInclusaoSchema, insertMonitorParticipanteSchema, updateMonitorParticipanteSchema, insertAtividadeMonitorSchema, insertMonitorGrupoSchema, registrosAtividades, insertRegistroAtividadeSchema, categoriaPatrocinioEnum, tipoPatrocinadorEnum, statusPatrocinioEnum, patrocinadores, insertPatrocinadorSchema, indicadoresGlobais, insertIndicadorGlobalSchema, colaboradores, insertColaboradorSchema, statusFamiliaEnum, prioridadeCasoEnum, statusCasoEnum, tipoAtendimentoEnum, psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos, insertPsicoFamiliaSchema, insertPsicoCasoSchema, insertPsicoAtendimentoSchema, insertPsicoPlanoSchema, updatePsicoFamiliaSchema, updatePsicoCasoSchema, psicoIdSchema, psicoInclusaoVinculo, psicoPecVinculo, indicadoresPsicoAtencaoSocial, indicadoresPsicoMetodoGrito, cursosTecnologia, cursosBeleza, cursosArtesanato, cursosEmpreendedorismo, cursosAdministrativo, cursosSocioemocional, cursosEducacional, cursosOperacional, cursosGastronomia, appSecrets, insertPsicoInclusaoVinculoSchema, insertPsicoPecVinculoSchema, insertIndicadoresPsicoAtencaoSocialSchema, insertIndicadoresPsicoMetodoGritoSchema, insertCursoTecnologiaSchema, insertCursoBelezaSchema, insertCursoArtesanatoSchema, insertCursoEmpreendedorismoSchema, insertCursoAdministrativoSchema, insertCursoSocioemocionalSchema, conselhoDadosRealizados, insertConselhoDadosRealizadosSchema, conselhoDadosRealizadosAnual, insertConselhoDadosRealizadosAnualSchema, conselhoMetasMensais, insertConselhoMetasMensaisSchema, coordenadores, insertCoordenadorSchema, monitores, insertMonitorSchema, professores, insertProfessorSchema, marketingUsers, insertMarketingUserSchema, negociosSociaisDados, insertNegociosSociaisDadosSchema, pecDados, insertPecDadosSchema, inclusaoProdutivaDados, insertInclusaoProdutivaDadosSchema, platformEnum, deviceTokens, pushNotifications, insertDeviceTokenSchema, insertPushNotificationSchema, inAppNotifications, inAppNotificationDismissals, insertInAppNotificationSchema, insertInAppNotificationDismissalSchema, documentosParticipante, insertDocumentoParticipanteSchema, monitorPerfis, professorLogins;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -635,7 +637,8 @@ var init_schema = __esm({
     });
     conselheiros = pgTable("conselheiros", {
       id: serial("id").primaryKey(),
-      email: text("email").unique().notNull(),
+      email: text("email").notNull(),
+      // UNIQUE(email, programa) - constraint no banco
       nome: text("nome"),
       tipo: text("tipo").default("conselho"),
       // 'conselho', 'admin', 'leo'
@@ -4157,7 +4160,8 @@ var init_schema = __esm({
       id: serial("id").primaryKey(),
       nome: text("nome").notNull(),
       // "Coordenador Psico", "Coordenador PEC", "Coordenador Inclusão Produtiva"
-      email: text("email").unique().notNull(),
+      email: text("email").notNull(),
+      // UNIQUE(email, programa) - constraint no banco
       passwordHash: text("password_hash").notNull(),
       // Hash bcrypt da senha
       telefone: text("telefone"),
@@ -4181,7 +4185,8 @@ var init_schema = __esm({
     monitores = pgTable("monitores", {
       id: serial("id").primaryKey(),
       nome: text("nome").notNull(),
-      email: text("email").unique().notNull(),
+      email: text("email").notNull(),
+      // UNIQUE(email, programa) - constraint no banco
       passwordHash: text("password_hash").notNull(),
       // Hash bcrypt da senha
       telefone: text("telefone"),
@@ -4202,7 +4207,8 @@ var init_schema = __esm({
     professores = pgTable("professores", {
       id: serial("id").primaryKey(),
       nome: text("nome").notNull(),
-      email: text("email").unique().notNull(),
+      email: text("email").notNull(),
+      // UNIQUE(email, programa) - constraint no banco
       passwordHash: text("password_hash").notNull(),
       telefone: text("telefone"),
       programa: text("programa").notNull(),
@@ -4446,6 +4452,31 @@ var init_schema = __esm({
     insertDocumentoParticipanteSchema = createInsertSchema(documentosParticipante).omit({
       id: true,
       createdAt: true
+    });
+    monitorPerfis = pgTable("monitor_perfis", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").notNull(),
+      vertente: text("vertente").notNull(),
+      // 'pec', 'inclusao'
+      nome: text("nome").notNull(),
+      email: text("email"),
+      telefone: text("telefone"),
+      areaAtuacao: text("area_atuacao"),
+      createdAt: timestamp("created_at").defaultNow(),
+      updatedAt: timestamp("updated_at").defaultNow()
+    });
+    professorLogins = pgTable("professor_logins", {
+      id: serial("id").primaryKey(),
+      nome: text("nome").notNull(),
+      email: text("email").notNull(),
+      passwordHash: text("password_hash").notNull(),
+      telefone: text("telefone"),
+      vertente: text("vertente").notNull(),
+      // 'pec', 'inclusao'
+      redirectPath: text("redirect_path").notNull().default("/professor"),
+      ativo: boolean("ativo").default(true),
+      createdAt: timestamp("created_at").defaultNow(),
+      updatedAt: timestamp("updated_at").defaultNow()
     });
   }
 });
@@ -17331,7 +17362,6 @@ async function registerRoutes(app2) {
           stripeCustomerId: doadores.stripeCustomerId,
           stripeSubscriptionId: doadores.stripeSubscriptionId,
           periodicidade: doadores.periodicidade,
-          periodoDoacao: doadores.periodoDoacao,
           createdAt: doadores.createdAt,
           verificadoEm: doadores.verificadoEm
         }).from(doadores).where(eq6(doadores.userId, userId2)).orderBy(desc3(doadores.createdAt)).limit(1);
@@ -17351,7 +17381,7 @@ async function registerRoutes(app2) {
       const stripeCustomerId2 = doadorRow?.stripeCustomerId || existingUser?.stripeCustomerId || null;
       if (!stripeCustomerId2 || !stripe2) {
         console.log(
-          `\u26D4 [LOGIN GATE] Sem stripeCustomerId (user ${userId2}) -> bloqueando`
+          `\u26D4 [LOGIN GATE] Sem stripeCustomerId/Stripe (user ${userId2}) -> bloqueando`
         );
         try {
           if (doadorRow?.id) {
@@ -17435,16 +17465,16 @@ async function registerRoutes(app2) {
             stripeDecision = {
               canLogin: false,
               dbStatus: "pending",
-              // no banco pending
               dbAtivo: false,
               reason: "SUBSCRIPTION_PAUSED",
-              // pro toast
               message: "Sua assinatura est\xE1 pausada. Reative para continuar.",
               stripeSubId: anySub.id,
               stripeSubStatus: anySub.status,
               shouldSetDesligamento: false
             };
-          } else if (["past_due", "incomplete", "incomplete_expired", "unpaid"].includes(anySub.status)) {
+          } else if (["past_due", "incomplete", "incomplete_expired", "unpaid"].includes(
+            anySub.status
+          )) {
             stripeDecision = {
               canLogin: false,
               dbStatus: "pending",
@@ -17577,10 +17607,10 @@ async function registerRoutes(app2) {
           to: twilioPhone
         });
         console.log(`\u2705 LOGIN SMS SENT to ${twilioPhone} with code ${codigo}`);
-        res.json({ success: true, message: "C\xF3digo enviado via SMS" });
+        return res.json({ success: true, message: "C\xF3digo enviado via SMS" });
       } catch (twilioError) {
         console.error("Twilio error:", twilioError);
-        res.json({
+        return res.json({
           success: true,
           message: "C\xF3digo gerado (SMS indispon\xEDvel)",
           codigo
@@ -17588,7 +17618,7 @@ async function registerRoutes(app2) {
       }
     } catch (error) {
       console.error("Error sending login code:", error);
-      res.status(500).json({ error: "Erro ao enviar c\xF3digo" });
+      return res.status(500).json({ error: "Erro ao enviar c\xF3digo" });
     }
   });
   app2.post("/api/professor/verify-login-code", async (req, res) => {
@@ -23146,12 +23176,17 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.post("/api/professor/unenroll", async (req, res) => {
     try {
       const { studentCpf, classId } = req.body;
-      await storage.unenrollStudent(studentCpf, classId);
-      res.json({
-        success: true,
-        message: "Aluno removido da turma com sucesso"
-      });
+      const result = await db.update(instanceEnrollments).set({ active: false }).where(and3(
+        eq6(instanceEnrollments.student_cpf, studentCpf),
+        eq6(instanceEnrollments.activity_instance_id, classId)
+      )).returning();
+      if (result.length === 0) {
+        await storage.unenrollStudent(studentCpf, classId);
+      }
+      console.log(`[UNENROLL] Aluno ${studentCpf} removido da turma PEC ${classId}`);
+      res.json({ success: true, message: "Aluno removido da turma com sucesso" });
     } catch (error) {
+      console.error("[UNENROLL] Erro:", error);
       res.status(500).json({ error: "Erro ao remover aluno da turma: " + error.message });
     }
   });
@@ -23588,25 +23623,55 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const userId2 = parseInt(req.params.userId);
       const user2 = req.user;
+      const vertente = req.query.vertente || "pec";
       const access = ensureSelfAccess(user2, userId2, "perfil");
       if (!access.allowed) {
         return res.status(access.error.status).json({ error: access.error.message });
+      }
+      const perfilResult = await db.execute(sql4`
+        SELECT * FROM monitor_perfis 
+        WHERE user_id = ${userId2} AND vertente = ${vertente}
+        LIMIT 1
+      `);
+      if (perfilResult.rows && perfilResult.rows.length > 0) {
+        const perfil = perfilResult.rows[0];
+        return res.json({
+          nome: perfil.nome,
+          nome_completo: perfil.nome,
+          email: perfil.email,
+          telefone: perfil.telefone,
+          area_atuacao: perfil.area_atuacao || (vertente === "inclusao" ? "Inclus\xE3o Produtiva" : "PEC")
+        });
       }
       const userResult = await db.select().from(users).where(eq6(users.id, userId2)).limit(1);
       if (!userResult || userResult.length === 0) {
         return res.status(404).json({ error: "Usu\xE1rio n\xE3o encontrado" });
       }
       const userData = userResult[0];
-      const monitorResult = await db.select().from(monitores).where(eq6(monitores.email, userData.email || "")).limit(1);
-      const monitorData = monitorResult?.[0];
       res.json({
         nome: userData.nome,
-        nome_completo: monitorData?.nome || userData.nome,
-        email: userData.email || monitorData?.email,
-        telefone: userData.telefone || monitorData?.telefone,
-        area_atuacao: monitorData?.programa || "Monitoria Educacional"
+        nome_completo: userData.nome,
+        email: userData.email,
+        telefone: userData.telefone,
+        area_atuacao: vertente === "inclusao" ? "Inclus\xE3o Produtiva" : vertente === "pec" ? "PEC" : "Monitoria Educacional"
       });
     } catch (error) {
+      if (error.code === "42P01") {
+        try {
+          const userResult = await db.select().from(users).where(eq6(users.id, parseInt(req.params.userId))).limit(1);
+          if (userResult.length > 0) {
+            const vertente = req.query.vertente;
+            return res.json({
+              nome: userResult[0].nome,
+              nome_completo: userResult[0].nome,
+              email: userResult[0].email,
+              telefone: userResult[0].telefone,
+              area_atuacao: vertente === "inclusao" ? "Inclus\xE3o Produtiva" : "PEC"
+            });
+          }
+        } catch (e) {
+        }
+      }
       console.error("\u274C [MONITOR PERFIL] Erro ao buscar perfil:", error);
       res.status(500).json({ error: "Erro ao buscar perfil" });
     }
@@ -23615,34 +23680,48 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const userId2 = parseInt(req.params.userId);
       const user2 = req.user;
-      const { nome, email, telefone, area_atuacao } = req.body;
+      const { nome, email, telefone, area_atuacao, vertente } = req.body;
       const access = ensureSelfAccess(user2, userId2, "perfil");
       if (!access.allowed) {
         return res.status(access.error.status).json({ error: access.error.message });
       }
-      console.log(`\u{1F504} [MONITOR PERFIL] Atualizando perfil do usu\xE1rio ${userId2}`);
-      const userResult = await db.select().from(users).where(eq6(users.id, userId2)).limit(1);
-      const emailAntigo = userResult?.[0]?.email;
-      await db.update(users).set({
-        horarioInicio,
-        horarioFim,
-        diasSemana,
-        nome,
-        email,
-        telefone
-      }).where(eq6(users.id, userId2));
-      if (emailAntigo) {
-        await db.update(monitores).set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-          nome,
-          email,
-          // Atualiza também o email na tabela monitores (usado para login)
-          telefone
-        }).where(eq6(monitores.email, emailAntigo));
+      if (!vertente) {
+        return res.status(400).json({ error: "Vertente n\xE3o especificada" });
       }
-      console.log(`\u2705 [MONITOR PERFIL] Perfil atualizado com sucesso (email: ${emailAntigo} -> ${email})`);
+      console.log(`\u{1F504} [MONITOR PERFIL] Atualizando perfil do userId ${userId2} na vertente ${vertente}`);
+      await db.execute(sql4`
+        CREATE TABLE IF NOT EXISTS monitor_perfis (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          vertente TEXT NOT NULL,
+          nome TEXT NOT NULL,
+          email TEXT,
+          telefone TEXT,
+          area_atuacao TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, vertente)
+        )
+      `);
+      const perfilExistente = await db.execute(sql4`
+        SELECT id FROM monitor_perfis 
+        WHERE user_id = ${userId2} AND vertente = ${vertente}
+        LIMIT 1
+      `);
+      if (perfilExistente.rows && perfilExistente.rows.length > 0) {
+        await db.execute(sql4`
+          UPDATE monitor_perfis 
+          SET nome = ${nome}, email = ${email}, telefone = ${telefone}, area_atuacao = ${area_atuacao}, updated_at = NOW()
+          WHERE user_id = ${userId2} AND vertente = ${vertente}
+        `);
+        console.log(`\u2705 [MONITOR PERFIL] Perfil ${vertente} atualizado para userId ${userId2}`);
+      } else {
+        await db.execute(sql4`
+          INSERT INTO monitor_perfis (user_id, vertente, nome, email, telefone, area_atuacao)
+          VALUES (${userId2}, ${vertente}, ${nome}, ${email}, ${telefone}, ${area_atuacao})
+        `);
+        console.log(`\u2705 [MONITOR PERFIL] Novo perfil ${vertente} criado para userId ${userId2}`);
+      }
       res.json({ success: true, message: "Perfil atualizado com sucesso" });
     } catch (error) {
       console.error("\u274C [MONITOR PERFIL] Erro ao atualizar perfil:", error);
@@ -24467,8 +24546,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           nome,
           codigo,
           local,
-          horarioEntrada: horarioInicio2,
-          horarioSaida: horarioFim2,
+          horarioEntrada: horarioInicio2 || null,
+          horarioSaida: horarioFim2 || null,
           dataInicio,
           dataFim,
           descricao,
@@ -24513,13 +24592,42 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         return res.status(403).json({ error: "Acesso negado" });
       }
       const { nome, nivel, atividade, status, horarioInicio: horarioInicio2, horarioFim: horarioFim2, diasSemana: diasSemana2, local, descricao, dataInicio, dataFim, codigo } = req.body;
+      if (vertente === "pec") {
+        const updated2 = await db.update(activityInstances).set({
+          title: nome,
+          code: codigo,
+          location: local,
+          start_time: horarioInicio2 || null,
+          end_time: horarioFim2 || null,
+          occurrence_start: dataInicio || null,
+          occurrence_end: dataFim || null,
+          situation: status || "ativo",
+          updated_at: /* @__PURE__ */ new Date()
+        }).where(eq6(activityInstances.id, grupoId)).returning();
+        if (updated2.length === 0) {
+          return res.status(404).json({ error: "Turma n\xE3o encontrada" });
+        }
+        console.log(`[RBAC MONITOR] Turma PEC ${grupoId} atualizada por monitor ${monitorId}`);
+        return res.json({
+          id: updated2[0].id,
+          nome: updated2[0].title,
+          codigo: updated2[0].code,
+          local: updated2[0].location,
+          horarioInicio: updated2[0].start_time,
+          horarioFim: updated2[0].end_time,
+          dataInicio: updated2[0].occurrence_start,
+          dataFim: updated2[0].occurrence_end,
+          status: updated2[0].situation,
+          vertente: "pec"
+        });
+      }
       if (vertente === "inclusao") {
         const updated2 = await db.update(turmasInclusao).set({
           nome,
           codigo,
           local,
-          horarioEntrada: horarioInicio2,
-          horarioSaida: horarioFim2,
+          horarioEntrada: horarioInicio2 || null,
+          horarioSaida: horarioFim2 || null,
           dataInicio,
           dataFim,
           descricao,
@@ -24620,58 +24728,76 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: "Failed to update registro" });
     }
   });
-  app2.get("/api/monitor/:monitorId/grupos/:grupoId/alunos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const grupoId = parseInt(req.params.grupoId);
-      const user2 = req.user;
-      const access = ensureSelfAccess(user2, monitorId, "grupos-alunos");
-      if (!access.allowed) return res.status(403).json({ error: "Acesso negado" });
-      const role = String(user2?.role || "").toLowerCase();
-      const monitorRow = await db.select({ programa: monitores.programa }).from(monitores).where(eq6(monitores.id, monitorId)).limit(1);
-      const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
-      const vertente = role.includes("inclusao") || programaMonitor.includes("inclusao") ? "inclusao" : role.includes("pec") || programaMonitor.includes("pec") ? "pec" : "legacy";
-      if (vertente === "inclusao") {
-        const turma2 = await db.select().from(turmasInclusao).where(and3(eq6(turmasInclusao.id, grupoId), eq6(turmasInclusao.professorId, monitorId))).limit(1);
-        if (!turma2.length) return res.status(404).json({ error: "Turma n\xE3o encontrada" });
-        const alunos = await db.select({
-          id: participantesInclusao.id,
-          nome: participantesInclusao.nome,
-          cpf: participantesInclusao.cpf,
-          tipo: sql4`'inclusao'`.as("tipo")
-        }).from(participantesTurmas).innerJoin(participantesInclusao, eq6(participantesInclusao.id, participantesTurmas.participanteId)).where(eq6(participantesTurmas.turmaId, grupoId));
-        return res.json(alunos);
+  app2.get(
+    "/api/monitor/:monitorId/grupos/:grupoId/alunos",
+    requireAuth,
+    requireMonitor,
+    async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId, 10);
+        const grupoId = parseInt(req.params.grupoId, 10);
+        const user2 = req.user;
+        const access = ensureSelfAccess(user2, monitorId, "grupos-alunos");
+        if (!access.allowed) return res.status(403).json({ error: "Acesso negado" });
+        const role = String(user2?.role || "").toLowerCase();
+        const monitorRow = await db.select({ programa: monitores.programa }).from(monitores).where(eq6(monitores.id, monitorId)).limit(1);
+        const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
+        const vertente = role.includes("inclusao") || programaMonitor.includes("inclusao") ? "inclusao" : role.includes("pec") || programaMonitor.includes("pec") ? "pec" : "legacy";
+        if (vertente === "inclusao") {
+          const turma2 = await db.select({ id: turmasInclusao.id }).from(turmasInclusao).where(and3(eq6(turmasInclusao.id, grupoId), eq6(turmasInclusao.professorId, monitorId))).limit(1);
+          if (!turma2.length) {
+            return res.status(404).json({ error: "Turma n\xE3o encontrada" });
+          }
+          const students2 = await db.select({
+            id: participantesInclusao.id,
+            nome: participantesInclusao.nome,
+            cpf: participantesInclusao.cpf,
+            tipo: sql4`'inclusao'`.as("tipo")
+          }).from(participantesTurmas).innerJoin(
+            participantesInclusao,
+            eq6(participantesInclusao.id, participantesTurmas.participanteId)
+          ).where(
+            and3(
+              eq6(participantesTurmas.turmaId, grupoId),
+              eq6(participantesTurmas.status, "ativo")
+            )
+          );
+          console.log(
+            `[RBAC MONITOR] Monitor ${monitorId} listou ${students2.length} participantes da turma Inclus\xE3o ${grupoId}`
+          );
+          return res.json(students2);
+        }
+        const grupo = await db.select().from(monitorGrupos).where(and3(eq6(monitorGrupos.id, grupoId), eq6(monitorGrupos.monitorUserId, monitorId))).limit(1);
+        if (!grupo.length) return res.status(404).json({ error: "Grupo n\xE3o encontrado" });
+        const alunosDoGrupo = await db.select().from(monitorGrupoAlunos).where(eq6(monitorGrupoAlunos.grupoId, grupoId));
+        const pecCpfs = alunosDoGrupo.filter((a) => a.participanteTipo === "pec" && a.participanteCpf).map((a) => a.participanteCpf);
+        const inclusaoIds = alunosDoGrupo.filter((a) => a.participanteTipo === "inclusao" && a.participanteId).map((a) => a.participanteId);
+        const students = [];
+        if (pecCpfs.length > 0) {
+          const pecStudents = await db.select({
+            cpf: aluno.cpf,
+            nome: aluno.nome_completo,
+            tipo: sql4`'pec'`.as("tipo")
+          }).from(aluno).where(inArray3(aluno.cpf, pecCpfs));
+          students.push(...pecStudents.map((s) => ({ ...s, id: s.cpf })));
+        }
+        if (inclusaoIds.length > 0) {
+          const inclusaoStudents = await db.select({
+            id: participantesInclusao.id,
+            nome: participantesInclusao.nome,
+            cpf: participantesInclusao.cpf,
+            tipo: sql4`'inclusao'`.as("tipo")
+          }).from(participantesInclusao).where(inArray3(participantesInclusao.id, inclusaoIds));
+          students.push(...inclusaoStudents);
+        }
+        console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} alunos do grupo ${grupoId}`);
+        return res.json(students);
+      } catch (error) {
+        console.error("Error fetching grupo students:", error);
+        return res.status(500).json({ error: "Failed to fetch students" });
       }
-      const grupo = await db.select().from(monitorGrupos).where(and3(eq6(monitorGrupos.id, grupoId), eq6(monitorGrupos.monitorUserId, monitorId))).limit(1);
-      if (!grupo.length) return res.status(404).json({ error: "Grupo n\xE3o encontrado" });
-      const alunosDoGrupo = await db.select().from(monitorGrupoAlunos).where(eq6(monitorGrupoAlunos.grupoId, grupoId));
-      const pecCpfs = alunosDoGrupo.filter((a) => a.participanteTipo === "pec" && a.participanteCpf).map((a) => a.participanteCpf);
-      const inclusaoIds = alunosDoGrupo.filter((a) => a.participanteTipo === "inclusao" && a.participanteId).map((a) => a.participanteId);
-      const students = [];
-      if (pecCpfs.length > 0) {
-        const pecStudents = await db.select({
-          cpf: aluno.cpf,
-          nome: aluno.nome_completo,
-          tipo: sql4`'pec'`.as("tipo")
-        }).from(aluno).where(inArray3(aluno.cpf, pecCpfs));
-        students.push(...pecStudents.map((s) => ({ ...s, id: s.cpf })));
-      }
-      if (inclusaoIds.length > 0) {
-        const inclusaoStudents = await db.select({
-          id: participantesInclusao.id,
-          nome: participantesInclusao.nome,
-          cpf: participantesInclusao.cpf,
-          tipo: sql4`'inclusao'`.as("tipo")
-        }).from(participantesInclusao).where(inArray3(participantesInclusao.id, inclusaoIds));
-        students.push(...inclusaoStudents);
-      }
-      console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} alunos do grupo ${grupoId}`);
-      return res.json(students);
-    } catch (error) {
-      console.error("Error fetching grupo students:", error);
-      res.status(500).json({ error: "Failed to fetch students" });
     }
-  });
+  );
   app2.post("/api/monitor/:monitorId/grupos/:grupoId/alunos", requireAuth, requireMonitor, async (req, res) => {
     try {
       const monitorId = parseInt(req.params.monitorId);
@@ -24682,6 +24808,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         return res.status(403).json({ error: "Acesso negado" });
       }
       const { participanteId, participanteCpf, participanteTipo } = req.body;
+      monitorPerfis;
       if (participanteTipo === "inclusao") {
         if (!participanteId) {
           return res.status(400).json({ error: "participanteId \xE9 obrigat\xF3rio para Inclus\xE3o" });
@@ -24697,6 +24824,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         if (existing.length) {
           return res.status(400).json({ error: "Participante j\xE1 est\xE1 na turma" });
         }
+        monitorPerfis;
         const result = await db.insert(participantesTurmas).values({
           turmaId: grupoId,
           participanteId,
@@ -24872,17 +25000,15 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           pec: "coordenador_pec",
           psico: "coordenador_psico"
         };
-        if (area && areaRoleMap[area] && userRole !== areaRoleMap[area]) {
-          return res.status(403).json({
-            error: "Acesso negado - \xE1rea n\xE3o autorizada para seu papel"
-          });
+        const isDevUser = userRole === "dev" || userRole === "desenvolvedor";
+        if (!isDevUser && area && areaRoleMap[area] && userRole !== areaRoleMap[area]) {
+          return res.status(403).json({ error: "Acesso negado - \xE1rea n\xE3o autorizada para seu papel" });
         }
+        const targetArea = area || userRole?.replace("coordenador_", "");
         let dashboardData = {};
-        switch (userRole) {
-          case "coordenador_inclusao":
-            const participantesAtivos = await db.select({ count: sql4`count(*)` }).from(participantesInclusao).where(
-              inArray3(participantesInclusao.status, ["ativo", "em_andamento"])
-            );
+        switch (targetArea) {
+          case "inclusao":
+            const participantesAtivos = await db.select({ count: sql4`count(*)` }).from(participantesInclusao).where(inArray3(participantesInclusao.status, ["ativo", "em_andamento"]));
             const programasAndamento = await db.select({
               count: sql4`count(DISTINCT ${cursosInclusao.id})`
             }).from(cursosInclusao);
@@ -24896,36 +25022,21 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
               proximasAtividades: []
             };
             break;
-          case "coordenador_pec":
-            const atletasAtivos = await db.select({ count: sql4`count(*)` }).from(instanceEnrollments).where(eq6(instanceEnrollments.active, true));
-            const modalidades = await db.select({
-              count: sql4`count(DISTINCT ${pecActivities.id})`
-            }).from(pecActivities).where(eq6(pecActivities.status, "ativa"));
-            const eventosRealizados = await db.select({ count: sql4`count(*)` }).from(sessions).where(sql4`${sessions.date} < CURRENT_DATE`);
-            const proximosEventosData = await db.select({
-              id: sessions.id,
-              title: pecActivities.name,
-              date: sessions.date,
-              start_time: sessions.start_time,
-              end_time: sessions.end_time
-            }).from(sessions).leftJoin(
-              activityInstances,
-              eq6(sessions.activity_instance_id, activityInstances.id)
-            ).leftJoin(
-              pecActivities,
-              eq6(activityInstances.activity_id, pecActivities.id)
-            ).where(sql4`${sessions.date} >= CURRENT_DATE`).orderBy(sessions.date).limit(5);
+          case "pec":
+            const alunosResult = await db.execute(sql4`SELECT count(*) as count FROM aluno`);
+            const alunosCount = Number(alunosResult.rows?.[0]?.count || 0);
+            const modalidadesCount = 3;
+            const oficinasResult = await db.execute(sql4`SELECT count(*) as count FROM pec_activities WHERE status = 'ativa'`);
+            const oficinasCount = Number(oficinasResult.rows?.[0]?.count || 0);
             dashboardData = {
-              atletasAtivos: atletasAtivos[0]?.count || 0,
-              modalidades: modalidades[0]?.count || 0,
-              eventosRealizados: eventosRealizados[0]?.count || 0,
-              proximosEventos: proximosEventosData
+              atletasAtivos: alunosCount,
+              modalidades: modalidadesCount,
+              oficinasCulturais: oficinasCount,
+              proximosEventos: []
             };
             break;
-          case "coordenador_psico":
-            const familiasAtendidas = await db.select({ count: sql4`count(*)` }).from(psicoFamilias).where(
-              inArray3(psicoFamilias.status, ["ativo", "em_acompanhamento"])
-            );
+          case "psico":
+            const familiasAtendidas = await db.select({ count: sql4`count(*)` }).from(psicoFamilias).where(inArray3(psicoFamilias.status, ["ativo", "em_acompanhamento"]));
             const casosAcompanhamento = await db.select({ count: sql4`count(*)` }).from(psicoCasos).where(
               inArray3(psicoCasos.status, [
                 "aberto",
@@ -25831,306 +25942,30 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const dbTelas = await storage.getAllTelas();
       const sistemaTelas2 = [
-        {
-          id: 1,
-          nome: "plans",
-          titulo: "Planos",
-          rota: "/",
-          status: "OK",
-          descricao: "P\xE1gina inicial - Sele\xE7\xE3o de planos",
-          modulo: "Pagamento",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 2,
-          nome: "register",
-          titulo: "Cadastro",
-          rota: "/register",
-          status: "OK",
-          descricao: "Cadastro de novos usu\xE1rios",
-          modulo: "Autentica\xE7\xE3o",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 3,
-          nome: "donation-flow",
-          titulo: "Fluxo de Doa\xE7\xE3o",
-          rota: "/donation-flow",
-          status: "OK",
-          descricao: "Novo fluxo TypeForm integrado com pagamento",
-          modulo: "Pagamento",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 4,
-          nome: "stripe-payment",
-          titulo: "Pagamento Stripe",
-          rota: "/stripe-payment",
-          status: "OK",
-          descricao: "Processamento de pagamentos via Stripe",
-          modulo: "Pagamento",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 40,
-          nome: "pagamento-ingresso",
-          titulo: "Pagamento de Ingresso",
-          rota: "/pagamento/ingresso",
-          status: "OK",
-          descricao: "P\xE1gina de compra de ingressos para eventos",
-          modulo: "Ingresso",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-09-23",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 5,
-          nome: "entrar",
-          titulo: "Login",
-          rota: "/entrar",
-          status: "OK",
-          descricao: "Tela de login por telefone",
-          modulo: "Autentica\xE7\xE3o",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 6,
-          nome: "verify",
-          titulo: "Verifica\xE7\xE3o",
-          rota: "/verify",
-          status: "OK",
-          descricao: "Verifica\xE7\xE3o de c\xF3digo SMS",
-          modulo: "Autentica\xE7\xE3o",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 7,
-          nome: "tdoador",
-          titulo: "Dashboard Doador",
-          rota: "/tdoador",
-          status: "OK",
-          descricao: "Dashboard do doador ap\xF3s pagamento confirmado",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 8,
-          nome: "educacao",
-          titulo: "Professor",
-          rota: "/educacao",
-          status: "OK",
-          descricao: "Dashboard do professor",
-          modulo: "Educa\xE7\xE3o",
-          tipo: "Professor",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 9,
-          nome: "aluno",
-          titulo: "Aluno",
-          rota: "/aluno",
-          status: "OK",
-          descricao: "Dashboard do aluno",
-          modulo: "Educa\xE7\xE3o",
-          tipo: "Aluno",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 10,
-          nome: "conselho",
-          titulo: "Conselho",
-          rota: "/conselho",
-          status: "OK",
-          descricao: "Dashboard do Conselho",
-          modulo: "Administra\xE7\xE3o",
-          tipo: "Conselho",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 11,
-          nome: "administrador",
-          titulo: "Leo Martins",
-          rota: "/administrador",
-          status: "OK",
-          descricao: "Dashboard do Super Admin",
-          modulo: "Super Admin",
-          tipo: "Restrito",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 12,
-          nome: "dev",
-          titulo: "Desenvolvedor",
-          rota: "/dev",
-          status: "OK",
-          descricao: "Painel do desenvolvedor",
-          modulo: "Desenvolvimento",
-          tipo: "Desenvolvedor",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 13,
-          nome: "busca",
-          titulo: "Busca",
-          rota: "/busca",
-          status: "OK",
-          descricao: "Funcionalidade de busca para doadores",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 14,
-          nome: "noticias",
-          titulo: "Not\xEDcias",
-          rota: "/noticias",
-          status: "OK",
-          descricao: "Feed de not\xEDcias integrado via WordPress",
-          modulo: "Conte\xFAdo",
-          tipo: "P\xFAblico",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 15,
-          nome: "perfil",
-          titulo: "Perfil",
-          rota: "/perfil",
-          status: "OK",
-          descricao: "Perfil do usu\xE1rio",
-          modulo: "Dashboard",
-          tipo: "Usu\xE1rio",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 16,
-          nome: "dados-cadastrais",
-          titulo: "Dados Cadastrais",
-          rota: "/dados-cadastrais",
-          status: "OK",
-          descricao: "Edi\xE7\xE3o dos dados cadastrais",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 17,
-          nome: "pagamentos",
-          titulo: "Pagamentos",
-          rota: "/pagamentos",
-          status: "OK",
-          descricao: "Hist\xF3rico e gest\xE3o de pagamentos",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 18,
-          nome: "configuracoes",
-          titulo: "Configura\xE7\xF5es",
-          rota: "/configuracoes",
-          status: "OK",
-          descricao: "Configura\xE7\xF5es da conta",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 19,
-          nome: "sobre",
-          titulo: "Sobre",
-          rota: "/sobre",
-          status: "OK",
-          descricao: "Informa\xE7\xF5es sobre o Clube do Grito",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 20,
-          nome: "change-plan",
-          titulo: "Alterar Plano",
-          rota: "/change-plan",
-          status: "OK",
-          descricao: "Alterar plano de assinatura",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 21,
-          nome: "central-ajuda",
-          titulo: "Central de Ajuda",
-          rota: "/central-ajuda",
-          status: "OK",
-          descricao: "Central de ajuda e suporte",
-          modulo: "Suporte",
-          tipo: "Geral",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 22,
-          nome: "patrocinador-dashboard",
-          titulo: "Patrocinador",
-          rota: "/patrocinador-dashboard",
-          status: "OK",
-          descricao: "Dashboard do patrocinador",
-          modulo: "Dashboard",
-          tipo: "Patrocinador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 23,
-          nome: "sorteio-admin",
-          titulo: "Admin Sorteio",
-          rota: "/sorteio-admin",
-          status: "OK",
-          descricao: "Administra\xE7\xE3o do sistema de sorteio",
-          modulo: "Administra\xE7\xE3o",
-          tipo: "Admin",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema"
-        },
-        {
-          id: 24,
-          nome: "dev-marketing",
-          titulo: "Marketing",
-          rota: "/dev/marketing",
-          status: "OK",
-          descricao: "\xC1rea de marketing para gerenciar benef\xEDcios, miss\xF5es e hist\xF3rias inspiradoras",
-          modulo: "Desenvolvimento",
-          tipo: "Marketing",
-          ultimaAtualizacao: "2025-09-08",
-          atualizadoPor: "Sistema"
-        },
+        { id: 1, nome: "plans", titulo: "Planos", rota: "/", status: "OK", descricao: "P\xE1gina inicial - Sele\xE7\xE3o de planos", modulo: "Pagamento", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 2, nome: "register", titulo: "Cadastro", rota: "/register", status: "OK", descricao: "Cadastro de novos usu\xE1rios", modulo: "Autentica\xE7\xE3o", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 3, nome: "donation-flow", titulo: "Fluxo de Doa\xE7\xE3o", rota: "/donation-flow", status: "OK", descricao: "Novo fluxo TypeForm integrado com pagamento", modulo: "Pagamento", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 4, nome: "stripe-payment", titulo: "Pagamento Stripe", rota: "/stripe-payment", status: "OK", descricao: "Processamento de pagamentos via Stripe", modulo: "Pagamento", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 40, nome: "pagamento-ingresso", titulo: "Pagamento de Ingresso", rota: "/pagamento/ingresso", status: "OK", descricao: "P\xE1gina de compra de ingressos para eventos", modulo: "Ingresso", tipo: "P\xFAblico", ultimaAtualizacao: "2025-09-23", atualizadoPor: "Sistema" },
+        { id: 5, nome: "entrar", titulo: "Login", rota: "/entrar", status: "OK", descricao: "Tela de login por telefone", modulo: "Autentica\xE7\xE3o", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 6, nome: "verify", titulo: "Verifica\xE7\xE3o", rota: "/verify", status: "OK", descricao: "Verifica\xE7\xE3o de c\xF3digo SMS", modulo: "Autentica\xE7\xE3o", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 7, nome: "tdoador", titulo: "Dashboard Doador", rota: "/tdoador", status: "OK", descricao: "Dashboard do doador ap\xF3s pagamento confirmado", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 9, nome: "aluno", titulo: "Aluno", rota: "/aluno", status: "OK", descricao: "Dashboard do aluno", modulo: "Educa\xE7\xE3o", tipo: "Aluno", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 10, nome: "conselho", titulo: "Conselho", rota: "/conselho", status: "OK", descricao: "Dashboard do Conselho", modulo: "Administra\xE7\xE3o", tipo: "Conselho", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 11, nome: "administrador", titulo: "Leo Martins", rota: "/administrador", status: "OK", descricao: "Dashboard do Super Admin", modulo: "Super Admin", tipo: "Restrito", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 12, nome: "dev", titulo: "Desenvolvedor", rota: "/dev", status: "OK", descricao: "Painel do desenvolvedor", modulo: "Desenvolvimento", tipo: "Desenvolvedor", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 13, nome: "busca", titulo: "Busca", rota: "/busca", status: "OK", descricao: "Funcionalidade de busca para doadores", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 14, nome: "noticias", titulo: "Not\xEDcias", rota: "/noticias", status: "OK", descricao: "Feed de not\xEDcias integrado via WordPress", modulo: "Conte\xFAdo", tipo: "P\xFAblico", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 15, nome: "perfil", titulo: "Perfil", rota: "/perfil", status: "OK", descricao: "Perfil do usu\xE1rio", modulo: "Dashboard", tipo: "Usu\xE1rio", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 16, nome: "dados-cadastrais", titulo: "Dados Cadastrais", rota: "/dados-cadastrais", status: "OK", descricao: "Edi\xE7\xE3o dos dados cadastrais", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 17, nome: "pagamentos", titulo: "Pagamentos", rota: "/pagamentos", status: "OK", descricao: "Hist\xF3rico e gest\xE3o de pagamentos", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 18, nome: "configuracoes", titulo: "Configura\xE7\xF5es", rota: "/configuracoes", status: "OK", descricao: "Configura\xE7\xF5es da conta", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 19, nome: "sobre", titulo: "Sobre", rota: "/sobre", status: "OK", descricao: "Informa\xE7\xF5es sobre o Clube do Grito", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 20, nome: "change-plan", titulo: "Alterar Plano", rota: "/change-plan", status: "OK", descricao: "Alterar plano de assinatura", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 21, nome: "central-ajuda", titulo: "Central de Ajuda", rota: "/central-ajuda", status: "OK", descricao: "Central de ajuda e suporte", modulo: "Suporte", tipo: "Geral", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 22, nome: "patrocinador-dashboard", titulo: "Patrocinador", rota: "/patrocinador-dashboard", status: "OK", descricao: "Dashboard do patrocinador", modulo: "Dashboard", tipo: "Patrocinador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 23, nome: "sorteio-admin", titulo: "Admin Sorteio", rota: "/sorteio-admin", status: "OK", descricao: "Administra\xE7\xE3o do sistema de sorteio", modulo: "Administra\xE7\xE3o", tipo: "Admin", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 24, nome: "dev-marketing", titulo: "Marketing", rota: "/dev/marketing", status: "OK", descricao: "\xC1rea de marketing para gerenciar benef\xEDcios, miss\xF5es e hist\xF3rias inspiradoras", modulo: "Desenvolvimento", tipo: "Marketing", ultimaAtualizacao: "2025-09-08", atualizadoPor: "Sistema" },
         // ================ NOVAS TELAS RBAC ================
         { id: 42, nome: "professor-pec", titulo: "Professor PEC", rota: "/professor/pec", status: "OK", descricao: "Dashboard do Professor - Polo Esportivo Cultural", modulo: "Educa\xE7\xE3o", tipo: "Professor", ultimaAtualizacao: "2025-01-21", atualizadoPor: "Sistema RBAC" },
         { id: 43, nome: "professor-inclusao", titulo: "Professor Inclus\xE3o", rota: "/professor/inclusao", status: "OK", descricao: "Dashboard do Professor - Inclus\xE3o Produtiva", modulo: "Educa\xE7\xE3o", tipo: "Professor", ultimaAtualizacao: "2025-01-21", atualizadoPor: "Sistema RBAC" },
@@ -27152,53 +26987,62 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   });
   app2.post("/api/login/professor", express.json(), async (req, res) => {
     try {
-      const { email, senha } = req.body;
+      const { email, senha, programa } = req.body;
       if (!email || !email.trim()) {
         return res.status(400).json({ error: "Email \xE9 obrigat\xF3rio" });
       }
       if (!senha || !senha.trim()) {
         return res.status(400).json({ error: "Senha \xE9 obrigat\xF3ria" });
       }
-      console.log(`\u{1F511} [PROFESSOR LOGIN] Tentativa de login: ${email}`);
+      const PROGRAMAS_VALIDOS = ["pec", "inclusao_produtiva"];
+      if (!programa || !programa.trim()) {
+        return res.status(400).json({ error: "Selecione uma vertente" });
+      }
+      if (!PROGRAMAS_VALIDOS.includes(programa)) {
+        return res.status(400).json({ error: "Vertente inv\xE1lida" });
+      }
+      console.log(`\u{1F511} [PROFESSOR LOGIN] Tentativa de login: ${email} (programa: ${programa})`);
       const professorResult = await pool.query(
-        "SELECT * FROM professores WHERE email = $1 LIMIT 1",
-        [email.toLowerCase().trim()]
+        "SELECT * FROM professores WHERE email = $1 AND programa = $2 LIMIT 1",
+        [email.toLowerCase().trim(), programa]
       );
       if (!professorResult.rows || professorResult.rows.length === 0) {
-        console.log(`\u274C [PROFESSOR LOGIN] Professor n\xE3o encontrado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        console.log(`\u274C [PROFESSOR LOGIN] Professor n\xE3o encontrado: ${email} (programa: ${programa})`);
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
       const professor = professorResult.rows[0];
       if (!professor.ativo) {
         console.log(`\u274C [PROFESSOR LOGIN] Professor desativado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
       const senhaValida = await bcrypt.compare(senha, professor.password_hash);
       if (!senhaValida) {
         console.log(`\u274C [PROFESSOR LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
       let role;
+      let redirectPath;
       switch (professor.programa) {
         case "pec":
           role = "professor_pec";
+          redirectPath = "/professor/pec";
           break;
         case "inclusao_produtiva":
           role = "professor_inclusao";
+          redirectPath = "/professor/inclusao";
           break;
         case "psicossocial":
           role = "professor_psico";
+          redirectPath = "/professor/psicossocial";
           break;
         default:
           role = "professor";
+          redirectPath = "/professor";
       }
-      const existingUser = await db.select().from(users).where(eq6(users.email, professor.email)).limit(1);
+      const existingUser = await db.select().from(users).where(and3(eq6(users.email, professor.email), eq6(users.role, role))).limit(1);
       let userId2;
       if (existingUser && existingUser.length > 0) {
         await db.update(users).set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
           nome: professor.nome,
           role,
           ativo: true,
@@ -27223,24 +27067,22 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           `\u2705 [PROFESSOR LOGIN] Novo usu\xE1rio criado: ${professor.nome} (ID: ${userId2}, Role: ${role})`
         );
       }
-      console.log(
-        `\u2705 [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId2})`
-      );
+      console.log(`\u2705 [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId2}, Programa: ${programa})`);
       res.json({
         success: true,
+        userId: userId2,
         professor: {
           id: professor.id,
           nome: professor.nome,
           email: professor.email,
           programa: professor.programa,
           role,
-          redirectPath: "/professor"
-        },
-        userId: userId2
+          redirectPath
+        }
       });
     } catch (error) {
       console.error("\u274C [PROFESSOR LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
+      res.status(500).json({ error: "Erro interno no servidor" });
     }
   });
   app2.post("/api/login/developer", express.json(), async (req, res) => {
@@ -28668,24 +28510,17 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const isDay7 = diaAtual === 7;
       await db.transaction(async (tx) => {
         await tx.update(users).set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
           diasConsecutivos: newStreak,
-          ultimoCheckin: agora
+          ultimoCheckin: agora,
+          gritosTotal: sql4`COALESCE(${users.gritosTotal}, 0) + ${gritosGanhos}`
         }).where(eq6(users.id, userId2));
         await tx.insert(gritosHistorico).values({
           userId: userId2,
           tipo: "checkin_diario",
           gritosGanhos,
           createdAt: agora
+          // 👈 CONFIRMA se esse campo existe no schema
         });
-        await tx.update(users).set({
-          horarioInicio,
-          horarioFim,
-          dias_semana,
-          gritosTotal: sql4`${users.gritosTotal} + ${gritosGanhos}`
-        }).where(eq6(users.id, userId2));
       });
       const [tot] = await db.select({ gritosTotal: users.gritosTotal }).from(users).where(eq6(users.id, userId2)).limit(1);
       await checkAndCompleteCheckinMissions(userId2, newStreak);
@@ -39025,18 +38860,22 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const { turmaId, data, presencas } = req.body;
       const turmaResult = await db.select().from(turmasInclusao).where(eq6(turmasInclusao.id, turmaId)).limit(1);
       const turmaNome = turmaResult[0]?.nome || "Turma";
-      const presentes = presencas.filter((p) => p.presente).length;
-      const total = presencas.length;
-      const [registro] = await db.insert(registrosAtividades).values({
-        monitorUserId: professorId,
-        dataAtividade: data,
-        grupo: `turma_${turmaId}`,
-        titulo: `Chamada - ${turmaNome}`,
-        descricao: `Presentes: ${presentes}/${total}. Dados: ${JSON.stringify(presencas)}`,
-        participantes: presentes,
-        vertente: "inclusao"
-      }).returning();
-      res.status(201).json(registro);
+      const insertedPresencas = [];
+      for (const p of presencas || []) {
+        const participanteId = p.id || p.participanteId;
+        if (participanteId) {
+          const [presenca] = await db.insert(presencasInclusao).values({
+            participanteId: typeof participanteId === "string" ? parseInt(participanteId) : participanteId,
+            turmaId,
+            data,
+            presente: p.presente || false,
+            observacoes: p.observacoes || null
+          }).returning();
+          insertedPresencas.push(presenca);
+        }
+      }
+      console.log(`[PROFESSOR] Registro de ${insertedPresencas.length} presen\xE7as criado por professor ${professorId} para turma ${turmaId}`);
+      res.status(201).json({ success: true, count: insertedPresencas.length, turma: turmaNome });
     } catch (error) {
       console.error("Erro ao registrar presen\xE7a:", error);
       res.status(500).json({ error: "Erro ao registrar presen\xE7a" });
@@ -39045,30 +38884,58 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/professor/:userId/historico-chamadas", async (req, res) => {
     try {
       const professorId = parseInt(req.params.userId);
-      const registros = await db.select().from(registrosAtividades).where(and3(
-        eq6(registrosAtividades.monitorUserId, professorId),
-        like2(registrosAtividades.titulo, "Chamada - %")
-      )).orderBy(desc3(registrosAtividades.createdAt)).limit(50);
-      const turmaIds = [...new Set(registros.map((r) => {
-        const match = r.grupo?.match(/turma_(\d+)/);
-        return match ? parseInt(match[1]) : null;
-      }).filter(Boolean))];
-      const turmasMap = {};
-      if (turmaIds.length > 0) {
-        const turmas = await db.select({ id: turmasInclusao.id, nome: turmasInclusao.nome }).from(turmasInclusao).where(inArray3(turmasInclusao.id, turmaIds));
-        turmas.forEach((t) => {
-          turmasMap[t.id] = t.nome;
+      const turmas = await db.select({
+        id: turmasInclusao.id,
+        nome: turmasInclusao.nome
+      }).from(turmasInclusao);
+      const turmaMap = new Map(turmas.map((t) => [t.id, t.nome]));
+      const presencas = await db.select({
+        id: presencasInclusao.id,
+        participanteId: presencasInclusao.participanteId,
+        turmaId: presencasInclusao.turmaId,
+        data: presencasInclusao.data,
+        presente: presencasInclusao.presente,
+        observacoes: presencasInclusao.observacoes,
+        createdAt: presencasInclusao.createdAt,
+        nome: participantesInclusao.nome
+      }).from(presencasInclusao).leftJoin(participantesInclusao, eq6(presencasInclusao.participanteId, participantesInclusao.id)).orderBy(desc3(presencasInclusao.data), desc3(presencasInclusao.id));
+      const grouped = /* @__PURE__ */ new Map();
+      for (const p of presencas) {
+        const key2 = `${p.turmaId}_${p.data}`;
+        if (!grouped.has(key2)) {
+          grouped.set(key2, {
+            id: `inclusao_${p.turmaId}_${p.data}`,
+            data: p.data,
+            grupo: `turma_${p.turmaId}`,
+            turmaNome: turmaMap.get(p.turmaId) || `Turma ${p.turmaId}`,
+            titulo: `Chamada - ${turmaMap.get(p.turmaId) || "Turma"}`,
+            totalPresentes: 0,
+            totalAlunos: 0,
+            presencas: [],
+            grupoId: p.turmaId,
+            createdAt: p.createdAt,
+            tipo: "inclusao"
+          });
+        }
+        const group = grouped.get(key2);
+        group.presencas.push({
+          id: p.participanteId,
+          nome: p.nome,
+          presente: p.presente,
+          observacoes: p.observacoes
         });
+        group.totalAlunos++;
+        if (p.presente) {
+          group.totalPresentes++;
+        }
       }
-      const registrosComTurma = registros.map((r) => {
-        const match = r.grupo?.match(/turma_(\d+)/);
-        const turmaIdFromGrupo = match ? parseInt(match[1]) : null;
-        return {
-          ...r,
-          turmaNome: turmaIdFromGrupo ? turmasMap[turmaIdFromGrupo] || "Turma" : "N/A"
-        };
+      const historico = Array.from(grouped.values());
+      historico.sort((a, b) => {
+        const dateA = new Date(a.data || 0).getTime();
+        const dateB = new Date(b.data || 0).getTime();
+        return dateB - dateA;
       });
-      res.json(registrosComTurma);
+      res.json(historico);
     } catch (error) {
       console.error("Erro ao buscar hist\xF3rico:", error);
       res.status(500).json({ error: "Erro ao buscar hist\xF3rico" });

@@ -123,19 +123,13 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/9-C9VisHgl.png",
     "revision": null
   }, {
-    "url": "assets/CAPA DEV_1763572613505-BXQcaIPO.png",
-    "revision": null
-  }, {
     "url": "assets/CLUBE_DO GRITO_LOGO_Prancheta 1_1751996016284-CVeckMe7.png",
     "revision": null
   }, {
     "url": "assets/CLUBEDOGRITO_APPpng_Prancheta 1_1755627303160-BWIV1B9K.png",
     "revision": null
   }, {
-    "url": "assets/Gemini_Generated_Image_4go0l24go0l24go0_1763145562380-D75eu9Dy.png",
-    "revision": null
-  }, {
-    "url": "assets/Gemini_Generated_Image_z1piwwz1piwwz1pi (1)_1763561171789-DBmQnrPW.png",
+    "url": "assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783-BZEX8ARK.png",
     "revision": null
   }, {
     "url": "assets/image_1756315503638-Cn_agDQ2.png",
@@ -168,13 +162,16 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/image_1764861877259-C6PZ_otH.png",
     "revision": null
   }, {
-    "url": "assets/index-2_CkBoP2.js",
+    "url": "assets/image_1769199255257-D_0JMbrD.png",
     "revision": null
   }, {
-    "url": "assets/index-DBWkvBXh.css",
+    "url": "assets/index-BKn7bBpb.css",
     "revision": null
   }, {
-    "url": "assets/index.es-skjqmz19.js",
+    "url": "assets/index-Di9uSZBz.js",
+    "revision": null
+  }, {
+    "url": "assets/index.es-D3yUUkko.js",
     "revision": null
   }, {
     "url": "assets/LOGO_CLUBE-05_1752081350082-YOrunU7b.png",
@@ -204,7 +201,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/stories-overlay.png",
     "revision": null
   }, {
-    "url": "assets/web-BgAzQG6E.js",
+    "url": "assets/web-BgQ0OifO.js",
     "revision": null
   }, {
     "url": "coin-icon.png",
@@ -217,7 +214,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "revision": "f118ff07631e069f07a62db0c41dcc43"
   }, {
     "url": "index.html",
-    "revision": "ad432b899ce1d9c2b3663bd33ea730fd"
+    "revision": "0376b61cd9dfed0d9bdab177c40650c9"
   }, {
     "url": "ingresso-foto-topo.png",
     "revision": "9bed8ec65aa6c08ed1676c68f622e6c9"
