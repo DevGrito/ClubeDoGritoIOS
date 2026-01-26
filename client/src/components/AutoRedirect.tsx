@@ -53,7 +53,7 @@ export const AutoRedirect: React.FC = () => {
   '/pagamento/reprovado', '/pagamento-ingresso', '/ingresso',
   '/ingresso/avulso/resgatar', '/ingresso/resgate/identificar',
   '/ingresso/resgate/confirmar', '/scanner', '/scanner-login',
-  '/login/coordenador', '/login/monitor', '/ingressos/compras/extras',
+  '/login/coordenador', '/login/monitor', '/login/professor', '/ingressos/compras/extras',
   '/ingressos-esgotados',
   '/gestao/vista/dashboard'
 ];
@@ -134,7 +134,7 @@ function getDefaultRouteForRole(userPapel: string): string {
     // Legacy roles
     case 'lider':
     case 'professor_lider':
-      return '/educacao';
+      return '/professor';
     case 'aluno':
       return '/aluno';
     case 'conselho':

@@ -211,7 +211,7 @@ function getDefaultRouteForRole(userPapel: string, userEmail?: string | null): s
     // Legacy roles
     case 'lider':
     case 'professor_lider':
-      return '/educacao';
+      return '/professor';
     case 'aluno':
       return '/aluno';
     case 'conselho':

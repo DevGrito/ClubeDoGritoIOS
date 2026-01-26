@@ -327,7 +327,7 @@ export const councilRequests = pgTable("council_requests", {
 // Armazena emails autorizados do conselho - verificação feita pelo backend
 export const conselheiros = pgTable("conselheiros", {
   id: serial("id").primaryKey(),
-  email: text("email").unique().notNull(),
+  email: text("email").notNull(), // UNIQUE(email, programa) - constraint no banco
   nome: text("nome"),
   tipo: text("tipo").default("conselho"), // 'conselho', 'admin', 'leo'
   ativo: boolean("ativo").default(true),
@@ -4782,7 +4782,7 @@ export const insertConselhoMetasMensaisSchema = createInsertSchema(conselhoMetas
 export const coordenadores = pgTable("coordenadores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(), // "Coordenador Psico", "Coordenador PEC", "Coordenador Inclusão Produtiva"
-  email: text("email").unique().notNull(),
+  email: text("email").notNull(), // UNIQUE(email, programa) - constraint no banco
   passwordHash: text("password_hash").notNull(), // Hash bcrypt da senha
   telefone: text("telefone"),
   formacao: text("formacao"), // Registro profissional
@@ -4812,7 +4812,7 @@ export const insertCoordenadorSchema = createInsertSchema(coordenadores).omit({
 export const monitores = pgTable("monitores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(),
-  email: text("email").unique().notNull(),
+  email: text("email").notNull(), // UNIQUE(email, programa) - constraint no banco
   passwordHash: text("password_hash").notNull(), // Hash bcrypt da senha
   telefone: text("telefone"),
   programa: text("programa").notNull(), // 'pec', 'inclusao_produtiva', 'psicossocial'
@@ -4841,7 +4841,7 @@ export const insertMonitorSchema = createInsertSchema(monitores).omit({
 export const professores = pgTable("professores", {
   id: serial("id").primaryKey(),
   nome: text("nome").notNull(),
-  email: text("email").unique().notNull(),
+  email: text("email").notNull(), // UNIQUE(email, programa) - constraint no banco
   passwordHash: text("password_hash").notNull(),
   telefone: text("telefone"),
   programa: text("programa").notNull(), // 'pec', 'inclusao_produtiva', 'psicossocial'
@@ -5153,3 +5153,38 @@ export const insertDocumentoParticipanteSchema = createInsertSchema(documentosPa
   id: true,
   createdAt: true,
 });
+
+// Tabela para armazenar perfis de monitor separados por vertente
+export const monitorPerfis = pgTable("monitor_perfis", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  vertente: text("vertente").notNull(), // 'pec', 'inclusao'
+  nome: text("nome").notNull(),
+  email: text("email"),
+  telefone: text("telefone"),
+  areaAtuacao: text("area_atuacao"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type MonitorPerfil = typeof monitorPerfis.$inferSelect;
+export type InsertMonitorPerfil = typeof monitorPerfis.$inferInsert;
+
+// Tabela para login de professores separado por vertente
+export const professorLogins = pgTable("professor_logins", {
+  id: serial("id").primaryKey(),
+  nome: text("nome").notNull(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  telefone: text("telefone"),
+  vertente: text("vertente").notNull(), // 'pec', 'inclusao'
+  redirectPath: text("redirect_path").notNull().default("/professor"),
+  ativo: boolean("ativo").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Types
+export type ProfessorLogin = typeof professorLogins.$inferSelect;
+export type InsertProfessorLogin = typeof professorLogins.$inferInsert;

@@ -20,7 +20,6 @@ const pageHierarchy = {
   "/entrar": 5,
   "/verify": 6,
   "/tdoador": 10,
-  "/educacao": 8,
   "/administrador": 9,
   "/change-plan": 15,
   "/sorteio": 11,

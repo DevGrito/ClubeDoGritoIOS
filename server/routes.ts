@@ -191,7 +191,8 @@ import {
   turmasInclusao,
   turma,
   planoAula,
-  participantesTurmas
+  participantesTurmas,
+  monitorPerfis
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, or, sql, desc, asc, ilike, like, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
@@ -8022,7 +8023,6 @@ app.post("/api/send-login-code", async (req, res) => {
           stripeCustomerId: doadores.stripeCustomerId,
           stripeSubscriptionId: doadores.stripeSubscriptionId,
           periodicidade: doadores.periodicidade,
-          periodoDoacao: doadores.periodoDoacao,
           createdAt: doadores.createdAt,
           verificadoEm: doadores.verificadoEm,
         })
@@ -8049,10 +8049,10 @@ app.post("/api/send-login-code", async (req, res) => {
     const stripeCustomerId =
       doadorRow?.stripeCustomerId || existingUser?.stripeCustomerId || null;
 
+    // Se não dá pra checar stripe, normaliza como canceled e bloqueia
     if (!stripeCustomerId || !stripe) {
-      // não dá pra checar stripe -> considera inexistente/cancelado e NORMALIZA banco
       console.log(
-        `⛔ [LOGIN GATE] Sem stripeCustomerId (user ${userId}) -> bloqueando`
+        `⛔ [LOGIN GATE] Sem stripeCustomerId/Stripe (user ${userId}) -> bloqueando`
       );
 
       try {
@@ -8095,14 +8095,23 @@ app.post("/api/send-login-code", async (req, res) => {
     }
 
     // 2) Stripe: buscar subs e decidir status
-    let stripeDecision = {
+    let stripeDecision: {
+      canLogin: boolean;
+      dbStatus: "paid" | "pending" | "canceled";
+      dbAtivo: boolean;
+      reason: string;
+      message: string;
+      stripeSubId: string | null;
+      stripeSubStatus: string | null;
+      shouldSetDesligamento: boolean;
+    } = {
       canLogin: false,
-      dbStatus: "canceled" as "paid" | "pending" | "canceled",
+      dbStatus: "canceled",
       dbAtivo: false,
       reason: "SUBSCRIPTION_NOT_FOUND",
       message: "Não encontramos uma assinatura ativa para este número.",
-      stripeSubId: null as string | null,
-      stripeSubStatus: null as string | null,
+      stripeSubId: null,
+      stripeSubStatus: null,
       shouldSetDesligamento: true,
     };
 
@@ -8115,8 +8124,8 @@ app.post("/api/send-login-code", async (req, res) => {
         limit: 20,
       });
 
-      // prioridade: active/trialing (libera)
-      const activeSub = subs.data.find((s) =>
+      // libera se active/trialing
+      const activeSub = subs.data.find((s: any) =>
         ["active", "trialing"].includes(s.status)
       );
 
@@ -8132,7 +8141,7 @@ app.post("/api/send-login-code", async (req, res) => {
           shouldSetDesligamento: false,
         };
       } else {
-        // se existe alguma assinatura mas não está ativa
+        // se existe alguma sub mas não ativa
         const anySub = subs.data[0] || null;
 
         if (!anySub) {
@@ -8149,15 +8158,19 @@ app.post("/api/send-login-code", async (req, res) => {
         } else if (anySub.status === "paused") {
           stripeDecision = {
             canLogin: false,
-            dbStatus: "pending", // no banco pending
+            dbStatus: "pending",
             dbAtivo: false,
-            reason: "SUBSCRIPTION_PAUSED", // pro toast
+            reason: "SUBSCRIPTION_PAUSED",
             message: "Sua assinatura está pausada. Reative para continuar.",
             stripeSubId: anySub.id,
             stripeSubStatus: anySub.status,
             shouldSetDesligamento: false,
           };
-        } else if (["past_due", "incomplete", "incomplete_expired", "unpaid"].includes(anySub.status)) {
+        } else if (
+          ["past_due", "incomplete", "incomplete_expired", "unpaid"].includes(
+            anySub.status
+          )
+        ) {
           stripeDecision = {
             canLogin: false,
             dbStatus: "pending",
@@ -8180,7 +8193,6 @@ app.post("/api/send-login-code", async (req, res) => {
             shouldSetDesligamento: true,
           };
         } else {
-          // fallback: tudo que não for ativo/trialing vira pending
           stripeDecision = {
             canLogin: false,
             dbStatus: "pending",
@@ -8195,7 +8207,6 @@ app.post("/api/send-login-code", async (req, res) => {
       }
     } catch (stripeErr: any) {
       console.log("⚠️ [LOGIN GATE] Stripe erro:", stripeErr.message);
-
       return res.status(503).json({
         success: false,
         error: "STRIPE_INDISPONIVEL",
@@ -8222,7 +8233,10 @@ app.post("/api/send-login-code", async (req, res) => {
       }
 
       if (doadorRow?.id) {
-        await db.update(doadores).set(baseUpdate).where(eq(doadores.id, doadorRow.id));
+        await db
+          .update(doadores)
+          .set(baseUpdate)
+          .where(eq(doadores.id, doadorRow.id));
       } else {
         await db.insert(doadores).values({
           userId,
@@ -8235,7 +8249,9 @@ app.post("/api/send-login-code", async (req, res) => {
           createdAt: new Date(),
           updatedAt: new Date(),
           verificadoEm: new Date(),
-          dataDesligamento: stripeDecision.shouldSetDesligamento ? new Date() : null,
+          dataDesligamento: stripeDecision.shouldSetDesligamento
+            ? new Date()
+            : null,
         } as any);
       }
 
@@ -8258,7 +8274,7 @@ app.post("/api/send-login-code", async (req, res) => {
       });
     } catch (e: any) {
       console.log("⚠️ [LOGIN GATE] Falha ao atualizar banco:", e.message);
-      // não bloqueia por falha de update — mas você pode decidir bloquear se quiser
+      // opcional: se quiser bloquear quando falhar update, aqui seria o lugar
     }
 
     // 4) Decide login
@@ -8323,10 +8339,10 @@ app.post("/api/send-login-code", async (req, res) => {
       });
 
       console.log(`✅ LOGIN SMS SENT to ${twilioPhone} with code ${codigo}`);
-      res.json({ success: true, message: "Código enviado via SMS" });
+      return res.json({ success: true, message: "Código enviado via SMS" });
     } catch (twilioError) {
       console.error("Twilio error:", twilioError);
-      res.json({
+      return res.json({
         success: true,
         message: "Código gerado (SMS indisponível)",
         codigo: codigo,
@@ -8334,9 +8350,10 @@ app.post("/api/send-login-code", async (req, res) => {
     }
   } catch (error: any) {
     console.error("Error sending login code:", error);
-    res.status(500).json({ error: "Erro ao enviar código" });
+    return res.status(500).json({ error: "Erro ao enviar código" });
   }
 });
+
 
   // Professor-specific login code verification (includes new test users)
   app.post("/api/professor/verify-login-code", async (req, res) => {
@@ -15528,15 +15545,28 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.post("/api/professor/unenroll", async (req, res) => {
     try {
       const { studentCpf, classId } = req.body;
-      await storage.unenrollStudent(studentCpf, classId);
-      res.json({
-        success: true,
-        message: "Aluno removido da turma com sucesso",
-      });
+      
+      // PEC usa instanceEnrollments, não alunoTurma
+      // Desativar o enrollment na tabela instance_enrollments
+      const result = await db
+        .update(instanceEnrollments)
+        .set({ active: false })
+        .where(and(
+          eq(instanceEnrollments.student_cpf, studentCpf),
+          eq(instanceEnrollments.activity_instance_id, classId)
+        ))
+        .returning();
+      
+      if (result.length === 0) {
+        // Fallback para tabela antiga se não encontrar
+        await storage.unenrollStudent(studentCpf, classId);
+      }
+      
+      console.log(`[UNENROLL] Aluno ${studentCpf} removido da turma PEC ${classId}`);
+      res.json({ success: true, message: "Aluno removido da turma com sucesso" });
     } catch (error: any) {
-      res
-        .status(500)
-        .json({ error: "Erro ao remover aluno da turma: " + error.message });
+      console.error("[UNENROLL] Erro:", error);
+      res.status(500).json({ error: "Erro ao remover aluno da turma: " + error.message });
     }
   });
 
@@ -16107,18 +16137,39 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   // ================ MONITOR - PERFIL ================
   
-  // GET /api/monitor/:userId/perfil - Buscar perfil do monitor
+  
+  
+  // GET /api/monitor/:userId/perfil - Buscar perfil do monitor (separado por vertente)
   app.get("/api/monitor/:userId/perfil", requireAuth, requireMonitor, async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
       const user = (req as any).user;
+      const vertente = req.query.vertente as string || 'pec';
       
       const access = ensureSelfAccess(user, userId, 'perfil');
       if (!access.allowed) {
         return res.status(access.error!.status).json({ error: access.error!.message });
       }
       
-      // Buscar dados do usuário na tabela users
+      // Buscar dados do perfil na tabela monitor_perfis para esta vertente usando SQL raw
+      const perfilResult = await db.execute(sql`
+        SELECT * FROM monitor_perfis 
+        WHERE user_id = ${userId} AND vertente = ${vertente}
+        LIMIT 1
+      `);
+      
+      if (perfilResult.rows && perfilResult.rows.length > 0) {
+        const perfil = perfilResult.rows[0] as any;
+        return res.json({
+          nome: perfil.nome,
+          nome_completo: perfil.nome,
+          email: perfil.email,
+          telefone: perfil.telefone,
+          area_atuacao: perfil.area_atuacao || (vertente === 'inclusao' ? 'Inclusão Produtiva' : 'PEC')
+        });
+      }
+      
+      // Se não tem perfil para esta vertente, buscar dados do usuário como fallback
       const userResult = await db
         .select()
         .from(users)
@@ -16130,81 +16181,93 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
       
       const userData = userResult[0];
-      
-      // Buscar dados adicionais na tabela monitores (se existir)
-      const monitorResult = await db
-        .select()
-        .from(monitores)
-        .where(eq(monitores.email, userData.email || ''))
-        .limit(1);
-      
-      const monitorData = monitorResult?.[0];
-      
       res.json({
         nome: userData.nome,
-        nome_completo: monitorData?.nome || userData.nome,
-        email: userData.email || monitorData?.email,
-        telefone: userData.telefone || monitorData?.telefone,
-        area_atuacao: monitorData?.programa || "Monitoria Educacional"
+        nome_completo: userData.nome,
+        email: userData.email,
+        telefone: userData.telefone,
+        area_atuacao: vertente === 'inclusao' ? 'Inclusão Produtiva' : vertente === 'pec' ? 'PEC' : 'Monitoria Educacional'
       });
     } catch (error: any) {
+      // Se a tabela não existe, retornar dados do usuário
+      if (error.code === '42P01') {
+        try {
+          const userResult = await db.select().from(users).where(eq(users.id, parseInt(req.params.userId))).limit(1);
+          if (userResult.length > 0) {
+            const vertente = req.query.vertente as string;
+            return res.json({
+              nome: userResult[0].nome,
+              nome_completo: userResult[0].nome,
+              email: userResult[0].email,
+              telefone: userResult[0].telefone,
+              area_atuacao: vertente === 'inclusao' ? 'Inclusão Produtiva' : 'PEC'
+            });
+          }
+        } catch (e) {}
+      }
       console.error("❌ [MONITOR PERFIL] Erro ao buscar perfil:", error);
       res.status(500).json({ error: "Erro ao buscar perfil" });
     }
   });
   
-  // PUT /api/monitor/:userId/perfil - Atualizar perfil do monitor
+  // PUT /api/monitor/:userId/perfil - Atualizar perfil do monitor (separado por vertente)
   app.put("/api/monitor/:userId/perfil", requireAuth, requireMonitor, async (req, res) => {
     try {
       const userId = parseInt(req.params.userId);
       const user = (req as any).user;
-      const { nome, email, telefone, area_atuacao } = req.body;
+      const { nome, email, telefone, area_atuacao, vertente } = req.body;
       
       const access = ensureSelfAccess(user, userId, 'perfil');
       if (!access.allowed) {
         return res.status(access.error!.status).json({ error: access.error!.message });
       }
       
-      console.log(`🔄 [MONITOR PERFIL] Atualizando perfil do usuário ${userId}`);
-      
-      // Buscar email ANTIGO antes de atualizar (para encontrar na tabela monitores)
-      const userResult = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      
-      const emailAntigo = userResult?.[0]?.email;
-      
-      // Atualizar dados na tabela users (incluindo email)
-      await db
-        .update(users)
-        .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-          nome: nome,
-          email: email,
-          telefone: telefone
-        })
-        .where(eq(users.id, userId));
-      
-      if (emailAntigo) {
-        // Atualizar na tabela monitores usando email ANTIGO como referência
-        await db
-          .update(monitores)
-          .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-            nome: nome,
-            email: email, // Atualiza também o email na tabela monitores (usado para login)
-            telefone: telefone
-          })
-          .where(eq(monitores.email, emailAntigo));
+      if (!vertente) {
+        return res.status(400).json({ error: "Vertente não especificada" });
       }
       
-      console.log(`✅ [MONITOR PERFIL] Perfil atualizado com sucesso (email: ${emailAntigo} -> ${email})`);
+      console.log(`🔄 [MONITOR PERFIL] Atualizando perfil do userId ${userId} na vertente ${vertente}`);
+      
+      // Criar tabela se não existir
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS monitor_perfis (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          vertente TEXT NOT NULL,
+          nome TEXT NOT NULL,
+          email TEXT,
+          telefone TEXT,
+          area_atuacao TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, vertente)
+        )
+      `);
+      
+      // Verificar se já existe perfil para esta vertente
+      const perfilExistente = await db.execute(sql`
+        SELECT id FROM monitor_perfis 
+        WHERE user_id = ${userId} AND vertente = ${vertente}
+        LIMIT 1
+      `);
+      
+      if (perfilExistente.rows && perfilExistente.rows.length > 0) {
+        // Atualizar perfil existente
+        await db.execute(sql`
+          UPDATE monitor_perfis 
+          SET nome = ${nome}, email = ${email}, telefone = ${telefone}, area_atuacao = ${area_atuacao}, updated_at = NOW()
+          WHERE user_id = ${userId} AND vertente = ${vertente}
+        `);
+        console.log(`✅ [MONITOR PERFIL] Perfil ${vertente} atualizado para userId ${userId}`);
+      } else {
+        // Criar novo perfil para esta vertente
+        await db.execute(sql`
+          INSERT INTO monitor_perfis (user_id, vertente, nome, email, telefone, area_atuacao)
+          VALUES (${userId}, ${vertente}, ${nome}, ${email}, ${telefone}, ${area_atuacao})
+        `);
+        console.log(`✅ [MONITOR PERFIL] Novo perfil ${vertente} criado para userId ${userId}`);
+      }
+      
       res.json({ success: true, message: "Perfil atualizado com sucesso" });
     } catch (error: any) {
       console.error("❌ [MONITOR PERFIL] Erro ao atualizar perfil:", error);
@@ -17344,8 +17407,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           nome: nome,
           codigo: codigo,
           local: local,
-          horarioEntrada: horarioInicio,
-          horarioSaida: horarioFim,
+          horarioEntrada: horarioInicio || null,
+          horarioSaida: horarioFim || null,
           dataInicio: dataInicio,
           dataFim: dataFim,
           descricao: descricao,
@@ -17403,14 +17466,50 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const { nome, nivel, atividade, status, horarioInicio, horarioFim, diasSemana, local, descricao, dataInicio, dataFim, codigo } = req.body;
       
       // Para Inclusão: atualizar em turmas_inclusao
+      // Para PEC: atualizar em activityInstances
+      if (vertente === 'pec') {
+        const updated = await db.update(activityInstances)
+          .set({
+            title: nome,
+            code: codigo,
+            location: local,
+            start_time: horarioInicio || null,
+            end_time: horarioFim || null,
+            occurrence_start: dataInicio || null,
+            occurrence_end: dataFim || null,
+            situation: status || 'ativo',
+            updated_at: new Date()
+          })
+          .where(eq(activityInstances.id, grupoId))
+          .returning();
+        
+        if (updated.length === 0) {
+          return res.status(404).json({ error: 'Turma não encontrada' });
+        }
+        
+        console.log(`[RBAC MONITOR] Turma PEC ${grupoId} atualizada por monitor ${monitorId}`);
+        return res.json({
+          id: updated[0].id,
+          nome: updated[0].title,
+          codigo: updated[0].code,
+          local: updated[0].location,
+          horarioInicio: updated[0].start_time,
+          horarioFim: updated[0].end_time,
+          dataInicio: updated[0].occurrence_start,
+          dataFim: updated[0].occurrence_end,
+          status: updated[0].situation,
+          vertente: 'pec'
+        });
+      }
+
       if (vertente === 'inclusao') {
         const updated = await db.update(turmasInclusao)
           .set({
             nome,
             codigo,
             local,
-            horarioEntrada: horarioInicio,
-            horarioSaida: horarioFim,
+            horarioEntrada: horarioInicio || null,
+            horarioSaida: horarioFim || null,
             dataInicio,
             dataFim,
             descricao,
@@ -17549,103 +17648,133 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
 
-  // GET /api/monitor/:monitorId/grupos/:grupoId/alunos - Get students in a group
-  app.get("/api/monitor/:monitorId/grupos/:grupoId/alunos", requireAuth, requireMonitor, async (req, res) => {
+ app.get(
+  "/api/monitor/:monitorId/grupos/:grupoId/alunos",
+  requireAuth,
+  requireMonitor,
+  async (req, res) => {
     try {
-    const monitorId = parseInt(req.params.monitorId);
-    const grupoId = parseInt(req.params.grupoId);
-    const user = (req as any).user;
+      const monitorId = parseInt(req.params.monitorId, 10);
+      const grupoId = parseInt(req.params.grupoId, 10);
+      const user = (req as any).user;
 
-    const access = ensureSelfAccess(user, monitorId, "grupos-alunos");
-    if (!access.allowed) return res.status(403).json({ error: "Acesso negado" });
+      const access = ensureSelfAccess(user, monitorId, "grupos-alunos");
+      if (!access.allowed) return res.status(403).json({ error: "Acesso negado" });
 
-    const role = String(user?.role || "").toLowerCase();
+      const role = String(user?.role || "").toLowerCase();
 
-    const monitorRow = await db
-      .select({ programa: monitores.programa })
-      .from(monitores)
-      .where(eq(monitores.id, monitorId))
-      .limit(1);
-
-    const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
-
-    const vertente =
-      role.includes("inclusao") || programaMonitor.includes("inclusao")
-        ? "inclusao"
-        : role.includes("pec") || programaMonitor.includes("pec")
-          ? "pec"
-          : "legacy";
-
-    // ✅ INCLUSÃO: turma + participantesTurmas
-    if (vertente === "inclusao") {
-      const turma = await db
-        .select()
-        .from(turmasInclusao)
-        .where(and(eq(turmasInclusao.id, grupoId), eq(turmasInclusao.professorId, monitorId)))
+      const monitorRow = await db
+        .select({ programa: monitores.programa })
+        .from(monitores)
+        .where(eq(monitores.id, monitorId))
         .limit(1);
 
-      if (!turma.length) return res.status(404).json({ error: "Turma não encontrada" });
+      const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
 
-      const alunos = await db
-        .select({
-          id: participantesInclusao.id,
-          nome: participantesInclusao.nome,
-          cpf: participantesInclusao.cpf,
-          tipo: sql`'inclusao'`.as("tipo"),
-        })
-        .from(participantesTurmas)
-        .innerJoin(participantesInclusao, eq(participantesInclusao.id, participantesTurmas.participanteId))
-        .where(eq(participantesTurmas.turmaId, grupoId));
+      const vertente =
+        role.includes("inclusao") || programaMonitor.includes("inclusao")
+          ? "inclusao"
+          : role.includes("pec") || programaMonitor.includes("pec")
+            ? "pec"
+            : "legacy";
 
-      return res.json(alunos);
-    }
+      // ✅ INCLUSÃO: turma + participantesTurmas
+      if (vertente === "inclusao") {
+        const turma = await db
+          .select({ id: turmasInclusao.id })
+          .from(turmasInclusao)
+          .where(and(eq(turmasInclusao.id, grupoId), eq(turmasInclusao.professorId, monitorId)))
+          .limit(1);
 
-    // ✅ LEGACY/PEC: mantém sua lógica atual (monitorGrupos + monitorGrupoAlunos)
-    const grupo = await db.select().from(monitorGrupos)
-      .where(and(eq(monitorGrupos.id, grupoId), eq(monitorGrupos.monitorUserId, monitorId)))
-      .limit(1);
+        if (!turma.length) {
+          return res.status(404).json({ error: "Turma não encontrada" });
+        }
 
-    if (!grupo.length) return res.status(404).json({ error: "Grupo não encontrado" });
+        const students = await db
+          .select({
+            id: participantesInclusao.id,
+            nome: participantesInclusao.nome,
+            cpf: participantesInclusao.cpf,
+            tipo: sql`'inclusao'`.as("tipo"),
+          })
+          .from(participantesTurmas)
+          .innerJoin(
+            participantesInclusao,
+            eq(participantesInclusao.id, participantesTurmas.participanteId)
+          )
+          .where(
+            and(
+              eq(participantesTurmas.turmaId, grupoId),
+              eq(participantesTurmas.status, "ativo")
+            )
+          );
 
-    const alunosDoGrupo = await db.select()
-      .from(monitorGrupoAlunos)
-      .where(eq(monitorGrupoAlunos.grupoId, grupoId));
-      
-      const pecCpfs = alunosDoGrupo.filter(a => a.participanteTipo === 'pec' && a.participanteCpf).map(a => a.participanteCpf!);
-      const inclusaoIds = alunosDoGrupo.filter(a => a.participanteTipo === 'inclusao' && a.participanteId).map(a => a.participanteId!);
-      
-      const students: any[] = [];
-      
-      if (pecCpfs.length > 0) {
-        const pecStudents = await db.select({
-          cpf: aluno.cpf,
-          nome: aluno.nome_completo,
-          tipo: sql`'pec'`.as('tipo')
-        })
-        .from(aluno)
-        .where(inArray(aluno.cpf, pecCpfs));
-        students.push(...pecStudents.map(s => ({ ...s, id: s.cpf })));
+        console.log(
+          `[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} participantes da turma Inclusão ${grupoId}`
+        );
+        return res.json(students);
       }
-      
+
+      // ✅ LEGACY/PEC: mantém sua lógica atual (monitorGrupos + monitorGrupoAlunos)
+      const grupo = await db
+        .select()
+        .from(monitorGrupos)
+        .where(and(eq(monitorGrupos.id, grupoId), eq(monitorGrupos.monitorUserId, monitorId)))
+        .limit(1);
+
+      if (!grupo.length) return res.status(404).json({ error: "Grupo não encontrado" });
+
+      const alunosDoGrupo = await db
+        .select()
+        .from(monitorGrupoAlunos)
+        .where(eq(monitorGrupoAlunos.grupoId, grupoId));
+
+      const pecCpfs = alunosDoGrupo
+        .filter((a) => a.participanteTipo === "pec" && a.participanteCpf)
+        .map((a) => a.participanteCpf!);
+
+      const inclusaoIds = alunosDoGrupo
+        .filter((a) => a.participanteTipo === "inclusao" && a.participanteId)
+        .map((a) => a.participanteId!);
+
+      const students: any[] = [];
+
+      if (pecCpfs.length > 0) {
+        const pecStudents = await db
+          .select({
+            cpf: aluno.cpf,
+            nome: aluno.nome_completo,
+            tipo: sql`'pec'`.as("tipo"),
+          })
+          .from(aluno)
+          .where(inArray(aluno.cpf, pecCpfs));
+
+        students.push(...pecStudents.map((s) => ({ ...s, id: s.cpf })));
+      }
+
       if (inclusaoIds.length > 0) {
-        const inclusaoStudents = await db.select({
-          id: participantesInclusao.id,
-          nome: participantesInclusao.nome,
-          cpf: participantesInclusao.cpf,
-          tipo: sql`'inclusao'`.as('tipo')
-        })
-        .from(participantesInclusao)
-        .where(inArray(participantesInclusao.id, inclusaoIds));
+        const inclusaoStudents = await db
+          .select({
+            id: participantesInclusao.id,
+            nome: participantesInclusao.nome,
+            cpf: participantesInclusao.cpf,
+            tipo: sql`'inclusao'`.as("tipo"),
+          })
+          .from(participantesInclusao)
+          .where(inArray(participantesInclusao.id, inclusaoIds));
+
         students.push(...inclusaoStudents);
       }
-      
+
       console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} alunos do grupo ${grupoId}`);
       return res.json(students);
     } catch (error: any) {
       console.error("Error fetching grupo students:", error);
-      res.status(500).json({ error: "Failed to fetch students" });
+      return res.status(500).json({ error: "Failed to fetch students" });
     }
-  });
+  }
+);
+
   app.post("/api/monitor/:monitorId/grupos/:grupoId/alunos", requireAuth, requireMonitor, async (req, res) => {
     try {
       const monitorId = parseInt(req.params.monitorId);
@@ -17659,7 +17788,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       
       const { participanteId, participanteCpf, participanteTipo } = req.body;
       
-      // Para Inclusão: usar turmasInclusao e participantesTurmas
+      // Para Inclusão: usar turmasInclusao e participantesTurmas,
+  monitorPerfis
       if (participanteTipo === 'inclusao') {
         if (!participanteId) {
           return res.status(400).json({ error: 'participanteId é obrigatório para Inclusão' });
@@ -17686,7 +17816,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           return res.status(400).json({ error: 'Participante já está na turma' });
         }
         
-        // Inserir na tabela participantesTurmas
+        // Inserir na tabela participantesTurmas,
+  monitorPerfis
         const result = await db.insert(participantesTurmas)
           .values({
             turmaId: grupoId,
@@ -17931,24 +18062,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           psico: "coordenador_psico",
         };
 
-        if (area && areaRoleMap[area] && userRole !== areaRoleMap[area]) {
-          return res.status(403).json({
-            error: "Acesso negado - área não autorizada para seu papel",
-          });
-        }
+      // Permitir dev users acessar qualquer área
+      const isDevUser = userRole === 'dev' || userRole === 'desenvolvedor';
+      if (!isDevUser && area && areaRoleMap[area] && userRole !== areaRoleMap[area]) {
+        return res.status(403).json({ error: 'Acesso negado - área não autorizada para seu papel' });
+      }
 
-        // Retornar dados do dashboard específicos por área
-        let dashboardData = {};
+      // Retornar dados do dashboard específicos por área
+      // Usar área do query param ou inferir do papel do usuário
+      const targetArea = area || userRole?.replace('coordenador_', '');
+      let dashboardData = {};
 
-        switch (userRole) {
-          case "coordenador_inclusao":
-            // Buscar dados reais do banco - Inclusão Produtiva
-            const participantesAtivos = await db
-              .select({ count: sql<number>`count(*)` })
-              .from(participantesInclusao)
-              .where(
-                inArray(participantesInclusao.status, ["ativo", "em_andamento"])
-              );
+      switch (targetArea) {
+        case 'inclusao':
+          // Buscar dados reais do banco - Inclusão Produtiva
+          const participantesAtivos = await db.select({ count: sql<number>`count(*)` })
+            .from(participantesInclusao)
+            .where(inArray(participantesInclusao.status, ['ativo', 'em_andamento']));
 
             const programasAndamento = await db
               .select({
@@ -17970,61 +18100,30 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             };
             break;
 
-        case 'coordenador_pec':
-          // Buscar dados reais do banco - PEC
-          const atletasAtivos = await db.select({ count: sql<number>`count(*)` })
-            .from(instanceEnrollments)
-            .where(eq(instanceEnrollments.active, true));
+        case 'pec':
+          // Buscar dados reais do banco - PEC usando SQL direto
+          const alunosResult = await db.execute(sql`SELECT count(*) as count FROM aluno`);
+          const alunosCount = Number(alunosResult.rows?.[0]?.count || 0);
 
-            const modalidades = await db
-              .select({
-                count: sql<number>`count(DISTINCT ${pecActivities.id})`,
-              })
-              .from(pecActivities)
-              .where(eq(pecActivities.status, "ativa"));
+          // Modalidades esportivas fixas (Futebol, Vôlei, Basquete)
+          const modalidadesCount = 3;
 
-            const eventosRealizados = await db
-              .select({ count: sql<number>`count(*)` })
-              .from(sessions)
-              .where(sql`${sessions.date} < CURRENT_DATE`);
+          const oficinasResult = await db.execute(sql`SELECT count(*) as count FROM pec_activities WHERE status = 'ativa'`);
+          const oficinasCount = Number(oficinasResult.rows?.[0]?.count || 0);
 
-            const proximosEventosData = await db
-              .select({
-                id: sessions.id,
-                title: pecActivities.name,
-                date: sessions.date,
-                start_time: sessions.start_time,
-                end_time: sessions.end_time,
-              })
-              .from(sessions)
-              .leftJoin(
-                activityInstances,
-                eq(sessions.activity_instance_id, activityInstances.id)
-              )
-              .leftJoin(
-                pecActivities,
-                eq(activityInstances.activity_id, pecActivities.id)
-              )
-              .where(sql`${sessions.date} >= CURRENT_DATE`)
-              .orderBy(sessions.date)
-              .limit(5);
+          dashboardData = {
+            atletasAtivos: alunosCount,
+            modalidades: modalidadesCount,
+            oficinasCulturais: oficinasCount,
+            proximosEventos: []
+          };
+          break;
 
-            dashboardData = {
-              atletasAtivos: atletasAtivos[0]?.count || 0,
-              modalidades: modalidades[0]?.count || 0,
-              eventosRealizados: eventosRealizados[0]?.count || 0,
-              proximosEventos: proximosEventosData,
-            };
-            break;
-
-          case "coordenador_psico":
-            // Buscar dados reais do banco - Psicossocial
-            const familiasAtendidas = await db
-              .select({ count: sql<number>`count(*)` })
-              .from(psicoFamilias)
-              .where(
-                inArray(psicoFamilias.status, ["ativo", "em_acompanhamento"])
-              );
+        case 'psico':
+          // Buscar dados reais do banco - Psicossocial
+          const familiasAtendidas = await db.select({ count: sql<number>`count(*)` })
+            .from(psicoFamilias)
+            .where(inArray(psicoFamilias.status, ['ativo', 'em_acompanhamento']));
 
             const casosAcompanhamento = await db
               .select({ count: sql<number>`count(*)` })
@@ -19259,307 +19358,30 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       // Define all system screens - Updated 2025-08-15
       const sistemaTelas = [
-        {
-          id: 1,
-          nome: "plans",
-          titulo: "Planos",
-          rota: "/",
-          status: "OK",
-          descricao: "Página inicial - Seleção de planos",
-          modulo: "Pagamento",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 2,
-          nome: "register",
-          titulo: "Cadastro",
-          rota: "/register",
-          status: "OK",
-          descricao: "Cadastro de novos usuários",
-          modulo: "Autenticação",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 3,
-          nome: "donation-flow",
-          titulo: "Fluxo de Doação",
-          rota: "/donation-flow",
-          status: "OK",
-          descricao: "Novo fluxo TypeForm integrado com pagamento",
-          modulo: "Pagamento",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 4,
-          nome: "stripe-payment",
-          titulo: "Pagamento Stripe",
-          rota: "/stripe-payment",
-          status: "OK",
-          descricao: "Processamento de pagamentos via Stripe",
-          modulo: "Pagamento",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 40,
-          nome: "pagamento-ingresso",
-          titulo: "Pagamento de Ingresso",
-          rota: "/pagamento/ingresso",
-          status: "OK",
-          descricao: "Página de compra de ingressos para eventos",
-          modulo: "Ingresso",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-09-23",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 5,
-          nome: "entrar",
-          titulo: "Login",
-          rota: "/entrar",
-          status: "OK",
-          descricao: "Tela de login por telefone",
-          modulo: "Autenticação",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 6,
-          nome: "verify",
-          titulo: "Verificação",
-          rota: "/verify",
-          status: "OK",
-          descricao: "Verificação de código SMS",
-          modulo: "Autenticação",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 7,
-          nome: "tdoador",
-          titulo: "Dashboard Doador",
-          rota: "/tdoador",
-          status: "OK",
-          descricao: "Dashboard do doador após pagamento confirmado",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 8,
-          nome: "educacao",
-          titulo: "Professor",
-          rota: "/educacao",
-          status: "OK",
-          descricao: "Dashboard do professor",
-          modulo: "Educação",
-          tipo: "Professor",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 9,
-          nome: "aluno",
-          titulo: "Aluno",
-          rota: "/aluno",
-          status: "OK",
-          descricao: "Dashboard do aluno",
-          modulo: "Educação",
-          tipo: "Aluno",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 10,
-          nome: "conselho",
-          titulo: "Conselho",
-          rota: "/conselho",
-          status: "OK",
-          descricao: "Dashboard do Conselho",
-          modulo: "Administração",
-          tipo: "Conselho",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 11,
-          nome: "administrador",
-          titulo: "Leo Martins",
-          rota: "/administrador",
-          status: "OK",
-          descricao: "Dashboard do Super Admin",
-          modulo: "Super Admin",
-          tipo: "Restrito",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 12,
-          nome: "dev",
-          titulo: "Desenvolvedor",
-          rota: "/dev",
-          status: "OK",
-          descricao: "Painel do desenvolvedor",
-          modulo: "Desenvolvimento",
-          tipo: "Desenvolvedor",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 13,
-          nome: "busca",
-          titulo: "Busca",
-          rota: "/busca",
-          status: "OK",
-          descricao: "Funcionalidade de busca para doadores",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 14,
-          nome: "noticias",
-          titulo: "Notícias",
-          rota: "/noticias",
-          status: "OK",
-          descricao: "Feed de notícias integrado via WordPress",
-          modulo: "Conteúdo",
-          tipo: "Público",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 15,
-          nome: "perfil",
-          titulo: "Perfil",
-          rota: "/perfil",
-          status: "OK",
-          descricao: "Perfil do usuário",
-          modulo: "Dashboard",
-          tipo: "Usuário",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 16,
-          nome: "dados-cadastrais",
-          titulo: "Dados Cadastrais",
-          rota: "/dados-cadastrais",
-          status: "OK",
-          descricao: "Edição dos dados cadastrais",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 17,
-          nome: "pagamentos",
-          titulo: "Pagamentos",
-          rota: "/pagamentos",
-          status: "OK",
-          descricao: "Histórico e gestão de pagamentos",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 18,
-          nome: "configuracoes",
-          titulo: "Configurações",
-          rota: "/configuracoes",
-          status: "OK",
-          descricao: "Configurações da conta",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 19,
-          nome: "sobre",
-          titulo: "Sobre",
-          rota: "/sobre",
-          status: "OK",
-          descricao: "Informações sobre o Clube do Grito",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 20,
-          nome: "change-plan",
-          titulo: "Alterar Plano",
-          rota: "/change-plan",
-          status: "OK",
-          descricao: "Alterar plano de assinatura",
-          modulo: "Dashboard",
-          tipo: "Doador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 21,
-          nome: "central-ajuda",
-          titulo: "Central de Ajuda",
-          rota: "/central-ajuda",
-          status: "OK",
-          descricao: "Central de ajuda e suporte",
-          modulo: "Suporte",
-          tipo: "Geral",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 22,
-          nome: "patrocinador-dashboard",
-          titulo: "Patrocinador",
-          rota: "/patrocinador-dashboard",
-          status: "OK",
-          descricao: "Dashboard do patrocinador",
-          modulo: "Dashboard",
-          tipo: "Patrocinador",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 23,
-          nome: "sorteio-admin",
-          titulo: "Admin Sorteio",
-          rota: "/sorteio-admin",
-          status: "OK",
-          descricao: "Administração do sistema de sorteio",
-          modulo: "Administração",
-          tipo: "Admin",
-          ultimaAtualizacao: "2025-08-15",
-          atualizadoPor: "Sistema",
-        },
-        {
-          id: 24,
-          nome: "dev-marketing",
-          titulo: "Marketing",
-          rota: "/dev/marketing",
-          status: "OK",
-          descricao:
-            "Área de marketing para gerenciar benefícios, missões e histórias inspiradoras",
-          modulo: "Desenvolvimento",
-          tipo: "Marketing",
-          ultimaAtualizacao: "2025-09-08",
-          atualizadoPor: "Sistema",
-        },
+        { id: 1, nome: "plans", titulo: "Planos", rota: "/", status: "OK", descricao: "Página inicial - Seleção de planos", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 2, nome: "register", titulo: "Cadastro", rota: "/register", status: "OK", descricao: "Cadastro de novos usuários", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 3, nome: "donation-flow", titulo: "Fluxo de Doação", rota: "/donation-flow", status: "OK", descricao: "Novo fluxo TypeForm integrado com pagamento", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 4, nome: "stripe-payment", titulo: "Pagamento Stripe", rota: "/stripe-payment", status: "OK", descricao: "Processamento de pagamentos via Stripe", modulo: "Pagamento", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 40, nome: "pagamento-ingresso", titulo: "Pagamento de Ingresso", rota: "/pagamento/ingresso", status: "OK", descricao: "Página de compra de ingressos para eventos", modulo: "Ingresso", tipo: "Público", ultimaAtualizacao: "2025-09-23", atualizadoPor: "Sistema" },
+        { id: 5, nome: "entrar", titulo: "Login", rota: "/entrar", status: "OK", descricao: "Tela de login por telefone", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 6, nome: "verify", titulo: "Verificação", rota: "/verify", status: "OK", descricao: "Verificação de código SMS", modulo: "Autenticação", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 7, nome: "tdoador", titulo: "Dashboard Doador", rota: "/tdoador", status: "OK", descricao: "Dashboard do doador após pagamento confirmado", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 9, nome: "aluno", titulo: "Aluno", rota: "/aluno", status: "OK", descricao: "Dashboard do aluno", modulo: "Educação", tipo: "Aluno", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 10, nome: "conselho", titulo: "Conselho", rota: "/conselho", status: "OK", descricao: "Dashboard do Conselho", modulo: "Administração", tipo: "Conselho", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 11, nome: "administrador", titulo: "Leo Martins", rota: "/administrador", status: "OK", descricao: "Dashboard do Super Admin", modulo: "Super Admin", tipo: "Restrito", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 12, nome: "dev", titulo: "Desenvolvedor", rota: "/dev", status: "OK", descricao: "Painel do desenvolvedor", modulo: "Desenvolvimento", tipo: "Desenvolvedor", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 13, nome: "busca", titulo: "Busca", rota: "/busca", status: "OK", descricao: "Funcionalidade de busca para doadores", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 14, nome: "noticias", titulo: "Notícias", rota: "/noticias", status: "OK", descricao: "Feed de notícias integrado via WordPress", modulo: "Conteúdo", tipo: "Público", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 15, nome: "perfil", titulo: "Perfil", rota: "/perfil", status: "OK", descricao: "Perfil do usuário", modulo: "Dashboard", tipo: "Usuário", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 16, nome: "dados-cadastrais", titulo: "Dados Cadastrais", rota: "/dados-cadastrais", status: "OK", descricao: "Edição dos dados cadastrais", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 17, nome: "pagamentos", titulo: "Pagamentos", rota: "/pagamentos", status: "OK", descricao: "Histórico e gestão de pagamentos", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 18, nome: "configuracoes", titulo: "Configurações", rota: "/configuracoes", status: "OK", descricao: "Configurações da conta", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 19, nome: "sobre", titulo: "Sobre", rota: "/sobre", status: "OK", descricao: "Informações sobre o Clube do Grito", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 20, nome: "change-plan", titulo: "Alterar Plano", rota: "/change-plan", status: "OK", descricao: "Alterar plano de assinatura", modulo: "Dashboard", tipo: "Doador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 21, nome: "central-ajuda", titulo: "Central de Ajuda", rota: "/central-ajuda", status: "OK", descricao: "Central de ajuda e suporte", modulo: "Suporte", tipo: "Geral", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 22, nome: "patrocinador-dashboard", titulo: "Patrocinador", rota: "/patrocinador-dashboard", status: "OK", descricao: "Dashboard do patrocinador", modulo: "Dashboard", tipo: "Patrocinador", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 23, nome: "sorteio-admin", titulo: "Admin Sorteio", rota: "/sorteio-admin", status: "OK", descricao: "Administração do sistema de sorteio", modulo: "Administração", tipo: "Admin", ultimaAtualizacao: "2025-08-15", atualizadoPor: "Sistema" },
+        { id: 24, nome: "dev-marketing", titulo: "Marketing", rota: "/dev/marketing", status: "OK", descricao: "Área de marketing para gerenciar benefícios, missões e histórias inspiradoras", modulo: "Desenvolvimento", tipo: "Marketing", ultimaAtualizacao: "2025-09-08", atualizadoPor: "Sistema" },
 
         // ================ NOVAS TELAS RBAC ================
         { id: 42, nome: "professor-pec", titulo: "Professor PEC", rota: "/professor/pec", status: "OK", descricao: "Dashboard do Professor - Polo Esportivo Cultural", modulo: "Educação", tipo: "Professor", ultimaAtualizacao: "2025-01-21", atualizadoPor: "Sistema RBAC" },
@@ -20982,7 +20804,7 @@ app.put(
   // ==================== LOGIN DE PROFESSOR ====================
   app.post("/api/login/professor", express.json(), async (req, res) => {
     try {
-      const { email, senha } = req.body;
+      const { email, senha, programa } = req.body;
 
       if (!email || !email.trim()) {
         return res.status(400).json({ error: "Email é obrigatório" });
@@ -20992,17 +20814,26 @@ app.put(
         return res.status(400).json({ error: "Senha é obrigatória" });
       }
 
-      console.log(`🔑 [PROFESSOR LOGIN] Tentativa de login: ${email}`);
+      const PROGRAMAS_VALIDOS = ["pec", "inclusao_produtiva"];
+      if (!programa || !programa.trim()) {
+        return res.status(400).json({ error: "Selecione uma vertente" });
+      }
 
-      // Buscar professor na tabela professores por email
+      if (!PROGRAMAS_VALIDOS.includes(programa)) {
+        return res.status(400).json({ error: "Vertente inválida" });
+      }
+
+      console.log(`🔑 [PROFESSOR LOGIN] Tentativa de login: ${email} (programa: ${programa})`);
+
+      // Buscar professor na tabela professores por email E programa
       const professorResult = await pool.query(
-        "SELECT * FROM professores WHERE email = $1 LIMIT 1",
-        [email.toLowerCase().trim()]
+        'SELECT * FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
+        [email.toLowerCase().trim(), programa]
       );
 
       if (!professorResult.rows || professorResult.rows.length === 0) {
-        console.log(`❌ [PROFESSOR LOGIN] Professor não encontrado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        console.log(`❌ [PROFESSOR LOGIN] Professor não encontrado: ${email} (programa: ${programa})`);
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
 
       const professor = professorResult.rows[0];
@@ -21010,7 +20841,7 @@ app.put(
       // Verificar se professor está ativo
       if (!professor.ativo) {
         console.log(`❌ [PROFESSOR LOGIN] Professor desativado: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
 
       // Validar senha com bcrypt.compare
@@ -21018,30 +20849,35 @@ app.put(
 
       if (!senhaValida) {
         console.log(`❌ [PROFESSOR LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email ou senha incorretos" });
+        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
       }
 
-      // Mapear programa do professor para role
+      // Mapear programa do professor para role e redirectPath
       let role: string;
+      let redirectPath: string;
       switch (professor.programa) {
-        case "pec":
-          role = "professor_pec";
+        case 'pec':
+          role = 'professor_pec';
+          redirectPath = '/professor/pec';
           break;
-        case "inclusao_produtiva":
-          role = "professor_inclusao";
+        case 'inclusao_produtiva':
+          role = 'professor_inclusao';
+          redirectPath = '/professor/inclusao';
           break;
-        case "psicossocial":
-          role = "professor_psico";
+        case 'psicossocial':
+          role = 'professor_psico';
+          redirectPath = '/professor/psicossocial';
           break;
         default:
-          role = "professor";
+          role = 'professor';
+          redirectPath = '/professor';
       }
 
-      // Criar ou atualizar usuário na tabela users
+      // Criar ou atualizar usuário na tabela users com email + programa único
       const existingUser = await db
         .select()
         .from(users)
-        .where(eq(users.email, professor.email))
+        .where(and(eq(users.email, professor.email), eq(users.role, role)))
         .limit(1);
 
       let userId: number;
@@ -21050,9 +20886,6 @@ app.put(
         await db
           .update(users)
           .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
             nome: professor.nome,
             role: role,
             ativo: true,
@@ -21084,25 +20917,23 @@ app.put(
         );
       }
 
-      console.log(
-        `✅ [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId})`
-      );
+      console.log(`✅ [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId}, Programa: ${programa})`);
 
       res.json({
         success: true,
+        userId: userId,
         professor: {
           id: professor.id,
           nome: professor.nome,
           email: professor.email,
           programa: professor.programa,
           role: role,
-          redirectPath: "/professor",
-        },
-        userId: userId,
+          redirectPath: redirectPath
+        }
       });
     } catch (error: any) {
       console.error("❌ [PROFESSOR LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
+      res.status(500).json({ error: "Erro interno no servidor" });
     }
   });
 
@@ -23083,37 +22914,23 @@ app.put(
       const gritosGanhos = diaAtual === 7 ? 1000 : 100; // 100 por dia, 1000 no 7º dia
       const isDay7 = diaAtual === 7;
 
-      await db.transaction(async (tx) => {
-        // 1) marca check-in de hoje
-        await tx
-          .update(users)
-          .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-            diasConsecutivos: newStreak,
-            ultimoCheckin: agora,
-          })
-          .where(eq(users.id, userId));
+        await db.transaction(async (tx) => {
+          await tx
+            .update(users)
+            .set({
+              diasConsecutivos: newStreak,
+              ultimoCheckin: agora,
+              gritosTotal: sql`COALESCE(${users.gritosTotal}, 0) + ${gritosGanhos}`,
+            })
+            .where(eq(users.id, userId));
 
-        // 2) histórico
-        await tx.insert(gritosHistorico).values({
-          userId,
-          tipo: "checkin_diario",
-          gritosGanhos: gritosGanhos,
-          createdAt: agora,
+          await tx.insert(gritosHistorico).values({
+            userId,
+            tipo: "checkin_diario",
+            gritosGanhos,
+            createdAt: agora, // 👈 CONFIRMA se esse campo existe no schema
+          });
         });
-
-        // 3) soma NO CAMPO CERTO
-        await tx
-          .update(users)
-          .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, gritosTotal: sql`${users.gritosTotal} + ${gritosGanhos}` })
-          .where(eq(users.id, userId));
-      });
-
       // pega total atualizado do campo CERTO
       const [tot] = await db
         .select({ gritosTotal: users.gritosTotal })
@@ -37985,7 +37802,7 @@ app.put(
       const alunos = await db
         .select({
           participante: participantesInclusao,
-          inscricao: participantesTurmas
+          inscricao: participantesTurmas,
         })
         .from(participantesTurmas)
         .innerJoin(participantesInclusao, eq(participantesTurmas.participanteId, participantesInclusao.id))
@@ -38050,22 +37867,24 @@ app.put(
       const turmaResult = await db.select().from(turmasInclusao).where(eq(turmasInclusao.id, turmaId)).limit(1);
       const turmaNome = turmaResult[0]?.nome || 'Turma';
       
-      // Calcular presentes e ausentes
-      const presentes = presencas.filter((p: any) => p.presente).length;
-      const total = presencas.length;
+      // Inserir cada presença na tabela presencas_inclusao (mesma tabela que monitor e coordenador)
+      const insertedPresencas = [];
+      for (const p of (presencas || [])) {
+        const participanteId = p.id || p.participanteId;
+        if (participanteId) {
+          const [presenca] = await db.insert(presencasInclusao).values({
+            participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
+            turmaId: turmaId,
+            data: data,
+            presente: p.presente || false,
+            observacoes: p.observacoes || null
+          }).returning();
+          insertedPresencas.push(presenca);
+        }
+      }
       
-      // Inserir registro na tabela registros_atividades
-      const [registro] = await db.insert(registrosAtividades).values({
-        monitorUserId: professorId,
-        dataAtividade: data,
-        grupo: `turma_${turmaId}`,
-        titulo: `Chamada - ${turmaNome}`,
-        descricao: `Presentes: ${presentes}/${total}. Dados: ${JSON.stringify(presencas)}`,
-        participantes: presentes,
-        vertente: 'inclusao'
-      }).returning();
-      
-      res.status(201).json(registro);
+      console.log(`[PROFESSOR] Registro de ${insertedPresencas.length} presenças criado por professor ${professorId} para turma ${turmaId}`);
+      res.status(201).json({ success: true, count: insertedPresencas.length, turma: turmaNome });
     } catch (error: any) {
       console.error("Erro ao registrar presença:", error);
       res.status(500).json({ error: "Erro ao registrar presença" });
@@ -38077,48 +37896,75 @@ app.put(
     try {
       const professorId = parseInt(req.params.userId);
       
-      const registros = await db
-        .select()
-        .from(registrosAtividades)
-        .where(and(
-          eq(registrosAtividades.monitorUserId, professorId),
-          like(registrosAtividades.titulo, 'Chamada - %')
-        ))
-        .orderBy(desc(registrosAtividades.createdAt))
-        .limit(50);
+      // Buscar todas as turmas de inclusão para o mapeamento de nomes
+      const turmas = await db.select({
+        id: turmasInclusao.id,
+        nome: turmasInclusao.nome
+      }).from(turmasInclusao);
       
-      // Extrair turma IDs do grupo
-      const turmaIds = [...new Set(registros.map(r => {
-        const match = r.grupo?.match(/turma_(\d+)/);
-        return match ? parseInt(match[1]) : null;
-      }).filter(Boolean))];
-      const turmasMap: Record<number, string> = {};
+      const turmaMap = new Map(turmas.map(t => [t.id, t.nome]));
       
-      if (turmaIds.length > 0) {
-        const turmas = await db
-          .select({ id: turmasInclusao.id, nome: turmasInclusao.nome })
-          .from(turmasInclusao)
-          .where(inArray(turmasInclusao.id, turmaIds as number[]));
-        
-        turmas.forEach(t => { turmasMap[t.id] = t.nome; });
+      // Buscar todas as presenças de inclusão (de todos - professor, monitor, coordenador)
+      const presencas = await db.select({
+        id: presencasInclusao.id,
+        participanteId: presencasInclusao.participanteId,
+        turmaId: presencasInclusao.turmaId,
+        data: presencasInclusao.data,
+        presente: presencasInclusao.presente,
+        observacoes: presencasInclusao.observacoes,
+        createdAt: presencasInclusao.createdAt,
+        nome: participantesInclusao.nome
+      })
+        .from(presencasInclusao)
+        .leftJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
+        .orderBy(desc(presencasInclusao.data), desc(presencasInclusao.id));
+      
+      // Agrupar por turma e data
+      const grouped = new Map<string, any>();
+      for (const p of presencas) {
+        const key = `${p.turmaId}_${p.data}`;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            id: `inclusao_${p.turmaId}_${p.data}`,
+            data: p.data,
+            grupo: `turma_${p.turmaId}`,
+            turmaNome: turmaMap.get(p.turmaId!) || `Turma ${p.turmaId}`,
+            titulo: `Chamada - ${turmaMap.get(p.turmaId!) || 'Turma'}`,
+            totalPresentes: 0,
+            totalAlunos: 0,
+            presencas: [],
+            grupoId: p.turmaId,
+            createdAt: p.createdAt,
+            tipo: 'inclusao'
+          });
+        }
+        const group = grouped.get(key);
+        group.presencas.push({
+          id: p.participanteId,
+          nome: p.nome,
+          presente: p.presente,
+          observacoes: p.observacoes
+        });
+        group.totalAlunos++;
+        if (p.presente) {
+          group.totalPresentes++;
+        }
       }
       
-      const registrosComTurma = registros.map(r => {
-        const match = r.grupo?.match(/turma_(\d+)/);
-        const turmaIdFromGrupo = match ? parseInt(match[1]) : null;
-        return {
-          ...r,
-          turmaNome: turmaIdFromGrupo ? turmasMap[turmaIdFromGrupo] || 'Turma' : 'N/A'
-        };
+      // Converter para array e ordenar por data
+      const historico = Array.from(grouped.values());
+      historico.sort((a, b) => {
+        const dateA = new Date(a.data || 0).getTime();
+        const dateB = new Date(b.data || 0).getTime();
+        return dateB - dateA;
       });
       
-      res.json(registrosComTurma);
+      res.json(historico);
     } catch (error: any) {
       console.error("Erro ao buscar histórico:", error);
       res.status(500).json({ error: "Erro ao buscar histórico" });
     }
   });
-
 
   // ==================== ROTAS DE CURSOS DE INCLUSÃO PRODUTIVA ====================
 

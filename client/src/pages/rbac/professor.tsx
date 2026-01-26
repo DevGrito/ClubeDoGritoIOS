@@ -464,7 +464,7 @@ export default function ProfessorPage() {
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso."
     });
-    setTimeout(() => window.location.href = "/entrar", 500);
+    setTimeout(() => window.location.href = "/login/professor", 500);
   };
 
   // Funções para gerenciar planos de aula
@@ -532,13 +532,10 @@ export default function ProfessorPage() {
     const plano = meusPlanos.find((p: any) => p.id.toString() === registroAulaForm.planoId);
     const chamada = historicoChamadas.find((c: any) => c.id?.toString() === registroAulaForm.chamadaId);
     
-    // Extrair presentes/total da descrição da chamada (formato: "Presentes: X/Y. Dados: ...")
+    // Usar totalPresentes e totalAlunos da chamada
     let chamadaInfo = '';
     if (chamada) {
-      const match = chamada.descricao?.match(/Presentes: (\d+)\/(\d+)/);
-      if (match) {
-        chamadaInfo = `${match[1]}/${match[2]} presentes`;
-      }
+      chamadaInfo = `${chamada.totalPresentes ?? 0}/${chamada.totalAlunos ?? 0} presentes`;
     }
     
     const novoRegistro = {
@@ -1161,10 +1158,9 @@ export default function ProfessorPage() {
                             return true;
                           })
                           .map((registro: any) => {
-                          // Parsear dados da descrição (formato: "Presentes: X/Y. Dados: [...]")
-                          const descMatch = registro.descricao?.match(/Presentes: (\d+)\/(\d+)/);
-                          const presentes = descMatch ? parseInt(descMatch[1]) : (registro.participantes || 0);
-                          const total = descMatch ? parseInt(descMatch[2]) : presentes;
+                          // Usar totalPresentes e totalAlunos retornados pela API
+                          const presentes = registro.totalPresentes ?? 0;
+                          const total = registro.totalAlunos ?? presentes;
                           const dataAtividade = registro.dataAtividade || registro.data;
                           return (
                             <div key={registro.id} className="border rounded-lg p-4">
@@ -1375,10 +1371,9 @@ export default function ProfessorPage() {
                                 return matchTurma && matchData;
                               })
                               .map((chamada: any) => {
-                                // Extrair presentes/total da descrição
-                                const match = chamada.descricao?.match(/Presentes: (\d+)\/(\d+)/);
-                                const presentes = match ? match[1] : '0';
-                                const total = match ? match[2] : '0';
+                                // Usar totalPresentes e totalAlunos da API
+                                const presentes = chamada.totalPresentes ?? 0;
+                                const total = chamada.totalAlunos ?? presentes;
                                 const dataExibir = chamada.dataAtividade || chamada.data;
                                 return (
                                   <SelectItem key={chamada.id} value={chamada.id.toString()}>

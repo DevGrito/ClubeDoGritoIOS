@@ -731,7 +731,8 @@ const handleCommitImport = async () => {
 
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
-    queryKey: ['/api/coordenador/dashboard', { area: 'pec' }],
+    queryKey: [`/api/coordenador/dashboard/${userId}?area=pec`],
+    enabled: !!userId
   });
   // Query para buscar projetos do PEC (usando fetcher padrão)
   const { data: projects = [] } = useQuery<Project[]>({
@@ -934,9 +935,9 @@ const { data: students = [] } = useQuery<any[]>({
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Eventos Realizados:</span>
+                <span className="text-gray-600">Oficinas Culturais:</span>
                 <span className="font-semibold text-orange-600" data-testid="text-eventos-realizados">
-                  {dashboardData?.eventosRealizados || 0}
+                  {dashboardData?.oficinasCulturais || 0}
                 </span>
               </div>
             </CardContent>
@@ -2582,7 +2583,7 @@ const { data: students = [] } = useQuery<any[]>({
                         <div className="text-sm text-gray-600">Modalidades Ativas</div>
                       </div>
                       <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{dashboardData?.eventosRealizados || 0}</div>
+                        <div className="text-2xl font-bold text-green-600">{dashboardData?.oficinasCulturais || 0}</div>
                         <div className="text-sm text-gray-600">Eventos Organizados</div>
                       </div>
                       <div className="text-center p-3 bg-orange-50 rounded-lg">

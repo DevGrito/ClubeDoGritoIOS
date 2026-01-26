@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import AlterarSenhaMonitor from "@/components/AlterarSenhaMonitor";
-import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
+import { ComprehensiveStudentForm, maskPhone } from "@/components/comprehensive-student-form";
 import { TurmaInclusaoForm } from "@/components/TurmaInclusaoForm";
 import { InstanceForm, ActivityForm } from "@/components/pec/forms";
 import { 
@@ -294,17 +294,17 @@ const { data: dashboardData, isLoading } = useQuery({
   enabled: vertente !== 'selecao' && !!userId && !!monitorId
 });
   
-  // Query para buscar dados do perfil do monitor
+  // Query para buscar dados do perfil do monitor (por vertente)
   const { data: perfilData } = useQuery({
-    queryKey: ['/api/monitor/perfil', userId],
+    queryKey: ['/api/monitor/perfil', userId, vertente],
     queryFn: async () => {
-      const response = await fetch(`/api/monitor/${userId}/perfil`, {
+      const response = await fetch(`/api/monitor/${userId}/perfil?vertente=${vertente}`, {
         headers: { 'x-user-id': userId || '' }
       });
       if (!response.ok) return null;
       return response.json();
     },
-    enabled: !!userId && !!monitorId
+    enabled: !!userId && !!vertente && !!monitorId
   });
   
   // Atualizar estados do perfil quando dados são carregados
@@ -331,7 +331,8 @@ const { data: dashboardData, isLoading } = useQuery({
           nome: perfilNome,
           email: perfilEmail,
           telefone: perfilTelefone,
-          area_atuacao: perfilAreaAtuacao
+          area_atuacao: perfilAreaAtuacao,
+          vertente: vertente
         })
       });
       
@@ -348,7 +349,7 @@ const { data: dashboardData, isLoading } = useQuery({
         description: "Suas informações foram salvas com sucesso."
       });
       
-      queryClient.invalidateQueries({ queryKey: ['/api/monitor/perfil', userId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/perfil', userId, vertente] });
     } catch (error: any) {
       toast({
         title: "Erro ao salvar",
@@ -777,25 +778,25 @@ const { data: dashboardData, isLoading } = useQuery({
   // Mutation for updating grupo
   const updateGrupoMutation = useMutation({
     mutationFn: async ({ grupoId, formData }: { grupoId: number, formData: any }) => {
-      const response = await fetch(`/api/monitor/${userId}/grupos/${grupoId}`, {
+      const response = await fetch(`/api/monitor/${userId}/grupos/${grupoId}?vertente=${vertente}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ ...formData, vertente })
+        body: JSON.stringify(formData)
       });
-      if (!response.ok) throw new Error('Failed to update grupo');
+      if (!response.ok) throw new Error('Failed to update turma');
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/monitor/grupos', userId, vertente] });
-      toast({ title: "grupo atualizada!", description: "As alterações foram salvas." });
+      toast({ title: "Turma atualizada!", description: "As alterações foram salvas." });
       setShowEditarGrupoModal(false);
       setGrupoSelecionado(null);
     },
     onError: (error: any) => {
       toast({ 
-        title: "Erro ao atualizar grupo", 
-        description: error.message || "Não foi possível atualizar a grupo.",
+        title: "Erro ao atualizar turma", 
+        description: error.message || "Não foi possível atualizar a turma.",
         variant: "destructive" 
       });
     }
@@ -1191,21 +1192,21 @@ const { data: dashboardData, isLoading } = useQuery({
                 )}
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'registro' ? 'default' : 'outline'}
-                  data-testid="button-registro-atividades"
-                  onClick={() => setActiveSection('registro')}
-                >
-                  <FileText className="w-4 h-4 mr-2" />
-                  Registro de Atividades
-                </Button>
-                <Button 
-                  className="w-full" 
                   variant={activeSection === 'atividades' ? 'default' : 'outline'}
                   data-testid="button-atividades"
                   onClick={() => setActiveSection('atividades')}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Minhas Atividades
+                </Button>
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'registro' ? 'default' : 'outline'}
+                  data-testid="button-registro-atividades"
+                  onClick={() => setActiveSection('registro')}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Registro de Atividades
                 </Button>
               </div>
             </CardContent>
@@ -1360,16 +1361,18 @@ const { data: dashboardData, isLoading } = useQuery({
                         className="pl-10" 
                       />
                     </div>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-32">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="ativo">Ativo</SelectItem>
-                        <SelectItem value="inativo">Inativo</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {vertente !== 'inclusao' && (
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="w-32">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="todos">Todos</SelectItem>
+                          <SelectItem value="ativo">Ativo</SelectItem>
+                          <SelectItem value="inativo">Inativo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   
                   {vertente === 'pec' ? (
@@ -2321,7 +2324,11 @@ const { data: dashboardData, isLoading } = useQuery({
                       <div key={grupo.id} className="border rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="font-semibold">{grupo.nome}</h3>
-                          <Badge className="bg-purple-100 text-purple-800">{grupo.status || 'Ativo'}</Badge>
+                          <Badge className="bg-purple-100 text-purple-800">
+                            {grupo.status === 'emandamento' ? 'Em Andamento' : 
+                             grupo.status === 'ativo' ? 'Ativo' : 
+                             grupo.status ? grupo.status.charAt(0).toUpperCase() + grupo.status.slice(1) : 'Ativo'}
+                          </Badge>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
@@ -2995,7 +3002,7 @@ const { data: dashboardData, isLoading } = useQuery({
                         <label className="block text-sm font-medium mb-2">Telefone</label>
                         <Input 
                           value={perfilTelefone} 
-                          onChange={(e) => setPerfilTelefone(e.target.value)}
+                          onChange={(e) => setPerfilTelefone(maskPhone(e.target.value))}
                           placeholder="(31) 99999-9999"
                         />
                       </div>
@@ -3817,13 +3824,25 @@ const { data: dashboardData, isLoading } = useQuery({
                           variant="destructive"
                           onClick={async () => {
                             try {
-                              const identifier = al.tipo === 'pec' ? (al.cpf || al.id) : al.id;
-                              await apiRequest(
-                                `/api/monitor/${userId}/grupos/${grupoSelecionado.id}/alunos/${identifier}?tipo=${al.tipo}`,
-                                { method: 'DELETE' }
-                              );
-                              setAlunosDoGrupo(prev => prev.filter(a => (a.id !== al.id) && (a.cpf !== al.cpf)));
-                              toast({ title: "Aluno removido da grupo" });
+                              let response;
+                              if (vertente === 'inclusao') {
+                                response = await fetch(`/api/participantes-inclusao/${al.id}/turmas/${grupoSelecionado.id}`, {
+                                  method: 'DELETE',
+                                  credentials: 'include'
+                                });
+                              } else {
+                                // PEC: usar endpoint unenroll
+                                response = await fetch('/api/professor/unenroll', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ studentCpf: al.cpf, classId: grupoSelecionado.id })
+                                });
+                              }
+                              if (!response.ok) throw new Error('Erro ao remover');
+                              setAlunosDoGrupo(prev => prev.filter(a => a.id !== al.id));
+                              queryClient.invalidateQueries({ queryKey: ['/api/monitor', userId, 'grupos'] });
+                              toast({ title: "Aluno removido da turma" });
                             } catch (e) {
                               toast({ title: "Erro ao remover", variant: "destructive" });
                             }
@@ -4066,13 +4085,25 @@ const { data: dashboardData, isLoading } = useQuery({
                           className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
                           onClick={async () => {
                             try {
-                              const identifier = al.tipo === 'pec' ? (al.cpf || al.id) : al.id;
-                              await apiRequest(
-                                `/api/monitor/${userId}/grupos/${grupoSelecionado.id}/alunos/${identifier}?tipo=${al.tipo}`,
-                                { method: 'DELETE' }
-                              );
-                              setAlunosDoGrupo(prev => prev.filter(a => (a.id !== al.id) && (a.cpf !== al.cpf)));
-                              toast({ title: "Aluno removido da grupo" });
+                              let response;
+                              if (vertente === 'inclusao') {
+                                response = await fetch(`/api/participantes-inclusao/${al.id}/turmas/${grupoSelecionado.id}`, {
+                                  method: 'DELETE',
+                                  credentials: 'include'
+                                });
+                              } else {
+                                // PEC: usar endpoint unenroll
+                                response = await fetch('/api/professor/unenroll', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ studentCpf: al.cpf, classId: grupoSelecionado.id })
+                                });
+                              }
+                              if (!response.ok) throw new Error('Erro ao remover');
+                              setAlunosDoGrupo(prev => prev.filter(a => a.id !== al.id));
+                              queryClient.invalidateQueries({ queryKey: ['/api/monitor', userId, 'grupos'] });
+                              toast({ title: "Aluno removido da turma" });
                             } catch (e) {
                               toast({ title: "Erro ao remover", variant: "destructive" });
                             }
@@ -4084,7 +4115,7 @@ const { data: dashboardData, isLoading } = useQuery({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500 mb-3">Nenhum aluno nesta grupo</p>
+                  <p className="text-sm text-gray-500 mb-3">Nenhum aluno nesta turma</p>
                 )}
 
                 {/* Buscar e adicionar alunos */}

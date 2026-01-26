@@ -3780,13 +3780,12 @@ export default function Professor() {
 
   const handleLogout = () => {
     localStorage.clear();
+    // Redirecionar imediatamente para evitar interferência do AutoRedirect
+    setLocation("/login/professor");
     toast({
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso.",
     });
-    setTimeout(() => {
-      setLocation("/");
-    }, 1000);
   };
 
   const saveAttendanceMutation = useMutation({

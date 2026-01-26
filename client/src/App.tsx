@@ -234,13 +234,6 @@ function Router() {
       </Route>
       {/* ================ END RBAC ROUTES ================ */}
       
-      <Route path="/educacao">
-        {() => (
-          <ProtectedRoute allowedRoles={['professor', 'lider', 'professor_lider']} routeName="/educacao">
-            <Professor />
-          </ProtectedRoute>
-        )}
-      </Route>
       {/* REMOVIDO: Todas as rotas do Sistema PEC conforme solicitação (2025-11-18)
       - /pec-coordenador
       - /pec

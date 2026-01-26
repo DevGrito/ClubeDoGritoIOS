@@ -18,12 +18,12 @@ const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
   'dev': ['/', '/plans', '/dev', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Alias para desenvolvedor
   'dev-admin': ['/', '/plans', '/dev', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev Admin tem acesso a AMBAS as áreas (dev + marketing)
   'dev-marketing': ['/', '/plans', '/dev/marketing', '/dev/login', '/central-ajuda', '/perfil', '/dados-cadastrais', '/sobre', '/configuracoes'], // Dev Marketing tem acesso restrito
-  'admin': ['/', '/plans', '/admin-geral', '/central-ajuda', '/professor', '/monitor', '/coordenador', '/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial', '/pec', '/patrocinador-dashboard', '/perfil-patrocinador'],
+  'admin': ['/', '/plans', '/admin-geral', '/central-ajuda', '/professor', '/professor/pec', '/professor/inclusao', '/monitor', '/coordenador', '/coordenador/inclusao-produtiva', '/coordenador/esporte-cultura', '/coordenador/psicossocial', '/pec', '/patrocinador-dashboard', '/perfil-patrocinador'],
   
   // ================ NOVOS PAPÉIS RBAC ================
-  'professor': ['/', '/plans', '/professor', '/central-ajuda'],
-  'professor_pec': ['/', '/plans', '/professor', '/central-ajuda'],
-  'professor_inclusao': ['/', '/plans', '/professor', '/central-ajuda'],
+  'professor': ['/', '/plans', '/professor', '/professor/pec', '/professor/inclusao', '/central-ajuda'],
+  'professor_pec': ['/', '/plans', '/professor', '/professor/pec', '/central-ajuda'],
+  'professor_inclusao': ['/', '/plans', '/professor', '/professor/inclusao', '/central-ajuda'],
   'professor_psico': ['/', '/plans', '/professor', '/central-ajuda'],
   'monitor': ['/', '/plans', '/monitor', '/central-ajuda'],
   'monitor_pec': ['/', '/plans', '/monitor', '/central-ajuda'],
@@ -34,8 +34,8 @@ const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
   'coordenador_psico': ['/', '/plans', '/coordenador', '/coordenador/psicossocial', '/central-ajuda'],
   
   // ================ PAPÉIS EXISTENTES ================
-  'lider': ['/', '/plans', '/educacao', '/professor', '/central-ajuda'],
-  'professor_lider': ['/', '/plans', '/educacao', '/professor', '/central-ajuda'],
+  'lider': ['/', '/plans', '/professor', '/central-ajuda'],
+  'professor_lider': ['/', '/plans', '/professor', '/central-ajuda'],
   'aluno': ['/', '/plans', '/aluno', '/central-ajuda'],
   'doador': ['/', '/plans', '/tdoador', '/welcome', '/busca', '/noticias', '/perfil', '/dados-cadastrais', '/pagamentos', '/configuracoes', '/sobre', '/change-plan', '/central-ajuda'],
   'user': ['/', '/plans', '/tdoador', '/welcome', '/busca', '/noticias', '/perfil', '/dados-cadastrais', '/pagamentos', '/configuracoes', '/sobre', '/change-plan', '/central-ajuda'],
@@ -160,7 +160,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         description: "Você precisa fazer login para acessar esta área.",
         variant: "destructive",
       });
-      setLocation('/entrar');
+      // Redirecionar para login específico de professor se rota for de professor
+      if (routeName?.startsWith('/professor/')) {
+        setLocation('/login/professor');
+      } else {
+        setLocation('/entrar');
+      }
       return;
     }
 
@@ -256,7 +261,7 @@ function getPermittedScreensForRole(userPapel: string): string[] {
     // ================ PAPÉIS EXISTENTES ================
     case 'lider':
     case 'professor_lider':
-      return ['/educacao', '/professor', '/central-ajuda'];
+      return ['/professor', '/central-ajuda'];
     
     case 'aluno':
       return ['/aluno', '/central-ajuda'];
@@ -327,7 +332,7 @@ function getDefaultRouteForRole(userPapel: string): string {
       return '/admin-geral';
     case 'lider':
     case 'professor_lider':
-      return '/educacao';
+      return '/professor';
     case 'aluno':
       return '/aluno';
     case 'conselho':

@@ -210,7 +210,7 @@ export default function Verify() {
             // Legacy roles
             case "lider":
             case "professor_lider":
-              setLocation("/educacao");
+              setLocation("/professor");
               break;
             case "aluno":
               setLocation("/aluno");
