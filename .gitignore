@@ -22,6 +22,6 @@ ios/App/build/
 ios/Pods/
 uploads/
 gcs-service-account.json
-_archive
+_archivecomm
 _archive/
 package-lock.json
