@@ -5,8 +5,6 @@
 *.p12
 key.properties
 
-# Capacitor
-android/capacitor-cordova-android-plugins/
 
 # Node
 node_modules/
