@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",
-    "@capacitor/cli": "^7.4.4",
+    "@capacitor/cli": "^7.4.5",
     "@capacitor/clipboard": "^7.0.3",
-    "@capacitor/core": "^7.4.4",
+    "@capacitor/core": "^7.4.5",
     "@capacitor/share": "^7.0.3",
     "@google-cloud/storage": "^7.17.1",
     "@hookform/resolvers": "^3.10.0",
