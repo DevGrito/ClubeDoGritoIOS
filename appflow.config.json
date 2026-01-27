@@ -1,0 +1,6 @@
+{
+  "build": {
+    "beforeBuild": "npm ci",
+    "afterBuild": "npx cap sync android"
+  }
+}
