@@ -1,10 +1,9 @@
 {
-  "hooks": {
-    "build:before": [
-      "npm ci"
-    ],
-    "build:after": [
-      "npx cap sync android"
-    ]
-  }
+  "apps": [
+    {
+      "appId": "com.institutoogrito.clubedogrito",
+      "dependencyInstallCommand": "npm ci",
+      "webBuildCommand": "npm run build && npx cap sync android"
+    }
+  ]
 }
