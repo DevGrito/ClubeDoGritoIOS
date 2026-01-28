@@ -1,6 +1,10 @@
 {
-  "build": {
-    "beforeBuild": "npm ci",
-    "afterBuild": "npx cap sync android"
+  "hooks": {
+    "build:before": [
+      "npm ci"
+    ],
+    "build:after": [
+      "npx cap sync android"
+    ]
   }
 }
