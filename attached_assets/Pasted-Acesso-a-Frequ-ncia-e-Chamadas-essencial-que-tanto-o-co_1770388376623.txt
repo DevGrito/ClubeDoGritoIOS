@@ -1,0 +1,46 @@
+Acesso a Frequência e Chamadas 
+É essencial que tanto o coordenador quanto o monitor tenham acesso às seguintes 
+informações: 
+● Frequência dos alunos 
+● Chamadas (presença/ausência) 
+Esses dados devem estar disponíveis para: 
+● PEC 
+● Inclusão Produtiva 
+O acesso às frequências permitirá o acompanhamento contínuo dos alunos e facilitará o 
+controle e a gestão das atividades. 
+3. Acesso aos Dados dos Atendidos 
+Tanto o coordenador quanto o monitor devem conseguir visualizar os dados dos 
+atendidos cadastrados no momento da matrícula, incluindo informações básicas dos 
+alunos. 
+Esse acesso é importante para: 
+● Identificação dos alunos 
+● Acompanhamento psicossocial 
+● Organização dos atendimentos e atividades 
+4. Registro Confidencial de Atendimentos 
+O sistema deve conter uma aba de Registro Confidencial, disponível para ambos os 
+perfis. 
+Funcionamento do Registro Confidencial: 
+● O monitor poderá: 
+○ Criar e visualizar o conteúdo completo dos registros de atendimento 
+● O coordenador poderá: 
+○ Visualizar que existem registros sendo realizados 
+○ Acompanhar a quantidade ou status dos registros 
+○ Não visualizar o conteúdo detalhado/confidencial do atendimento 
+Esse modelo garante: 
+● Sigilo das informações sensíveis 
+● Transparência e acompanhamento por parte da coordenação 
+5. Aba de Relato de Atividades (Diferente do Registro Confidencial) 
+Além do Registro Confidencial, deve existir uma aba específica para Relatar Atividades, 
+com uma função diferente. 
+Objetivo dessa aba: 
+● Registrar atividades realizadas com: 
+○ Turmas do PEC 
+○ Turmas da Inclusão Produtiva 
+Proposta de funcionamento: 
+● Registrar primeiro a atividade (ex: roda de conversa, palestra, oficina, dinâmica) 
+● Em seguida, associar os alunos que participaram da atividade 
+Esse formato é mais prático do que registrar atividade aluno por aluno, como acontecia no 
+sistema Bússola, tornando o processo: 
+● Mais rápido 
+● Mais organizado 
+● Mais eficiente para atividades em grupo

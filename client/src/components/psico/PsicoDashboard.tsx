@@ -460,36 +460,7 @@ export default function PsicoDashboard({
         </Card>
       </div>
 
-      {/* Gráfico: Evolução Semanal */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Evolução Semanal de Atendimentos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {weeklyData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={weeklyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="semana" />
-                <YAxis />
-                <RechartsTooltip />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="atendimentos" 
-                  stroke="#8b5cf6" 
-                  strokeWidth={2}
-                  name="Atendimentos"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[300px] flex items-center justify-center text-gray-500">
-              Sem dados para o período selecionado
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
     </div>
   );
 }

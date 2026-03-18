@@ -10,10 +10,10 @@ import { useProfileImage } from "@/hooks/useProfileImage";
 import Logo from "@/components/logo";
 import BottomNavigation from "@/components/bottom-navigation";
 import { UserAvatar } from "@/components/UserAvatar";
-import perfilIcon from "@assets/image_1755890526622.png";
-import beneficiosIcon from "@assets/image_1755890654323.png";
-import financeiroIcon from "@assets/image_1755890729556.png";
-import termosIcon from "@assets/image_1755890775086.png";
+import perfilIcon from "../app-assets/image_1755890526622.png";
+import beneficiosIcon from "../app-assets/image_1755890654323.png";
+import financeiroIcon from "../app-assets/image_1755890729556.png";
+import termosIcon from "../app-assets/image_1755890775086.png";
 
 import { 
   Menu, UserCircle, FileText, Clock, Shield, LogOut, ChevronRight

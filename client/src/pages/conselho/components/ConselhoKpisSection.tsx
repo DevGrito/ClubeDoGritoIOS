@@ -65,6 +65,24 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
     return null;
   })();
 
+  // Extrair ano para filtrar indicadores (Favela 3D não aparece em 2026+)
+  // Retorna null quando ano não pode ser determinado (fallback mostra indicador)
+  const anoFiltro = (() => {
+    if (externalPeriod) {
+      const [ano] = externalPeriod.split('-');
+      return parseInt(ano, 10);
+    }
+    if (filters.specificMonth) {
+      const [ano] = filters.specificMonth.split('-');
+      return parseInt(ano, 10);
+    }
+    // Se período anual ou indefinido, retornar null para mostrar o indicador por segurança
+    return null;
+  })();
+  
+  // Só esconder Favela 3D quando ano for explicitamente 2026 ou posterior
+  const esconderFavela3D = anoFiltro !== null && anoFiltro >= 2026;
+
   // Buscar KPIs reais (mesma fonte da Gestão à Vista)
   const { data: kpisFromDb, isLoading, isError, refetch } = useQuery({
     queryKey: ['/api/conselho/kpis', externalPeriod, filters.specificMonth, filters.period],
@@ -199,7 +217,8 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
       description: "Participantes ativos na Inclusão Produtiva",
       color: "#FFC300" // Amarelo-sol
     },
-    {
+    // Famílias Ativas da F3D só aparece em anos anteriores a 2026
+    ...(!esconderFavela3D ? [{
       title: "Famílias Ativas da F3D",
       value: showData ? kpiData.familiasAcompanhadas : 0,
       displayValue: getDisplayValue(kpiData.familiasAcompanhadas),
@@ -207,7 +226,7 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
       subtitle: getSubtitle(),
       description: "Famílias ativas no projeto Favela 3D (Psicossocial)",
       color: "#7B2CBF" // Roxo
-    }
+    }] : [])
   ];
 
   return (

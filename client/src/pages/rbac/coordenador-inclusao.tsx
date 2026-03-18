@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -27,7 +28,7 @@ import { z } from "zod";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
+import { cn, formatCPF } from "@/lib/utils";
 import { 
   Users, 
   BookOpen, 
@@ -57,16 +58,34 @@ import {
   ExternalLink,
   ClipboardList,
   ChevronDown,
+  ChevronUp,
   UserX,
   Phone,
   MapPin,
   Heart,
-  Shirt
+  Shirt,
+  Loader2,
+  X,
+  Camera,
+  Pencil,
+  Ban,
+  FileDown
 } from "lucide-react";
 import { ProfileImageUploader } from "@/components/ProfileImageUploader";
 import AlterarSenha from "@/components/AlterarSenha";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
 import { TurmaInclusaoForm } from "@/components/TurmaInclusaoForm";
+import { getDiasAulaParaTurma, type DiaAula } from "@/lib/class-days";
+import { GeracaoRendaSection } from "@/components/GeracaoRendaSection";
+import PresencaInclusaoControl from "@/components/presenca/PresencaInclusaoControl";
+import FrequenciaTurmas from "@/components/FrequenciaTurmas";
+import AprovacoesSemana from "@/components/presenca/AprovacoesSemana";
+import CoordenadorDashboard from "@/components/CoordenadorDashboard";
+import ParticipantesInclusaoSection from "@/components/ParticipantesInclusaoSection";
+import GerenciarProfessores from "@/components/GerenciarProfessores";
+import { TurmaDetailModalInclusao } from "@/components/inclusao/TurmaDetailModalInclusao";
+import { baixarListaAlunos } from "@/lib/pdfUtils";
+import VincularProfessoresTurma from "@/components/VincularProfessoresTurma";
 
 // Helper para formatar status
 const formatarStatus = (status: string | null | undefined): string => {
@@ -116,37 +135,120 @@ const participanteSchema = z.object({
 
 type ParticipanteForm = z.infer<typeof participanteSchema>;
 
+  const formatCellSmart = (value: any, key?: string) => {
+  if (value === null || value === undefined || value === "") return "—";
+
+  const lowerKey = (key || "").toLowerCase();
+  const looksLikeDateKey =
+    lowerKey.includes("data") ||
+    lowerKey.includes("date") ||
+    lowerKey.includes("ingresso") ||
+    lowerKey.includes("nascimento") ||
+    lowerKey.includes("entrada");
+
+  if (looksLikeDateKey) {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return format(d, "dd/MM/yyyy");
+  }
+
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (Array.isArray(value)) return value.join(", ");
+
+  if (typeof value === "object") {
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+
+  return String(value);
+};
+
 export default function CoordenadorInclusaoPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState('dashboard');
+  const changeSection = (section: string) => {
+    setActiveSection(section);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.getElementById('coordenador-inclusao-content-area');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    });
+  };
   const [showAddModal, setShowAddModal] = useState(false);
+  const [filtroStatusTurma, setFiltroStatusTurma] = useState<string>('todos');
+  const [filtroStatusPrograma, setFiltroStatusPrograma] = useState<string>('todos');
+  const [buscaTurma, setBuscaTurma] = useState<string>('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [coordenadorId, setCoordenadorId] = useState<number | null>(null);
+  const userId = Number(localStorage.getItem("userId") || localStorage.getItem("coordenadorId") || 0);
+  const userName = "Coordenador";
+  const userPapel = localStorage.getItem("userPapel");
+  const [turmaParaFinalizarId, setTurmaParaFinalizarId] = useState<number | null>(null);
+  const [turmaParaInativar, setTurmaParaInativar] = useState<any>(null);
+  const [confirmInativarOpen, setConfirmInativarOpen] = useState(false);
+
+  // 👇 novo: guardar o importId que o backend devolve
+  const [importId, setImportId] = useState<string | null>(null);
+
+  // 👇 preview da inclusão (só participantes, ou o pacote todo)
+  const [previewData, setPreviewData] = useState<{
+    participantes: any[];
+    stats?: any;
+  } | null>(null);
+
+  // 👇 índices selecionados (na inclusão é o `row.index` do preview)
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const [previewFiltro, setPreviewFiltro] = useState<"todos" | "validos" | "invalidos">("todos");
+  const [previewPage, setPreviewPage] = useState(0);
+  const ITEMS_PER_PAGE = 50;
   const [showEditProgramaModal, setShowEditProgramaModal] = useState(false);
   const [showDetalhesProgramaModal, setShowDetalhesProgramaModal] = useState(false);
   const [selectedPrograma, setSelectedPrograma] = useState<any>(null);
-  const [showEditCursoModal, setShowEditCursoModal] = useState(false);
-  const [showCronogramaModal, setShowCronogramaModal] = useState(false);
-  const [selectedCurso, setSelectedCurso] = useState<any>(null);
-  const [cronogramaAulas, setCronogramaAulas] = useState<any[]>([]);
-  const [showNovaAulaModal, setShowNovaAulaModal] = useState(false);
-  const [aulaEditando, setAulaEditando] = useState<any>(null);
+  const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
+  const [dashFiltroMes, setDashFiltroMes] = useState(0);
   const [showDetalhesTurmaModal, setShowDetalhesTurmaModal] = useState(false);
-  const [showDetalhesCursoModal, setShowDetalhesCursoModal] = useState(false);
   const [showEditParceiroModal, setShowEditParceiroModal] = useState(false);
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
   const [selectedParceiro, setSelectedParceiro] = useState<any>(null);
   const [showNovoProgramaModal, setShowNovoProgramaModal] = useState(false);
   const [showNovaTurmaModal, setShowNovaTurmaModal] = useState(false);
+  const [desligarModal, setDesligarModal] = useState<{ participanteId: number; turmaId: number; nome: string } | null>(null);
+  const [dashFiltroTurma, setDashFiltroTurma] = useState<string>("");
+  const [dashFiltroPrograma, setDashFiltroPrograma] = useState<string>("");
+  const [dashSemFormatura, setDashSemFormatura] = useState(false);
+  const [desligarMotivo, setDesligarMotivo] = useState("");
+  const [desligarLoading, setDesligarLoading] = useState(false);
   const [selectedTurma, setSelectedTurma] = useState<any>(null);
   const [showEditTurmaModal, setShowEditTurmaModal] = useState(false);
-  const [showNovoCursoModal, setShowNovoCursoModal] = useState(false);
-  const [isCreatingCurso, setIsCreatingCurso] = useState(false);
+  const [showFinalizarTurmaModal, setShowFinalizarTurmaModal] = useState(false);
+  const [participantesSelecionados, setParticipantesSelecionados] = useState<number[]>([]);
+  const [buscaParticipante, setBuscaParticipante] = useState("");
+  const [participantesTurmaAtual, setParticipantesTurmaAtual] = useState<any[]>([]);
+  const [isLoadingParticipantesTurma, setIsLoadingParticipantesTurma] = useState(false);
+  const [isFinalizando, setIsFinalizando] = useState(false);
   const [showExcluirProgramaModal, setShowExcluirProgramaModal] = useState(false);
   const [programaToDelete, setProgramaToDelete] = useState<any>(null);
   const [showNovoParticipanteModal, setShowNovoParticipanteModal] = useState(false);
   const [fotoParticipantePreview, setFotoParticipantePreview] = useState<string | null>(null);
   const [fotoParticipanteFile, setFotoParticipanteFile] = useState<File | null>(null);
+  const [showGerenciarAlunosTurmaModal, setShowGerenciarAlunosTurmaModal] = useState(false);
+  const [turmaSelecionadaParaAlunos, setTurmaSelecionadaParaAlunos] = useState<any>(null);
+  const [alunosDaTurma, setAlunosDaTurma] = useState<any[]>([]);
+  const [searchAlunoTurma, setSearchAlunoTurma] = useState("");
+  const [searchAcompanhamento, setSearchAcompanhamento] = useState("");
+  const [loadingAlunosTurma, setLoadingAlunosTurma] = useState(false);
+  const [showVincularProfessoresModal, setShowVincularProfessoresModal] = useState(false);
+  const [turmaParaVincular, setTurmaParaVincular] = useState<any>(null);
+  // Modais de planos e relatórios de aulas
+  const [showPlanosAulaModal, setShowPlanosAulaModal] = useState(false);
+  const [showRelatoriosAulaModal, setShowRelatoriosAulaModal] = useState(false);
+  const [planoAulaDetalhes, setPlanoAulaDetalhes] = useState<any>(null);
+  const [relatorioAulaDetalhes, setRelatorioAulaDetalhes] = useState<any>(null);
+  const [filtroProf, setFiltroProf] = useState("");
   
   const handleFotoParticipanteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -184,16 +286,30 @@ export default function CoordenadorInclusaoPage() {
   const [editTurmaStatus, setEditTurmaStatus] = useState<string>("planejado");
   const [editTurmaHoraInicio, setEditTurmaHoraInicio] = useState<string>("");
   const [editTurmaHoraFim, setEditTurmaHoraFim] = useState<string>("");
+  const [editTurmaDiasSemana, setEditTurmaDiasSemana] = useState<string[]>([]);
   
-  // States para o formulário de cursos
-  const [novoCursoProgramaId, setNovoCursoProgramaId] = useState<string>("");
-  const [novoCursoTurmaIds, setNovoCursoTurmaIds] = useState<number[]>([]);
+  const diasDaSemana = [
+    { value: "segunda", label: "Seg" },
+    { value: "terca", label: "Ter" },
+    { value: "quarta", label: "Qua" },
+    { value: "quinta", label: "Qui" },
+    { value: "sexta", label: "Sex" },
+    { value: "sabado", label: "Sáb" },
+    { value: "domingo", label: "Dom" },
+  ];
+  
+  // States para edição de programa
+  const [editProgramaStatus, setEditProgramaStatus] = useState<string>("planejado");
+  const [editProgramaModalidade, setEditProgramaModalidade] = useState<string>("presencial");
+  
+  // States para criação de programa
+  const [createProgramaStatus, setCreateProgramaStatus] = useState<string>("planejado");
+  const [createProgramaModalidade, setCreateProgramaModalidade] = useState<string>("presencial");
+  
   
   // State para busca de participantes
   const [searchParticipante, setSearchParticipante] = useState<string>("");
   
-  // State para o status da aula no modal
-  const [aulaStatus, setAulaStatus] = useState<string>("agendada");
   
   // Estados para o perfil do coordenador
   const [perfilNome, setPerfilNome] = useState<string>("");
@@ -201,99 +317,375 @@ export default function CoordenadorInclusaoPage() {
   const [perfilTelefone, setPerfilTelefone] = useState<string>("");
   const [perfilRamal, setPerfilRamal] = useState<string>("");
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);
+
   
-  // Estados para controle de presença
-  const [presencas, setPresencas] = useState<Record<number, 'presente' | 'ausente' | 'justificado' | null>>({});
-  const [justificativas, setJustificativas] = useState<Record<number, string>>({});
-  const [participanteJustificando, setParticipanteJustificando] = useState<number | null>(null);
-  const [justificativaTemp, setJustificativaTemp] = useState<string>("");
-  const [erroJustificativa, setErroJustificativa] = useState<string>("");
-  
+    const handleOpenImport = () => {
+    setShowImportModal(true);
+    setImportFile(null);
+
+    // ✅ limpar cache local
+    setImportId(null);
+    setPreviewData(null);
+    setSelectedIndexes([]);
+  };
+
+  const toggleSelectIndex = (idx: number) => {
+  setSelectedIndexes((prev) =>
+    prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+  );
+};
+
+const handleRunPreview = async () => {
+  if (!importFile) {
+    toast({
+      title: "Selecione uma planilha",
+      description: "Envie um arquivo .xlsx",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setImportLoading(true);
+  try {
+    const formData = new FormData();
+    formData.append("file", importFile);
+
+    const authId = String(coordenadorId ?? userId ?? "");
+    const headers: Record<string, string> = {};
+    if (authId && authId !== "0") headers["x-user-id"] = authId;
+    const resp = await fetch("/api/inclusao/import/preview", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+      headers,
+    });
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json?.error || "Falha ao ler a planilha.");
+    console.log("[IMPORT PREVIEW] response:", json);
+    console.log("[IMPORT PREVIEW] participantes length:", json?.preview?.participantes?.length);
+    console.log("[IMPORT PREVIEW] stats:", json?.stats);
+
+    // ✅ backend devolve: { importId, preview: { participantes... }, stats }
+    setImportId(json.importId);
+    setPreviewData({
+      participantes: json.preview?.participantes || [],
+      stats: json.stats,
+    });
+
+    // ✅ por padrão: seleciona todos válidos
+    const valids = (json.preview?.participantes || [])
+      .filter((r: any) => r?.isValid)
+      .map((r: any) => r.index);
+    setSelectedIndexes(valids);
+
+    setPreviewFiltro("todos");
+    setPreviewPage(0);
+
+    toast({
+      title: "Preview carregado",
+      description: `Válidos: ${json.stats?.participantes?.valid ?? 0} | Inválidos: ${json.stats?.participantes?.invalid ?? 0}`,
+    });
+  } catch (e: any) {
+    toast({
+      title: "Erro no preview",
+      description: e?.message || "Falha ao processar planilha.",
+      variant: "destructive",
+    });
+  } finally {
+    setImportLoading(false);
+  }
+};
+
+const handleCommitImport = async () => {
+  if (!importId) {
+    toast({
+      title: "Faça o preview primeiro",
+      description: "Carregue o preview antes de confirmar a importação.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setImportLoading(true);
+  try {
+    const authId = String(coordenadorId ?? userId ?? "");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authId && authId !== "0") headers["x-user-id"] = authId;
+    const resp = await fetch("/api/inclusao/import/commit", {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify({
+        importId,
+        selectedIndexes,
+      }),
+    });
+
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json?.error || "Falha ao importar.");
+
+    const imported = json.imported?.participantes ?? 0;
+    const errors = json.errors ?? [];
+    const warns = errors.filter((e: any) => e.level === "warning").length;
+    const errs = errors.filter((e: any) => e.level !== "warning").length;
+
+    toast({
+      title: "Importação concluída",
+      description: `Importados: ${imported} | Avisos: ${warns} | Erros: ${errs}`,
+    });
+
+    // ✅ atualiza lista
+    queryClient.invalidateQueries({ queryKey: ["/api/participantes-inclusao"] });
+
+    // ✅ fecha modal e limpa
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportId(null);
+    setPreviewData(null);
+    setSelectedIndexes([]);
+  } catch (e: any) {
+    toast({
+      title: "Erro ao importar",
+      description: e?.message || "Falha ao confirmar importação.",
+      variant: "destructive",
+    });
+  } finally {
+    setImportLoading(false);
+  }
+};
+// keys "feias" / internas que não vale virar coluna
+const PREVIEW_EXCLUDE_KEYS = new Set([
+  "errors",
+  "isValid",
+  "index",
+]);
+
+const labelFromKey = (key: string) => {
+  // transforma camelCase / snake_case em label bonitinha
+  const spaced = key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+};
+
+const formatCell = (value: any) => {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") {
+    // tenta mostrar objeto sem quebrar a tabela
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
+const getPreviewColumns = (rows: any[]) => {
+  // junta todas as keys de row.data
+  const set = new Set<string>();
+  for (const r of rows || []) {
+    const data = r?.data || {};
+    Object.keys(data).forEach((k) => {
+      if (!PREVIEW_EXCLUDE_KEYS.has(k)) set.add(k);
+    });
+  }
+
+  // Ordem preferida (se existirem)
+  const preferred = [
+    "nome",
+    "cpf",
+    "genero",
+    "idade",
+    "telefone",
+    "email",
+    "endereco",
+    "escolaridade",
+    "experienciaProfissional",
+    "objetivosProfissionais",
+    "codigoMatricula",
+    "identificador",
+    "dataIngresso",
+    "turmasCodigos",
+    "turmaIds",
+  ];
+
+  const all = Array.from(set);
+
+  // ordena: primeiro os preferred, depois o resto
+  const preferredPresent = preferred.filter((k) => set.has(k));
+  const rest = all.filter((k) => !preferredPresent.includes(k)).sort();
+  return [...preferredPresent, ...rest];
+};
+
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
-  const userId = localStorage.getItem("userId");
-  const coordenadorId = localStorage.getItem("coordenadorId");
-  const userName = "Coordenador";
-  const userPapel = localStorage.getItem("userPapel");
 
   // Query para buscar dados do perfil do coordenador (users + coordenadores)
   const { data: perfilData, refetch: refetchPerfil } = useQuery({
     queryKey: ['/api/coordenadores', coordenadorId, 'profile'],
     queryFn: async () => {
-      const response = await fetch(`/api/coordenadores/${coordenadorId}/profile`);
+      const response = await fetch(`/api/coordenadores/${coordenadorId}/profile`, {
+        credentials: "include",
+      });
       if (!response.ok) return null;
+
       const data = await response.json();
-      // Atualizar estados com os dados recebidos
       setPerfilNome(data.nome || "");
       setPerfilEmail(data.email || "");
       setPerfilTelefone(data.telefone || "");
       setPerfilRamal(data.formacao || "");
       return data;
     },
-    enabled: !!coordenadorId
+    enabled: !!coordenadorId,
   });
-
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
-    queryKey: ['/api/coordenador/dashboard', userId, 'inclusao'],
+    queryKey: ['/api/coordenador/dashboard', 'inclusao'],
     queryFn: async () => {
-      const response = await fetch(`/api/coordenador/dashboard/${userId}?area=inclusao`, {
-        headers: { 'x-user-id': userId || '' }
+      const response = await fetch(`/api/coordenador/dashboard?area=inclusao`, {
+        credentials: "include",
       });
-      if (!response.ok) throw new Error('Failed to fetch dashboard data');
+      if (!response.ok) throw new Error('Falha ao carregar dados do painel');
+
+      const json = await response.json();
+
+      // ✅ Pega do backend e salva no state
+      if (json?.coordenadorId) setCoordenadorId(Number(json.coordenadorId));
+
+      return json;
+    },
+    // ✅ NÃO trava com localStorage
+  });
+
+  const { data: dashboardDemografico, isLoading: loadingDemografico } = useQuery<any>({
+    queryKey: ['/api/coordenador/dashboard-demografico-inclusao', dashFiltroAno, dashFiltroMes],
+    queryFn: async () => {
+      const authId = String(coordenadorId ?? userId ?? "");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (authId && authId !== "0") headers["x-user-id"] = authId;
+      const params = new URLSearchParams();
+      if (dashFiltroAno) params.set('ano', String(dashFiltroAno));
+      if (dashFiltroMes) params.set('mes', String(dashFiltroMes));
+      const qs = params.toString();
+      const url = '/api/coordenador/dashboard-demografico-inclusao' + (qs ? `?${qs}` : '');
+      const response = await fetch(url, {
+        credentials: "include",
+        headers,
+      });
+      if (!response.ok) throw new Error('Falha ao carregar dados demográficos');
       return response.json();
     },
-    enabled: !!userId
+    enabled: !!coordenadorId || !!userId,
   });
 
   // Query para buscar programas do banco de dados
   const { data: programasData = [], isLoading: isLoadingProgramas } = useQuery({
     queryKey: ['/api/programas-inclusao'],
     queryFn: async () => {
-      const response = await fetch('/api/programas-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch programas');
+     const response = await fetch('/api/programas-inclusao', {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error('Falha ao carregar programas');
       return response.json();
-    }
+    },
+    
   });
 
   // Query para buscar turmas do banco de dados
   const { data: turmasData = [], isLoading: isLoadingTurmas } = useQuery({
     queryKey: ['/api/turmas-inclusao'],
     queryFn: async () => {
-      const response = await fetch('/api/turmas-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch turmas');
+      const response = await fetch('/api/turmas-inclusao', { credentials: "include" })
+      if (!response.ok) throw new Error('Falha ao carregar turmas');
       return response.json();
-    }
+    },
+    staleTime: 0,
   });
 
-  // Query para buscar cursos do banco de dados
-  const { data: cursosData = [], isLoading: isLoadingCursos } = useQuery({
-    queryKey: ['/api/cursos-inclusao'],
-    queryFn: async () => {
-      const response = await fetch('/api/cursos-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch cursos');
-      return response.json();
-    }
-  });
+  const turmaParaFinalizar = turmasData?.find((t: any) => Number(t.id) === Number(turmaParaFinalizarId));
 
   // Query para buscar participantes do banco de dados
   const { data: participantesData = [], isLoading: isLoadingParticipantes } = useQuery({
     queryKey: ['/api/participantes-inclusao'],
     queryFn: async () => {
-      const response = await fetch('/api/participantes-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch participantes');
+      const response = await fetch('/api/participantes-inclusao', { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar participantes');
       return response.json();
-    }
+    },
+    
   });
 
-  // Query para buscar histórico de presenças de inclusão
-  const { data: historicoPresencas = [], isLoading: isLoadingHistorico, refetch: refetchHistorico } = useQuery({
-    queryKey: ['/api/coordenador/historico-presencas-inclusao'],
+  const { data: presençasData } = useQuery({
+    queryKey: ['/api/inclusao/presenças', 2026],
     queryFn: async () => {
-      const response = await fetch('/api/coordenador/historico-presencas-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch historico');
+      const response = await fetch('/api/inclusao/presenças?ano=2026', { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar presenças');
       return response.json();
-    }
+    },
   });
+
+  // Queries para planos de aula e aulas registradas (visão coordenador)
+  const { data: planosAulaInclusao = [], isLoading: loadingPlanos, refetch: refetchPlanos } = useQuery({
+    queryKey: ['/api/coordenador/inclusao/planos-aula'],
+    queryFn: async () => {
+      const r = await fetch('/api/coordenador/inclusao/planos-aula', { credentials: 'include' });
+      if (!r.ok) throw new Error('Falha ao carregar planos de aula');
+      return r.json();
+    },
+    enabled: activeSection === 'planos-aula',
+  });
+
+  const { data: aulasRegistradasInclusao = [], isLoading: loadingRelatorios, refetch: refetchRelatorios } = useQuery({
+    queryKey: ['/api/coordenador/inclusao/aulas-registradas'],
+    queryFn: async () => {
+      const r = await fetch('/api/coordenador/inclusao/aulas-registradas', { credentials: 'include' });
+      if (!r.ok) throw new Error('Falha ao carregar relatórios de aulas');
+      return r.json();
+    },
+    enabled: activeSection === 'relatorios-aulas',
+  });
+
+  const { data: metasInclusao } = useQuery<any>({
+    queryKey: ['/api/metas-indicadores', dashFiltroAno, 'inclusao'],
+    queryFn: async () => {
+      const r = await fetch(`/api/metas-indicadores?ano=${dashFiltroAno}&vertente=inclusao`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return r.json();
+    },
+  });
+
+  const finalizarTurmaMutation = useMutation({
+  mutationFn: async ({ turmaId, participantesConcluidosIds }: { turmaId: number; participantesConcluidosIds: number[] }) => {
+    return apiRequest(`/api/turmas-inclusao/${turmaId}/finalizar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participantesConcluidosIds }),
+    });
+  },
+  onSuccess: () => {
+    toast({ title: "Turma finalizada!", description: "Turma encerrada com sucesso." });
+
+    setShowFinalizarTurmaModal(false);
+    setTurmaParaFinalizarId(null);
+    setParticipantesSelecionados([]);
+    setParticipantesTurmaAtual([]);
+
+    // ✅ recarrega as turmas pra refletir concluído + contagens
+    queryClient.invalidateQueries({ queryKey: ["/api/turmas-inclusao"] });
+
+    // ✅ opcional (se sua UI depende disso em algum lugar)
+    queryClient.invalidateQueries({ queryKey: ["/api/participantes-inclusao"] });
+  },
+  onError: (e: any) => {
+    toast({
+      title: "Erro ao finalizar turma",
+      description: e?.message || "Não foi possível finalizar a turma. Tente novamente.",
+      variant: "destructive",
+    });
+  },
+});
 
   // Form para adicionar participante
   const formParticipante = useForm<ParticipanteForm>({
@@ -337,6 +729,21 @@ export default function CoordenadorInclusaoPage() {
     }
   });
 
+  // Verificar e atualizar status de programas/turmas com data de conclusão passada ao carregar
+    useEffect(() => {
+      let ran = false;
+      const verificarStatus = async () => {
+        if (ran) return;
+        ran = true;
+        try {
+          await fetch('/api/inclusao/verificar-status', { method: 'POST', credentials: "include" });
+        } catch (err) {
+          console.error('Erro ao verificar status:', err);
+        }
+      };
+      verificarStatus();
+    }, []);
+
   // Effect para carregar documentos do participante quando modal de edição é aberto
   // Nota: O formulário de edição agora é gerenciado pelo ComprehensiveStudentForm
   useEffect(() => {
@@ -358,36 +765,6 @@ export default function CoordenadorInclusaoPage() {
       loadDocs();
     }
   }, [selectedParticipante, showEditParticipanteModal]);
-
-  // Effect para carregar cronograma do curso selecionado
-  useEffect(() => {
-    if (selectedCurso && showCronogramaModal) {
-      // Tentar carregar o cronograma salvo no curso
-      if (selectedCurso.cronograma) {
-        try {
-          const cronogramaParsed = JSON.parse(selectedCurso.cronograma);
-          setCronogramaAulas(cronogramaParsed);
-        } catch (e) {
-          // Se não conseguir parsear, inicializa vazio
-          setCronogramaAulas([]);
-        }
-      } else {
-        // Se não tem cronograma salvo, inicializa vazio
-        setCronogramaAulas([]);
-      }
-    }
-  }, [selectedCurso, showCronogramaModal]);
-
-  // Effect para atualizar o status quando abrir modal de edição de aula
-  useEffect(() => {
-    if (aulaEditando) {
-      // Normalizar o status para lowercase
-      const statusNormalizado = aulaEditando.status?.toLowerCase() || 'agendada';
-      setAulaStatus(statusNormalizado);
-    } else {
-      setAulaStatus('agendada');
-    }
-  }, [aulaEditando]);
 
   // Mutation para criar participante
   const createParticipanteMutation = useMutation({
@@ -434,7 +811,7 @@ export default function CoordenadorInclusaoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao criar participante",
-        description: error.message || "Tente novamente.",
+        description: error.message || "Não foi possível criar o participante. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -470,7 +847,7 @@ export default function CoordenadorInclusaoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao atualizar participante",
-        description: error.message || "Tente novamente.",
+        description: error.message || "Não foi possível atualizar o participante. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -491,37 +868,11 @@ export default function CoordenadorInclusaoPage() {
       setShowExcluirProgramaModal(false);
       setProgramaToDelete(null);
       queryClient.invalidateQueries({ queryKey: ['/api/programas-inclusao'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/cursos-inclusao'] });
     },
     onError: (error: any) => {
       toast({
         title: "Erro ao excluir programa",
-        description: error.message || "Tente novamente.",
-        variant: "destructive"
-      });
-    }
-  });
-
-  // Mutation para excluir curso (não afeta programa pai)
-  const deleteCursoMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest(`/api/cursos-inclusao/${id}`, {
-        method: 'DELETE'
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Curso excluído!",
-        description: "O curso foi removido com sucesso."
-      });
-      setShowExcluirProgramaModal(false);
-      setProgramaToDelete(null);
-      queryClient.invalidateQueries({ queryKey: ['/api/cursos-inclusao'] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao excluir curso",
-        description: error.message || "Tente novamente.",
+        description: error.message || "Não foi possível excluir o programa. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -654,9 +1005,7 @@ export default function CoordenadorInclusaoPage() {
 
       const response = await fetch('/api/export/relatorio-slides', {
         method: 'GET',
-        headers: {
-          'x-user-id': userId || '1',
-        },
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -722,105 +1071,6 @@ export default function CoordenadorInclusaoPage() {
         variant: "destructive"
       });
     }
-  };
-
-  // Funções de controle de presença
-  const handleStatusChange = (participanteId: number, novoStatus: 'presente' | 'ausente' | 'justificado' | null) => {
-    const statusAnterior = presencas[participanteId];
-    
-    // Atualizar presença (mutuamente exclusivo)
-    setPresencas(prev => ({
-      ...prev,
-      [participanteId]: novoStatus
-    }));
-    
-    // Se marcou justificado, abrir modal
-    if (novoStatus === 'justificado') {
-      setParticipanteJustificando(participanteId);
-      setJustificativaTemp(justificativas[participanteId] || "");
-      setErroJustificativa("");
-    } else if (statusAnterior === 'justificado') {
-      // Se desmarcou justificado, limpar justificativa
-      setJustificativas(prev => {
-        const nova = { ...prev };
-        delete nova[participanteId];
-        return nova;
-      });
-    }
-  };
-
-  const handleSalvarJustificativa = () => {
-    if (!participanteJustificando) return;
-    
-    const justificativa = justificativaTemp.trim();
-    
-    if (justificativa.length < 40) {
-      setErroJustificativa(`A justificativa deve ter no mínimo 40 caracteres (${justificativa.length}/40)`);
-      return;
-    }
-    
-    // Salvar justificativa
-    setJustificativas(prev => ({
-      ...prev,
-      [participanteJustificando]: justificativa
-    }));
-    
-    // Fechar modal
-    setParticipanteJustificando(null);
-    setJustificativaTemp("");
-    setErroJustificativa("");
-    
-    toast({
-      title: "Justificativa salva",
-      description: "A justificativa foi registrada com sucesso."
-    });
-  };
-
-  const handleCancelarJustificativa = () => {
-    if (!participanteJustificando) return;
-    
-    // Reverter status se não tinha justificativa
-    if (!justificativas[participanteJustificando]) {
-      setPresencas(prev => ({
-        ...prev,
-        [participanteJustificando]: null
-      }));
-    }
-    
-    // Fechar modal
-    setParticipanteJustificando(null);
-    setJustificativaTemp("");
-    setErroJustificativa("");
-  };
-
-  const handleSalvarPresencas = () => {
-    // Validar que todos os justificados têm justificativa válida
-    const erros: string[] = [];
-    
-    Object.entries(presencas).forEach(([id, status]) => {
-      if (status === 'justificado') {
-        const justificativa = justificativas[parseInt(id)];
-        if (!justificativa || justificativa.trim().length < 40) {
-          const participante = participantesData.find((p: any) => p.id === parseInt(id));
-          erros.push(participante?.nome || `Participante ${id}`);
-        }
-      }
-    });
-    
-    if (erros.length > 0) {
-      toast({
-        title: "Erro ao salvar",
-        description: `Os seguintes participantes precisam de justificativa válida: ${erros.join(', ')}`,
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    // TODO: Salvar presenças no banco
-    toast({
-      title: "Presenças salvas!",
-      description: "As presenças foram registradas com sucesso."
-    });
   };
 
   const handleExportPresencas = async () => {
@@ -908,33 +1158,16 @@ export default function CoordenadorInclusaoPage() {
     }
   };
 
-  // Função para salvar o cronograma no banco de dados
-  const salvarCronograma = async (aulas: any[]) => {
-    if (!selectedCurso) return;
-    
-    try {
-      const cronogramaJson = JSON.stringify(aulas);
-      const cursoAtualizado = await apiRequest(`/api/cursos-inclusao/${selectedCurso.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ cronograma: cronogramaJson }),
-        headers: {
-          'Content-Type': 'application/json'
-        }
+    const handleConfirmarFinalizacaoTurma = () => {
+      if (!turmaParaFinalizarId) {
+        toast({ title: "Erro", description: "Turma inválida para finalizar.", variant: "destructive" });
+        return;
+      }
+
+      finalizarTurmaMutation.mutate({
+        turmaId: turmaParaFinalizarId,
+        participantesConcluidosIds: participantesSelecionados,
       });
-      
-      // Atualizar o selectedCurso com os dados atualizados
-      setSelectedCurso({ ...selectedCurso, cronograma: cronogramaJson });
-      
-      // Atualizar cache local
-      queryClient.invalidateQueries({ queryKey: ['/api/cursos-inclusao'] });
-    } catch (error) {
-      console.error('Erro ao salvar cronograma:', error);
-      toast({
-        title: "Erro ao salvar",
-        description: "Não foi possível salvar o cronograma. Tente novamente.",
-        variant: "destructive"
-      });
-    }
   };
 
   if (isLoading) {
@@ -949,25 +1182,286 @@ export default function CoordenadorInclusaoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="coordenador-inclusao-page">
+     
+    <div className="min-h-screen bg-slate-900" data-testid="coordenador-inclusao-page">
+      {/* MODAL IMPORTAÇÃO (Inclusão Produtiva) */}
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+        {/* ✅ IMPORTANTE:
+            - virou flex-col + overflow-hidden pra SEGURAR o layout
+            - conteúdo interno que vai scrollar fica dentro do flex-1/min-h-0
+        */}
+        <DialogContent className="max-w-6xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Importar participantes (Excel)</DialogTitle>
+            <DialogDescription>
+              Envie a planilha (.xlsx), revise o preview e confirme a importação.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* ✅ Corpo do modal (pode crescer e scrollar) */}
+          <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
+            {/* Upload */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+                />
+
+                <Button
+                  onClick={handleRunPreview}
+                  disabled={!importFile || importLoading}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  {importLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Eye className="w-4 h-4 mr-2" />
+                  )}
+                  Rodar preview
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setImportFile(null);
+                    setImportId(null);
+                    setPreviewData(null);
+                    setSelectedIndexes([]);
+                  }}
+                  disabled={importLoading}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Fechar
+                </Button>
+              </div>
+
+              {/* Stats */}
+              {previewData?.stats?.participantes && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">
+                    Válidos: {previewData.stats.participantes.valid ?? 0}
+                  </Badge>
+                  <Badge variant="outline">
+                    Inválidos: {previewData.stats.participantes.invalid ?? 0}
+                  </Badge>
+                  <Badge variant="outline">Selecionados: {selectedIndexes.length}</Badge>
+                </div>
+              )}
+            </div>
+
+            {/* Preview table + footer */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {previewData?.participantes?.length ? (
+                (() => {
+                  const fieldLabels: Record<string, string> = {
+                    nome: "Nome",
+                    cpf: "CPF",
+                    genero: "Gênero",
+                    email: "E-mail",
+                    telefone: "Telefone",
+                  };
+
+                  const filteredRows = previewData.participantes.filter((r: any) => {
+                    if (previewFiltro === "validos") return r.isValid;
+                    if (previewFiltro === "invalidos") return !r.isValid;
+                    return true;
+                  });
+
+                  const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
+                  const pageRows = filteredRows.slice(
+                    previewPage * ITEMS_PER_PAGE,
+                    (previewPage + 1) * ITEMS_PER_PAGE
+                  );
+
+                  const columns = ["nome", "cpf", "genero", "email", "telefone"];
+
+                  return (
+                    <div className="border rounded-md overflow-hidden flex flex-col flex-1 min-h-0">
+                      {/* Filter tabs */}
+                      <div className="flex items-center gap-2 p-2 border-b bg-gray-50">
+                        <Button
+                          size="sm"
+                          variant={previewFiltro === "todos" ? "default" : "outline"}
+                          onClick={() => { setPreviewFiltro("todos"); setPreviewPage(0); }}
+                        >
+                          Todos ({previewData.participantes.length})
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={previewFiltro === "validos" ? "default" : "outline"}
+                          onClick={() => { setPreviewFiltro("validos"); setPreviewPage(0); }}
+                          className={previewFiltro === "validos" ? "bg-green-500 hover:bg-green-600" : ""}
+                        >
+                          Válidos ({previewData.stats?.participantes?.valid ?? 0})
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={previewFiltro === "invalidos" ? "default" : "outline"}
+                          onClick={() => { setPreviewFiltro("invalidos"); setPreviewPage(0); }}
+                          className={previewFiltro === "invalidos" ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+                        >
+                          Inválidos ({previewData.stats?.participantes?.invalid ?? 0})
+                        </Button>
+                      </div>
+
+                      {/* Scroll area */}
+                      <div className="flex-1 min-h-0 overflow-auto">
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-white shadow-sm">
+                            <TableRow>
+                              <TableHead className="w-[50px]">Sel.</TableHead>
+                              <TableHead className="w-[60px]">Linha</TableHead>
+                              <TableHead className="w-[90px]">Status</TableHead>
+                              {columns.map((key) => (
+                                <TableHead key={key} className="whitespace-nowrap">
+                                  {fieldLabels[key] || key}
+                                </TableHead>
+                              ))}
+                              <TableHead className="min-w-[300px]">Motivo</TableHead>
+                            </TableRow>
+                          </TableHeader>
+
+                          <TableBody>
+                            {pageRows.length === 0 && (
+                              <TableRow>
+                                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                                  Nenhum participante encontrado neste filtro.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                            {pageRows.map((row: any) => {
+                              const checked = selectedIndexes.includes(row.index);
+                              return (
+                                <TableRow
+                                  key={row.index}
+                                  className={!row.isValid ? "bg-red-50" : ""}
+                                >
+                                  <TableCell>
+                                    <Checkbox
+                                      checked={checked}
+                                      disabled={!row.isValid}
+                                      onCheckedChange={() => toggleSelectIndex(row.index)}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="text-xs text-gray-500">
+                                    {row.index + 2}
+                                  </TableCell>
+                                  <TableCell>
+                                    {row.isValid ? (
+                                      <Badge className="bg-green-500 text-xs">OK</Badge>
+                                    ) : (
+                                      <Badge variant="destructive" className="text-xs">Erro</Badge>
+                                    )}
+                                  </TableCell>
+                                  {columns.map((key) => (
+                                    <TableCell key={key} className="whitespace-nowrap max-w-[200px] truncate">
+                                      {row.data?.[key] || "—"}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell className="min-w-[300px]">
+                                    {!row.isValid && row.errors?.length ? (
+                                      <ul className="text-xs text-red-700 space-y-0.5">
+                                        {row.errors.map((e: any, idx: number) => (
+                                          <li key={idx} className="flex items-start gap-1">
+                                            <span className="text-red-400 mt-0.5">•</span>
+                                            <span>
+                                              <strong>{fieldLabels[e.path] || e.path}:</strong>{" "}
+                                              {e.message}
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <span className="text-xs text-green-600">Pronto para importar</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {/* Pagination + Confirm */}
+                      <div className="flex items-center justify-between gap-3 p-3 border-t bg-white">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={previewPage === 0}
+                            onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
+                          >
+                            Anterior
+                          </Button>
+                          <span className="text-xs text-gray-600">
+                            {totalPages > 0 
+                              ? `Página ${previewPage + 1} de ${totalPages} (${filteredRows.length} linhas)`
+                              : "Nenhuma linha"}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={previewPage >= totalPages - 1}
+                            onClick={() => setPreviewPage((p) => p + 1)}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+
+                        <Button
+                          onClick={handleCommitImport}
+                          disabled={!importId || importLoading || selectedIndexes.length === 0}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          {importLoading ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          Confirmar importação ({selectedIndexes.length})
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="text-sm text-gray-600 py-8 text-center">
+                  Nenhum preview carregado ainda. Envie a planilha e clique em{" "}
+                  <b>Rodar preview</b>.
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-4 md:px-6">
+      <div className="bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
               <BrainCircuit className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
+              <h1 className="text-xl md:text-2xl font-bold text-white" data-testid="text-welcome">
                 Coordenação Inclusão Produtiva
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Olá Coordenador</p>
+              <p className="text-slate-400" data-testid="text-username">Olá Coordenador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant="outline" data-testid="badge-role">
-              🎯 Coordenador Inclusão
-            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenImport}
+              data-testid="button-import"
+              className="border-green-500 text-green-700 hover:bg-green-50"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              Importar
+            </Button>
             <Button 
               variant="default" 
               size="sm" 
@@ -1034,6 +1528,20 @@ export default function CoordenadorInclusaoPage() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
         {/* Navegação de Cards */}
+        <CoordenadorDashboard
+          data={dashboardDemografico ? { ...dashboardDemografico, presenças: presençasData?.total ?? 0 } : undefined}
+          isLoading={loadingDemografico}
+          filtroAno={dashFiltroAno}
+          filtroMes={dashFiltroMes}
+          onFilterChange={(ano, mes) => {
+            setDashFiltroAno(ano);
+            setDashFiltroMes(mes);
+          }}
+          tipo="inclusao"
+          metaGeracaoRenda={metasInclusao?.metas?.geracaoRenda ?? 1500}
+          metaFormados={metasInclusao?.metas?.alunosFormados ?? 2000}
+        />
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">
           {/* Gestão de Participantes */}
           <Card data-testid="card-participantes">
@@ -1052,10 +1560,7 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'participantes' ? 'default' : 'outline'}
                   data-testid="button-participantes"
-                  onClick={() => {
-                    setSelectedCurso(null);
-                    setActiveSection('participantes');
-                  }}
+                  onClick={() => changeSection('participantes')}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Participantes
@@ -1064,7 +1569,7 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'acompanhamento' ? 'default' : 'outline'}
                   data-testid="button-acompanhamento"
-                  onClick={() => setActiveSection('acompanhamento')}
+                  onClick={() => changeSection('acompanhamento')}
                 >
                   <UserCheck className="w-4 h-4 mr-2" />
                   Acompanhamento
@@ -1090,7 +1595,7 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'programas' ? 'default' : 'outline'}
                   data-testid="button-programas"
-                  onClick={() => setActiveSection('programas')}
+                  onClick={() => changeSection('programas')}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Programas
@@ -1099,54 +1604,27 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'turmas' ? 'default' : 'outline'}
                   data-testid="button-turmas"
-                  onClick={() => setActiveSection('turmas')}
+                  onClick={() => changeSection('turmas')}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Turmas
                 </Button>
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'cursos' ? 'default' : 'outline'}
-                  data-testid="button-cursos"
-                  onClick={() => setActiveSection('cursos')}
-                >
-                  <Activity className="w-4 h-4 mr-2" />
-                  Cursos Profissionalizantes
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Parceiros e Empresas */}
-          <Card data-testid="card-parceiros">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <TrendingUp className="w-5 h-5 text-orange-500" />
-                Parceiros e Empresas
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-gray-600 text-sm">
-                Gerencie parcerias com empresas e organizações para inserção no mercado de trabalho.
-              </p>
-              <div className="space-y-2">
-                <Button 
-                  className="w-full" 
-                  variant={activeSection === 'parceiros' ? 'default' : 'outline'}
-                  data-testid="button-parceiros"
-                  onClick={() => setActiveSection('parceiros')}
+                  variant={activeSection === 'geracao-renda' ? 'default' : 'outline'}
+                  onClick={() => changeSection('geracao-renda')}
                 >
                   <TrendingUp className="w-4 h-4 mr-2" />
-                  Parceiros
+                  Geração de Renda
                 </Button>
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'vagas' ? 'default' : 'outline'}
-                  data-testid="button-vagas"
-                  onClick={() => setActiveSection('vagas')}
+                  variant={activeSection === 'presenca' ? 'default' : 'outline'}
+                  data-testid="button-chamadas"
+                  onClick={() => changeSection('presenca')}
                 >
-                  <Target className="w-4 h-4 mr-2" />
-                  Vagas de Emprego
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Chamadas
                 </Button>
               </div>
             </CardContent>
@@ -1167,18 +1645,18 @@ export default function CoordenadorInclusaoPage() {
               <div className="space-y-2">
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'presenca' ? 'default' : 'outline'}
-                  data-testid="button-presenca"
-                  onClick={() => setActiveSection('presenca')}
+                  variant={activeSection === 'frequencias' ? 'default' : 'outline'}
+                  data-testid="button-frequencias"
+                  onClick={() => changeSection('frequencias')}
                 >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Presença
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Ver Frequências
                 </Button>
                 <Button 
                   className="w-full" 
                   variant={activeSection === 'monitoramento' ? 'default' : 'outline'}
                   data-testid="button-monitoramento"
-                  onClick={() => setActiveSection('monitoramento')}
+                  onClick={() => changeSection('monitoramento')}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Monitoramento
@@ -1187,10 +1665,60 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'resultados' ? 'default' : 'outline'}
                   data-testid="button-resultados"
-                  onClick={() => setActiveSection('resultados')}
+                  onClick={() => changeSection('resultados')}
                 >
                   <TrendingUp className="w-4 h-4 mr-2" />
                   Resultados
+                </Button>
+                <Button
+                  className="w-full"
+                  variant={activeSection === 'aprovacoes' ? 'default' : 'outline'}
+                  onClick={() => changeSection('aprovacoes')}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Aprovações
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Gerenciar Professores */}
+          <Card data-testid="card-professores">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <GraduationCap className="w-5 h-5 text-teal-500" />
+                Professores
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Cadastre e gerencie os professores vinculados ao programa de inclusão produtiva.
+              </p>
+              <div className="space-y-2">
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'professores' ? 'default' : 'outline'}
+                  data-testid="button-professores"
+                  onClick={() => changeSection('professores')}
+                >
+                  <GraduationCap className="w-4 h-4 mr-2" />
+                  Gerenciar Professores
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => { setFiltroProf(""); setPlanoAulaDetalhes(null); changeSection('planos-aula'); }}
+                >
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  Planos de Aula
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => { setFiltroProf(""); setRelatorioAulaDetalhes(null); changeSection('relatorios-aulas'); }}
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Relatórios de Aulas
                 </Button>
               </div>
             </CardContent>
@@ -1213,7 +1741,7 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'relatorios' ? 'default' : 'outline'}
                   data-testid="button-relatorios"
-                  onClick={() => setActiveSection('relatorios')}
+                  onClick={() => changeSection('relatorios')}
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Relatórios
@@ -1222,7 +1750,7 @@ export default function CoordenadorInclusaoPage() {
                   className="w-full" 
                   variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
                   data-testid="button-perfil"
-                  onClick={() => setActiveSection('configuracoes')}
+                  onClick={() => changeSection('configuracoes')}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   Meu Perfil
@@ -1241,650 +1769,14 @@ export default function CoordenadorInclusaoPage() {
         </div>
 
         {/* Área de Conteúdo Dinâmica */}
-        <div className="mt-8">
+        <div className="mt-8" id="coordenador-inclusao-content-area">
           {activeSection === 'dashboard' && (
             <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Dashboard - Coordenação de Inclusão Produtiva</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-gray-600">Bem-vindo ao painel de coordenação de Inclusão Produtiva.</p>
-                  <p className="text-sm text-gray-500 mt-2">Use o menu acima para navegar entre as diferentes seções.</p>
-                </CardContent>
-              </Card>
             </div>
           )}
 
           {activeSection === 'participantes' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Gestão de Participantes</CardTitle>
-                  {selectedCurso && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge className="bg-purple-100 text-purple-700 border-purple-300">
-                        Filtrando por: {selectedCurso.nome}
-                      </Badge>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setSelectedCurso(null)}
-                        className="h-6 px-2 text-xs"
-                      >
-                        Limpar filtro
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={handleExportTemplate}
-                    data-testid="button-export-template"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Baixar Template
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => document.getElementById('file-import')?.click()}
-                    data-testid="button-import-excel"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Importar Excel
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    className="bg-blue-500 hover:bg-blue-600" 
-                    data-testid="button-add-participante"
-                    onClick={() => setShowNovoParticipanteModal(true)}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Adicionar Participante
-                  </Button>
-                  
-                  {/* Modal de Cadastro Completo de Participante - Inclusão Produtiva */}
-                  <ComprehensiveStudentForm 
-                    open={showNovoParticipanteModal}
-                    onClose={() => setShowNovoParticipanteModal(false)}
-                    mode="inclusao"
-                  />
-
-                  {/* Modal de Detalhes do Participante - Completo */}
-                  <Dialog open={showDetalhesParticipanteModal} onOpenChange={(open) => {
-                    setShowDetalhesParticipanteModal(open);
-                    if (!open) {
-                      setFullParticipanteData(null);
-                    }
-                  }}>
-                    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Detalhes Completos do Participante</DialogTitle>
-                      </DialogHeader>
-                      {loadingParticipanteDetails ? (
-                        <div className="flex items-center justify-center py-8">
-                          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-                          <span className="ml-3">Carregando dados...</span>
-                        </div>
-                      ) : (fullParticipanteData || selectedParticipante) && (
-                        <div className="space-y-6">
-                          {/* Cabeçalho com foto e nome */}
-                          <div className="flex items-center gap-4 pb-4 border-b">
-                            {(fullParticipanteData?.foto_perfil || selectedParticipante?.foto_perfil) ? (
-                              <img 
-                                src={fullParticipanteData?.foto_perfil || selectedParticipante?.foto_perfil} 
-                                alt={fullParticipanteData?.nome || selectedParticipante?.nome} 
-                                className="w-24 h-24 rounded-full object-cover border-2 border-blue-200"
-                              />
-                            ) : (
-                              <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center">
-                                <User className="w-12 h-12 text-blue-500" />
-                              </div>
-                            )}
-                            <div>
-                              <h3 className="text-xl font-semibold">{fullParticipanteData?.nome || selectedParticipante?.nome}</h3>
-                              <p className="text-gray-500">CPF: {fullParticipanteData?.cpf || selectedParticipante?.cpf || 'Não informado'}</p>
-                              <p className={`text-sm ${(fullParticipanteData?.status || selectedParticipante?.status) === 'inativo' ? 'text-red-500' : 'text-green-500'}`}>
-                                Status: {(fullParticipanteData?.status || selectedParticipante?.status) === 'inativo' ? 'Inativo' : 'Ativo'}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Seção: Identificação */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <User className="w-4 h-4" /> Identificação
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">Nome</label><p className="text-sm">{fullParticipanteData?.nome || selectedParticipante?.nome || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Gênero</label><p className="text-sm">{fullParticipanteData?.genero || selectedParticipante?.genero || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Idade</label><p className="text-sm">{(() => { const idade = fullParticipanteData?.idade || selectedParticipante?.idade; return (idade && idade > 0 && idade < 150) ? `${idade} anos` : '-'; })()}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Data de Ingresso</label><p className="text-sm">{(fullParticipanteData?.dataIngresso || selectedParticipante?.dataIngresso) ? new Date(fullParticipanteData?.dataIngresso || selectedParticipante?.dataIngresso).toLocaleDateString('pt-BR') : '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Nº Matrícula</label><p className="text-sm">{fullParticipanteData?.codigoMatricula || selectedParticipante?.codigoMatricula || '-'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Contato */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <Phone className="w-4 h-4" /> Contato
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">Telefone</label><p className="text-sm">{fullParticipanteData?.telefone || selectedParticipante?.telefone || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Email</label><p className="text-sm">{fullParticipanteData?.email || selectedParticipante?.email || '-'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Endereço */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <MapPin className="w-4 h-4" /> Endereço
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">CEP</label><p className="text-sm">{fullParticipanteData?.cep || selectedParticipante?.cep || '-'}</p></div>
-                              <div className="col-span-2"><label className="text-xs font-medium text-gray-500">Logradouro</label><p className="text-sm">{fullParticipanteData?.logradouro || selectedParticipante?.logradouro || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Número</label><p className="text-sm">{fullParticipanteData?.numero || selectedParticipante?.numero || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Complemento</label><p className="text-sm">{fullParticipanteData?.complemento || selectedParticipante?.complemento || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Bairro</label><p className="text-sm">{fullParticipanteData?.bairro || selectedParticipante?.bairro || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Cidade</label><p className="text-sm">{fullParticipanteData?.cidade || selectedParticipante?.cidade || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Estado</label><p className="text-sm">{fullParticipanteData?.estado || selectedParticipante?.estado || '-'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Benefícios Sociais */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <FileText className="w-4 h-4" /> Benefícios Sociais
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">CadÚnico</label><p className="text-sm">{(fullParticipanteData?.cadunico || selectedParticipante?.cadunico) ? 'Sim' : 'Não'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Bolsa Família</label><p className="text-sm">{(fullParticipanteData?.bolsaFamilia || selectedParticipante?.bolsaFamilia) ? 'Sim' : 'Não'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">BPC</label><p className="text-sm">{(fullParticipanteData?.bpc || selectedParticipante?.bpc) ? 'Sim' : 'Não'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Cartão Alimentação</label><p className="text-sm">{(fullParticipanteData?.cartaoAlimentacao || selectedParticipante?.cartaoAlimentacao) ? 'Sim' : 'Não'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Outros Benefícios</label><p className="text-sm">{(fullParticipanteData?.outrosBeneficios || selectedParticipante?.outrosBeneficios) ? 'Sim' : 'Não'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Data de Nascimento e Nacionalidade */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <User className="w-4 h-4" /> Dados Pessoais Adicionais
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">Data de Nascimento</label><p className="text-sm">{(fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento) ? new Date(fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento).toLocaleDateString('pt-BR') : '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Nacionalidade</label><p className="text-sm">{fullParticipanteData?.nacionalidade || selectedParticipante?.nacionalidade || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Forma de Acesso</label><p className="text-sm">{fullParticipanteData?.formaAcesso || selectedParticipante?.formaAcesso || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Data de Entrada</label><p className="text-sm">{(fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada) ? new Date(fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada).toLocaleDateString('pt-BR') : '-'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Escolaridade e Profissional */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <GraduationCap className="w-4 h-4" /> Escolaridade e Profissional
-                            </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg">
-                              <div><label className="text-xs font-medium text-gray-500">Escolaridade</label><p className="text-sm">{fullParticipanteData?.escolaridade || selectedParticipante?.escolaridade || '-'}</p></div>
-                              <div><label className="text-xs font-medium text-gray-500">Experiência Profissional</label><p className="text-sm">{fullParticipanteData?.experienciaProfissional || selectedParticipante?.experienciaProfissional || '-'}</p></div>
-                              <div className="col-span-2"><label className="text-xs font-medium text-gray-500">Objetivos Profissionais</label><p className="text-sm">{fullParticipanteData?.objetivosProfissionais || selectedParticipante?.objetivosProfissionais || '-'}</p></div>
-                            </div>
-                          </div>
-
-                          {/* Seção: Turmas */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <Users className="w-4 h-4" /> Turmas Vinculadas
-                            </h4>
-                            <div className="flex flex-wrap gap-2 bg-gray-50 p-4 rounded-lg">
-                              {(fullParticipanteData?.turmas || selectedParticipante?.turmas) && (fullParticipanteData?.turmas || selectedParticipante?.turmas).length > 0 ? (
-                                (fullParticipanteData?.turmas || selectedParticipante?.turmas).map((turma: any, idx: number) => (
-                                  <Badge key={idx} className="bg-blue-100 text-blue-700 border-blue-300">
-                                    {turma.nome}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <span className="text-gray-500">Sem turma vinculada</span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Observações */}
-                          {(fullParticipanteData?.observacoes || selectedParticipante?.observacoes) && (
-                            <div>
-                              <h4 className="font-semibold text-blue-600 mb-3">Observações</h4>
-                              <div className="bg-gray-50 p-4 rounded-lg">
-                                <p className="text-sm">{fullParticipanteData?.observacoes || selectedParticipante?.observacoes}</p>
-                              </div>
-                            </div>
-                          )}
-
-
-                          {/* Seção: Documentos */}
-                          <div>
-                            <h4 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
-                              <FileText className="w-4 h-4" /> Documentos
-                            </h4>
-                            <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                              {/* Upload de documento */}
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="file"
-                                  id="doc-upload-inclusao"
-                                  accept=".pdf,.jpg,.jpeg,.png,.webp"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file || !selectedParticipante?.id) return;
-                                    
-                                    setUploadingDocumento(true);
-                                    const formData = new FormData();
-                                    formData.append('documento', file);
-                                    formData.append('tipoDocumento', 'Documento');
-                                    
-                                    try {
-                                      const res = await fetch(`/api/documentos/participante-inclusao/${selectedParticipante.id}`, {
-                                        method: 'POST',
-                                        body: formData
-                                      });
-                                      const data = await res.json();
-                                      if (data.success) {
-                                        toast({ title: "Documento enviado com sucesso!" });
-                                        // Recarregar documentos
-                                        const docsRes = await fetch(`/api/documentos/participante-inclusao/${selectedParticipante.id}`);
-                                        const docsData = await docsRes.json();
-                                        setParticipanteDocumentos(docsData || []);
-                                      } else {
-                                        toast({ title: "Erro ao enviar documento", variant: "destructive" });
-                                      }
-                                    } catch (err) {
-                                      toast({ title: "Erro ao enviar documento", variant: "destructive" });
-                                    } finally {
-                                      setUploadingDocumento(false);
-                                      e.target.value = '';
-                                    }
-                                  }}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={uploadingDocumento}
-                                  onClick={() => document.getElementById('doc-upload-inclusao')?.click()}
-                                >
-                                  <Upload className="w-4 h-4 mr-2" />
-                                  {uploadingDocumento ? 'Enviando...' : 'Enviar Documento'}
-                                </Button>
-                                <span className="text-xs text-gray-500">PDF, JPG, PNG (max 10MB)</span>
-                              </div>
-                              
-                              {/* Lista de documentos */}
-                              {participanteDocumentos.length === 0 ? (
-                                <p className="text-sm text-gray-500">Nenhum documento cadastrado.</p>
-                              ) : (
-                                <div className="space-y-2">
-                                  {participanteDocumentos.map((doc: any) => (
-                                    <div key={doc.id} className="flex items-center justify-between bg-white p-2 rounded border">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="w-4 h-4 text-blue-500" />
-                                        <div>
-                                          <p className="text-sm font-medium">{doc.nomeArquivo || doc.nome_arquivo}</p>
-                                          <p className="text-xs text-gray-500">
-                                            {doc.tipoDocumento || doc.tipo_documento || 'Documento'} • {(doc.createdAt || doc.created_at) ? new Date(doc.createdAt || doc.created_at).toLocaleDateString('pt-BR') : ''}
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <div className="flex gap-1">
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => {
-                                            setDocumentoPreviewUrl(doc.urlArquivo || doc.url_arquivo);
-                                            setDocumentoPreviewNome(doc.nomeArquivo || doc.nome_arquivo || 'Documento');
-                                            setShowDocumentoPreviewModal(true);
-                                          }}
-                                        >
-                                          <Eye className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="text-red-500 hover:text-red-700"
-                                          onClick={async () => {
-                                            if (!confirm('Excluir este documento?')) return;
-                                            try {
-                                              await fetch(`/api/documentos/${doc.id}`, { method: 'DELETE' });
-                                              toast({ title: "Documento excluído" });
-                                              setParticipanteDocumentos(prev => prev.filter((d: any) => d.id !== doc.id));
-                                            } catch (err) {
-                                              toast({ title: "Erro ao excluir documento", variant: "destructive" });
-                                            }
-                                          }}
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          {/* Botões de ação */}
-                          <div className="flex gap-2 pt-4 border-t">
-                            <Button 
-                              className="flex-1 bg-blue-500 hover:bg-blue-600"
-                              onClick={() => {
-                                setShowDetalhesParticipanteModal(false);
-                                setShowEditParticipanteModal(true);
-                              }}
-                            >
-                              <Edit className="w-4 h-4 mr-2" />
-                              Editar
-                            </Button>
-                            <Button variant="outline" onClick={() => setShowDetalhesParticipanteModal(false)}>
-                              Fechar
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </DialogContent>
-                  </Dialog>
-
-                  {/* Modal de Confirmação Inativar/Reativar Participante */}
-                  <Dialog open={showInativarParticipanteModal} onOpenChange={setShowInativarParticipanteModal}>
-                    <DialogContent>
-                      <DialogHeader>
-                        <div className="flex items-center gap-3">
-                          {selectedParticipante?.status === 'inativo' ? (
-                            <User className="w-8 h-8 text-green-500" />
-                          ) : (
-                            <UserX className="w-8 h-8 text-orange-500" />
-                          )}
-                          <DialogTitle>
-                            {selectedParticipante?.status === 'inativo' ? 'Reativar Participante' : 'Inativar Participante'}
-                          </DialogTitle>
-                        </div>
-                      </DialogHeader>
-                      <p className="text-gray-600">
-                        {selectedParticipante?.status === 'inativo' 
-                          ? `Tem certeza que deseja reativar o participante "${selectedParticipante?.nome}"?`
-                          : `Tem certeza que deseja inativar o participante "${selectedParticipante?.nome}"? O participante não será excluído, apenas marcado como inativo.`
-                        }
-                      </p>
-                      <div className="flex gap-2 pt-4">
-                        <Button variant="outline" onClick={() => setShowInativarParticipanteModal(false)}>
-                          Cancelar
-                        </Button>
-                        <Button
-                          className={selectedParticipante?.status === 'inativo' ? "bg-green-500 hover:bg-green-600" : "bg-orange-500 hover:bg-orange-600"}
-                          onClick={async () => {
-                            if (selectedParticipante?.id) {
-                              try {
-                                const newStatus = selectedParticipante.status === 'inativo' ? 'ativo' : 'inativo';
-                                await apiRequest(`/api/participantes-inclusao/${selectedParticipante.id}`, {
-                                  method: 'PATCH',
-                                  body: JSON.stringify({ status: newStatus })
-                                });
-                                queryClient.invalidateQueries({ queryKey: ['/api/participantes-inclusao'] });
-                                toast({
-                                  title: selectedParticipante.status === 'inativo' ? "Participante reativado" : "Participante inativado",
-                                  description: selectedParticipante.status === 'inativo' 
-                                    ? `${selectedParticipante.nome} foi reativado com sucesso.`
-                                    : `${selectedParticipante.nome} foi inativado com sucesso.`
-                                });
-                                setShowInativarParticipanteModal(false);
-                                setSelectedParticipante(null);
-                              } catch (error) {
-                                toast({
-                                  title: "Erro",
-                                  description: "Não foi possível alterar o status do participante.",
-                                  variant: "destructive"
-                                });
-                              }
-                            }
-                          }}
-                        >
-                          {selectedParticipante?.status === 'inativo' ? 'Reativar' : 'Inativar'}
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  {/* Modal de Edição Completa de Participante - Inclusão Produtiva */}
-                  <ComprehensiveStudentForm 
-                    open={showEditParticipanteModal}
-                    onClose={() => {
-                      setShowEditParticipanteModal(false);
-                      setSelectedParticipante(null);
-                    }}
-                    mode="inclusao"
-                    editId={selectedParticipante?.id}
-                  />
-
-                  {/* Modal de Preview de Documento */}
-                  <Dialog open={showDocumentoPreviewModal} onOpenChange={setShowDocumentoPreviewModal}>
-                    <DialogContent className="max-w-4xl max-h-[90vh]">
-                      <DialogHeader>
-                        <DialogTitle>{documentoPreviewNome || 'Documento'}</DialogTitle>
-                      </DialogHeader>
-                      <div className="flex-1 overflow-auto" style={{ height: '70vh' }}>
-                        {documentoPreviewUrl && (documentoPreviewUrl.toLowerCase().endsWith('.pdf') ? (
-                          <iframe 
-                            src={documentoPreviewUrl} 
-                            className="w-full h-full border-0"
-                            title="Preview do documento"
-                          />
-                        ) : (
-                          <div className="flex items-center justify-center h-full">
-                            <img 
-                              src={documentoPreviewUrl} 
-                              alt={documentoPreviewNome}
-                              className="max-w-full max-h-full object-contain"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Input hidden para upload de arquivo */}
-                  <input
-                    id="file-import"
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleImportExcel}
-                    style={{ display: 'none' }}
-                  />
-                  
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input 
-                        placeholder="Buscar participantes..." 
-                        className="pl-10"
-                        value={searchParticipante}
-                        onChange={(e) => setSearchParticipante(e.target.value)}
-                      />
-                    </div>
-                    <Select value={statusFilterParticipantes} onValueChange={setStatusFilterParticipantes}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="ativos">Ativos</SelectItem>
-                        <SelectItem value="inativos">Inativos</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Foto</TableHead>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>CPF</TableHead>
-                        <TableHead>Telefone</TableHead>
-                        <TableHead>Turmas</TableHead>
-                        <TableHead>Escolaridade</TableHead>
-                        <TableHead>Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {isLoadingParticipantes ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                            Carregando participantes...
-                          </TableCell>
-                        </TableRow>
-                      ) : participantesData.filter((p: any) => {
-                          const matchesSearch = p.nome.toLowerCase().includes(searchParticipante.toLowerCase());
-                          
-                          // Filtro de status
-                          let matchesStatus = true;
-                          if (statusFilterParticipantes === 'ativos') matchesStatus = p.status !== 'inativo';
-                          if (statusFilterParticipantes === 'inativos') matchesStatus = p.status === 'inativo';
-                          
-                          if (!selectedCurso) return matchesSearch && matchesStatus;
-                          
-                          const cursoTurmaIds = (selectedCurso.turmas || []).map((t: any) => t.id);
-                          const participanteTurmaIds = (p.turmas || []).map((t: any) => t.id);
-                          const isInCursoTurma = participanteTurmaIds.some((id: number) => cursoTurmaIds.includes(id));
-                          
-                          return matchesSearch && matchesStatus && isInCursoTurma;
-                        }).length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                            {selectedCurso 
-                              ? `Nenhum participante encontrado nas turmas do curso "${selectedCurso.nome}".` 
-                              : (searchParticipante ? "Nenhum participante encontrado." : "Nenhum participante cadastrado. Clique em \"Adicionar Participante\" para começar.")}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        participantesData
-                          .filter((p: any) => {
-                            const matchesSearch = p.nome.toLowerCase().includes(searchParticipante.toLowerCase());
-                            
-                            // Filtro de status
-                            let matchesStatus = true;
-                            if (statusFilterParticipantes === 'ativos') matchesStatus = p.status !== 'inativo';
-                            if (statusFilterParticipantes === 'inativos') matchesStatus = p.status === 'inativo';
-                            
-                            if (!selectedCurso) return matchesSearch && matchesStatus;
-                            
-                            const cursoTurmaIds = (selectedCurso.turmas || []).map((t: any) => t.id);
-                            const participanteTurmaIds = (p.turmas || []).map((t: any) => t.id);
-                            const isInCursoTurma = participanteTurmaIds.some((id: number) => cursoTurmaIds.includes(id));
-                            
-                            return matchesSearch && matchesStatus && isInCursoTurma;
-                          })
-                          .map((participante: any) => (
-                          <TableRow key={participante.id}>
-                            <TableCell>
-                              {participante.foto_perfil && participante.foto_perfil.trim() ? (
-                                <img 
-                                  src={participante.foto_perfil} 
-                                  alt={participante.nome} 
-                                  className="w-10 h-10 rounded-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                  <User className="w-5 h-5 text-blue-500" />
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell className="font-medium">{participante.nome}</TableCell>
-                            <TableCell>{participante.cpf}</TableCell>
-                            <TableCell>{participante.telefone}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {participante.turmas && participante.turmas.length > 0 ? (
-                                  participante.turmas.map((turma: any, idx: number) => (
-                                    <Badge key={idx} className="bg-white border border-blue-500 text-blue-700 text-xs hover:bg-blue-50">
-                                      {turma.nome}
-                                    </Badge>
-                                  ))
-                                ) : (
-                                  <span className="text-sm text-gray-400">Sem turma</span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{participante.escolaridade}</TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={async () => {
-                                    setSelectedParticipante(participante);
-                                    setLoadingParticipanteDetails(true);
-                                    setShowDetalhesParticipanteModal(true);
-                                    try {
-                                      const res = await fetch(`/api/participantes-inclusao/${participante.id}`);
-                                      const data = await res.json();
-                                      setFullParticipanteData(data);
-                                      // Carregar documentos
-                                      try {
-                                        const docsRes = await fetch(`/api/documentos/participante-inclusao/${participante.id}`);
-                                        const docsData = await docsRes.json();
-                                        setParticipanteDocumentos(docsData || []);
-                                      } catch (e) {
-                                        setParticipanteDocumentos([]);
-                                      }
-                                    } catch (err) {
-                                      console.error('Erro ao buscar dados do participante:', err);
-                                    } finally {
-                                      setLoadingParticipanteDetails(false);
-                                    }
-                                  }}
-                                  data-testid={`button-view-participant-${participante.id}`}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setSelectedParticipante(participante);
-                                    setShowEditParticipanteModal(true);
-                                  }}
-                                  data-testid={`button-edit-participant-${participante.id}`}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className={participante.status === 'inativo' ? "text-green-500 hover:text-green-700" : "text-orange-500 hover:text-orange-700"}
-                                  onClick={() => {
-                                    setSelectedParticipante(participante);
-                                    setShowInativarParticipanteModal(true);
-                                  }}
-                                  title={participante.status === 'inativo' ? "Reativar participante" : "Inativar participante"}
-                                  data-testid={`button-toggle-status-participant-${participante.id}`}
-                                >
-                                  {participante.status === 'inativo' ? (
-                                    <User className="w-4 h-4" />
-                                  ) : (
-                                    <UserX className="w-4 h-4" />
-                                  )}
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+            <ParticipantesInclusaoSection showImportExport={true} />
           )}
 
           {activeSection === 'acompanhamento' && (
@@ -1898,18 +1790,235 @@ export default function CoordenadorInclusaoPage() {
             </Card>
           )}
 
+          {activeSection === 'professores' && (
+            <GerenciarProfessores programa="inclusao_produtiva" />
+          )}
+
+          {activeSection === 'planos-aula' && (
+            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-6 h-6 text-teal-400" />
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Planos de Aula — Professores de Inclusão</h2>
+                    <p className="text-slate-400 text-sm">Visualize todos os planos de aula registrados pelos professores do programa.</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => changeSection('professores')} className="border-slate-600 text-slate-300 hover:bg-slate-800">
+                  ← Voltar
+                </Button>
+              </div>
+              <Input
+                placeholder="Filtrar por professor ou título..."
+                value={filtroProf}
+                onChange={e => setFiltroProf(e.target.value)}
+                className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400"
+              />
+              {loadingPlanos ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+                </div>
+              ) : planosAulaInclusao.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                  <p>Nenhum plano de aula registrado ainda.</p>
+                </div>
+              ) : planoAulaDetalhes ? (
+                <div className="space-y-4">
+                  <Button variant="outline" size="sm" onClick={() => setPlanoAulaDetalhes(null)} className="border-slate-600 text-slate-300 hover:bg-slate-800">
+                    ← Voltar para a lista
+                  </Button>
+                  <div className="bg-slate-800 rounded-lg p-5 space-y-3 border border-slate-600">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h3 className="text-lg font-semibold text-white">{planoAulaDetalhes.titulo}</h3>
+                      <Badge variant={planoAulaDetalhes.status === 'aprovado' ? 'default' : planoAulaDetalhes.status === 'aplicado' ? 'secondary' : 'outline'} className="capitalize">
+                        {planoAulaDetalhes.status || 'rascunho'}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><span className="text-slate-400">Professor:</span> <span className="text-white font-medium">{planoAulaDetalhes.professorNome || '—'}</span></div>
+                      <div><span className="text-slate-400">Turma:</span> <span className="text-white">{planoAulaDetalhes.turmaNome}</span></div>
+                      <div><span className="text-slate-400">Data:</span> <span className="text-white">{planoAulaDetalhes.data ? new Date(planoAulaDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
+                      {planoAulaDetalhes.duracaoMinutos && <div><span className="text-slate-400">Duração:</span> <span className="text-white">{planoAulaDetalhes.duracaoMinutos} min</span></div>}
+                    </div>
+                    <div><p className="text-slate-400 text-sm font-medium mb-1">Objetivos</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{planoAulaDetalhes.objetivos}</p></div>
+                    <div><p className="text-slate-400 text-sm font-medium mb-1">Conteúdo</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{planoAulaDetalhes.conteudo}</p></div>
+                    <div><p className="text-slate-400 text-sm font-medium mb-1">Metodologia</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{planoAulaDetalhes.metodologia}</p></div>
+                    {planoAulaDetalhes.recursos && <div><p className="text-slate-400 text-sm font-medium mb-1">Recursos</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{planoAulaDetalhes.recursos}</p></div>}
+                    {planoAulaDetalhes.avaliacao && <div><p className="text-slate-400 text-sm font-medium mb-1">Avaliação</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{planoAulaDetalhes.avaliacao}</p></div>}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {planosAulaInclusao
+                    .filter((p: any) =>
+                      !filtroProf ||
+                      (p.professorNome || '').toLowerCase().includes(filtroProf.toLowerCase()) ||
+                      (p.titulo || '').toLowerCase().includes(filtroProf.toLowerCase())
+                    )
+                    .map((p: any) => (
+                      <div key={p.id} className="bg-slate-800 rounded-lg p-4 border border-slate-700 hover:border-teal-500 transition-colors cursor-pointer" onClick={() => setPlanoAulaDetalhes(p)}>
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-white truncate">{p.titulo}</p>
+                            <p className="text-sm text-slate-400 mt-0.5">
+                              <span className="text-teal-400">{p.professorNome || 'Professor'}</span>
+                              {' · '}{p.turmaNome}
+                              {' · '}{p.data ? new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                            </p>
+                          </div>
+                          <Badge variant={p.status === 'aprovado' ? 'default' : p.status === 'aplicado' ? 'secondary' : 'outline'} className="shrink-0 capitalize text-xs">
+                            {p.status || 'rascunho'}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  {planosAulaInclusao.filter((p: any) =>
+                    !filtroProf ||
+                    (p.professorNome || '').toLowerCase().includes(filtroProf.toLowerCase()) ||
+                    (p.titulo || '').toLowerCase().includes(filtroProf.toLowerCase())
+                  ).length === 0 && (
+                    <p className="text-center text-slate-400 py-4">Nenhum resultado para o filtro aplicado.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'relatorios-aulas' && (
+            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className="w-6 h-6 text-teal-400" />
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Relatórios de Aulas — Professores de Inclusão</h2>
+                    <p className="text-slate-400 text-sm">Aulas ministradas e registradas pelos professores do programa.</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => changeSection('professores')} className="border-slate-600 text-slate-300 hover:bg-slate-800">
+                  ← Voltar
+                </Button>
+              </div>
+              <Input
+                placeholder="Filtrar por professor ou título..."
+                value={filtroProf}
+                onChange={e => setFiltroProf(e.target.value)}
+                className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400"
+              />
+              {loadingRelatorios ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+                </div>
+              ) : aulasRegistradasInclusao.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                  <p>Nenhuma aula registrada ainda.</p>
+                </div>
+              ) : relatorioAulaDetalhes ? (
+                <div className="space-y-4">
+                  <Button variant="outline" size="sm" onClick={() => setRelatorioAulaDetalhes(null)} className="border-slate-600 text-slate-300 hover:bg-slate-800">
+                    ← Voltar para a lista
+                  </Button>
+                  <div className="bg-slate-800 rounded-lg p-5 space-y-3 border border-slate-600">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h3 className="text-lg font-semibold text-white">{relatorioAulaDetalhes.titulo}</h3>
+                      <Badge variant={relatorioAulaDetalhes.statusAula === 'ministrada' ? 'default' : 'secondary'} className="capitalize">
+                        {relatorioAulaDetalhes.statusAula || 'ministrada'}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><span className="text-slate-400">Professor:</span> <span className="text-white font-medium">{relatorioAulaDetalhes.professorNome || '—'}</span></div>
+                      <div><span className="text-slate-400">Turma:</span> <span className="text-white">{relatorioAulaDetalhes.turmaNome}</span></div>
+                      <div><span className="text-slate-400">Data:</span> <span className="text-white">{relatorioAulaDetalhes.data ? new Date(relatorioAulaDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
+                      {relatorioAulaDetalhes.duracaoMinutos && <div><span className="text-slate-400">Duração:</span> <span className="text-white">{relatorioAulaDetalhes.duracaoMinutos} min</span></div>}
+                    </div>
+                    <div><p className="text-slate-400 text-sm font-medium mb-1">Conteúdo Ministrado</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{relatorioAulaDetalhes.conteudoMinistrado}</p></div>
+                    {relatorioAulaDetalhes.competenciasTrabalhas && <div><p className="text-slate-400 text-sm font-medium mb-1">Competências Trabalhadas</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{relatorioAulaDetalhes.competenciasTrabalhas}</p></div>}
+                    {relatorioAulaDetalhes.observacoes && <div><p className="text-slate-400 text-sm font-medium mb-1">Observações</p><p className="text-slate-200 text-sm whitespace-pre-wrap">{relatorioAulaDetalhes.observacoes}</p></div>}
+                    {relatorioAulaDetalhes.fotoComprovante && (
+                      <div>
+                        <p className="text-slate-400 text-sm font-medium mb-2">Foto Comprovante</p>
+                        <img src={relatorioAulaDetalhes.fotoComprovante} alt="Foto comprovante" className="rounded-lg max-h-48 object-cover border border-slate-600" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {aulasRegistradasInclusao
+                    .filter((a: any) =>
+                      !filtroProf ||
+                      (a.professorNome || '').toLowerCase().includes(filtroProf.toLowerCase()) ||
+                      (a.titulo || '').toLowerCase().includes(filtroProf.toLowerCase())
+                    )
+                    .map((a: any) => (
+                      <div key={a.id} className="bg-slate-800 rounded-lg p-4 border border-slate-700 hover:border-teal-500 transition-colors cursor-pointer" onClick={() => setRelatorioAulaDetalhes(a)}>
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-white truncate">{a.titulo}</p>
+                            <p className="text-sm text-slate-400 mt-0.5">
+                              <span className="text-teal-400">{a.professorNome || 'Professor'}</span>
+                              {' · '}{a.turmaNome}
+                              {' · '}{a.data ? new Date(a.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                              {a.fotoComprovante && <span className="ml-2 text-green-400">· 📷 com foto</span>}
+                            </p>
+                          </div>
+                          <Badge variant={a.statusAula === 'ministrada' ? 'default' : 'secondary'} className="shrink-0 capitalize text-xs">
+                            {a.statusAula || 'ministrada'}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  {aulasRegistradasInclusao.filter((a: any) =>
+                    !filtroProf ||
+                    (a.professorNome || '').toLowerCase().includes(filtroProf.toLowerCase()) ||
+                    (a.titulo || '').toLowerCase().includes(filtroProf.toLowerCase())
+                  ).length === 0 && (
+                    <p className="text-center text-slate-400 py-4">Nenhum resultado para o filtro aplicado.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'frequencias' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-blue-500" />
+                    Frequência por Turma
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FrequenciaTurmas vertente="inclusao" coordenadorId={coordenadorId} enabled={activeSection === 'frequencias'} />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {activeSection === 'programas' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Programas de Qualificação</CardTitle>
-                <Button 
-                  className="bg-green-500 hover:bg-green-600"
-                  onClick={() => setShowNovoProgramaModal(true)}
-                  data-testid="button-novo-programa"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Novo Programa
-                </Button>
+              <CardHeader>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-row items-center justify-between w-full">
+                    <CardTitle>Programas de Qualificação</CardTitle>
+                    <Button 
+                      className="bg-green-500 hover:bg-green-600"
+                      onClick={() => setShowNovoProgramaModal(true)}
+                      data-testid="button-novo-programa"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Novo Programa
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant={filtroStatusPrograma === "todos" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusPrograma("todos")}>Todos</Button>
+                    <Button variant={filtroStatusPrograma === "ativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusPrograma("ativo")}>Em Andamento</Button>
+                    <Button variant={filtroStatusPrograma === "planejado" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusPrograma("planejado")}>Planejados</Button>
+                    <Button variant={filtroStatusPrograma === "concluido" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusPrograma("concluido")}>Concluídos</Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4">
@@ -1917,7 +2026,20 @@ export default function CoordenadorInclusaoPage() {
                     <p className="text-center text-gray-500">Carregando programas...</p>
                   ) : programasData.length === 0 ? (
                     <p className="text-center text-gray-500">Nenhum programa cadastrado. Clique em "Novo Programa" para criar.</p>
-                  ) : programasData.map((programa: any, index: number) => (
+                  ) : programasData
+                    .filter((programa: any) => {
+                      if (filtroStatusPrograma === "todos") return true;
+                      if (filtroStatusPrograma === "ativo") return programa.status === "ativo" || programa.status === "emandamento" || programa.status === "em_andamento";
+                      if (filtroStatusPrograma === "planejado") return programa.status === "planejado" || programa.status === "pendente";
+                      if (filtroStatusPrograma === "concluido") return programa.status === "concluido" || programa.status === "finalizado";
+                      return programa.status === filtroStatusPrograma;
+                    })
+                    .sort((a: any, b: any) => {
+                      const dataA = a.created_at || a.createdAt || a.data_inicio || "";
+                      const dataB = b.created_at || b.createdAt || b.data_inicio || "";
+                      return new Date(dataB).getTime() - new Date(dataA).getTime();
+                    })
+                    .map((programa: any, index: number) => (
                     <div key={index} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="font-semibold flex items-center gap-2">
@@ -1934,32 +2056,18 @@ export default function CoordenadorInclusaoPage() {
                           <p className="font-medium">{programa.categoria || 'N/A'}</p>
                         </div>
                         <div>
-                          <span className="text-gray-500">Carga Horária:</span>
-                          <p className="font-medium">{programa.cargaHoraria || programa.carga_horaria}h</p>
+                          <span className="text-gray-500">Modalidade:</span>
+                          <p className="font-medium capitalize">{programa.modalidade || 'N/A'}</p>
                         </div>
                         <div>
-                          <span className="text-gray-500">Vagas:</span>
-                          <p className="font-medium">{programa.vagasOcupadas || programa.vagas_ocupadas || 0}/{programa.numeroVagas || programa.numero_vagas || 0}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Taxa de Ocupação:</span>
+                          <span className="text-gray-500">Período:</span>
                           <p className="font-medium">
-                            {programa.numeroVagas || programa.numero_vagas 
-                              ? Math.round(((programa.vagasOcupadas || programa.vagas_ocupadas || 0) / (programa.numeroVagas || programa.numero_vagas)) * 100) 
-                              : 0}%
+                            {programa.dataInicio && programa.dataFim 
+                              ? `${new Date(programa.dataInicio).toLocaleDateString('pt-BR')} - ${new Date(programa.dataFim).toLocaleDateString('pt-BR')}`
+                              : programa.dataInicio 
+                                ? `Início: ${new Date(programa.dataInicio).toLocaleDateString('pt-BR')}`
+                                : 'A definir'}
                           </p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Horário:</span>
-                          <p className="font-medium">
-                            {programa.horarioEntrada && programa.horarioSaida 
-                              ? `${programa.horarioEntrada} - ${programa.horarioSaida}`
-                              : programa.horario || 'A definir'}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Próxima Aula:</span>
-                          <p className="font-medium">{programa.proximaAula || programa.proxima_aula || 'A agendar'}</p>
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -1984,6 +2092,8 @@ export default function CoordenadorInclusaoPage() {
                           variant="outline"
                           onClick={() => {
                             setSelectedPrograma(programa);
+                            setEditProgramaStatus(programa.status?.toLowerCase() || 'planejado');
+                            setEditProgramaModalidade(programa.modalidade?.toLowerCase() || 'presencial');
                             setShowEditProgramaModal(true);
                           }}
                           data-testid={`button-editar-${index}`}
@@ -2026,16 +2136,33 @@ export default function CoordenadorInclusaoPage() {
 
           {activeSection === 'turmas' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Turmas de Capacitação</CardTitle>
-                <Button 
-                  className="bg-blue-500 hover:bg-blue-600"
-                  onClick={() => setShowNovaTurmaModal(true)}
-                  data-testid="button-nova-turma"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nova Turma
-                </Button>
+              <CardHeader className="flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between w-full">
+                  <CardTitle>Turmas de Capacitação</CardTitle>
+                  <Button 
+                    className="bg-blue-500 hover:bg-blue-600"
+                    onClick={() => setShowNovaTurmaModal(true)}
+                    data-testid="button-nova-turma"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nova Turma
+                  </Button>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant={filtroStatusTurma === "todos" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("todos")}>Todas</Button>
+                  <Button variant={filtroStatusTurma === "ativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("ativo")}>Em Andamento</Button>
+                  <Button variant={filtroStatusTurma === "planejado" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("planejado")}>Planejadas</Button>
+                  <Button variant={filtroStatusTurma === "concluido" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("concluido")}>Concluídas</Button>
+                  <Button variant={filtroStatusTurma === "inativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("inativo")}>Inativas</Button>
+                </div>
+                <div className="w-full">
+                  <Input
+                    placeholder="Buscar turma pelo nome..."
+                    value={buscaTurma}
+                    onChange={(e) => setBuscaTurma(e.target.value)}
+                    className="w-full max-w-sm"
+                  />
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4">
@@ -2045,7 +2172,24 @@ export default function CoordenadorInclusaoPage() {
                     <p className="text-center text-gray-500">Nenhuma turma cadastrada. Clique em "Nova Turma" para criar.</p>
                   ) : (
                     programasData.map((programa: any) => {
-                      const turmasDoPrograma = turmasData.filter((t: any) => t.programaId === programa.id || t.programa_id === programa.id);
+                      const turmasDoPrograma = turmasData
+                        .filter((t: any) => {
+                          const matchPrograma = t.programaId === programa.id || t.programa_id === programa.id;
+                          if (!matchPrograma) return false;
+                          if (filtroStatusTurma !== "inativo" && t.status === 'inativo') return false;
+                          const nomeTurma = (t.nome || t.title || '').toLowerCase();
+                          if (buscaTurma && !nomeTurma.includes(buscaTurma.toLowerCase())) return false;
+                          if (filtroStatusTurma === "todos") return true;
+                          if (filtroStatusTurma === "ativo") return t.status === "ativo" || t.status === "emandamento" || t.status === "em_andamento";
+                          if (filtroStatusTurma === "planejado") return t.status === "planejado" || t.status === "pendente";
+                          if (filtroStatusTurma === "concluido") return t.status === "concluido" || t.status === "finalizado";
+                          return t.status === filtroStatusTurma;
+                        })
+                        .sort((a: any, b: any) => {
+                          const dataA = a.created_at || a.createdAt || a.data_inicio || "";
+                          const dataB = b.created_at || b.createdAt || b.data_inicio || "";
+                          return new Date(dataB).getTime() - new Date(dataA).getTime();
+                        });
                       if (turmasDoPrograma.length === 0) return null;
                       
                       return (
@@ -2062,7 +2206,7 @@ export default function CoordenadorInclusaoPage() {
                                     <Users className="w-4 h-4 text-blue-500" />
                                     {turma.nome}
                                   </h4>
-                                  <Badge variant={turma.status === 'ativo' ? 'default' : 'secondary'}>
+                                  <Badge variant={turma.status === 'ativo' ? 'default' : turma.status === 'inativo' ? 'destructive' : 'secondary'}>
                                     {formatarStatus(turma.status)}
                                   </Badge>
                                 </div>
@@ -2070,13 +2214,6 @@ export default function CoordenadorInclusaoPage() {
                                   <div>
                                     <span className="text-gray-500">Código:</span>
                                     <p className="font-medium">{turma.codigo || 'N/A'}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-gray-500">Vagas:</span>
-                                    <p className="font-medium">
-                                      {turma.vagasOcupadas || turma.vagas_ocupadas || 0}/
-                                      {turma.numeroVagas || turma.numero_vagas || 0}
-                                    </p>
                                   </div>
                                   <div>
                                     <span className="text-gray-500">Horário:</span>
@@ -2094,7 +2231,47 @@ export default function CoordenadorInclusaoPage() {
                                 {turma.descricao && (
                                   <p className="text-sm text-gray-600 mb-3">{turma.descricao}</p>
                                 )}
-                                <div className="flex gap-2">
+                                {turma.status === "concluido" && (
+                                  <div className="flex items-center gap-2 mb-3 p-2 bg-green-50 rounded-md border border-green-200">
+                                    <GraduationCap className="w-4 h-4 text-green-600" />
+                                    <span className="text-sm font-medium text-green-700">
+                                      Turma Finalizada: {turma.alunosConcluidos || 0} de {turma.totalParticipantes || 0} alunos formados
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => {
+                                      setTurmaSelecionadaParaAlunos(turma);
+                                      setShowGerenciarAlunosTurmaModal(true);
+                                    }}
+                                  >
+                                    <Users className="w-4 h-4 mr-1" />
+                                    Gerenciar Alunos
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                                    onClick={() => baixarListaAlunos(turma.id, turma, false)}
+                                  >
+                                    <FileDown className="w-4 h-4 mr-1" />
+                                    Baixar lista
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-teal-300 text-teal-700 hover:bg-teal-50"
+                                    onClick={() => {
+                                      setTurmaParaVincular(turma);
+                                      setShowVincularProfessoresModal(true);
+                                    }}
+                                  >
+                                    <GraduationCap className="w-4 h-4 mr-1" />
+                                    Professores
+                                  </Button>
                                   <Button 
                                     size="sm" 
                                     variant="outline"
@@ -2113,6 +2290,7 @@ export default function CoordenadorInclusaoPage() {
                                     onClick={() => {
                                       setSelectedTurma(turma);
                                       setEditTurmaStatus(turma.status || 'planejado');
+                                      setEditTurmaDiasSemana(turma.diasSemana || turma.dias_semana || []);
                                       
                                       // Parsear horário se existir
                                       // Suporta formatos: "14:00 - 17:00" ou "Seg/Qua 13:00 as 18:00"
@@ -2139,18 +2317,78 @@ export default function CoordenadorInclusaoPage() {
                                     <Edit className="w-4 h-4 mr-1" />
                                     Editar
                                   </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline"
-                                    onClick={() => {
-                                      setSelectedTurma(turma);
-                                      setShowNovoCursoModal(true);
+                                  {turma.status !== "inativo" && (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700"
+                                      onClick={() => {
+                                        setTurmaParaInativar(turma);
+                                        setConfirmInativarOpen(true);
+                                      }}
+                                    >
+                                      <Ban className="w-4 h-4 mr-1" />
+                                      Inativar
+                                    </Button>
+                                  )}
+                                  {turma.status !== "concluido" && turma.status !== "inativo" && (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      className="text-green-600 border-green-600 hover:bg-green-50"
+                                        onClick={async () => {  
+                                      const turmaId = Number(turma.id);
+
+                                        // ✅ a fonte de verdade do modal é o ID, não o objeto
+                                        setTurmaParaFinalizarId(turmaId);
+
+                                        setParticipantesSelecionados([]);
+                                        setParticipantesTurmaAtual([]);
+                                        setIsLoadingParticipantesTurma(true);
+
+                                        try {
+                                          const response = await fetch(`/api/turmas-inclusao/${turmaId}/participantes`, {
+                                            credentials: "include",
+                                          });
+
+                                          if (!response.ok) {
+                                            throw new Error("Não foi possível carregar os participantes");
+                                          }
+
+                                          const data = await response.json();
+
+                                          // ✅ inclui "ativo" e "concluido" (turmas antigas têm status concluido nos participantes_turmas)
+                                          const ativos = (data || []).filter(
+                                            (p: any) => {
+                                              const s = String(p?.status || "").toLowerCase();
+                                              return s === "ativo" || s === "concluido";
+                                            }
+                                          );
+
+                                          setParticipantesTurmaAtual(ativos);
+                                          setShowFinalizarTurmaModal(true);
+                                        } catch (error: any) {
+                                          console.error("Erro ao carregar participantes:", error);
+                                          toast({
+                                            title: "Erro",
+                                            description: error?.message || "Erro ao carregar participantes",
+                                            variant: "destructive",
+                                          });
+
+                                          // se falhar, não abre modal
+                                          setTurmaParaFinalizarId(null);
+                                          setShowFinalizarTurmaModal(false);
+                                        } finally {
+                                          setIsLoadingParticipantesTurma(false);
+                                        }
                                     }}
-                                    data-testid={`button-add-curso-${index}`}
-                                  >
-                                    <Plus className="w-4 h-4 mr-1" />
-                                    Adicionar Curso
-                                  </Button>
+
+                                      data-testid={`button-finalizar-turma-${index}`}
+                                    >
+                                      <GraduationCap className="w-4 h-4 mr-1" />
+                                      Finalizar Turma
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
                             ))}
@@ -2164,340 +2402,57 @@ export default function CoordenadorInclusaoPage() {
             </Card>
           )}
 
-          {activeSection === 'parceiros' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Parceiros</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">Gestão da rede de parceiros e empresas contratantes.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeSection === 'vagas' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Vagas de Emprego</CardTitle>
-                <Button className="bg-orange-500 hover:bg-orange-600">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nova Vaga
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Buscar vagas..." className="pl-10" />
-                    </div>
-                    <Select>
-                      <SelectTrigger className="w-32">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todas">Todas</SelectItem>
-                        <SelectItem value="aberta">Abertas</SelectItem>
-                        <SelectItem value="preenchida">Preenchidas</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="text-center py-12 border-2 border-dashed rounded-lg bg-gray-50 dark:bg-gray-800">
-                    <Briefcase className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2 text-gray-600 dark:text-gray-400">
-                      Sistema de Vagas em Desenvolvimento
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-500 mb-4">
-                      O módulo de gestão de vagas de emprego será implementado em breve.
-                    </p>
-                    <div className="max-w-md mx-auto text-left space-y-2">
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        <strong>Recursos planejados:</strong>
-                      </p>
-                      <ul className="text-sm text-gray-500 space-y-1 ml-4">
-                        <li>• Cadastro de vagas de parceiros</li>
-                        <li>• Matching participantes x vagas</li>
-                        <li>• Acompanhamento de candidaturas</li>
-                        <li>• Relatório de empregabilidade</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {activeSection === 'presenca' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                  Controle de Presença
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {/* Filtros */}
-                  <div className="flex gap-4">
-                    <Select defaultValue="todas">
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Turma" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todas">Todas as Turmas</SelectItem>
-                        {turmasData.map((turma: any) => (
-                          <SelectItem key={turma.id} value={turma.id.toString()}>
-                            {turma.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div className="flex-1">
-                      <Input
-                        type="date"
-                        className="w-full"
-                        defaultValue={new Date().toISOString().split('T')[0]}
-                        data-testid="input-data-presenca"
-                      />
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      data-testid="button-export-presenca"
-                      onClick={handleExportPresencas}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Exportar Excel
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      data-testid="button-import-presenca"
-                      onClick={() => document.getElementById('import-participantes-input')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Importar Participantes
-                    </Button>
-                    <input
-                      id="import-participantes-input"
-                      type="file"
-                      accept=".xlsx,.xls"
-                      style={{ display: 'none' }}
-                      onChange={handleImportParticipantes}
-                    />
-                  </div>
-
-                  {/* Tabela de Presença */}
-                  <div className="border rounded-lg">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Participante</TableHead>
-                          <TableHead>Turma</TableHead>
-                          <TableHead className="text-center">Presente</TableHead>
-                          <TableHead className="text-center">Ausente</TableHead>
-                          <TableHead className="text-center">Justificado</TableHead>
-                          <TableHead>Observações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {participantesData.length > 0 ? participantesData.slice(0, 10).map((participante: any) => {
-                          const turmasParticipante = participante.turmas || [];
-                          return (
-                            <TableRow key={participante.id}>
-                              <TableCell className="font-medium">{participante.nome}</TableCell>
-                              <TableCell>
-                                {turmasParticipante.length > 0 
-                                  ? turmasParticipante.map((t: any) => t.nome).join(', ')
-                                  : 'Sem turma'}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Checkbox 
-                                  checked={presencas[participante.id] === 'presente'}
-                                  onCheckedChange={(checked) => 
-                                    handleStatusChange(participante.id, checked ? 'presente' : null)
-                                  }
-                                  data-testid={`checkbox-presente-${participante.id}`} 
-                                />
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Checkbox 
-                                  checked={presencas[participante.id] === 'ausente'}
-                                  onCheckedChange={(checked) => 
-                                    handleStatusChange(participante.id, checked ? 'ausente' : null)
-                                  }
-                                  data-testid={`checkbox-ausente-${participante.id}`} 
-                                />
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <Checkbox 
-                                  checked={presencas[participante.id] === 'justificado'}
-                                  onCheckedChange={(checked) => 
-                                    handleStatusChange(participante.id, checked ? 'justificado' : null)
-                                  }
-                                  data-testid={`checkbox-justificado-${participante.id}`} 
-                                />
-                                {presencas[participante.id] === 'justificado' && justificativas[participante.id] && (
-                                  <span className="ml-2 text-xs text-green-600">✓</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Input 
-                                  placeholder="Observações..." 
-                                  className="w-full"
-                                  data-testid={`input-obs-${participante.id}`}
-                                />
-                              </TableCell>
-                            </TableRow>
-                          );
-                        }) : (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                              <CheckCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                              <p>Nenhum participante cadastrado.</p>
-                              <p className="text-sm mt-2">Adicione participantes na seção "Participantes".</p>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Botões de Ação */}
-                  <div className="flex justify-end gap-2">
-                    <Button 
-                      variant="outline"
-                      onClick={() => {
-                        setPresencas({});
-                        setJustificativas({});
-                        toast({ description: "Presenças canceladas." });
-                      }}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button 
-                      onClick={handleSalvarPresencas}
-                      data-testid="button-salvar-presenca"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Salvar Presenças
-                    </Button>
-                  </div>
-
-                  {/* Informação sobre funcionalidade */}
-                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-sm text-blue-700 dark:text-blue-400">
-                      <strong>Controle de Presença:</strong> Registre a frequência dos participantes por turma e data.
-                      Os dados podem ser exportados para análise no Excel.
-                    </p>
-                  </div>
-
-                  {/* Histórico de Chamadas */}
-                  <div className="mt-6 border-t pt-6">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                      <Clock className="w-5 h-5" />
-                      Histórico de Chamadas
-                    </h3>
-                    
-                    {isLoadingHistorico ? (
-                      <div className="text-center py-8 text-gray-500">Carregando histórico...</div>
-                    ) : historicoPresencas && Array.isArray(historicoPresencas) && historicoPresencas.length > 0 ? (
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {historicoPresencas.map((chamada: any) => (
-                          <div key={chamada.id} className="border rounded-lg overflow-hidden">
-                            <div className="p-3 bg-gray-50 flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <Calendar className="w-4 h-4 text-gray-500" />
-                                <span className="text-sm">
-                                  {chamada.data ? new Date(chamada.data + 'T12:00:00').toLocaleDateString('pt-BR') : 'Sem data'}
-                                </span>
-                                <span className="text-sm font-medium">- {chamada.turma}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-green-600">{chamada.totalPresentes} presentes</span>
-                                {chamada.totalAusentes > 0 && (
-                                  <span className="text-sm text-red-600">{chamada.totalAusentes} faltas</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="p-3 border-t bg-white">
-                              <div className="text-sm font-medium mb-2 text-gray-600">Lista de Presença:</div>
-                              <div className="grid gap-1 max-h-40 overflow-y-auto">
-                                {chamada.presencas?.map((p: any, idx: number) => (
-                                  <div key={idx} className="flex items-center justify-between py-1 px-2 rounded bg-gray-50">
-                                    <span className="text-sm">{p.nome}</span>
-                                    <span className={`text-xs font-medium ${p.presente ? 'text-green-600' : 'text-red-600'}`}>
-                                      {p.presente ? 'Presente' : 'Falta'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        Nenhum registro de chamada encontrado
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+            <PresencaInclusaoControl
+              turmasData={turmasData || []}
+              activeSection={activeSection}
+              fetchHistorico={async () => {
+                const response = await fetch(
+                  `/api/coordenador/${coordenadorId}/historico-chamadas?vertente=inclusao_produtiva`,
+                  { credentials: "include" }
+                );
+                if (!response.ok) throw new Error('Falha ao carregar histórico');
+                return response.json();
+              }}
+              fetchParticipantes={async (turmaId: string) => {
+                const response = await fetch(`/api/turmas-inclusao/${turmaId}/participantes`, {
+                  credentials: "include",
+                });
+                if (!response.ok) throw new Error('Falha ao carregar alunos');
+                return response.json();
+              }}
+              savePresenca={async (payload) => {
+                const response = await fetch(`/api/coordenador/${coordenadorId}/registro-presenca-inclusao`, {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payload),
+                });
+                if (!response.ok) throw new Error('Falha ao salvar chamada');
+                return response.json();
+              }}
+              editPresenca={async (payload) => {
+                const response = await fetch(`/api/presencas-inclusao/editar`, {
+                  method: "PUT",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payload),
+                });
+                if (!response.ok) throw new Error('Falha ao atualizar chamada');
+                return response.json();
+              }}
+              uploadFoto={async (formData) => {
+                return fetch('/api/presencas-inclusao/foto', {
+                  method: 'POST',
+                  credentials: 'include',
+                  body: formData,
+                });
+              }}
+              historyQueryKey={['/api/coordenador/historico-chamadas-inclusao', coordenadorId]}
+            />
+            </div>
           )}
-
-          {/* Modal de Justificativa */}
-          <Dialog open={participanteJustificando !== null} onOpenChange={(open) => !open && handleCancelarJustificativa()}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Justificar Falta</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Participante: {participantesData.find((p: any) => p.id === participanteJustificando)?.nome}
-                  </label>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Digite a justificativa da falta (mínimo 40 caracteres)
-                  </p>
-                  <Textarea
-                    value={justificativaTemp}
-                    onChange={(e) => {
-                      setJustificativaTemp(e.target.value);
-                      setErroJustificativa("");
-                    }}
-                    placeholder="Digite a justificativa detalhada da falta..."
-                    className="min-h-[150px]"
-                    data-testid="textarea-justificativa"
-                  />
-                  <div className="flex justify-between items-center mt-2">
-                    <span className={`text-sm ${justificativaTemp.trim().length >= 40 ? 'text-green-600' : 'text-gray-500'}`}>
-                      {justificativaTemp.trim().length}/40 caracteres
-                    </span>
-                    {erroJustificativa && (
-                      <span className="text-sm text-red-600">{erroJustificativa}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleCancelarJustificativa}
-                    data-testid="button-cancelar-justificativa"
-                  >
-                    Cancelar
-                  </Button>
-                  <Button 
-                    onClick={handleSalvarJustificativa}
-                    disabled={justificativaTemp.trim().length < 40}
-                    data-testid="button-salvar-justificativa"
-                  >
-                    Salvar Justificativa
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
 
           {activeSection === 'acompanhamento' && (
             <Card>
@@ -2513,8 +2468,10 @@ export default function CoordenadorInclusaoPage() {
                   <div className="flex gap-4">
                     <div className="flex-1">
                       <Input
-                        placeholder="Buscar participante..."
+                        placeholder="Buscar por nome ou CPF..."
                         className="w-full"
+                        value={searchAcompanhamento}
+                        onChange={(e) => setSearchAcompanhamento(e.target.value)}
                         data-testid="input-search-acompanhamento"
                       />
                     </div>
@@ -2533,7 +2490,13 @@ export default function CoordenadorInclusaoPage() {
 
                   {/* Lista de Acompanhamentos - DADOS REAIS */}
                   <div className="grid gap-4">
-                    {participantesData.length > 0 ? participantesData.slice(0, 10).map((participante: any) => {
+                    {participantesData.length > 0 ? participantesData
+                      .filter((participante: any) => {
+                        if (!searchAcompanhamento.trim()) return true;
+                        const termo = searchAcompanhamento.toLowerCase();
+                        return (participante.nome || '').toLowerCase().includes(termo) || (participante.cpf || '').includes(searchAcompanhamento);
+                      })
+                      .slice(0, 10).map((participante: any) => {
                       // Buscar turmas e programas do participante
                       const turmasParticipante = participante.turmas || [];
                       const programasParticipante = turmasParticipante
@@ -2615,225 +2578,6 @@ export default function CoordenadorInclusaoPage() {
             </Card>
           )}
 
-          {activeSection === 'cursos' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-purple-500" />
-                    Cursos Profissionalizantes
-                  </CardTitle>
-                  <p className="text-sm text-gray-600 mt-1">Coordenação dos cursos e capacitações profissionais.</p>
-                </div>
-                <Button 
-                  size="sm" 
-                  className="bg-purple-500 hover:bg-purple-600"
-                  onClick={() => setShowNovoCursoModal(true)}
-                  data-testid="button-novo-curso"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Novo Curso
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {/* Filtros */}
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Buscar curso..."
-                        className="w-full"
-                        data-testid="input-search-cursos"
-                      />
-                    </div>
-                    <Select defaultValue="todos">
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Categoria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todas Categorias</SelectItem>
-                        <SelectItem value="administrativo">Administrativo</SelectItem>
-                        <SelectItem value="vendas">Vendas</SelectItem>
-                        <SelectItem value="servicos">Serviços</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Lista de Cursos */}
-                  <div className="grid gap-4">
-                    {isLoadingCursos ? (
-                      <p className="text-center text-gray-500">Carregando cursos...</p>
-                    ) : cursosData.length === 0 ? (
-                      <p className="text-center text-gray-500">Nenhum curso cadastrado</p>
-                    ) : cursosData.map((curso: any, index: number) => (
-                      <div key={index} className="border rounded-lg p-4 bg-white">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold flex items-center gap-2">
-                            <GraduationCap className="w-4 h-4 text-purple-500" />
-                            {curso.nome}
-                          </h3>
-                          <Badge variant={curso.status === 'ativo' ? 'default' : 'secondary'}>
-                            {formatarStatus(curso.status)}
-                          </Badge>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                          <div>
-                            <p className="text-sm text-gray-600">Categoria:</p>
-                            <p className="font-medium">{curso.categoria || 'N/A'}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Duração:</p>
-                            <p className="font-medium">{curso.duracao || `${curso.cargaHoraria || 0}h`}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Próxima Aula:</p>
-                            <p className="font-medium">{curso.proximaAula ? new Date(curso.proximaAula).toLocaleDateString('pt-BR') : 'Não definida'}</p>
-                          </div>
-                        </div>
-
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-600 mb-1">Descrição:</p>
-                          <p className="text-sm">{curso.descricao}</p>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedCurso(curso);
-                              setShowDetalhesCursoModal(true);
-                            }}
-                            data-testid={`button-ver-curso-${index}`}
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            Ver Detalhes
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedCurso(curso);
-                              setActiveSection('participantes');
-                              toast({
-                                title: "Visualizando Participantes",
-                                description: `Mostrando participantes de ${curso.nome}`
-                              });
-                            }}
-                            data-testid={`button-ver-participantes-curso-${index}`}
-                          >
-                            <Users className="w-4 h-4 mr-1" />
-                            Ver Participantes
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedCurso(curso);
-                              setShowCronogramaModal(true);
-                            }}
-                            data-testid={`button-cronograma-${index}`}
-                          >
-                            <Calendar className="w-4 h-4 mr-1" />
-                            Cronograma
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedCurso(curso);
-                              setShowEditCursoModal(true);
-                            }}
-                            data-testid={`button-editar-curso-${index}`}
-                          >
-                            <Edit className="w-4 h-4 mr-1" />
-                            Editar
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => {
-                              setSelectedCurso(curso);
-                              setProgramaToDelete(curso);
-                              setShowExcluirProgramaModal(true);
-                            }}
-                            data-testid={`button-excluir-curso-${index}`}
-                          >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            Excluir
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeSection === 'parceiros' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-orange-500" />
-                  Parceiros e Empresas
-                </CardTitle>
-                <Button size="sm" className="bg-orange-500 hover:bg-orange-600">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nova Parceria
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {/* Filtros */}
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Buscar empresa..."
-                        className="w-full"
-                        data-testid="input-search-parceiros"
-                      />
-                    </div>
-                    <Select defaultValue="todos">
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder="Tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos os Tipos</SelectItem>
-                        <SelectItem value="contratante">Contratante</SelectItem>
-                        <SelectItem value="patrocinador">Patrocinador</SelectItem>
-                        <SelectItem value="fornecedor">Fornecedor</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Lista de Parceiros - EM DESENVOLVIMENTO */}
-                  <div className="text-center py-12 border-2 border-dashed rounded-lg bg-gray-50 dark:bg-gray-800">
-                    <Building2 className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2 text-gray-600 dark:text-gray-400">
-                      Sistema de Parceiros em Desenvolvimento
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-500 mb-4">
-                      O módulo de gestão de parceiros e empresas será implementado em breve.
-                    </p>
-                    <div className="max-w-md mx-auto text-left space-y-2">
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        <strong>Recursos planejados:</strong>
-                      </p>
-                      <ul className="text-sm text-gray-500 space-y-1 ml-4">
-                        <li>• Cadastro de empresas parceiras</li>
-                        <li>• Gestão de vagas disponíveis</li>
-                        <li>• Histórico de contratações</li>
-                        <li>• Relatórios de parcerias</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {activeSection === 'monitoramento' && (
             <Card>
@@ -2845,15 +2589,67 @@ export default function CoordenadorInclusaoPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
+                  {/* Filtros do Dashboard */}
+                  <div className="flex flex-wrap gap-2 items-center bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300 shrink-0">Filtrar:</span>
+                    <select
+                      className="text-sm border rounded px-2 py-1 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200"
+                      value={dashFiltroPrograma}
+                      onChange={(e) => setDashFiltroPrograma(e.target.value)}
+                    >
+                      <option value="">Todos os programas</option>
+                      {programasData.map((p: any) => (
+                        <option key={p.id} value={String(p.id)}>{p.nome}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="text-sm border rounded px-2 py-1 bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200"
+                      value={dashFiltroTurma}
+                      onChange={(e) => setDashFiltroTurma(e.target.value)}
+                    >
+                      <option value="">Todas as turmas</option>
+                      {turmasData.map((t: any) => (
+                        <option key={t.id} value={String(t.id)}>{t.nome}</option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={dashSemFormatura}
+                        onChange={(e) => setDashSemFormatura(e.target.checked)}
+                        className="rounded"
+                      />
+                      Sem formatura
+                    </label>
+                    {(dashFiltroPrograma || dashFiltroTurma || dashSemFormatura) && (
+                      <button
+                        onClick={() => { setDashFiltroPrograma(""); setDashFiltroTurma(""); setDashSemFormatura(false); }}
+                        className="text-xs text-red-500 hover:underline ml-auto"
+                      >
+                        Limpar filtros
+                      </button>
+                    )}
+                  </div>
+
                   {/* Métricas Principais - DADOS REAIS */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-blue-600 dark:text-blue-400">Total Participantes</p>
-                          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">
-                            {participantesData.length}
+                          <p className="text-sm text-blue-600 dark:text-blue-400">
+                            {dashSemFormatura ? "Sem Formatura" : "Total Participantes"}
                           </p>
+                          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                            {dashSemFormatura
+                              ? participantesData.filter((p: any) => p.status !== "formado" && p.status !== "concluido").length
+                              : participantesData.filter((p: any) =>
+                                  (!dashFiltroPrograma || String(p.programaId) === dashFiltroPrograma)
+                                ).length
+                            }
+                          </p>
+                          {dashSemFormatura && (
+                            <p className="text-xs text-blue-500 mt-1">status ≠ formado</p>
+                          )}
                         </div>
                         <Users className="w-8 h-8 text-blue-500" />
                       </div>
@@ -2886,12 +2682,42 @@ export default function CoordenadorInclusaoPage() {
                     <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-orange-600 dark:text-orange-400">Cursos Disponíveis</p>
+                          <p className="text-sm text-orange-600 dark:text-orange-400">Atividades Registradas</p>
                           <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">
-                            {cursosData.length}
+                            {turmasData.filter((t: any) => t.status === 'ativo').length}
                           </p>
                         </div>
                         <Briefcase className="w-8 h-8 text-orange-500" />
+                      </div>
+                    </div>
+
+                    <div className="bg-teal-50 dark:bg-teal-900/20 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-teal-600 dark:text-teal-400">Alunos</p>
+                          <p className="text-2xl font-bold text-teal-700 dark:text-teal-300">
+                            {dashboardDemografico?.alunosAtivos ?? participantesData.filter((p: any) => p.status === 'ativo').length}
+                          </p>
+                          <p className="text-xs text-teal-500 dark:text-teal-400 mt-1">
+                            cadastrados e ativos
+                          </p>
+                        </div>
+                        <Users className="w-8 h-8 text-teal-500" />
+                      </div>
+                    </div>
+
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-indigo-600 dark:text-indigo-400">Atendidos</p>
+                          <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">
+                            {dashboardDemografico?.atendimentos ?? 0}
+                          </p>
+                          <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-1">
+                            vínculos aluno-turma
+                          </p>
+                        </div>
+                        <Activity className="w-8 h-8 text-indigo-500" />
                       </div>
                     </div>
                   </div>
@@ -2902,7 +2728,8 @@ export default function CoordenadorInclusaoPage() {
                     <div className="space-y-3">
                       {(() => {
                         const generos = participantesData.reduce((acc: any, p: any) => {
-                          const genero = p.genero || 'Não informado';
+                          const raw = (p.genero || '').trim();
+                          const genero = raw ? raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase() : 'Não informado';
                           acc[genero] = (acc[genero] || 0) + 1;
                           return acc;
                         }, {});
@@ -3035,11 +2862,8 @@ export default function CoordenadorInclusaoPage() {
                     <h3 className="font-semibold mb-4">Visão por Programa</h3>
                     <div className="space-y-4">
                       {programasData.map((programa: any) => {
-                        // Contar turmas e cursos do programa
                         const turmasPrograma = turmasData.filter((t: any) => t.programaId === programa.id);
-                        const cursosPrograma = cursosData.filter((c: any) => c.programaId === programa.id);
                         
-                        // Contar participantes nas turmas deste programa
                         const participantesPrograma = participantesData.filter((p: any) => 
                           p.turmas?.some((t: any) => turmasPrograma.some((tp: any) => tp.id === t.id))
                         );
@@ -3053,7 +2877,7 @@ export default function CoordenadorInclusaoPage() {
                               </Badge>
                             </div>
                             
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                               <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded">
                                 <p className="text-sm text-gray-600 dark:text-gray-400">Participantes</p>
                                 <p className="text-2xl font-bold">{participantesPrograma.length}</p>
@@ -3061,10 +2885,6 @@ export default function CoordenadorInclusaoPage() {
                               <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded">
                                 <p className="text-sm text-gray-600 dark:text-gray-400">Turmas</p>
                                 <p className="text-2xl font-bold">{turmasPrograma.length}</p>
-                              </div>
-                              <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded">
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Cursos</p>
-                                <p className="text-2xl font-bold">{cursosPrograma.length}</p>
                               </div>
                               <div className="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded opacity-60">
                                 <p className="text-sm text-gray-400">Empregabilidade</p>
@@ -3102,7 +2922,7 @@ export default function CoordenadorInclusaoPage() {
                       </div>
                       <div className="p-4 bg-white dark:bg-gray-700 rounded border">
                         <h4 className="font-medium text-gray-400 mb-2">Taxa de Conclusão</h4>
-                        <p className="text-xs text-gray-400">Acompanhamento de conclusão de cursos</p>
+                        <p className="text-xs text-gray-400">Acompanhamento de conclusão</p>
                       </div>
                       <div className="p-4 bg-white dark:bg-gray-700 rounded border">
                         <h4 className="font-medium text-gray-400 mb-2">Evolução Mensal</h4>
@@ -3118,6 +2938,7 @@ export default function CoordenadorInclusaoPage() {
               </CardContent>
             </Card>
           )}
+
 
           {activeSection === 'relatorios' && (
             <Card>
@@ -3329,6 +3150,14 @@ export default function CoordenadorInclusaoPage() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {activeSection === 'aprovacoes' && (
+            <AprovacoesSemana />
+          )}
+
+          {activeSection === 'geracao-renda' && (
+            <GeracaoRendaSection />
           )}
 
           {activeSection === 'configuracoes' && (
@@ -3586,8 +3415,8 @@ export default function CoordenadorInclusaoPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">Modalidade</label>
-                    <Select defaultValue={selectedPrograma.modalidade?.toLowerCase()}>
-                      <SelectTrigger id="edit-programa-modalidade">
+                    <Select value={editProgramaModalidade} onValueChange={setEditProgramaModalidade}>
+                      <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -3610,10 +3439,21 @@ export default function CoordenadorInclusaoPage() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Data de Início</label>
+                    <Input id="edit-programa-data-inicio" type="date" defaultValue={selectedPrograma.dataInicio || ''} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Data de Conclusão</label>
+                    <Input id="edit-programa-data-fim" type="date" defaultValue={selectedPrograma.dataFim || ''} />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium mb-1">Status</label>
-                  <Select defaultValue={selectedPrograma.status?.toLowerCase()}>
-                    <SelectTrigger id="edit-programa-status">
+                  <Select value={editProgramaStatus} onValueChange={setEditProgramaStatus}>
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -3641,22 +3481,24 @@ export default function CoordenadorInclusaoPage() {
                     onClick={async () => {
                       try {
                         const nome = (document.getElementById('edit-programa-nome') as HTMLInputElement)?.value;
-                        const modalidade = (document.getElementById('edit-programa-modalidade') as HTMLSelectElement)?.value;
                         const duracao = (document.getElementById('edit-programa-duracao') as HTMLInputElement)?.value;
                         const numeroVagas = parseInt((document.getElementById('edit-programa-vagas') as HTMLInputElement)?.value || '0');
-                        const status = (document.getElementById('edit-programa-status') as HTMLSelectElement)?.value;
                         const descricao = (document.getElementById('edit-programa-descricao') as HTMLTextAreaElement)?.value;
+                        const dataInicio = (document.getElementById('edit-programa-data-inicio') as HTMLInputElement)?.value || null;
+                        const dataFim = (document.getElementById('edit-programa-data-fim') as HTMLInputElement)?.value || null;
 
                         const response = await fetch(`/api/programas-inclusao/${selectedPrograma.id}`, {
                           method: 'PATCH',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
                             nome,
-                            modalidade,
+                            modalidade: editProgramaModalidade,
                             duracao,
                             numeroVagas,
-                            status,
-                            descricao
+                            status: editProgramaStatus,
+                            descricao,
+                            dataInicio,
+                            dataFim
                           })
                         });
 
@@ -3701,94 +3543,77 @@ export default function CoordenadorInclusaoPage() {
               <div className="space-y-6">
                 {/* Informações Gerais */}
                 <div className="bg-green-50 p-4 rounded-lg">
-                  <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-green-600" />
-                    {selectedPrograma.nome}
-                  </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                      <GraduationCap className="w-5 h-5 text-green-600" />
+                      {selectedPrograma.nome}
+                    </h3>
+                    <Badge>{formatarStatus(selectedPrograma.status)}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">Categoria</p>
+                      <p className="font-medium capitalize">{selectedPrograma.categoria || 'N/A'}</p>
+                    </div>
                     <div>
                       <p className="text-sm text-gray-600">Modalidade</p>
-                      <p className="font-medium">{selectedPrograma.modalidade}</p>
+                      <p className="font-medium capitalize">{selectedPrograma.modalidade || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Duração</p>
-                      <p className="font-medium">{selectedPrograma.duracao}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Vagas</p>
-                      <p className="font-medium">{selectedPrograma.ocupadas}/{selectedPrograma.vagas}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Taxa de Ocupação</p>
-                      <p className="font-medium">{Math.round((selectedPrograma.ocupadas/selectedPrograma.vagas)*100)}%</p>
+                      <p className="text-sm text-gray-600">Período</p>
+                      <p className="font-medium">
+                        {selectedPrograma.dataInicio && selectedPrograma.dataFim 
+                          ? `${new Date(selectedPrograma.dataInicio).toLocaleDateString('pt-BR')} - ${new Date(selectedPrograma.dataFim).toLocaleDateString('pt-BR')}`
+                          : selectedPrograma.dataInicio 
+                            ? `Início: ${new Date(selectedPrograma.dataInicio).toLocaleDateString('pt-BR')}`
+                            : 'A definir'}
+                      </p>
                     </div>
                   </div>
+                  {selectedPrograma.descricao && (
+                    <div className="mt-4">
+                      <p className="text-sm text-gray-600">Descrição</p>
+                      <p className="font-medium">{selectedPrograma.descricao}</p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Estatísticas */}
-                <div>
-                  <h4 className="font-semibold mb-3">Estatísticas do Programa</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="border rounded-lg p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Users className="w-4 h-4 text-blue-500" />
-                        <span className="text-sm text-gray-600">Participantes Ativos</span>
-                      </div>
-                      <p className="text-2xl font-bold">{selectedPrograma.ocupadas}</p>
-                    </div>
-                    <div className="border rounded-lg p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span className="text-sm text-gray-600">Taxa de Conclusão</span>
-                      </div>
-                      <p className="text-2xl font-bold">85%</p>
-                    </div>
-                    <div className="border rounded-lg p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <TrendingUp className="w-4 h-4 text-orange-500" />
-                        <span className="text-sm text-gray-600">Empregabilidade</span>
-                      </div>
-                      <p className="text-2xl font-bold">70%</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cronograma */}
-                <div>
-                  <h4 className="font-semibold mb-3">Cronograma</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <Calendar className="w-4 h-4 text-gray-400" />
-                        <div>
-                          <p className="font-medium">Data de Início</p>
-                          <p className="text-sm text-gray-600">15/08/2025</p>
+                {/* Estatísticas das Turmas */}
+                {(() => {
+                  const turmasDoPrograma = turmasData?.filter((t: any) => 
+                    t.programaId === selectedPrograma.id || t.programa_id === selectedPrograma.id
+                  ) || [];
+                  
+                  const totalTurmas = turmasDoPrograma.length;
+                  const turmasAtivas = turmasDoPrograma.filter((t: any) => t.status === 'em_andamento' || t.status === 'ativo').length;
+                  const frequenciaMedia = turmasDoPrograma.length > 0
+                    ? Math.round(turmasDoPrograma.reduce((acc: number, t: any) => acc + (t.frequencia || t.frequenciaMedia || 0), 0) / turmasDoPrograma.length)
+                    : 0;
+                  
+                  return totalTurmas > 0 ? (
+                    <div>
+                      <h4 className="font-semibold mb-3">Turmas do Programa</h4>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="border rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-blue-600">{totalTurmas}</p>
+                          <p className="text-sm text-gray-600">Turmas</p>
+                        </div>
+                        <div className="border rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-green-600">{turmasAtivas}</p>
+                          <p className="text-sm text-gray-600">Ativas</p>
+                        </div>
+                        <div className="border rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-orange-600">{frequenciaMedia}%</p>
+                          <p className="text-sm text-gray-600">Frequência Média</p>
                         </div>
                       </div>
-                      <Badge variant="outline">Iniciado</Badge>
                     </div>
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <Calendar className="w-4 h-4 text-gray-400" />
-                        <div>
-                          <p className="font-medium">Data de Conclusão Prevista</p>
-                          <p className="text-sm text-gray-600">15/11/2025</p>
-                        </div>
-                      </div>
-                      <Badge>Em Andamento</Badge>
+                  ) : (
+                    <div className="text-center text-gray-500 py-4">
+                      <p>Nenhuma turma cadastrada neste programa</p>
                     </div>
-                  </div>
-                </div>
-
-                {/* Requisitos */}
-                <div>
-                  <h4 className="font-semibold mb-3">Requisitos e Pré-requisitos</h4>
-                  <ul className="list-disc list-inside space-y-1 text-gray-700">
-                    <li>Ensino médio completo ou cursando</li>
-                    <li>Disponibilidade para aulas presenciais</li>
-                    <li>Conhecimentos básicos de informática (desejável)</li>
-                  </ul>
-                </div>
+                  );
+                })()}
 
                 {/* Ações */}
                 <div className="flex gap-3 pt-4 border-t">
@@ -3806,6 +3631,8 @@ export default function CoordenadorInclusaoPage() {
                   <Button 
                     variant="outline"
                     onClick={() => {
+                      setEditProgramaStatus(selectedPrograma?.status?.toLowerCase() || 'planejado');
+                      setEditProgramaModalidade(selectedPrograma?.modalidade?.toLowerCase() || 'presencial');
                       setShowDetalhesProgramaModal(false);
                       setShowEditProgramaModal(true);
                     }}
@@ -3819,455 +3646,6 @@ export default function CoordenadorInclusaoPage() {
                 </div>
               </div>
             )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Modal de Editar Curso */}
-        <Dialog open={showEditCursoModal} onOpenChange={setShowEditCursoModal}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Editar Curso Profissionalizante</DialogTitle>
-            </DialogHeader>
-            {selectedCurso && (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Nome do Curso</label>
-                  <Input id="edit-curso-nome" defaultValue={selectedCurso.nome} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Categoria</label>
-                    <Select defaultValue={selectedCurso.categoria?.toLowerCase()}>
-                      <SelectTrigger id="edit-curso-categoria">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="administrativo">Administrativo</SelectItem>
-                        <SelectItem value="vendas">Vendas</SelectItem>
-                        <SelectItem value="serviços">Serviços</SelectItem>
-                        <SelectItem value="tecnologia">Tecnologia</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Carga Horária (horas)</label>
-                    <Input id="edit-curso-carga" type="number" defaultValue={selectedCurso.cargaHoraria} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Status</label>
-                    <Select defaultValue={selectedCurso.status?.toLowerCase()}>
-                      <SelectTrigger id="edit-curso-status">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="planejado">Planejado</SelectItem>
-                        <SelectItem value="ativo">Ativo</SelectItem>
-                        <SelectItem value="concluido">Concluído</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Horário de Entrada</label>
-                    <Input type="time" id="edit-curso-horario-entrada" defaultValue={selectedCurso.horarioEntrada} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Horário de Saída</label>
-                    <Input type="time" id="edit-curso-horario-saida" defaultValue={selectedCurso.horarioSaida} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Descrição</label>
-                  <Textarea 
-                    id="edit-curso-descricao"
-                    placeholder="Descrição do curso..."
-                    defaultValue={selectedCurso.descricao}
-                    rows={3}
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <Button 
-                    className="bg-purple-500 hover:bg-purple-600"
-                    onClick={async () => {
-                      try {
-                        const nome = (document.getElementById('edit-curso-nome') as HTMLInputElement)?.value;
-                        const categoria = (document.getElementById('edit-curso-categoria') as HTMLSelectElement)?.value;
-                        const cargaHoraria = parseInt((document.getElementById('edit-curso-carga') as HTMLInputElement)?.value || '0');
-                        const status = (document.getElementById('edit-curso-status') as HTMLSelectElement)?.value;
-                        const horarioEntrada = (document.getElementById('edit-curso-horario-entrada') as HTMLInputElement)?.value;
-                        const horarioSaida = (document.getElementById('edit-curso-horario-saida') as HTMLInputElement)?.value;
-                        const descricao = (document.getElementById('edit-curso-descricao') as HTMLTextAreaElement)?.value;
-
-                        const response = await fetch(`/api/cursos-inclusao/${selectedCurso.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            nome,
-                            categoria,
-                            cargaHoraria,
-                            status,
-                            horarioEntrada: horarioEntrada || null,
-                            horarioSaida: horarioSaida || null,
-                            descricao
-                          })
-                        });
-
-                        if (response.ok) {
-                          toast({
-                            title: "Curso atualizado!",
-                            description: `${nome} foi atualizado com sucesso.`
-                          });
-                          setShowEditCursoModal(false);
-                          queryClient.invalidateQueries({ queryKey: ['/api/cursos-inclusao'] });
-                        } else {
-                          throw new Error('Erro ao atualizar curso');
-                        }
-                      } catch (error) {
-                        toast({
-                          title: "Erro",
-                          description: "Não foi possível atualizar o curso.",
-                          variant: "destructive"
-                        });
-                      }
-                    }}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Salvar Alterações
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowEditCursoModal(false)}>
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Modal de Cronograma */}
-        <Dialog open={showCronogramaModal} onOpenChange={setShowCronogramaModal}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Cronograma do Curso</DialogTitle>
-            </DialogHeader>
-            {selectedCurso && (
-              <div className="space-y-6">
-                <div className="bg-purple-50 p-4 rounded-lg">
-                  <h3 className="font-semibold text-lg mb-2">{selectedCurso.nome}</h3>
-                  <p className="text-sm text-gray-600">{selectedCurso.descricao}</p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-semibold flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-purple-500" />
-                      Agenda de Aulas
-                    </h4>
-                    <Button
-                      size="sm"
-                      className="bg-purple-500 hover:bg-purple-600"
-                      onClick={() => {
-                        setAulaEditando(null);
-                        setShowNovaAulaModal(true);
-                      }}
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Adicionar Aula
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    {cronogramaAulas.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500 border-2 border-dashed rounded-lg">
-                        <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                        <p>Nenhuma aula cadastrada ainda.</p>
-                        <p className="text-sm">Clique em "Adicionar Aula" para começar.</p>
-                      </div>
-                    ) : (
-                      cronogramaAulas
-                        .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
-                        .map((aula, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 border rounded-lg bg-white">
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-gray-400" />
-                              <span className="font-medium">
-                                {new Date(aula.data).toLocaleDateString('pt-BR')}
-                              </span>
-                            </div>
-                            <div className="text-sm text-gray-600">{aula.horario}</div>
-                            <div className="text-sm font-medium">{aula.tema}</div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{formatarStatus(aula.status)}</Badge>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setAulaEditando(aula);
-                                setShowNovaAulaModal(true);
-                              }}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => {
-                                // Filtrar pela aula específica, não pelo índice ordenado
-                                const novasAulas = cronogramaAulas.filter(a => 
-                                  !(a.data === aula.data && 
-                                    a.horario === aula.horario && 
-                                    a.tema === aula.tema)
-                                );
-                                setCronogramaAulas(novasAulas);
-                                salvarCronograma(novasAulas); // Salvar no banco
-                                toast({
-                                  title: "Aula removida",
-                                  description: "A aula foi removida do cronograma."
-                                });
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-semibold mb-3">Informações Gerais</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-600">Carga Horária Total</p>
-                      <p className="font-semibold">{selectedCurso.cargaHoraria || 0}h</p>
-                    </div>
-                    <div className="p-3 bg-green-50 rounded-lg">
-                      <p className="text-sm text-green-700">Horas Realizadas</p>
-                      <p className="font-semibold text-green-700">
-                        {(() => {
-                          const horasRealizadas = cronogramaAulas
-                            .filter(aula => aula.status?.toLowerCase() === 'realizada')
-                            .reduce((total, aula) => {
-                              if (aula.horario) {
-                                const [inicio, fim] = aula.horario.split(' - ');
-                                if (inicio && fim) {
-                                  const [hI, mI] = inicio.split(':').map(Number);
-                                  const [hF, mF] = fim.split(':').map(Number);
-                                  const horas = (hF * 60 + mF - (hI * 60 + mI)) / 60;
-                                  return total + horas;
-                                }
-                              }
-                              return total;
-                            }, 0);
-                          return horasRealizadas.toFixed(1);
-                        })()}h
-                      </p>
-                    </div>
-                    <div className="p-3 bg-blue-50 rounded-lg">
-                      <p className="text-sm text-blue-700">Horas Restantes</p>
-                      <p className="font-semibold text-blue-700">
-                        {(() => {
-                          const horasRealizadas = cronogramaAulas
-                            .filter(aula => aula.status?.toLowerCase() === 'realizada')
-                            .reduce((total, aula) => {
-                              if (aula.horario) {
-                                const [inicio, fim] = aula.horario.split(' - ');
-                                if (inicio && fim) {
-                                  const [hI, mI] = inicio.split(':').map(Number);
-                                  const [hF, mF] = fim.split(':').map(Number);
-                                  const horas = (hF * 60 + mF - (hI * 60 + mI)) / 60;
-                                  return total + horas;
-                                }
-                              }
-                              return total;
-                            }, 0);
-                          const cargaTotal = selectedCurso.cargaHoraria || 0;
-                          const restantes = Math.max(0, cargaTotal - horasRealizadas);
-                          return restantes.toFixed(1);
-                        })()}h
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-sm text-gray-600">
-                    <strong>{cronogramaAulas.length} aulas cadastradas</strong> • {
-                      cronogramaAulas.filter(a => a.status?.toLowerCase() === 'realizada').length
-                    } realizadas • {
-                      cronogramaAulas.filter(a => a.status?.toLowerCase() === 'agendada').length
-                    } agendadas
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4 border-t">
-                  <Button 
-                    className="bg-purple-500 hover:bg-purple-600"
-                    onClick={() => {
-                      toast({
-                        title: "Cronograma exportado",
-                        description: "O cronograma foi exportado com sucesso."
-                      });
-                    }}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Exportar Cronograma
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      setShowCronogramaModal(false);
-                      setShowEditCursoModal(true);
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Editar Curso
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowCronogramaModal(false)}>
-                    Fechar
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Modal de Adicionar/Editar Aula */}
-        <Dialog open={showNovaAulaModal} onOpenChange={setShowNovaAulaModal}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{aulaEditando ? 'Editar Aula' : 'Adicionar Nova Aula'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Data da Aula *</label>
-                <Input 
-                  type="date" 
-                  id="aula-data"
-                  defaultValue={aulaEditando?.data || ''}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Hora Início *</label>
-                  <Input 
-                    type="time" 
-                    id="aula-hora-inicio"
-                    defaultValue={aulaEditando?.horario?.split(' - ')[0] || ''}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Hora Fim *</label>
-                  <Input 
-                    type="time" 
-                    id="aula-hora-fim"
-                    defaultValue={aulaEditando?.horario?.split(' - ')[1] || ''}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Tema/Título da Aula *</label>
-                <Input 
-                  placeholder="Ex: Introdução ao Excel" 
-                  id="aula-tema"
-                  defaultValue={aulaEditando?.tema || ''}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Status</label>
-                <Select value={aulaStatus} onValueChange={setAulaStatus}>
-                  <SelectTrigger id="aula-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="agendada">Agendada</SelectItem>
-                    <SelectItem value="realizada">Realizada</SelectItem>
-                    <SelectItem value="cancelada">Cancelada</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Observações</label>
-                <Textarea 
-                  placeholder="Observações adicionais..." 
-                  rows={2}
-                  id="aula-observacoes"
-                  defaultValue={aulaEditando?.observacoes || ''}
-                />
-              </div>
-              <div className="flex gap-3 pt-4">
-                <Button
-                  className="flex-1 bg-purple-500 hover:bg-purple-600"
-                  onClick={() => {
-                    const data = (document.getElementById('aula-data') as HTMLInputElement)?.value;
-                    const horaInicio = (document.getElementById('aula-hora-inicio') as HTMLInputElement)?.value;
-                    const horaFim = (document.getElementById('aula-hora-fim') as HTMLInputElement)?.value;
-                    const tema = (document.getElementById('aula-tema') as HTMLInputElement)?.value;
-                    const observacoes = (document.getElementById('aula-observacoes') as HTMLTextAreaElement)?.value;
-
-                    if (!data || !horaInicio || !horaFim || !tema) {
-                      toast({
-                        title: "Campos obrigatórios",
-                        description: "Preencha data, horário e tema da aula.",
-                        variant: "destructive"
-                      });
-                      return;
-                    }
-
-                    const novaAula = {
-                      data,
-                      horario: `${horaInicio} - ${horaFim}`,
-                      tema,
-                      status: aulaStatus.charAt(0).toUpperCase() + aulaStatus.slice(1),
-                      observacoes
-                    };
-
-                    if (aulaEditando) {
-                      // Encontrar o índice da aula original no array não ordenado
-                      const index = cronogramaAulas.findIndex(a => 
-                        a.data === aulaEditando.data && 
-                        a.horario === aulaEditando.horario && 
-                        a.tema === aulaEditando.tema
-                      );
-                      
-                      if (index !== -1) {
-                        const novasAulas = [...cronogramaAulas];
-                        novasAulas[index] = novaAula;
-                        setCronogramaAulas(novasAulas);
-                        salvarCronograma(novasAulas); // Salvar no banco
-                        toast({
-                          title: "Aula atualizada",
-                          description: "As informações da aula foram atualizadas."
-                        });
-                      }
-                    } else {
-                      const novasAulas = [...cronogramaAulas, novaAula];
-                      setCronogramaAulas(novasAulas);
-                      salvarCronograma(novasAulas); // Salvar no banco
-                      toast({
-                        title: "Aula adicionada",
-                        description: "Nova aula adicionada ao cronograma."
-                      });
-                    }
-
-                    setShowNovaAulaModal(false);
-                    setAulaEditando(null);
-                  }}
-                >
-                  {aulaEditando ? 'Atualizar' : 'Adicionar'}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowNovaAulaModal(false);
-                    setAulaEditando(null);
-                  }}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </div>
           </DialogContent>
         </Dialog>
 
@@ -4300,14 +3678,6 @@ export default function CoordenadorInclusaoPage() {
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Programa</p>
                     <p className="font-semibold">{selectedTurma.programaNome || 'Não vinculado'}</p>
                   </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Vagas Totais</p>
-                    <p className="font-semibold">{selectedTurma.vagas || 0}</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Vagas Ocupadas</p>
-                    <p className="font-semibold">{selectedTurma.vagasOcupadas || 0}</p>
-                  </div>
                 </div>
 
                 <div>
@@ -4338,6 +3708,24 @@ export default function CoordenadorInclusaoPage() {
                       <p className="font-semibold">{selectedTurma.local || 'Não definido'}</p>
                     </div>
                   </div>
+                  {(selectedTurma.diasSemana && selectedTurma.diasSemana.length > 0) && (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mt-4">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Dias da Semana</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTurma.diasSemana.map((dia: string) => (
+                          <span key={dia} className="px-3 py-1 bg-blue-500 text-white rounded-full text-sm font-medium">
+                            {dia === 'segunda' ? 'Segunda' : 
+                             dia === 'terca' ? 'Terça' : 
+                             dia === 'quarta' ? 'Quarta' : 
+                             dia === 'quinta' ? 'Quinta' : 
+                             dia === 'sexta' ? 'Sexta' : 
+                             dia === 'sabado' ? 'Sábado' : 
+                             dia === 'domingo' ? 'Domingo' : dia}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {selectedTurma.observacoes && (
@@ -4363,157 +3751,6 @@ export default function CoordenadorInclusaoPage() {
                   <Button
                     variant="outline"
                     onClick={() => setShowDetalhesTurmaModal(false)}
-                  >
-                    Fechar
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Modal de Detalhes do Curso */}
-        <Dialog open={showDetalhesCursoModal} onOpenChange={setShowDetalhesCursoModal}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Detalhes do Curso</DialogTitle>
-            </DialogHeader>
-            {selectedCurso && (
-              <div className="space-y-6">
-                <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-lg">{selectedCurso.nome}</h3>
-                    <Badge variant={selectedCurso.status === 'ativo' ? 'default' : 'secondary'}>
-                      {formatarStatus(selectedCurso.status)}
-                    </Badge>
-                  </div>
-                  {selectedCurso.descricao && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{selectedCurso.descricao}</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Categoria</p>
-                    <p className="font-semibold">{selectedCurso.categoria || 'Não definida'}</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Carga Horária</p>
-                    <p className="font-semibold">{selectedCurso.cargaHoraria || 0}h</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Programa</p>
-                    <p className="font-semibold">{selectedCurso.programaNome || 'Não vinculado'}</p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Turmas Vinculadas</p>
-                    <p className="font-semibold">{selectedCurso.turmas?.length || 0}</p>
-                  </div>
-                </div>
-
-                {selectedCurso.turmas && selectedCurso.turmas.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-3">Turmas do Curso</h4>
-                    <div className="space-y-2">
-                      {selectedCurso.turmas.map((turma: any, idx: number) => (
-                        <div key={idx} className="flex items-center justify-between p-3 border rounded-lg bg-white dark:bg-gray-800">
-                          <div>
-                            <p className="font-medium">{turma.nome}</p>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {turma.horario || 'Horário não definido'}
-                            </p>
-                          </div>
-                          <Badge>{turma.vagas || 0} vagas</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <h4 className="font-semibold mb-3">Instrutor</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Nome</p>
-                      <p className="font-semibold">{selectedCurso.instrutorNome || 'Não definido'}</p>
-                    </div>
-                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Contato</p>
-                      <p className="font-semibold">{selectedCurso.instrutorContato || 'Não definido'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-semibold mb-3">Datas e Local</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Data Início</p>
-                      <p className="font-semibold">
-                        {selectedCurso.dataInicio 
-                          ? new Date(selectedCurso.dataInicio).toLocaleDateString('pt-BR')
-                          : 'Não definida'}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Data Fim</p>
-                      <p className="font-semibold">
-                        {selectedCurso.dataFim 
-                          ? new Date(selectedCurso.dataFim).toLocaleDateString('pt-BR')
-                          : 'Não definida'}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg col-span-2">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Local</p>
-                      <p className="font-semibold">{selectedCurso.local || 'Não definido'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {(selectedCurso.requisitos || selectedCurso.certificado) && (
-                  <div>
-                    <h4 className="font-semibold mb-3">Informações Adicionais</h4>
-                    <div className="space-y-3">
-                      {selectedCurso.requisitos && (
-                        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Requisitos</p>
-                          <p className="text-sm">{selectedCurso.requisitos}</p>
-                        </div>
-                      )}
-                      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Certificado</p>
-                        <p className="font-semibold">
-                          {selectedCurso.certificado ? '✅ Sim' : '❌ Não'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-4 border-t">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowDetalhesCursoModal(false);
-                      setShowCronogramaModal(true);
-                    }}
-                  >
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Ver Cronograma
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowDetalhesCursoModal(false);
-                      setShowEditCursoModal(true);
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Editar Curso
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowDetalhesCursoModal(false)}
                   >
                     Fechar
                   </Button>
@@ -4707,42 +3944,36 @@ export default function CoordenadorInclusaoPage() {
                 <Input placeholder="Ex: Auxiliar Administrativo" />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Modalidade</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="presencial">Presencial</SelectItem>
-                      <SelectItem value="hibrido">Híbrido</SelectItem>
-                      <SelectItem value="ead">EAD</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Duração</label>
-                  <Input placeholder="Ex: 3 meses" />
-                </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Modalidade</label>
+                <Select value={createProgramaModalidade} onValueChange={setCreateProgramaModalidade}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="presencial">Presencial</SelectItem>
+                    <SelectItem value="hibrido">Híbrido</SelectItem>
+                    <SelectItem value="ead">EAD</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Vagas Disponíveis</label>
-                  <Input type="number" placeholder="Ex: 15" />
+                  <label className="block text-sm font-medium mb-1">Data de Início</label>
+                  <Input id="create-programa-data-inicio" type="date" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Taxa de Ocupação (%)</label>
-                  <Input type="number" placeholder="Ex: 80" />
+                  <label className="block text-sm font-medium mb-1">Data de Conclusão</label>
+                  <Input id="create-programa-data-fim" type="date" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">Status</label>
-                <Select>
+                <Select value={createProgramaStatus} onValueChange={setCreateProgramaStatus}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione o status" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="planejado">Planejado</SelectItem>
@@ -4767,11 +3998,10 @@ export default function CoordenadorInclusaoPage() {
                     try {
                       const formData = {
                         nome: document.querySelector<HTMLInputElement>('input[placeholder="Ex: Auxiliar Administrativo"]')?.value,
-                        modalidade: 'presencial',
-                        duracao: document.querySelector<HTMLInputElement>('input[placeholder="Ex: 3 meses"]')?.value,
-                        vagas: document.querySelector<HTMLInputElement>('input[type="number"][placeholder="Ex: 15"]')?.value,
-                        taxaOcupacao: document.querySelector<HTMLInputElement>('input[type="number"][placeholder="Ex: 80"]')?.value,
-                        status: 'planejado',
+                        modalidade: createProgramaModalidade,
+                        dataInicio: (document.getElementById('create-programa-data-inicio') as HTMLInputElement)?.value || null,
+                        dataFim: (document.getElementById('create-programa-data-fim') as HTMLInputElement)?.value || null,
+                        status: createProgramaStatus,
                         categoria: 'profissionalizante',
                         descricao: document.querySelector<HTMLTextAreaElement>('textarea')?.value
                       };
@@ -4818,6 +4048,13 @@ export default function CoordenadorInclusaoPage() {
           onClose={() => setShowNovaTurmaModal(false)}
         />
 
+        <TurmaDetailModalInclusao
+          open={showGerenciarAlunosTurmaModal}
+          onOpenChange={setShowGerenciarAlunosTurmaModal}
+          turma={turmaSelecionadaParaAlunos}
+        />
+
+        {/* Modal de Editar Turma */}
         {/* Modal de Editar Turma */}
         <Dialog open={showEditTurmaModal} onOpenChange={setShowEditTurmaModal}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -4835,25 +4072,6 @@ export default function CoordenadorInclusaoPage() {
                   />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Código</label>
-                    <Input 
-                      placeholder="Ex: LAB-A-2025" 
-                      id="edit-turma-codigo"
-                      defaultValue={selectedTurma.codigo || ''}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Vagas Disponíveis</label>
-                    <Input 
-                      type="number" 
-                      placeholder="Ex: 20" 
-                      id="edit-turma-vagas"
-                      defaultValue={selectedTurma.numeroVagas || selectedTurma.numero_vagas || 20}
-                    />
-                  </div>
-                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -4876,7 +4094,7 @@ export default function CoordenadorInclusaoPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Hora de Início</label>
+                    <label className="block text-sm font-medium mb-1">Hora de Início *</label>
                     <Input 
                       type="time" 
                       value={editTurmaHoraInicio}
@@ -4885,7 +4103,7 @@ export default function CoordenadorInclusaoPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Hora de Término</label>
+                    <label className="block text-sm font-medium mb-1">Hora de Término *</label>
                     <Input 
                       type="time" 
                       value={editTurmaHoraFim}
@@ -4905,6 +4123,33 @@ export default function CoordenadorInclusaoPage() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium mb-1">Dias da Semana</label>
+                  <div className="flex flex-wrap gap-2">
+                    {diasDaSemana.map((dia) => (
+                      <button
+                        key={dia.value}
+                        type="button"
+                        onClick={() => {
+                          if (editTurmaDiasSemana.includes(dia.value)) {
+                            setEditTurmaDiasSemana(editTurmaDiasSemana.filter(d => d !== dia.value));
+                          } else {
+                            setEditTurmaDiasSemana([...editTurmaDiasSemana, dia.value]);
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                          editTurmaDiasSemana.includes(dia.value)
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {dia.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Selecione os dias em que a turma acontece</p>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium mb-1">Status</label>
                   <Select value={editTurmaStatus} onValueChange={setEditTurmaStatus}>
                     <SelectTrigger id="edit-turma-status">
@@ -4912,7 +4157,8 @@ export default function CoordenadorInclusaoPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="planejado">Planejado</SelectItem>
-                      <SelectItem value="ativo">Em andamento</SelectItem>
+                      <SelectItem value="ativo">Ativo</SelectItem>
+                      <SelectItem value="emandamento">Em andamento</SelectItem>
                       <SelectItem value="concluido">Concluído</SelectItem>
                     </SelectContent>
                   </Select>
@@ -4941,6 +4187,14 @@ export default function CoordenadorInclusaoPage() {
                   <Button 
                     className="bg-blue-500 hover:bg-blue-600"
                     onClick={async () => {
+                      if (!editTurmaHoraInicio) {
+                        toast({ title: "Horário de início obrigatório", description: "Por favor, informe o horário de início da turma.", variant: "destructive" });
+                        return;
+                      }
+                      if (!editTurmaHoraFim) {
+                        toast({ title: "Horário de término obrigatório", description: "Por favor, informe o horário de término da turma.", variant: "destructive" });
+                        return;
+                      }
                       try {
                         // Formatar horário a partir das horas de início e fim
                         let horarioFormatado = "";
@@ -4948,18 +4202,19 @@ export default function CoordenadorInclusaoPage() {
                           horarioFormatado = `${editTurmaHoraInicio} - ${editTurmaHoraFim}`;
                         }
                         
-                        const formData = {
+                        const formData: Record<string, any> = {
                           nome: (document.getElementById('edit-turma-nome') as HTMLInputElement)?.value,
-                          codigo: (document.getElementById('edit-turma-codigo') as HTMLInputElement)?.value,
-                          numeroVagas: parseInt((document.getElementById('edit-turma-vagas') as HTMLInputElement)?.value || '20'),
                           dataInicio: (document.getElementById('edit-turma-data-inicio') as HTMLInputElement)?.value || null,
                           dataFim: (document.getElementById('edit-turma-data-fim') as HTMLInputElement)?.value || null,
                           horario: horarioFormatado,
                           local: (document.getElementById('edit-turma-local') as HTMLInputElement)?.value,
-                          status: editTurmaStatus,
+                          diasSemana: editTurmaDiasSemana.length > 0 ? editTurmaDiasSemana : null,
                           instrutorNome: (document.getElementById('edit-turma-instrutor') as HTMLInputElement)?.value,
                           descricao: (document.getElementById('edit-turma-descricao') as HTMLTextAreaElement)?.value
                         };
+                        if (editTurmaStatus !== (selectedTurma.status || 'planejado')) {
+                          formData.status = editTurmaStatus;
+                        }
 
                         const response = await fetch(`/api/turmas-inclusao/${selectedTurma.id}`, {
                           method: 'PATCH',
@@ -4999,226 +4254,6 @@ export default function CoordenadorInclusaoPage() {
                 </div>
               </div>
             )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Modal de Novo Curso */}
-        <Dialog open={showNovoCursoModal} onOpenChange={(open) => {
-          setShowNovoCursoModal(open);
-          if (!open) {
-            setNovoCursoProgramaId("");
-            setNovoCursoTurmaIds([]);
-          }
-        }}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Criar Novo Curso Profissionalizante</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Programa *</label>
-                <Select value={novoCursoProgramaId} onValueChange={(value) => {
-                  setNovoCursoProgramaId(value);
-                  setNovoCursoTurmaIds([]); // Resetar turmas quando trocar programa
-                }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o programa" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {programasData.length === 0 ? (
-                      <SelectItem value="none" disabled>Nenhum programa disponível</SelectItem>
-                    ) : programasData.map((prog: any) => (
-                      <SelectItem key={prog.id} value={prog.id.toString()}>{prog.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500 mt-1">Selecione qual programa este curso pertence</p>
-              </div>
-
-              {novoCursoProgramaId && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">Turmas (Opcional)</label>
-                  <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-y-auto">
-                    {turmasData
-                      .filter((t: any) => t.programaId.toString() === novoCursoProgramaId)
-                      .map((turma: any) => (
-                        <div key={turma.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`turma-${turma.id}`}
-                            checked={novoCursoTurmaIds.includes(turma.id)}
-                            onCheckedChange={(checked) => {
-                              if (checked === true) {
-                                setNovoCursoTurmaIds([...novoCursoTurmaIds, turma.id]);
-                              } else {
-                                setNovoCursoTurmaIds(novoCursoTurmaIds.filter((id) => id !== turma.id));
-                              }
-                            }}
-                          />
-                          <label htmlFor={`turma-${turma.id}`} className="text-sm cursor-pointer flex-1">
-                            {turma.nome} {turma.codigo ? `(${turma.codigo})` : ''}
-                          </label>
-                        </div>
-                      ))}
-                    {turmasData.filter((t: any) => t.programaId.toString() === novoCursoProgramaId).length === 0 && (
-                      <p className="text-sm text-gray-500">Nenhuma turma disponível neste programa</p>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">Selecione as turmas que farão este curso (opcional)</p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Nome do Curso *</label>
-                <Input placeholder="Ex: Auxiliar Administrativo" id="curso-nome" />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Categoria</label>
-                  <Input placeholder="Ex: Administrativo" id="curso-categoria" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Carga Horária (horas) *</label>
-                  <Input type="number" placeholder="Ex: 120" id="curso-carga" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Horário de Entrada</label>
-                  <Input type="time" id="curso-horario-entrada" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Horário de Saída</label>
-                  <Input type="time" id="curso-horario-saida" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Status</label>
-                <Select defaultValue="planejado">
-                  <SelectTrigger id="curso-status">
-                    <SelectValue placeholder="Selecione o status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="planejado">Planejado</SelectItem>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="concluido">Concluído</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Descrição</label>
-                <Textarea 
-                  placeholder="Descreva o curso e seus objetivos..."
-                  rows={3}
-                  id="curso-descricao"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <Button 
-                  className="bg-purple-500 hover:bg-purple-600"
-                  disabled={isCreatingCurso}
-                  onClick={async () => {
-                    if (isCreatingCurso) return;
-                    
-                    try {
-                      setIsCreatingCurso(true);
-                      
-                      const nome = (document.getElementById('curso-nome') as HTMLInputElement)?.value;
-                      const categoria = (document.getElementById('curso-categoria') as HTMLInputElement)?.value;
-                      const cargaHoraria = parseInt((document.getElementById('curso-carga') as HTMLInputElement)?.value || '0');
-                      const horarioEntrada = (document.getElementById('curso-horario-entrada') as HTMLInputElement)?.value;
-                      const horarioSaida = (document.getElementById('curso-horario-saida') as HTMLInputElement)?.value;
-                      const status = (document.getElementById('curso-status') as HTMLSelectElement)?.value || 'planejado';
-                      const descricao = (document.getElementById('curso-descricao') as HTMLTextAreaElement)?.value;
-
-                      if (!novoCursoProgramaId) {
-                        toast({
-                          title: "Erro",
-                          description: "Selecione um programa para este curso.",
-                          variant: "destructive"
-                        });
-                        setIsCreatingCurso(false);
-                        return;
-                      }
-
-                      if (!nome) {
-                        toast({
-                          title: "Erro",
-                          description: "Nome do curso é obrigatório.",
-                          variant: "destructive"
-                        });
-                        setIsCreatingCurso(false);
-                        return;
-                      }
-
-                      if (!cargaHoraria || cargaHoraria <= 0) {
-                        toast({
-                          title: "Erro",
-                          description: "Carga horária deve ser maior que zero.",
-                          variant: "destructive"
-                        });
-                        setIsCreatingCurso(false);
-                        return;
-                      }
-
-                      const programaId = parseInt(novoCursoProgramaId);
-
-                      const response = await fetch('/api/cursos-inclusao', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          programaId,
-                          nome,
-                          categoria: categoria || 'Geral',
-                          cargaHoraria,
-                          horarioEntrada: horarioEntrada || null,
-                          horarioSaida: horarioSaida || null,
-                          status,
-                          descricao,
-                          turmaIds: novoCursoTurmaIds.length > 0 ? novoCursoTurmaIds : undefined
-                        })
-                      });
-
-                      if (response.ok) {
-                        toast({
-                          title: "Curso criado!",
-                          description: `Curso criado com sucesso${novoCursoTurmaIds.length > 0 ? ` e vinculado a ${novoCursoTurmaIds.length} turma(s)` : ''}.`
-                        });
-                        setShowNovoCursoModal(false);
-                        setNovoCursoProgramaId("");
-                        setNovoCursoTurmaIds([]);
-                        queryClient.invalidateQueries({ queryKey: ['/api/cursos-inclusao'] });
-                      } else {
-                        throw new Error('Erro ao criar curso');
-                      }
-                    } catch (error) {
-                      toast({
-                        title: "Erro",
-                        description: "Não foi possível criar o curso.",
-                        variant: "destructive"
-                      });
-                    } finally {
-                      setIsCreatingCurso(false);
-                    }
-                  }}
-                  data-testid="button-criar-curso"
-                >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  {isCreatingCurso ? "Criando..." : "Criar Curso"}
-                </Button>
-                <Button variant="outline" onClick={() => {
-                  setShowNovoCursoModal(false);
-                  setNovoCursoProgramaId("");
-                  setNovoCursoTurmaIds([]);
-                }}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
           </DialogContent>
         </Dialog>
 
@@ -5343,7 +4378,6 @@ export default function CoordenadorInclusaoPage() {
           setShowExcluirProgramaModal(open);
           if (!open) {
             setProgramaToDelete(null);
-            setSelectedCurso(null);
           }
         }}>
           <DialogContent className="max-w-md">
@@ -5353,34 +4387,29 @@ export default function CoordenadorInclusaoPage() {
             {programaToDelete && (
               <div className="space-y-4">
                 <p className="text-gray-600">
-                  Tem certeza que deseja excluir {selectedCurso ? 'o curso' : 'o programa'} <strong>{programaToDelete.nome}</strong>? 
-                  {!selectedCurso && ' Todos os cursos associados também serão removidos.'}
+                  Tem certeza que deseja excluir o programa <strong>{programaToDelete.nome}</strong>?
+                  {' Todos os dados associados também serão removidos.'}
                   {' '}Esta ação não pode ser desfeita.
                 </p>
                 <div className="flex gap-3 pt-4">
                   <Button 
                     className="bg-red-600 hover:bg-red-700"
                     onClick={() => {
-                      if (selectedCurso) {
-                        deleteCursoMutation.mutate(programaToDelete.id);
-                      } else {
-                        deleteProgramaMutation.mutate(programaToDelete.id);
-                      }
+                      deleteProgramaMutation.mutate(programaToDelete.id);
                     }}
-                    disabled={deleteProgramaMutation.isPending || deleteCursoMutation.isPending}
+                    disabled={deleteProgramaMutation.isPending}
                     data-testid="button-confirmar-exclusao"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
-                    {(deleteProgramaMutation.isPending || deleteCursoMutation.isPending) ? 'Excluindo...' : 'Sim, Excluir'}
+                    {deleteProgramaMutation.isPending ? 'Excluindo...' : 'Sim, Excluir'}
                   </Button>
                   <Button 
                     variant="outline" 
                     onClick={() => {
                       setShowExcluirProgramaModal(false);
                       setProgramaToDelete(null);
-                      setSelectedCurso(null);
                     }}
-                    disabled={deleteProgramaMutation.isPending || deleteCursoMutation.isPending}
+                    disabled={deleteProgramaMutation.isPending}
                     data-testid="button-cancelar-exclusao"
                   >
                     Cancelar
@@ -5391,10 +4420,151 @@ export default function CoordenadorInclusaoPage() {
           </DialogContent>
         </Dialog>
 
+
+        {/* Modal Finalizar Turma */}
+        <Dialog open={showFinalizarTurmaModal} onOpenChange={setShowFinalizarTurmaModal}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+             <DialogTitle className="flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-green-600" />
+                  Finalizar Turma: {turmaParaFinalizar?.nome || "—"}
+              </DialogTitle>
+              <DialogDescription>
+                Selecione os participantes que concluíram o curso com certificado.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {isLoadingParticipantesTurma ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : participantesTurmaAtual.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p>Nenhum participante ativo nesta turma.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Pesquisar participante..."
+                      value={buscaParticipante}
+                      onChange={(e) => setBuscaParticipante(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm text-gray-600">
+                      {participantesSelecionados.length} de {participantesTurmaAtual.length} selecionados
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                    onClick={() => {
+                        if (participantesSelecionados.length === participantesTurmaAtual.length) {
+                          setParticipantesSelecionados([]);
+                        } else {
+                          setParticipantesSelecionados(
+                            participantesTurmaAtual.map((p: any) => Number(p.id || p.participante_id))
+                          );
+                        }
+                      }}
+                    >
+                      {participantesSelecionados.length === participantesTurmaAtual.length ? "Desmarcar Todos" : "Selecionar Todos"}
+                    </Button>
+                          </div>
+                          <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
+                                      {[...participantesTurmaAtual]
+                              .sort((a: any, b: any) => (a.nome || "").localeCompare(b.nome || "", 'pt-BR'))
+                              .filter((p: any) =>
+                                String(p?.nome || "")
+                                  .toLowerCase()
+                                  .includes(String(buscaParticipante || "").toLowerCase())
+                              )
+                              .map((participante: any) => {
+                                const pid = Number(participante.id || participante.participante_id);
+
+                                return (
+                                  <label
+                                    key={pid}
+                                    className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={participantesSelecionados.includes(pid)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setParticipantesSelecionados((prev) => [...prev, pid]);
+                                        } else {
+                                          setParticipantesSelecionados((prev) => prev.filter((id) => id !== pid));
+                                        }
+                                      }}
+                                      className="w-5 h-5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                    />
+                                    <div className="flex-1">
+                                      <p className="font-medium">{participante.nome}</p>
+                                      {participante.cpf && (
+                                        <p className="text-sm text-gray-500">CPF: {formatCPF(participante.cpf)}</p>
+                                      )}
+                                    </div>
+                                    {participantesSelecionados.includes(pid) && (
+                                      <CheckCircle className="w-5 h-5 text-green-600" />
+                                    )}
+                                  </label>
+                                );
+                              })}
+                          </div>
+                        </>
+                      )}
+                      <div className="flex gap-3 pt-4 border-t">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowFinalizarTurmaModal(false);
+                            setParticipantesSelecionados([]);
+                            setParticipantesTurmaAtual([]);
+                            setBuscaParticipante("");
+                          }}
+                          disabled={isFinalizando}
+                        >
+                          Cancelar
+                        </Button>
+                      <Button
+          className="bg-green-600 hover:bg-green-700 flex-1"
+          disabled={
+            finalizarTurmaMutation.isPending ||
+            participantesTurmaAtual.length === 0 ||
+            !turmaParaFinalizarId
+          }
+          onClick={handleConfirmarFinalizacaoTurma}
+        >
+          {finalizarTurmaMutation.isPending ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Finalizando...</>
+          ) : (
+            <><GraduationCap className="w-4 h-4 mr-2" /> Finalizar Turma ({participantesSelecionados.length} concluídos)</>
+          )}
+        </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         <AlterarSenha 
           open={showAlterarSenhaModal} 
           onOpenChange={setShowAlterarSenhaModal}
         />
+
+        {/* Modal: Planos de Aula dos Professores de Inclusão */}
+                {turmaParaVincular && (
+          <VincularProfessoresTurma
+            turmaId={turmaParaVincular.id}
+            turmaTipo="inclusao"
+            programa="inclusao_produtiva"
+            open={showVincularProfessoresModal}
+            onOpenChange={setShowVincularProfessoresModal}
+            turmaNome={turmaParaVincular.nome}
+          />
+        )}
       </div>
     </div>
   );

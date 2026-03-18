@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, AlertCircle, Ticket, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import PatrocinadoresCarousel from "@/components/PatrocinadoresCarousel";
 
 export default function IngressoAvulsoResgatar() {

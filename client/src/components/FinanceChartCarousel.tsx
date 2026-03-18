@@ -101,9 +101,9 @@ export default function FinanceChartCarousel({
 
   // Calcular totais - usar REALIZADOS dos departamentos (não METAS)
   console.log('[FINANCE CHART] Dados recebidos:', dadosConsolidados?.totais);
-  const totalCaptado = maskValue(dadosConsolidados?.totais.receitas_captado || 0);
-  const totalRealizado = maskValue(dadosConsolidados?.totais.despesas_realizado || 0);
-  const totalSaldo = maskValue((dadosConsolidados?.totais.receitas_captado || 0) - (dadosConsolidados?.totais.despesas_realizado || 0));
+  const totalCaptado = maskValue(dadosConsolidados?.totais?.receitas_captado || 0);
+  const totalRealizado = maskValue(dadosConsolidados?.totais?.despesas_realizado || 0);
+  const totalSaldo = maskValue((dadosConsolidados?.totais?.receitas_captado || 0) - (dadosConsolidados?.totais?.despesas_realizado || 0));
   console.log('[FINANCE CHART] Totais calculados - Captado (REALIZADO):', totalCaptado, 'Realizado (REALIZADO):', totalRealizado, 'Saldo:', totalSaldo);
 
   const formatCurrency = (value: number) => {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import bannerEvento from "@assets/SAVE THE DATE_Prancheta 1_1758723929625.png";
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+import bannerEvento from "../app-assets/SAVE THE DATE_Prancheta 1_1758723929625.png";
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

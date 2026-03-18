@@ -68,6 +68,7 @@ import GritoIntro from "@/pages/grito-intro";
 import GritoSelection from "@/pages/grito-selection";
 import GestaoVista from "@/pages/gestao-vista";
 import GestaoVistaDashboard from "@/pages/gestao-vista-dashboard";
+import DashboardGestaoVista from "@/pages/dashboard-gestao-vista/index";
 import PagamentoIngresso from "@/pages/pagamento-ingresso";
 import IngressoSucesso from "@/pages/ingresso-sucesso";
 import IngressoPage from "@/pages/ingresso";
@@ -100,6 +101,7 @@ import MarketingPage from "@/pages/rbac/marketing";
 import CoordenadorInclusaoPage from "@/pages/rbac/coordenador-inclusao";
 import CoordenadorPECPage from "@/pages/rbac/coordenador-pec";
 import CoordenadorPsicoPage from "@/pages/rbac/coordenador-psico";
+import VendedorOutletPage from "@/pages/rbac/vendedor-outlet";
 
 import NotFound from "@/pages/not-found";
 
@@ -184,15 +186,25 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
-      
-      <Route path="/monitor">
+        
+     <Route path="/monitor/psico">
         {() => (
-          <ProtectedRoute allowedRoles={['monitor', 'monitor_pec', 'monitor_inclusao']} routeName="/monitor">
+          <ProtectedRoute allowedRoles={['monitor_psico']} routeName="/monitor/psico">
             <MonitorPage />
           </ProtectedRoute>
         )}
       </Route>
-      
+
+      <Route path="/monitor">
+        {() => (
+          <ProtectedRoute
+            allowedRoles={['monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico']}
+            routeName="/monitor"
+          >
+            <MonitorPage />
+          </ProtectedRoute>
+        )}
+      </Route>
 
       <Route path="/rbac/marketing">
         {() => (
@@ -224,6 +236,8 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
+      <Route path="/vendedor/outlet" component={VendedorOutletPage} />
       
       <Route path="/coordenador">
         {() => (
@@ -356,6 +370,9 @@ function Router() {
 
       {/* Dashboard Gestão à Vista para TV - Rota pública para exibição em televisão */}
       <Route path="/gestao/vista/dashboard" component={GestaoVistaDashboard} />
+
+      {/* Novo Dashboard Gestão à Vista — 7 telas por setor */}
+      <Route path="/dashboard/gestao/vista" component={DashboardGestaoVista} />
       
       <Route path="/sorteio">
         {() => (
@@ -575,6 +592,31 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+      {/* Limpar cache do PWA */}
+      <Route path="/limpar-cache">
+        {() => {
+          useEffect(() => {
+            (async () => {
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const r of regs) await r.unregister();
+              }
+              if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((k: string) => caches.delete(k)));
+              }
+              setTimeout(() => { window.location.href = '/'; }, 800);
+            })();
+          }, []);
+          return (
+            <div style={{ fontFamily: 'sans-serif', textAlign: 'center', padding: '80px 20px' }}>
+              <h2>🧹 Limpando cache...</h2>
+              <p style={{ color: '#555' }}>Aguarde, você será redirecionado.</p>
+            </div>
+          );
+        }}
+      </Route>
+
       {/* Fallback para SPAs - todas as rotas não encontradas vão para / */}
       <Route>
         {() => <SplashGate />}

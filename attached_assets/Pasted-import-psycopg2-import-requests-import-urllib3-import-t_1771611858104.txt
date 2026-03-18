@@ -1,0 +1,89 @@
+import psycopg2
+import requests
+import urllib3
+import time
+import threading
+from flask import Flask, jsonify
+from flask_cors import CORS
+
+# Configurações de segurança e API
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+app = Flask(_name_)
+CORS(app)
+
+# --- CONFIGURAÇÕES DO INSTITUTO O GRITO ---
+WEBHOOK_REPLIT = "https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worflow.replit.dev/api/presenca"
+
+# Configuração do Banco baseada nos arquivos do sistema
+DB_CONFIG = {
+    "host": "127.0.0.1",
+    "database": "incontrol",
+    "user": "postgres",
+    "password": "@2025@0grit0", 
+    "port": 5432  # Se não conectar, tentaremos a porta lida no seu arquivo
+}
+
+# --- 1. VIGIADOR DE CATRACA ---
+def monitorar_presenca():
+    ultimo_id_lido = 0
+    print(f"🚀 Vigiador iniciado na porta {DB_CONFIG['port']}... Monitorando catraca.")
+    
+    while True:
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            # Busca o último evento (aluno passando na catraca)
+            cur.execute("SELECT id, pessoa_id, data_hora FROM evento_dispositivo ORDER BY id DESC LIMIT 1")
+            evento = cur.fetchone()
+            
+            if evento:
+                idx, aluno_id, timestamp = evento
+                
+                # Se for um registro novo
+                if ultimo_id_lido != 0 and idx > ultimo_id_lido:
+                    print(f"📢 Entrada detectada! Aluno ID: {aluno_id}")
+                    
+                    payload = {
+                        "aluno_id": str(aluno_id), 
+                        "timestamp": str(timestamp)
+                    }
+                    
+                    try:
+                        res = requests.post(WEBHOOK_REPLIT, json=payload, timeout=10)
+                        print(f"✅ Sincronizado com Replit: {res.status_code}")
+                    except Exception as e:
+                        print(f"⚠️ Erro ao enviar para nuvem: {e}")
+                
+                ultimo_id_lido = idx
+            
+            cur.close()
+            conn.close()
+            
+        except Exception:
+            # Mensagem silenciosa para não poluir o terminal se estiver tentando reconectar
+            pass
+        
+        time.sleep(2)
+
+# --- 2. ROTA DE COMANDO REMOTO ---
+@app.route('/abrir/<int:id_ponto>', methods=['POST'])
+def abrir_porta(id_ponto):
+    try:
+        base_url = "https://127.0.0.1:4441"
+        headers = {"Host": "qp02.ogrito.local", "Content-Type": "application/json"}
+        
+        # Autenticação e comando de abertura
+        res_auth = requests.post(f"{base_url}/v1/auth/", json={"username": "admin", "password": "@2025@0grit0"}, headers=headers, verify=False)
+        token = res_auth.json().get('token')
+        
+        res = requests.post(f"{base_url}/v1/ponto_acesso/{id_ponto}/liberar_acesso/", json={}, headers={**headers, "Authorization": f"JWT {token}"}, verify=False)
+        
+        return jsonify({"status": "sucesso", "hw_code": res.status_code}), 200
+    except Exception as e:
+        return jsonify({"status": "erro", "detalhe": str(e)}), 500
+
+if _name_ == "_main_":
+    threading.Thread(target=monitorar_presenca, daemon=True).start()
+    print("🔥 Servidor do Instituto O Grito Ativo na porta 5000")
+    app.run(host='0.0.0.0', port=5000)

@@ -12,7 +12,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Calendar, CheckCircle } from "lucide-react";
+import { Calendar, CheckCircle, GraduationCap, Palette } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { CORES_DISPONIVEIS, ICONES_DISPONIVEIS } from "@/components/VincularProfessoresTurma";
 
 interface TurmaInclusaoFormProps {
   open: boolean;
@@ -35,10 +38,52 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
   const [local, setLocal] = useState("");
   const [status, setStatus] = useState("planejado");
   const [descricao, setDescricao] = useState("");
+  const [diasSemana, setDiasSemana] = useState<string[]>([]);
+  const [openCalendarInicio, setOpenCalendarInicio] = useState(false);
+  const [openCalendarFim, setOpenCalendarFim] = useState(false);
+  const [dataInicioText, setDataInicioText] = useState("");
+  const [dataFimText, setDataFimText] = useState("");
+  const [professorSelections, setProfessorSelections] = useState<Array<{ id: number; cor: string; icone: string }>>([]);
+  
+  const diasDaSemana = [
+    { value: "segunda", label: "Segunda" },
+    { value: "terca", label: "Terça" },
+    { value: "quarta", label: "Quarta" },
+    { value: "quinta", label: "Quinta" },
+    { value: "sexta", label: "Sexta" },
+    { value: "sabado", label: "Sábado" },
+    { value: "domingo", label: "Domingo" },
+  ];
   
   const { data: programasData = [], isLoading: programasLoading } = useQuery<any[]>({
     queryKey: ['/api/programas-inclusao'],
     enabled: open
+  });
+
+  const { data: professoresDisponiveis = [] } = useQuery({
+    queryKey: ['/api/coordenador/professores', 'inclusao_produtiva'],
+    queryFn: async () => {
+      const response = await fetch('/api/coordenador/professores?programa=inclusao_produtiva');
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: open,
+  });
+
+  const { data: vinculadosExistentes = [] } = useQuery({
+    queryKey: ['/api/coordenador/professor-turmas', turma?.id, 'inclusao'],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenador/professor-turmas/${turma?.id}?tipo=inclusao`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: open && !!turma?.id,
+  });
+
+  // Buscar próximo código apenas quando criar nova turma (não para edição)
+  const { data: proximoCodigoData, isLoading: codigoLoading } = useQuery<{ codigo: string }>({
+    queryKey: ['/api/turmas-inclusao/proximo-codigo'],
+    enabled: open && !turma // Só busca se for nova turma
   });
   
   const handleClose = () => {
@@ -48,12 +93,18 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
   
   useEffect(() => {
     if (turma) {
-      setProgramaId(turma.programa_id?.toString() || "");
+      setProgramaId(turma.programaId?.toString() || turma.programa_id?.toString() || "");
       setNome(turma.nome || "");
       setCodigo(turma.codigo || "");
-      setNumeroVagas(turma.numero_vagas || 20);
-      setDataInicio(turma.data_inicio ? new Date(turma.data_inicio) : undefined);
-      setDataFim(turma.data_fim ? new Date(turma.data_fim) : undefined);
+      setNumeroVagas(turma.numeroVagas || turma.numero_vagas || 20);
+      const diVal = turma.dataInicio || turma.data_inicio;
+      const dfVal = turma.dataFim || turma.data_fim;
+      const di = diVal ? new Date(diVal) : undefined;
+      const df = dfVal ? new Date(dfVal) : undefined;
+      setDataInicio(di);
+      setDataFim(df);
+      setDataInicioText(di ? format(di, "dd/MM/yyyy", { locale: ptBR }) : "");
+      setDataFimText(df ? format(df, "dd/MM/yyyy", { locale: ptBR }) : "");
       if (turma.horario) {
         const [hi, hf] = turma.horario.split(' - ');
         setHoraInicio(hi || "");
@@ -62,10 +113,21 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
       setLocal(turma.local || "");
       setStatus(turma.status || "planejado");
       setDescricao(turma.descricao || "");
+      setDiasSemana(turma.dias_semana || turma.diasSemana || []);
     } else {
       resetForm();
     }
   }, [turma, open]);
+
+  useEffect(() => {
+    if (vinculadosExistentes.length > 0) {
+      setProfessorSelections(vinculadosExistentes.map((v: any) => ({
+        id: v.professor_id,
+        cor: v.cor || '#3B82F6',
+        icone: v.icone || 'book'
+      })));
+    }
+  }, [vinculadosExistentes]);
   
   const resetForm = () => {
     setProgramaId("");
@@ -74,28 +136,89 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
     setNumeroVagas(20);
     setDataInicio(undefined);
     setDataFim(undefined);
+    setDataInicioText("");
+    setDataFimText("");
     setHoraInicio("");
     setHoraFim("");
     setLocal("");
     setStatus("planejado");
     setDescricao("");
+    setDiasSemana([]);
+    setProfessorSelections([]);
+  };
+
+  const parseDataTexto = (texto: string): Date | undefined => {
+    const limpo = texto.replace(/\D/g, '');
+    if (limpo.length === 8) {
+      const dia = parseInt(limpo.substring(0, 2));
+      const mes = parseInt(limpo.substring(2, 4)) - 1;
+      const ano = parseInt(limpo.substring(4, 8));
+      const data = new Date(ano, mes, dia);
+      if (!isNaN(data.getTime()) && dia >= 1 && dia <= 31 && mes >= 0 && mes <= 11) {
+        return data;
+      }
+    }
+    return undefined;
+  };
+
+  const handleDataInicioTextChange = (texto: string) => {
+    let formatado = texto.replace(/\D/g, '');
+    if (formatado.length > 2) formatado = formatado.slice(0,2) + '/' + formatado.slice(2);
+    if (formatado.length > 5) formatado = formatado.slice(0,5) + '/' + formatado.slice(5,9);
+    setDataInicioText(formatado);
+    const data = parseDataTexto(formatado);
+    if (data) setDataInicio(data);
+  };
+
+  const handleDataFimTextChange = (texto: string) => {
+    let formatado = texto.replace(/\D/g, '');
+    if (formatado.length > 2) formatado = formatado.slice(0,2) + '/' + formatado.slice(2);
+    if (formatado.length > 5) formatado = formatado.slice(0,5) + '/' + formatado.slice(5,9);
+    setDataFimText(formatado);
+    const data = parseDataTexto(formatado);
+    if (data) setDataFim(data);
   };
   
+  const linkProfessorsToTurma = async (turmaId: number) => {
+    if (professorSelections.length > 0) {
+      try {
+        await apiRequest(`/api/coordenador/professor-turmas/${turmaId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            professores: professorSelections.map(s => ({ id: s.id, cor: s.cor, icone: s.icone })),
+            turmaTipo: 'inclusao'
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao vincular professores:", err);
+      }
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      // Se tiver monitorUserId, usa rota de monitor; senão usa rota geral
       const url = monitorUserId 
         ? `/api/monitor/${monitorUserId}/grupos?vertente=inclusao`
         : '/api/turmas-inclusao';
-      return apiRequest(url, {
+      const resp = await apiRequest(url, {
         method: 'POST',
         body: JSON.stringify(data)
       });
+      return resp;
     },
-    onSuccess: () => {
+    onSuccess: async (response: any) => {
+      let turmaId: number | null = null;
+      try {
+        const result = typeof response === 'object' && response.id ? response : (response?.json ? await response.json() : null);
+        turmaId = result?.id || result?.turmaId || null;
+      } catch {}
+      if (turmaId && professorSelections.length > 0) {
+        await linkProfessorsToTurma(turmaId);
+      }
       toast({ title: "Turma criada!", description: "A nova turma foi criada com sucesso." });
       queryClient.invalidateQueries({ queryKey: ['/api/turmas-inclusao'] });
       queryClient.invalidateQueries({ queryKey: ['/api/monitor/grupos', monitorUserId, 'inclusao'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenador/professor-turmas'] });
       resetForm();
       onClose();
     },
@@ -107,13 +230,19 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest(`/api/turmas-inclusao/${turma?.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data)
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      if (turma?.id) {
+        await linkProfessorsToTurma(turma.id);
+      }
       toast({ title: "Turma atualizada!", description: "A turma foi atualizada com sucesso." });
       queryClient.invalidateQueries({ queryKey: ['/api/turmas-inclusao'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/grupos'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenador/professor-turmas'] });
       onClose();
     },
     onError: () => {
@@ -128,6 +257,26 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
     }
     if (!nome) {
       toast({ title: "Erro", description: "Por favor, informe o nome da turma.", variant: "destructive" });
+      return;
+    }
+    if (!dataInicio) {
+      toast({ title: "Data de início obrigatória", description: "Por favor, informe a data de início da turma.", variant: "destructive" });
+      return;
+    }
+    if (!dataFim) {
+      toast({ title: "Data de término obrigatória", description: "Por favor, informe a data de término da turma.", variant: "destructive" });
+      return;
+    }
+    if (diasSemana.length === 0) {
+      toast({ title: "Dias da semana obrigatórios", description: "Por favor, selecione pelo menos um dia da semana.", variant: "destructive" });
+      return;
+    }
+    if (!horaInicio) {
+      toast({ title: "Horário de início obrigatório", description: "Por favor, informe o horário de início da turma.", variant: "destructive" });
+      return;
+    }
+    if (!horaFim) {
+      toast({ title: "Horário de término obrigatório", description: "Por favor, informe o horário de término da turma.", variant: "destructive" });
       return;
     }
     
@@ -146,6 +295,7 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
       horario: horarioFormatado,
       horarioEntrada: horaInicio || null,
       horarioSaida: horaFim || null,
+      diasSemana: diasSemana.length > 0 ? diasSemana : null,
       local,
       status,
       descricao,
@@ -193,55 +343,52 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
               onChange={(e) => setNome(e.target.value)}
             />
           </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Código</label>
-              <Input 
-                placeholder="Ex: LAB-A-2025" 
-                value={codigo}
-                onChange={(e) => setCodigo(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Vagas Disponíveis</label>
-              <Input 
-                type="number" 
-                placeholder="Ex: 20" 
-                value={numeroVagas}
-                onChange={(e) => setNumeroVagas(parseInt(e.target.value) || 0)}
-              />
-            </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Código da Turma</label>
+            <Input 
+              value={turma ? (turma.codigo || '') : (codigoLoading ? 'Gerando...' : (proximoCodigoData?.codigo || ''))}
+              readOnly
+              disabled
+              className="bg-gray-100 cursor-not-allowed"
+            />
+            <p className="text-xs text-gray-500 mt-1">Gerado automaticamente</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Data de Início</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !dataInicio && "text-muted-foreground"
-                    )}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {dataInicio ? format(dataInicio, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data"}
-                  </Button>
-                </PopoverTrigger>
+              <label className="block text-sm font-medium mb-1">Data de Início *</label>
+              <Popover open={openCalendarInicio} onOpenChange={setOpenCalendarInicio}>
+                <div className="flex gap-1">
+                  <Input
+                    placeholder="DD/MM/AAAA"
+                    value={dataInicioText || (dataInicio ? format(dataInicio, "dd/MM/yyyy", { locale: ptBR }) : "")}
+                    onChange={(e) => handleDataInicioTextChange(e.target.value)}
+                    className="flex-1"
+                    maxLength={10}
+                  />
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" type="button">
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </div>
                 <PopoverContent className="w-auto p-0" align="start">
                   <CalendarComponent
                     mode="single"
                     selected={dataInicio}
-                    onSelect={setDataInicio}
+                    onSelect={(date) => {
+                      setDataInicio(date);
+                      setDataInicioText(date ? format(date, "dd/MM/yyyy", { locale: ptBR }) : "");
+                      setOpenCalendarInicio(false);
+                    }}
                     initialFocus
                   />
                 </PopoverContent>
               </Popover>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Hora de Início</label>
+              <label className="block text-sm font-medium mb-1">Hora de Início *</label>
               <Input 
                 type="time" 
                 value={horaInicio}
@@ -253,32 +400,38 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Data de Término</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !dataFim && "text-muted-foreground"
-                    )}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {dataFim ? format(dataFim, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data"}
-                  </Button>
-                </PopoverTrigger>
+              <label className="block text-sm font-medium mb-1">Data de Término *</label>
+              <Popover open={openCalendarFim} onOpenChange={setOpenCalendarFim}>
+                <div className="flex gap-1">
+                  <Input
+                    placeholder="DD/MM/AAAA"
+                    value={dataFimText || (dataFim ? format(dataFim, "dd/MM/yyyy", { locale: ptBR }) : "")}
+                    onChange={(e) => handleDataFimTextChange(e.target.value)}
+                    className="flex-1"
+                    maxLength={10}
+                  />
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="icon" type="button">
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </div>
                 <PopoverContent className="w-auto p-0" align="start">
                   <CalendarComponent
                     mode="single"
                     selected={dataFim}
-                    onSelect={setDataFim}
+                    onSelect={(date) => {
+                      setDataFim(date);
+                      setDataFimText(date ? format(date, "dd/MM/yyyy", { locale: ptBR }) : "");
+                      setOpenCalendarFim(false);
+                    }}
                     initialFocus
                   />
                 </PopoverContent>
               </Popover>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Hora de Término</label>
+              <label className="block text-sm font-medium mb-1">Hora de Término *</label>
               <Input 
                 type="time" 
                 value={horaFim}
@@ -286,6 +439,33 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
                 placeholder="Ex: 17:00"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Dias da Semana *</label>
+            <div className="flex flex-wrap gap-2">
+              {diasDaSemana.map((dia) => (
+                <button
+                  key={dia.value}
+                  type="button"
+                  onClick={() => {
+                    if (diasSemana.includes(dia.value)) {
+                      setDiasSemana(diasSemana.filter(d => d !== dia.value));
+                    } else {
+                      setDiasSemana([...diasSemana, dia.value]);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    diasSemana.includes(dia.value)
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {dia.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Selecione os dias em que a turma acontece</p>
           </div>
 
           <div>
@@ -319,6 +499,83 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
             />
+          </div>
+
+          {/* Professor Selection */}
+          <div className="border-t pt-4">
+            <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-blue-500" />
+              Professores Vinculados
+            </label>
+            {professoresDisponiveis.filter((p: any) => p.ativo).length === 0 ? (
+              <p className="text-sm text-gray-500">Nenhum professor cadastrado.</p>
+            ) : (
+              <div className="space-y-2 max-h-[250px] overflow-y-auto">
+                {professoresDisponiveis.filter((p: any) => p.ativo).map((prof: any) => {
+                  const selected = professorSelections.some(s => s.id === prof.id);
+                  const sel = professorSelections.find(s => s.id === prof.id);
+                  return (
+                    <div key={prof.id} className={`border rounded-lg transition-colors ${selected ? 'bg-blue-50 border-blue-300' : 'hover:bg-gray-50'}`}>
+                      <label className="flex items-center gap-3 p-2.5 cursor-pointer">
+                        <Checkbox
+                          checked={selected}
+                          onCheckedChange={() => {
+                            if (selected) {
+                              setProfessorSelections(prev => prev.filter(s => s.id !== prof.id));
+                            } else {
+                              setProfessorSelections(prev => [...prev, { id: prof.id, cor: '#3B82F6', icone: 'book' }]);
+                            }
+                          }}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{prof.nome}</p>
+                          <p className="text-xs text-gray-500">{prof.email}</p>
+                        </div>
+                        {selected && <Badge className="bg-blue-100 text-blue-800 text-xs">Vinculado</Badge>}
+                      </label>
+                      {selected && sel && (
+                        <div className="px-2.5 pb-2.5 space-y-2 border-t pt-2 ml-9">
+                          <div>
+                            <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                              <Palette className="w-3 h-3" /> Cor
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {CORES_DISPONIVEIS.map(c => (
+                                <button key={c.value} type="button"
+                                  onClick={() => setProfessorSelections(prev => prev.map(s => s.id === prof.id ? { ...s, cor: c.value } : s))}
+                                  className={`w-5 h-5 rounded-full transition-all ${c.bg} ${sel.cor === c.value ? 'ring-2 ring-offset-1 ring-gray-800 scale-110' : 'opacity-60 hover:opacity-100'}`}
+                                  title={c.label}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-gray-600 mb-1">Ícone</p>
+                            <div className="flex flex-wrap gap-1">
+                              {ICONES_DISPONIVEIS.map(ic => {
+                                const IconComp = ic.icon;
+                                return (
+                                  <button key={ic.value} type="button"
+                                    onClick={() => setProfessorSelections(prev => prev.map(s => s.id === prof.id ? { ...s, icone: ic.value } : s))}
+                                    className={`w-6 h-6 rounded flex items-center justify-center transition-all border ${sel.icone === ic.value ? 'border-blue-500 bg-blue-100 text-blue-700 scale-110' : 'border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                                    title={ic.label}
+                                  >
+                                    <IconComp className="w-3 h-3" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {professorSelections.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">{professorSelections.length} professor(es) selecionado(s)</p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">

@@ -1,12 +1,10 @@
 import cron from 'node-cron';
 import { syncStripeIngressos } from '../services/stripeSync';
+import { saveInstagramMetrics } from '../services/instagramService';
 
 export function initCronJobs() {
   console.log('⏰ [CRON] Inicializando tarefas agendadas...');
   
-  // Sincronização do Stripe a cada 5 horas
-  // Formato: minuto hora dia mês dia-da-semana
-  // 0 */5 * * * = A cada 5 horas (00:00, 05:00, 10:00, 15:00, 20:00)
   cron.schedule('0 */5 * * *', async () => {
     console.log('⏰ [CRON] Executando sincronização automática do Stripe...');
     try {
@@ -22,10 +20,23 @@ export function initCronJobs() {
     }
   });
   
+  // Instagram sync - 09:00 e 21:00 (configurável via INSTAGRAM_SYNC_CRON)
+  const instagramCron = process.env.INSTAGRAM_SYNC_CRON || '0 9,21 * * *';
+  cron.schedule(instagramCron, async () => {
+    const hour = new Date().getHours();
+    const period = hour < 15 ? 'morning' : 'evening';
+    console.log(`📸 [CRON] Instagram sync automático (${period})...`);
+    try {
+      await saveInstagramMetrics(period as 'morning' | 'evening');
+    } catch (e: any) {
+      console.error('❌ [CRON] Erro no sync do Instagram:', e.message);
+    }
+  });
+
   console.log('✅ [CRON] Tarefas agendadas:');
   console.log('   - Sincronização Stripe: a cada 5 horas');
+  console.log('   - Sincronização Instagram: 09:00 e 21:00');
   
-  // Executar primeira sincronização ao iniciar (opcional)
   console.log('🔄 [CRON] Executando primeira sincronização ao iniciar...');
   syncStripeIngressos()
     .then(resultado => {

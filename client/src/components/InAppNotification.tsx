@@ -5,7 +5,7 @@ import { X, Mail, Check, Loader2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
-import clubeDoGritoLogo from '@assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
+import clubeDoGritoLogo from '../app-assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
 
 const DOADOR_ROUTES = [
   '/welcome',

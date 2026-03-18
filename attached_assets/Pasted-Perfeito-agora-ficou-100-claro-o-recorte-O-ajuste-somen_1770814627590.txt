@@ -1,0 +1,83 @@
+Perfeito — agora ficou 100% claro o recorte.
+O ajuste é somente na experiência de quem DOA, somente na seção de impacto, somente nos programas.
+Nada de dashboard macro, nada de gestão interna.
+
+Abaixo está o texto FINAL, já cirúrgico, para colar direto no Replit.
+
+📌 TEXTO PARA ENVIAR NO REPLIT (VERSÃO FINAL – DOADOR / IMPACTO)
+
+Atenção: desfazer qualquer alteração anterior fora deste escopo.
+Esta solicitação se aplica exclusivamente à área visível para QUEM DOA no aplicativo.
+
+🎯 OBJETIVO
+
+Atualizar apenas os dados de impacto exibidos para DOADORES, para que passem a mostrar somente informações referentes a 2026, mantendo os dados de 2025 preservados no sistema, porém não exibidos no aplicativo.
+
+📍 Caminho da experiência afetada (quem doa)
+
+Área do DOADOR → Seção “Com seu apoio, o impacto é imenso”
+
+Programas exibidos nessa seção:
+
+PEC
+
+Psicossocial
+
+Favela 3D
+
+Negócios Sociais
+
+Inclusão Produtiva
+
+✅ O que DEVE ser feito
+
+Aplicar a alteração somente na visualização de impacto para quem doa.
+
+Atualizar os dados exibidos nos cards / blocos de programas para puxar exclusivamente dados de 2026.
+
+Utilizar como fonte os dados já existentes de 2026 na planilha Gestão à Vista (impacto por programa).
+
+Garantir que os números exibidos (ex.: atendimentos, ações, pessoas impactadas, etc.) reflitam apenas 2026.
+
+A experiência deve carregar automaticamente os dados de 2026, sem seletor de ano.
+
+❌ O que NÃO deve ser feito
+
+❌ Não alterar dashboards de gestão ou dados macro gerais.
+
+❌ Não mexer na área administrativa.
+
+❌ Não apagar dados de 2025.
+
+❌ Não misturar dados de 2025 com 2026.
+
+❌ Não alterar estrutura de banco ou histórico.
+
+❌ Não impactar outras áreas do app que não sejam a experiência do doador.
+
+🔧 Orientação técnica esperada
+
+Aplicar filtro fixo de ano (year = 2026) somente:
+
+Nas queries
+
+Services
+
+APIs
+que alimentam a seção “Com seu apoio, o impacto é imenso”.
+
+Caso a lógica de impacto seja compartilhada com outros módulos:
+
+Isolar o filtro apenas na camada de exibição do DOADOR.
+
+Manter dados de 2025 como histórico interno, sem renderização no front-end do doador.
+
+✅ Resultado final esperado
+
+Quem doa vê somente impacto de 2026.
+
+Os programas (PEC, Psicossocial, Favela 3D, Negócios Sociais, Inclusão Produtiva) exibem números atualizados.
+
+Nenhuma outra parte do aplicativo é afetada.
+
+Nenhuma perda de dados históricos.

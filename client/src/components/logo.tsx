@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import clubeLogoImage from "@assets/CLUBE_DO GRITO_LOGO_Prancheta 1_1751996016284.png";
+import clubeLogoImage from "../app-assets/CLUBE_DO GRITO_LOGO_Prancheta 1_1751996016284.png";
 
 interface LogoProps {
   size?: "xs" | "sm" | "md" | "lg";

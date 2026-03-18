@@ -24,7 +24,7 @@ import { pt } from "date-fns/locale";
 import * as XLSX from 'xlsx';
 import PptxGenJS from "pptxgenjs";
 
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import { 
   Users, Clock, FileText, Eye, Calendar as CalendarIcon, Download, Edit, Settings, LogOut, 
   Plus, Check, X, AlertCircle, BookOpen, Target, Bell, Filter, BarChart, UserPlus, User, Save, Search, ChevronLeft, ChevronRight, ArrowLeft, Trophy, Star, Zap, Home, Activity, School, Camera, Upload, FileDown

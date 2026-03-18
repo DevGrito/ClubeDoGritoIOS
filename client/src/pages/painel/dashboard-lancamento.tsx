@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import clubeDoGritoLogo from '@assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
+import clubeDoGritoLogo from '../../app-assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
 
 export default function DashboardLancamento() {
   const [, setLocation] = useLocation();

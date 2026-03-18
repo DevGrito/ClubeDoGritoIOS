@@ -23,7 +23,7 @@ import ConselhoKpisSection, { type ConselhoKpisSectionRef } from "./conselho/com
 import ConselhoFinanceiroSection from "./conselho/components/ConselhoFinanceiroSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useUserData } from "@/hooks/useUserData";
-import logoGrito from "@assets/logo-clube-grito-waves_1759419898299.png";
+import logoGrito from "../app-assets/logo-clube-grito-waves_1759419898299.png";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
 import StoriesViewer from "@/components/StoriesViewer";
 import { useQuery } from '@tanstack/react-query';
@@ -178,6 +178,9 @@ export default function Conselho() {
   const convertToStories = (historias: any[]) => {
     if (!historias || historias.length === 0) return [];
     return historias.map(historia => {
+      const apiBox = `/api/historias-inspiradoras/${historia.id}/imagem?tipo=box`;
+      const apiStory = `/api/historias-inspiradoras/${historia.id}/imagem?tipo=story`;
+
       const processedImageBox = processImageUrl(historia.imagemBox);
       const processedImageStory = processImageUrl(historia.imagemStory);
       const texto = historia.texto || `A história de ${historia.nome || historia.titulo} é uma demonstração real de como o Clube do Grito transforma vidas.`;
@@ -185,7 +188,7 @@ export default function Conselho() {
       const slides: any[] = [{
         id: `${historia.id}_1`,
         type: 'image' as const,
-        image: processedImageStory,
+        image: apiStory,
         title: historia.titulo,
         duration: 5
       }];
@@ -199,12 +202,12 @@ export default function Conselho() {
         });
       });
       return {
-        id: historia.id.toString(),
-        title: historia.titulo,
-        name: historia.nome || historia.titulo,
-        image: processedImageBox,
-        slides
-      };
+          id: historia.id.toString(),
+          title: historia.titulo,
+          name: historia.nome || historia.titulo,
+          image: apiBox, // backend primeiro
+          slides
+        };
     });
   };
 
@@ -724,7 +727,10 @@ export default function Conselho() {
                       style={{
                         width: '320px',
                         height: '180px',
-                        backgroundImage: story.image ? `url("${story.image}")` : 'url("https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face")',
+                        backgroundImage: `url("/api/historias-inspiradoras/${story.id}/imagem?tipo=box"), url(${JSON.stringify(
+                              story.image ||
+                                "https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face"
+                            )})`,
                         backgroundSize: 'cover',
                         backgroundPosition: 'center'
                       }}

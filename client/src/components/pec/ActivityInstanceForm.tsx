@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -97,6 +97,9 @@ export function ActivityInstanceForm({
       role: assignment.role
     })) || []
   );
+
+  const [startMonth, setStartMonth] = useState<Date>(instance?.occurrence_start ? new Date(instance.occurrence_start) : new Date());
+const [endMonth, setEndMonth] = useState<Date>(instance?.occurrence_end ? new Date(instance.occurrence_end) : new Date());
 
   const form = useForm({
     resolver: zodResolver(activityInstanceSchema),
@@ -482,12 +485,18 @@ export function ActivityInstanceForm({
                             </FormControl>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={(date) => date && field.onChange(date)}
-                              locale={pt}
-                            />
+                          <Calendar
+                          mode="single"
+                          selected={field.value ?? undefined}
+                          onSelect={(date) => {
+                            if (!date) return;
+                            field.onChange(date);
+                            setStartMonth(date);
+                          }}
+                          month={startMonth}
+                          onMonthChange={setStartMonth}
+                          locale={pt}
+                        />
                           </PopoverContent>
                         </Popover>
                         <FormMessage />
@@ -519,10 +528,16 @@ export function ActivityInstanceForm({
                             </FormControl>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
+                              <Calendar
                               mode="single"
-                              selected={field.value}
-                              onSelect={(date) => date && field.onChange(date)}
+                              selected={field.value ?? undefined}
+                              onSelect={(date) => {
+                                if (!date) return;
+                                field.onChange(date);
+                                setEndMonth(date);
+                              }}
+                              month={endMonth}
+                              onMonthChange={setEndMonth}
                               locale={pt}
                             />
                           </PopoverContent>

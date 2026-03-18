@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from 'framer-motion';
-import phoneIllustration from "@assets/image_1756326888573.png";
-import coinIcon from "@assets/image_1756386204050.png";
-import communityIllustration from "@assets/image_1756392045123.png";
+import phoneIllustration from "../app-assets/image_1756326888573.png";
+import coinIcon from "../app-assets/image_1756386204050.png";
+import communityIllustration from "../app-assets/image_1756392045123.png";
 
 // Componente de confete
 const Confetti = () => {

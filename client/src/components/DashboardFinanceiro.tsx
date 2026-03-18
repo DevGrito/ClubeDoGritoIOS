@@ -135,8 +135,14 @@ export default function DashboardFinanceiro({
   // 🆕 Estados para dados consolidados (Metas vs Realizados)
   const [dadosConsolidados, setDadosConsolidados] = useState<DadosConsolidados | null>(null);
   const [loadingConsolidado, setLoadingConsolidado] = useState(false);
-  const [periodoSelecionado, setPeriodoSelecionado] = useState('2025'); // Padrão: ano todo
+  const [periodoSelecionado, setPeriodoSelecionado] = useState(String(filtrosPeriodo.ano)); // Usa o ano do filtro
   const [departamentoSelecionado, setDepartamentoSelecionado] = useState('TODOS'); // 'TODOS' = sem filtro
+
+  // 🔄 Sincronizar periodoSelecionado com filtrosPeriodo.ano
+  useEffect(() => {
+    console.log('📅 [DASHBOARD] Atualizando período para:', filtrosPeriodo.ano);
+    setPeriodoSelecionado(String(filtrosPeriodo.ano));
+  }, [filtrosPeriodo.ano]);
 
   // 🆕 Buscar lista de departamentos disponíveis
   const { data: departamentosData, isLoading: loadingDepartamentos } = useQuery<{ departamentos: string[] }>({

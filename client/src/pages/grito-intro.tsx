@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ChevronRight } from "lucide-react";
-import gritoIllustration from "@assets/QUAL ÉSEU GRITO_1756904245577.png";
+import gritoIllustration from "../app-assets/QUAL ÉSEU GRITO_1756904245577.png";
 
 export default function GritoIntro() {
   const [, setLocation] = useLocation();

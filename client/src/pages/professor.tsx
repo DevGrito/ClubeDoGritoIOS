@@ -15,10 +15,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { cpfSchema } from "@shared/schema";
+import { getDiasAulaParaTurma, type DiaAula } from "@/lib/class-days";
 
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import { 
-  Users, Clock, FileText, Eye, Calendar, Download, Edit, Settings, LogOut, 
+  Users, Clock, CheckCircle, Wifi, WifiOff, FileText, Eye, Calendar, Download, Edit, Settings, LogOut, 
   Plus, Check, X, AlertCircle, Upload, BookOpen, Target, Bell, Filter, BarChart, UserPlus, User, Save, MapPin, Camera, MoreHorizontal, Search, Trash2, ChevronLeft, ChevronRight, FileDown, ArrowLeft
 } from "lucide-react";
 
@@ -2931,6 +2933,7 @@ export default function Professor() {
   });
   
   const [activeSection, setActiveSection] = useState("dashboard");
+  const [catracaConnected, setCatracaConnected] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [attendance, setAttendance] = useState({});
   const [newLesson, setNewLesson] = useState({
@@ -3085,6 +3088,7 @@ export default function Professor() {
       });
       setSelectedClassForAttendance("");
       setAttendanceData({});
+      setJustificacaoData({});
     },
     onError: (error) => {
       toast({
@@ -3476,8 +3480,16 @@ export default function Professor() {
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [classStudents, setClassStudents] = useState([]);
   const [attendanceData, setAttendanceData] = useState({});
+  const [justificacaoData, setJustificacaoData] = useState<Record<string, string>>({});
   
-  const [chamadaTab, setChamadaTab] = useState("fazer"); // "fazer" ou "historico"
+  const [chamadaTab, setChamadaTab] = useState("fazer");
+
+  useEffect(() => {
+    const es = new EventSource("/api/webhook/presenca-events");
+    es.onopen = () => setCatracaConnected(true);
+    es.onerror = () => setCatracaConnected(false);
+    return () => { es.close(); setCatracaConnected(false); };
+  }, []); // "fazer" ou "historico"
   
   const [showAddressMap, setShowAddressMap] = useState(false);
 
@@ -4258,7 +4270,7 @@ export default function Professor() {
   const allProfessorsItems = [
     { id: "dashboard", label: "Dashboard", icon: BarChart },
     { id: "registrar-aluno", label: "Alunos", icon: UserPlus },
-    { id: "chamada", label: "Fazer Chamada", icon: Clock },
+    { id: "chamada", label: "Controle de Presença", icon: CheckCircle },
     { id: "aula", label: "Registrar Aula", icon: FileText },
     { id: "calendario-eventos", label: "Calendário e Eventos", icon: Calendar },
     { id: "plano-aulas", label: "Plano de Aulas", icon: BookOpen },
@@ -5051,9 +5063,20 @@ export default function Professor() {
           <div className="space-y-6">
             <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
+              <CardTitle className="flex items-center gap-2 text-lg flex-wrap">
                 <Clock className="w-6 h-6" />
                 Sistema de Chamadas
+              {catracaConnected ? (
+                <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 text-xs">
+                  <Wifi className="w-3 h-3 mr-1" />
+                  Catraca Online
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-gray-400 border-gray-200 text-xs">
+                  <WifiOff className="w-3 h-3 mr-1" />
+                  Catraca Offline
+                </Badge>
+              )}
               </CardTitle>
               
               {/* Abas */}
@@ -5066,8 +5089,8 @@ export default function Professor() {
                       : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
                   }`}
                 >
-                  <Clock className="w-4 h-4 inline mr-2" />
-                  Fazer Chamada
+                  <CheckCircle className="w-4 h-4 inline mr-2" />
+                  Controle de Presença
                 </button>
                 <button
                   onClick={() => setChamadaTab("historico")}
@@ -5105,7 +5128,7 @@ export default function Professor() {
                 <div className="space-y-4">
                   <div className="mb-4">
                     <Label htmlFor="select-class">Selecionar Turma:</Label>
-                    <Select value={selectedClassForAttendance} onValueChange={setSelectedClassForAttendance}>
+                    <Select value={selectedClassForAttendance} onValueChange={(val) => { setSelectedClassForAttendance(val); setAttendanceData({}); setJustificacaoData({}); }}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Escolha uma turma para fazer a chamada" />
                       </SelectTrigger>
@@ -5136,41 +5159,84 @@ export default function Professor() {
                       ) : enrolledStudents && enrolledStudents.length > 0 ? (
                         <div className="space-y-3">
                           {enrolledStudents.map((student) => (
-                            <div key={student.cpf} className="flex items-center justify-between p-3 border rounded-lg">
-                              <div className="flex-1">
-                                <p className="font-medium">{student.nome_completo || student.fullName}</p>
-                                <p className="text-sm text-gray-600">CPF: {student.cpf}</p>
+                            <div key={student.cpf} className="p-3 border rounded-lg">
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <p className="font-medium">{student.nome_completo || student.fullName}</p>
+                                  <p className="text-sm text-gray-600">CPF: {student.cpf}</p>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name={`attendance-${student.cpf}`}
+                                      value="presente"
+                                      checked={attendanceData[student.cpf] === 'presente'}
+                                      onChange={() => {
+                                        setAttendanceData({
+                                          ...attendanceData,
+                                          [student.cpf]: 'presente'
+                                        });
+                                        setJustificacaoData(prev => {
+                                          const next = { ...prev };
+                                          delete next[student.cpf];
+                                          return next;
+                                        });
+                                      }}
+                                      className="text-green-600"
+                                    />
+                                    <span className="text-green-600 font-medium">Presente</span>
+                                  </label>
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name={`attendance-${student.cpf}`}
+                                      value="ausente"
+                                      checked={attendanceData[student.cpf] === 'ausente'}
+                                      onChange={() => setAttendanceData({
+                                        ...attendanceData,
+                                        [student.cpf]: 'ausente'
+                                      })}
+                                      className="text-red-600"
+                                    />
+                                    <span className="text-red-600 font-medium">Ausente</span>
+                                  </label>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <label className="flex items-center space-x-2 cursor-pointer">
-                                  <input
-                                    type="radio"
-                                    name={`attendance-${student.cpf}`}
-                                    value="presente"
-                                    checked={attendanceData[student.cpf] === 'presente'}
-                                    onChange={() => setAttendanceData({
-                                      ...attendanceData,
-                                      [student.cpf]: 'presente'
+                              {attendanceData[student.cpf] === 'ausente' && (
+                                <div className="mt-2 pt-2 border-t">
+                                  <p className="text-xs text-gray-500 mb-1.5">Justificativa da falta:</p>
+                                  <div className="flex flex-wrap gap-1.5 mb-2">
+                                    {['Sem justificativa', 'Atestado médico', 'Compromisso pessoal', 'Trabalho', 'Transporte', 'Doença na família', 'Chuva/Clima'].map((opcao) => {
+                                      const selected = justificacaoData[student.cpf] === opcao;
+                                      const isRed = opcao === 'Sem justificativa';
+                                      return (
+                                        <button
+                                          key={opcao}
+                                          type="button"
+                                          onClick={() => setJustificacaoData(prev => ({ ...prev, [student.cpf]: opcao }))}
+                                          className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                                            selected
+                                              ? isRed
+                                                ? 'bg-red-100 border-red-400 text-red-700'
+                                                : 'bg-blue-100 border-blue-400 text-blue-700'
+                                              : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                                          }`}
+                                        >
+                                          {opcao}
+                                        </button>
+                                      );
                                     })}
-                                    className="text-green-600"
-                                  />
-                                  <span className="text-green-600 font-medium">Presente</span>
-                                </label>
-                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  </div>
                                   <input
-                                    type="radio"
-                                    name={`attendance-${student.cpf}`}
-                                    value="ausente"
-                                    checked={attendanceData[student.cpf] === 'ausente'}
-                                    onChange={() => setAttendanceData({
-                                      ...attendanceData,
-                                      [student.cpf]: 'ausente'
-                                    })}
-                                    className="text-red-600"
+                                    type="text"
+                                    placeholder="Ou escreva a justificativa..."
+                                    value={!['Sem justificativa', 'Atestado médico', 'Compromisso pessoal', 'Trabalho', 'Transporte', 'Doença na família', 'Chuva/Clima'].includes(justificacaoData[student.cpf] || '') ? (justificacaoData[student.cpf] || '') : ''}
+                                    onChange={(e) => setJustificacaoData(prev => ({ ...prev, [student.cpf]: e.target.value }))}
+                                    className="w-full px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
                                   />
-                                  <span className="text-red-600 font-medium">Ausente</span>
-                                </label>
-                              </div>
+                                </div>
+                              )}
                             </div>
                           ))}
 
@@ -5178,37 +5244,49 @@ export default function Professor() {
                             <div className="text-sm text-gray-600">
                               Total de alunos: {enrolledStudents.length}
                             </div>
-                            <Button 
-                              className="btn-yellow"
+                            <div 
+                              className="relative"
                               onClick={() => {
-                                const attendanceRecords = Object.entries(attendanceData).map(([cpf, status]) => ({
-                                  studentCpf: cpf,
-                                  classId: parseInt(selectedClassForAttendance),
-                                  date: attendanceDate,
-                                  status,
-                                  professorId: professorData.id
-                                }));
-                                
-                                if (attendanceRecords.length === 0) {
-                                  toast({
-                                    title: "Nenhuma presença marcada",
-                                    description: "Marque a presença/ausência dos alunos antes de salvar.",
-                                    variant: "destructive",
-                                  });
-                                  return;
+                                if (Object.entries(attendanceData).some(([cpf, status]) => status === 'ausente' && !justificacaoData[cpf])) {
+                                  toast({ title: "Não é possível salvar", description: "Selecione uma justificativa para todos os alunos com falta antes de finalizar a chamada.", variant: "destructive" });
                                 }
-                                
-                                recordAttendanceMutation.mutate({ attendanceRecords });
                               }}
-                              disabled={recordAttendanceMutation.isPending}
                             >
-                              {recordAttendanceMutation.isPending ? (
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              ) : (
-                                <Check className="w-4 h-4 mr-2" />
-                              )}
-                              Registrar Chamada
-                            </Button>
+                              <Button 
+                                className="btn-yellow"
+                                onClick={(e) => {
+                                  if (Object.entries(attendanceData).some(([cpf, status]) => status === 'ausente' && !justificacaoData[cpf])) { e.preventDefault(); return; }
+                                  const attendanceRecords = Object.entries(attendanceData).map(([cpf, status]) => ({
+                                    studentCpf: cpf,
+                                    classId: parseInt(selectedClassForAttendance),
+                                    date: attendanceDate,
+                                    status: status === 'ausente' && justificacaoData[cpf] && justificacaoData[cpf] !== 'Sem justificativa' ? 'falta_justificada' : status,
+                                    justificativa: justificacaoData[cpf] || '',
+                                    professorId: professorData.id
+                                  }));
+                                  
+                                  if (attendanceRecords.length === 0) {
+                                    toast({
+                                      title: "Nenhuma presença marcada",
+                                      description: "Marque a presença/ausência dos alunos antes de salvar.",
+                                      variant: "destructive",
+                                    });
+                                    return;
+                                  }
+                                  
+                                  recordAttendanceMutation.mutate({ attendanceRecords });
+                                }}
+                                disabled={recordAttendanceMutation.isPending || Object.entries(attendanceData).some(([cpf, status]) => status === 'ausente' && !justificacaoData[cpf])}
+                                title={Object.entries(attendanceData).some(([cpf, status]) => status === 'ausente' && !justificacaoData[cpf]) ? 'Selecione uma justificativa para todos os alunos com falta antes de salvar' : ''}
+                              >
+                                {recordAttendanceMutation.isPending ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                ) : (
+                                  <Check className="w-4 h-4 mr-2" />
+                                )}
+                                Registrar Chamada
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -5240,8 +5318,8 @@ export default function Professor() {
                                 className="btn-yellow mt-1"
                                 onClick={() => setSelectedClassForAttendance(turma.id.toString())}
                               >
-                                <Clock className="w-4 h-4 mr-1" />
-                                Fazer Chamada
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Controle de Presença
                               </Button>
                             </div>
                           </div>
@@ -8493,7 +8571,7 @@ export default function Professor() {
                     {selectedStudentForView.genero && (
                       <div>
                         <span className="font-medium text-gray-700">Gênero:</span>
-                        <p className="text-gray-900">{selectedStudentForView.genero}</p>
+                        <p className="text-gray-900">{selectedStudentForView.genero ? selectedStudentForView.genero.charAt(0).toUpperCase() + selectedStudentForView.genero.slice(1).toLowerCase() : '-'}</p>
                       </div>
                     )}
                   </div>

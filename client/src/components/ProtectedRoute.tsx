@@ -28,7 +28,7 @@ const ROLE_TO_ALLOWED_ROUTES: Record<string, string[]> = {
   'monitor': ['/', '/plans', '/monitor', '/central-ajuda'],
   'monitor_pec': ['/', '/plans', '/monitor', '/central-ajuda'],
   'monitor_inclusao': ['/', '/plans', '/monitor', '/central-ajuda'],
-  'monitor_psico': ['/', '/plans', '/monitor', '/central-ajuda'],
+  'monitor_psico': ['/', '/plans', '/monitor', '/monitor/psico', '/central-ajuda'],
   'coordenador_inclusao': ['/', '/plans', '/coordenador', '/coordenador/inclusao-produtiva', '/central-ajuda'],
   'coordenador_pec': ['/', '/plans', '/coordenador', '/coordenador/esporte-cultura', '/central-ajuda'],
   'coordenador_psico': ['/', '/plans', '/coordenador', '/coordenador/psicossocial', '/central-ajuda'],

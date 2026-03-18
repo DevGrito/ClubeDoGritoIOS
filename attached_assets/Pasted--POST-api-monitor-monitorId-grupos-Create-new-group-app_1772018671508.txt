@@ -1,0 +1,104 @@
+// POST /api/monitor/:monitorId/grupos - Create new group
+app.post("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
+ try {
+    const user = (req as any).user;
+    const role = String(user?.role || "").toLowerCase();
+
+    const monitorByLogin = await db
+      .select({ id: monitores.id, programa: monitores.programa })
+      .from(monitores)
+      .where(eq(monitores.email, user.email))
+      .limit(1);
+
+    const monitor = monitorByLogin?.[0];
+    if (!monitor) return res.status(403).json({ error: "Monitor não encontrado para este login" });
+
+    const monitorId = Number(monitor.id);
+
+    const programaMonitor = String(monitor.programa || "").toLowerCase();
+    const vertente =
+      role.includes("inclusao") || programaMonitor.includes("inclusao") ? "inclusao"
+      : role.includes("pec") || programaMonitor.includes("pec") ? "pec"
+      : "legacy";
+
+      // Para Inclusão: criar em turmas_inclusao
+      if (vertente === 'inclusao') {
+        const { nome, codigo, local, horarioInicio, horarioFim, dataInicio, dataFim, descricao, programaId, diasSemana } = req.body;
+        
+        // Buscar ou usar o primeiro programa de inclusão como fallback
+        let progId = programaId;
+        if (!progId) {
+          const programas = await db.select().from(programasInclusao).limit(1);
+          progId = programas.length > 0 ? programas[0].id : 1;
+        }
+        
+        const [newTurma] = await db.insert(turmasInclusao).values({
+          programaId: progId,
+          professorId: monitorId,
+          nome: nome,
+          codigo: codigo,
+          local: local,
+          horarioEntrada: horarioInicio || null,
+          horarioSaida: horarioFim || null,
+          dataInicio: dataInicio,
+          dataFim: dataFim,
+          descricao: descricao,
+          diasSemana: diasSemana || null,
+          status: 'emandamento'
+        }).returning();
+        
+        console.log(`[RBAC MONITOR] Turma Inclusão criada por monitor ${monitorId}: ${newTurma.nome}`);
+        return res.json({
+          id: newTurma.id,
+          nome: newTurma.nome,
+          codigo: newTurma.codigo,
+          local: newTurma.local,
+          horarioInicio: newTurma.horarioEntrada,
+          horarioFim: newTurma.horarioSaida,
+          dataInicio: newTurma.dataInicio,
+          dataFim: newTurma.dataFim,
+          status: newTurma.status,
+          vertente: 'inclusao',
+          descricao: newTurma.descricao,
+          createdAt: newTurma.createdAt
+        });
+      }
+      
+      // PEC: criar em activityInstances (mesma tabela que Professor e Coordenador)
+      const { nome, codigo, local, horarioInicio, horarioFim, dataInicio, dataFim, descricao, activityId, diasSemana } = req.body;
+      
+      const [newTurma] = await db.insert(activityInstances).values({
+        activity_id: activityId || 1,
+        title: nome,
+        code: codigo || null,
+        location: local || null,
+        notes: descricao || null,
+        start_time: horarioInicio || null,
+        end_time: horarioFim || null,
+        occurrence_start: dataInicio || null,
+        occurrence_end: dataFim || null,
+        dias_semana: diasSemana || null,
+        situation: 'execucao',
+      }).returning();
+      
+      console.log(`[RBAC MONITOR] Turma PEC criada por monitor ${monitorId}: ${newTurma.title}`);
+      res.json({
+        id: newTurma.id,
+        nome: newTurma.title,
+        codigo: newTurma.code,
+        local: newTurma.location,
+        horarioInicio: newTurma.start_time,
+        horarioFim: newTurma.end_time,
+        dataInicio: newTurma.occurrence_start,
+        dataFim: newTurma.occurrence_end,
+        status: newTurma.situation || 'ativo',
+        vertente: 'pec',
+        descricao: newTurma.notes,
+        createdAt: newTurma.created_at
+      });
+    } catch (error: any) {
+      console.error("Error creating grupo:", error);
+      const pgErr = formatPostgresError(error, 'grupo');
+      res.status(pgErr.status).json({ error: pgErr.message });
+    }
+  });

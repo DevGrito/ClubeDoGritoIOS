@@ -250,6 +250,7 @@ export default function PatrocinadorDashboard() {
       nome: string;
       indicadores: Array<{ nome: string; valor: number; meta: number }>;
     }>;
+    geracaoRenda?: { empregados: number; empreendedores: number };
   }>({
     queryKey: ['/api/inclusao-produtiva/indicadores'],
     enabled: showInclusaoModal,
@@ -1779,7 +1780,7 @@ export default function PatrocinadorDashboard() {
                     <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
                       <Store className="w-5 h-5 text-white" />
                     </div>
-                    <h3 className="text-lg font-bold text-gray-800">Outlet</h3>
+                    <h3 className="text-lg font-bold text-gray-800">IOG Outlet</h3>
                   </div>
                   {expandedNegocioCard === 'outlet' ? (
                     <ChevronUp className="w-5 h-5 text-gray-600" />
@@ -1831,7 +1832,7 @@ export default function PatrocinadorDashboard() {
                     <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
                       <Scissors className="w-5 h-5 text-white" />
                     </div>
-                    <h3 className="text-lg font-bold text-gray-800">Griffte</h3>
+                    <h3 className="text-lg font-bold text-gray-800">IOG Confecção</h3>
                   </div>
                   {expandedNegocioCard === 'griffte' ? (
                     <ChevronUp className="w-5 h-5 text-gray-600" />
@@ -2082,7 +2083,33 @@ export default function PatrocinadorDashboard() {
             {loadingInclusao ? (
               <div className="text-center py-8 text-gray-500">Carregando...</div>
             ) : inclusaoData?.projetos ? (
-              inclusaoData.projetos.map((projeto, index) => {
+              <>
+              {/* Card Geração de Renda - aparece primeiro, sem precisar rolar */}
+              <div className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden">
+                <div className="p-4">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">GERAÇÃO DE RENDA</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                      <div className="text-3xl font-bold text-yellow-600 mb-1">
+                        {(inclusaoData.geracaoRenda?.empregados ?? 0).toLocaleString('pt-BR')}
+                      </div>
+                      <p className="text-xs text-gray-700 font-medium">Empregados</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                      <div className="text-3xl font-bold text-yellow-600 mb-1">
+                        {(inclusaoData.geracaoRenda?.empreendedores ?? 0).toLocaleString('pt-BR')}
+                      </div>
+                      <p className="text-xs text-gray-700 font-medium">Empreendedores</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {inclusaoData.projetos.map((projeto, index) => {
                 const bgColors = ['bg-yellow-50', 'bg-yellow-50', 'bg-yellow-50'];
                 const iconColors = ['bg-yellow-500', 'bg-yellow-500', 'bg-yellow-500'];
                 const textColors = ['text-yellow-600', 'text-yellow-600', 'text-yellow-600'];
@@ -2138,7 +2165,8 @@ export default function PatrocinadorDashboard() {
                     </div>
                   </div>
                 );
-              })
+              })}
+              </>
             ) : (
               <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
             )}

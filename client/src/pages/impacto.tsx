@@ -62,14 +62,16 @@
     
     // Hook para buscar dados de Inclusão Produtiva (pessoas em formação)
     const { data: inclusaoData } = useQuery({
-      queryKey: ['/api/inclusao-produtiva/dados-mensais'],
-      refetchInterval: 300000, // Atualiza a cada 5 minutos
+      queryKey: ['/api/inclusao-produtiva/dados-mensais', { ano: 2026 }],
+      queryFn: () => fetch('/api/inclusao-produtiva/dados-mensais?ano=2026').then(r => r.json()),
+      refetchInterval: 300000,
     });
     
     // Hook para buscar dados de Psicossocial (famílias ativas)
     const { data: psicossocialData } = useQuery({
-      queryKey: ['/api/psicossocial/dados-mensais'],
-      refetchInterval: 300000, // Atualiza a cada 5 minutos
+      queryKey: ['/api/psicossocial/dados-mensais', { ano: 2026 }],
+      queryFn: () => fetch('/api/psicossocial/dados-mensais?ano=2026').then(r => r.json()),
+      refetchInterval: 300000,
     });
     
     // Hook para buscar indicadores globais do banco Digital Ocean
@@ -121,6 +123,9 @@
       refetchInterval: 300000,
     });
 
+    // Filtro de ano para os dados demográficos
+    const [anoDemografico, setAnoDemografico] = useState('2026');
+
     // Hook para buscar dados demográficos agregados (PEC + Inclusão Produtiva)
     const { data: dadosDemograficos, isLoading: loadingDemograficos } = useQuery<{
       success: boolean;
@@ -129,8 +134,9 @@
       racaCor: Array<{ name: string; value: number; percentage: number }>;
       idade: Array<{ name: string; value: number; percentage: number }>;
     }>({
-      queryKey: ['/api/dados-demograficos'],
-      refetchInterval: 300000, // Atualiza a cada 5 minutos
+      queryKey: ['/api/dados-demograficos', anoDemografico],
+      queryFn: () => fetch(`/api/dados-demograficos?ano=${anoDemografico}`).then(r => r.json()),
+      refetchInterval: 300000,
       refetchOnMount: true,
     });
     
@@ -245,10 +251,10 @@
       return () => clearInterval(interval);
     }, [indicadoresGlobais?.impactoDiretoIndireto]); // Atualiza quando o valor do banco mudar
 
-    // Animar contador de Atendimentos Socioemocionais (sempre mostra 5.024)
+    // Animar contador de Atendimentos Psicossociais (baseline histórico + dados ao vivo)
     useEffect(() => {
-      const targetValue = 5024;
-      const duration = 3000; // 3 segundos
+      const targetValue = indicadoresGlobais?.atendimentosPsico || 5024;
+      const duration = 3000;
       const steps = 60;
       const stepTime = duration / steps;
       const increment = targetValue / steps;
@@ -265,7 +271,7 @@
       }, stepTime);
 
       return () => clearInterval(interval);
-    }, []); // Executa apenas uma vez ao montar o componente
+    }, [indicadoresGlobais?.atendimentosPsico]);
     
     // Estado para controlar o menu lateral de ajuda
     const [showHelpMenu, setShowHelpMenu] = useState(false);
@@ -897,6 +903,23 @@
 
           {/* Carrossel de Gráficos e Métricas */}
           <div className="mb-8 mt-12">
+            {/* Seletor de ano removido — fixo em 2026. Para restaurar, descomentar abaixo:
+            <div className="flex justify-center gap-2 mb-4">
+              {['2025', '2026'].map((ano) => (
+                <button
+                  key={ano}
+                  onClick={() => setAnoDemografico(ano)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
+                    anoDemografico === ano
+                      ? 'bg-yellow-400 text-black shadow'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {ano}
+                </button>
+              ))}
+            </div>
+            */}
             <div 
               ref={graficosScrollRef}
               className="overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory" 
@@ -1117,7 +1140,7 @@
             {/* Legenda dos dados demográficos */}
             <div className="px-4 mt-3">
               <p className="text-xs text-gray-500 text-center font-sans">
-                1.000 participantes • PEC e Inclusão Produtiva
+                Dados Demográficos • PEC e Inclusão Produtiva • {anoDemografico}
               </p>
             </div>
           </div>
@@ -1162,7 +1185,7 @@
                   {/* Card 3: Atendimentos Socioemocionais */}
                   <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg flex flex-col items-center justify-center snap-center" style={{width: '280px', height: '200px'}}>
                     <h3 className="text-base font-bold text-gray-900 mb-2 text-center font-sans">
-                      Atendimentos Socioemocionais
+                      Atendimentos Psicossociais
                     </h3>
                     <div className="text-center">
                       <div className="text-4xl font-extrabold text-gray-900 font-sans">

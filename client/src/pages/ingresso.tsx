@@ -14,7 +14,7 @@ import QRCode from "react-qr-code";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import PatrocinadoresCarousel from "@/components/PatrocinadoresCarousel";
-import logoEventoImg from "@assets/logo-evento.png";
+import logoEventoImg from "../app-assets/logo-evento.png";
 const EVENT_DATE = "23/10/2025";
 const EVENT_TIME = "19:30";
 

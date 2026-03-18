@@ -1,7 +1,7 @@
 import {
   users, aluno, pais, maes, responsaveis, turma, alunoTurma, chamada, chamadaAluno,
   calendarioEvento, planoAula, aulaRegistrada, acompanhamento, relatorioGerado, developers,
-  sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade,
+  sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade, registrosAtividades,
   sorteios, sorteioParticipacoes, sorteioResultados, sorteioConfiguracoes,
   doadores, typeformResponses, historicoDoacao, referrals,
   checkins, gritosHistorico, niveis, beneficios, beneficioImagens, beneficioLances, userCausas,
@@ -16,11 +16,11 @@ import {
   // Sistema de marketing (Dev Marketing)
   marketingCampaigns, marketingLinks, mktClicks,
   // Novas tabelas PEC
-  projects, pecActivities, activityInstances, staffAssignments, enrollments, sessions, attendance, photos, physicalAssessments,
+  projects, pecActivities, activityInstances, staffAssignments, enrollments, sessions, attendance, photos, physicalAssessments, instanceEnrollments,
   // Novas tabelas EDUCADORES
   educadores, educadorPrograma, alunoPrograma,
   // Tabelas de Inclusão Produtiva
-  programasInclusao, turmasInclusao, participantesTurmas, cursosInclusao, cursosTurmas, participantesInclusao,
+  programasInclusao, turmasInclusao, participantesTurmas, participantesInclusao, presencasInclusao,
   // Tabelas Psicossociais
   psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos,
   // Coordenadores
@@ -28,7 +28,9 @@ import {
   type User, type InsertUser, type Aluno, type InsertAluno,
   type PsicoFamilia, type PsicoCaso, type UpdatePsicoFamilia, type UpdatePsicoCaso,
   type Coordenador, type InsertCoordenador,
+  alunoResponsaveis,
   type Pai, type InsertPai, type Mae, type InsertMae, type Responsavel, type InsertResponsavel,
+  type AlunoResponsavel, type InsertAlunoResponsavel,
   type Turma, type InsertTurma, type AlunoTurma, type InsertAlunoTurma,
   type Chamada, type InsertChamada, type ChamadaAluno, type InsertChamadaAluno,
   type CalendarioEvento, type InsertCalendarioEvento, type PlanoAula, type InsertPlanoAula,
@@ -67,13 +69,11 @@ import {
   type ProgramaInclusao, type InsertProgramaInclusao,
   type TurmaInclusao, type InsertTurmaInclusao,
   type ParticipanteTurma, type InsertParticipanteTurma,
-  type CursoInclusao, type InsertCursoInclusao,
-  type CursoTurma, type InsertCursoTurma,
   type ParticipanteInclusao, type InsertParticipanteInclusao,
   // Tipos de Patrocinadores
   patrocinadores, type Patrocinador, type InsertPatrocinador
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and, sql, desc, asc, or, ilike, like, inArray, gt, lt, isNull} from "drizzle-orm";
 import { RecommendationEngine } from "./recommendation-engine";
 import Stripe from "stripe";
@@ -127,6 +127,8 @@ export interface IStorage {
   
   // ===== PATROCINADORES (TABELA) =====
   getPatrocinadores(ano: number): Promise<Patrocinador[]>;
+  createPatrocinador(data: any): Promise<Patrocinador>;
+  fixPatrocinadorSequence(): Promise<void>;
 
   // ===== MÓDULO SORTEIO =====
   // Sorteios
@@ -163,6 +165,13 @@ export interface IStorage {
   // Métodos para Responsáveis
   createResponsavel(insertResponsavel: InsertResponsavel): Promise<Responsavel>;
   getResponsavelByCpf(cpf: string): Promise<Responsavel | undefined>;
+  getResponsavelById(id: number): Promise<Responsavel | undefined>;
+  updateResponsavel(id: number, data: Partial<InsertResponsavel>): Promise<Responsavel>;
+  getResponsavelByAlunoCpf(alunoCpf: string): Promise<Responsavel | undefined>;
+  getResponsaveisByAlunoCpf(alunoCpf: string): Promise<(Responsavel & { e_principal: boolean; link_id: number })[]>;
+  addResponsavelToAluno(alunoCpf: string, responsavelId: number, ePrincipal?: boolean): Promise<AlunoResponsavel>;
+  removeResponsavelFromAluno(alunoCpf: string, responsavelId: number): Promise<void>;
+  setResponsavelPrincipal(alunoCpf: string, responsavelId: number): Promise<void>;
 
   // Métodos para Alunos
   createAluno(insertAluno: InsertAluno): Promise<Aluno>;
@@ -222,6 +231,7 @@ export interface IStorage {
   createAcompanhamento(insertAcompanhamento: InsertAcompanhamento): Promise<Acompanhamento>;
   getAcompanhamentosByProfessor(professorId: number): Promise<Acompanhamento[]>;
   getAcompanhamentosByAluno(alunoCpf: string): Promise<Acompanhamento[]>;
+  getAllAcompanhamentos(): Promise<Acompanhamento[]>;
   getAcompanhamento(id: number): Promise<Acompanhamento | undefined>;
   updateAcompanhamento(id: number, data: Partial<InsertAcompanhamento>): Promise<Acompanhamento>;
   deleteAcompanhamento(id: number): Promise<void>;
@@ -232,7 +242,7 @@ export interface IStorage {
   getRelatorio(id: number): Promise<RelatorioGerado | undefined>;
 
   // Dashboard sumário para professor
-  getProfessorDashboardSummary(professorId: number): Promise<any>;
+  getProfessorDashboardSummary(professorId: number, vertente?: string): Promise<any>;
 
   // Atualização de perfil do professor
   updateProfessorProfile(id: number, data: { name?: string; email?: string }): Promise<User>;
@@ -689,20 +699,6 @@ export interface IStorage {
   createTurmaInclusao(data: InsertTurmaInclusao): Promise<TurmaInclusao>;
   updateTurmaInclusao(id: number, data: Partial<InsertTurmaInclusao>): Promise<TurmaInclusao>;
   deleteTurmaInclusao(id: number): Promise<void>;
-
-  // ===== MÓDULO INCLUSÃO PRODUTIVA - CURSOS =====
-  getAllCursos(): Promise<any[]>;
-  getCursoById(id: number): Promise<any | undefined>;
-  getCursosByPrograma(programaId: number): Promise<any[]>;
-  getCursosByTurma(turmaId: number): Promise<any[]>;
-  createCurso(data: InsertCursoInclusao, turmaIds?: number[]): Promise<CursoInclusao>;
-  updateCurso(id: number, data: Partial<InsertCursoInclusao>): Promise<CursoInclusao>;
-  deleteCurso(id: number): Promise<void>;
-
-  // Relacionamentos Curso-Turma
-  addCursoToTurma(cursoId: number, turmaId: number): Promise<CursoTurma | null>;
-  removeCursoFromTurma(cursoId: number, turmaId: number): Promise<void>;
-  getTurmasByCurso(cursoId: number): Promise<TurmaInclusao[]>;
 
   // ===== MÓDULO INCLUSÃO PRODUTIVA - PARTICIPANTES =====
   getAllParticipantes(): Promise<ParticipanteInclusao[]>;
@@ -1270,9 +1266,13 @@ export class DatabaseStorage implements IStorage {
 
   // Métodos para Responsáveis
   async createResponsavel(insertResponsavel: InsertResponsavel): Promise<Responsavel> {
+    const data = { ...insertResponsavel };
+    if (!data.cpf || data.cpf.trim() === '') {
+      data.cpf = null as any;
+    }
     const [responsavel] = await db
       .insert(responsaveis)
-      .values(insertResponsavel)
+      .values(data)
       .returning();
     return responsavel;
   }
@@ -1280,6 +1280,92 @@ export class DatabaseStorage implements IStorage {
   async getResponsavelByCpf(cpf: string): Promise<Responsavel | undefined> {
     const [responsavel] = await db.select().from(responsaveis).where(eq(responsaveis.cpf, cpf));
     return responsavel || undefined;
+  }
+
+  async getResponsavelById(id: number): Promise<Responsavel | undefined> {
+    const [responsavel] = await db.select().from(responsaveis).where(eq(responsaveis.id, id));
+    return responsavel || undefined;
+  }
+
+  async updateResponsavel(id: number, data: Partial<InsertResponsavel>): Promise<Responsavel> {
+    const [updated] = await db
+      .update(responsaveis)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(responsaveis.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getResponsavelByAlunoCpf(alunoCpf: string): Promise<Responsavel | undefined> {
+    const cleanCpf = String(alunoCpf).replace(/\D/g, '');
+    const links = await db.select().from(alunoResponsaveis)
+      .where(and(
+        sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`,
+        eq(alunoResponsaveis.e_principal, true)
+      ));
+    if (links.length > 0) {
+      return this.getResponsavelById(links[0].responsavel_id);
+    }
+    const alunoRecord = await this.getAluno(alunoCpf);
+    if (!alunoRecord || !alunoRecord.id_responsavel) return undefined;
+    return this.getResponsavelById(alunoRecord.id_responsavel);
+  }
+
+  async getResponsaveisByAlunoCpf(alunoCpf: string): Promise<(Responsavel & { e_principal: boolean; link_id: number })[]> {
+    const alunoRecord = await this.getAluno(alunoCpf);
+    const realCpf = alunoRecord?.cpf || alunoCpf;
+    const cleanCpf = String(alunoCpf).replace(/\D/g, '');
+    const links = await db.select().from(alunoResponsaveis)
+      .where(sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
+    const results: (Responsavel & { e_principal: boolean; link_id: number })[] = [];
+    for (const link of links) {
+      const resp = await this.getResponsavelById(link.responsavel_id);
+      if (resp) {
+        results.push({ ...resp, e_principal: link.e_principal ?? false, link_id: link.id });
+      }
+    }
+    return results;
+  }
+
+  async addResponsavelToAluno(alunoCpf: string, responsavelId: number, ePrincipal: boolean = false): Promise<AlunoResponsavel> {
+    const cleanCpf = String(alunoCpf).replace(/\D/g, '');
+    const existing = await db.select().from(alunoResponsaveis)
+      .where(and(
+        sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`,
+        eq(alunoResponsaveis.responsavel_id, responsavelId)
+      ));
+    if (existing.length > 0) {
+      const [updated] = await db.update(alunoResponsaveis)
+        .set({ e_principal: ePrincipal })
+        .where(eq(alunoResponsaveis.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    if (ePrincipal) {
+      await db.update(alunoResponsaveis).set({ e_principal: false })
+        .where(sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
+    }
+    const [link] = await db.insert(alunoResponsaveis)
+      .values({ aluno_cpf: alunoCpf, responsavel_id: responsavelId, e_principal: ePrincipal })
+      .returning();
+    return link;
+  }
+
+  async removeResponsavelFromAluno(alunoCpf: string, responsavelId: number): Promise<void> {
+    const cleanCpf = String(alunoCpf).replace(/\D/g, '');
+    await db.delete(alunoResponsaveis)
+      .where(and(
+        sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`,
+        eq(alunoResponsaveis.responsavel_id, responsavelId)
+      ));
+  }
+
+  async setResponsavelPrincipal(alunoCpf: string, responsavelId: number): Promise<void> {
+    const cleanCpf = String(alunoCpf).replace(/\D/g, '');
+    await db.update(alunoResponsaveis).set({ e_principal: false })
+      .where(sql`REPLACE(REPLACE(REPLACE(${alunoResponsaveis.aluno_cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
+    await db.update(alunoResponsaveis).set({ e_principal: true })
+      .where(and(eq(alunoResponsaveis.aluno_cpf, alunoCpf), eq(alunoResponsaveis.responsavel_id, responsavelId)));
   }
 
   async createAluno(studentData: any): Promise<Aluno> {
@@ -1419,14 +1505,22 @@ export class DatabaseStorage implements IStorage {
 }
 
   async getAluno(cpf: string): Promise<Aluno | undefined> {
+    const cleanCpf = String(cpf).replace(/\D/g, "");
     const [alunoRecord] = await db.select().from(aluno).where(eq(aluno.cpf, cpf));
-    return alunoRecord || undefined;
+    if (alunoRecord) return alunoRecord;
+    if (cleanCpf !== cpf) {
+      const [byClean] = await db.select().from(aluno).where(eq(aluno.cpf, cleanCpf));
+      if (byClean) return byClean;
+    }
+    const [byReplace] = await db.select().from(aluno).where(sql`REPLACE(REPLACE(REPLACE(${aluno.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
+    return byReplace || undefined;
   }
 
   async updateAluno(cpf: string, data: Partial<InsertAluno>): Promise<Aluno> {
+    const { cpf: _removeCpf, ...dataWithoutCpf } = data as any;
     const [alunoRecord] = await db
       .update(aluno)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...dataWithoutCpf, updatedAt: new Date() })
       .where(eq(aluno.cpf, cpf))
       .returning();
     return alunoRecord;
@@ -1767,6 +1861,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(acompanhamento).where(eq(acompanhamento.alunoCpf, alunoCpf)).orderBy(desc(acompanhamento.data));
   }
 
+  async getAllAcompanhamentos(): Promise<Acompanhamento[]> {
+    return db.select().from(acompanhamento).orderBy(desc(acompanhamento.data));
+  }
+
   async getAcompanhamento(id: number): Promise<Acompanhamento | undefined> {
     const [acompanhamentoRecord] = await db.select().from(acompanhamento).where(eq(acompanhamento.id, id));
     return acompanhamentoRecord || undefined;
@@ -1826,41 +1924,81 @@ export class DatabaseStorage implements IStorage {
       return [];
     }
   }
+  // Dashboard sumário para professor (retorna dados por vertente)
+  async getProfessorDashboardSummary(professorId: number, vertente?: string): Promise<any> {
+    const programa = vertente === 'inclusao' ? 'inclusao_produtiva' : 'pec';
+    const turmaTipo = vertente === 'inclusao' ? 'inclusao' : 'pec';
 
-  // Dashboard sumário para professor (retorna zeros para data limpa)
-  async getProfessorDashboardSummary(professorId: number): Promise<any> {
-    // Contar alunos cadastrados pelo professor
-    const [alunosCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(aluno)
-      .where(eq(aluno.professorId, professorId));
+    // Resolve professor record from users table
+    const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [professorId]);
+    const email = userRes.rows?.[0]?.email;
 
-    // Contar turmas do professor
-    const [turmasCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(turma)
-      .where(eq(turma.professorId, professorId));
+    let assignedTurmaIds: number[] = [];
+    if (email) {
+      const profRes = await pool.query(
+        'SELECT id FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
+        [email, programa]
+      );
+      const profId = profRes.rows?.[0]?.id;
+      if (profId) {
+        const assignments = await pool.query(
+          'SELECT turma_id FROM professor_turmas WHERE professor_id = $1 AND turma_tipo = $2',
+          [profId, turmaTipo]
+        );
+        assignedTurmaIds = assignments.rows.map((r: any) => Number(r.turma_id));
+      }
+    }
 
-    // Contar eventos do professor
-    const [eventosCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(calendarioEvento)
-      .where(eq(calendarioEvento.professorId, professorId));
+    if (assignedTurmaIds.length === 0) {
+      return { meusAlunos: 0, alunosFormados: 0, turmasAtivas: 0, aulasMinistradas: 0 };
+    }
 
-    // Contar planos de aula
-    const [planosCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(planoAula)
-      .where(eq(planoAula.professorId, professorId));
+    if (vertente === 'inclusao') {
+      const participantesRes = await pool.query(
+        'SELECT COUNT(DISTINCT participante_id) as count FROM participantes_turmas WHERE turma_id = ANY($1::int[])',
+        [assignedTurmaIds]
+      );
+      const meusAlunos = Number(participantesRes.rows?.[0]?.count || 0);
 
-    return {
-      totalAlunos: alunosCount?.count || 0,
-      totalTurmas: turmasCount?.count || 0,
-      eventosPendentes: eventosCount?.count || 0,
-      planosAula: planosCount?.count || 0,
-      percentualPresenca: 0, // Será calculado conforme chamadas forem registradas
-      alunosEmAlerta: 0, // Baseado em frequência baixa
-    };
+      const formadosRes = await pool.query(
+        `SELECT COUNT(DISTINCT participante_id) as count
+         FROM participantes_turmas
+         WHERE turma_id = ANY($1::int[]) AND status = 'concluido'`,
+        [assignedTurmaIds]
+      );
+      const alunosFormados = Number(formadosRes.rows?.[0]?.count || 0);
+
+      const aulasRes = await pool.query(
+        `SELECT COUNT(DISTINCT concat(turma_id::text, '_', data::text)) as count FROM presencas_inclusao WHERE turma_id = ANY($1::int[])`,
+        [assignedTurmaIds]
+      );
+      const aulasMinistradas = Number(aulasRes.rows?.[0]?.count || 0);
+
+      return { meusAlunos, alunosFormados, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
+    } else {
+      const alunosRes = await pool.query(
+        'SELECT COUNT(DISTINCT aluno_cpf) as count FROM aluno_turma WHERE turma_id = ANY($1::int[])',
+        [assignedTurmaIds]
+      );
+      const meusAlunos = Number(alunosRes.rows?.[0]?.count || 0);
+
+      const formadosRes = await pool.query(
+        `SELECT COUNT(DISTINCT at.aluno_cpf) as count
+         FROM aluno_turma at
+         JOIN turma t ON t.id = at.turma_id
+         WHERE at.turma_id = ANY($1::int[]) AND t.status IN ('finalizado','concluido','concluída','encerrado')`,
+        [assignedTurmaIds]
+      );
+      const alunosFormados = Number(formadosRes.rows?.[0]?.count || 0);
+
+      const aulasRes = await pool.query(
+        'SELECT COUNT(*) as count FROM chamada WHERE turma_id = ANY($1::int[])',
+        [assignedTurmaIds]
+      );
+      const aulasMinistradas = Number(aulasRes.rows?.[0]?.count || 0);
+
+      return { meusAlunos, alunosFormados, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
+    }
   }
 
   // ===== MÉTODOS DO COORDENADOR PEC =====
@@ -6964,6 +7102,40 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async fixPatrocinadorSequence(): Promise<void> {
+    try {
+      const seqResult = await db.execute(sql`SELECT pg_get_serial_sequence('patrocinadores', 'id')`);
+      const seqName = (seqResult as any).rows?.[0]?.pg_get_serial_sequence;
+      if (seqName) {
+        await db.execute(sql`SELECT setval(${seqName}, (SELECT COALESCE(MAX(id), 0) FROM patrocinadores))`);
+      } else {
+        await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS patrocinadores_id_seq OWNED BY patrocinadores.id`);
+        await db.execute(sql`ALTER TABLE patrocinadores ALTER COLUMN id SET DEFAULT nextval('patrocinadores_id_seq')`);
+        await db.execute(sql`SELECT setval('patrocinadores_id_seq', (SELECT COALESCE(MAX(id), 0) FROM patrocinadores))`);
+      }
+    } catch (error) {
+      console.error("❌ [PATROCINADORES] Erro ao fixar sequência:", error);
+      throw error;
+    }
+  }
+
+  async createPatrocinador(data: any): Promise<Patrocinador> {
+    const [result] = await db.insert(patrocinadores).values({
+      nome: data.nome,
+      ano: data.ano,
+      tipo: data.tipo || "empresa",
+      categoria: data.categoria,
+      valorPatrocinio: data.valorPatrocinio,
+      status: data.status || "ativo",
+      projetosAtivos: data.projetosAtivos ?? true,
+      contratosAtivos: data.contratosAtivos ?? true,
+      dataInicio: data.dataInicio || null,
+      dataFim: data.dataFim || null,
+      observacoes: data.observacoes || null,
+    }).returning();
+    return result;
+  }
+
   // ===== MÓDULO INCLUSÃO PRODUTIVA - PROGRAMAS =====
   async getAllProgramas(): Promise<any[]> {
     const programas = await db.select().from(programasInclusao).orderBy(desc(programasInclusao.createdAt));
@@ -7031,162 +7203,6 @@ export class DatabaseStorage implements IStorage {
   async deleteTurmaInclusao(id: number): Promise<void> {
     await db.delete(turmasInclusao).where(eq(turmasInclusao.id, id));
     console.log(`✅ [TURMAS] Turma ${id} deletada (cursos filhos também foram removidos via CASCADE)`);
-  }
-
-  // ===== MÓDULO INCLUSÃO PRODUTIVA - CURSOS =====
-  async getAllCursos(): Promise<any[]> {
-    // Buscar cursos com turmas relacionadas via LEFT JOIN para evitar N+1
-    const result = await db
-      .select({
-        curso: cursosInclusao,
-        programa: programasInclusao,
-        turma: turmasInclusao,
-      })
-      .from(cursosInclusao)
-      .leftJoin(programasInclusao, eq(cursosInclusao.programaId, programasInclusao.id))
-      .leftJoin(cursosTurmas, eq(cursosInclusao.id, cursosTurmas.cursoId))
-      .leftJoin(turmasInclusao, eq(cursosTurmas.turmaId, turmasInclusao.id))
-      .orderBy(desc(cursosInclusao.createdAt));
-
-    // Agrupar turmas por curso
-    const cursosMap = new Map<number, any>();
-
-    for (const row of result) {
-      const cursoId = row.curso.id;
-
-      if (!cursosMap.has(cursoId)) {
-        cursosMap.set(cursoId, {
-          ...row.curso,
-          programa: row.programa,
-          turmas: []
-        });
-      }
-
-      // Adicionar turma se existir
-      if (row.turma) {
-        cursosMap.get(cursoId)!.turmas.push(row.turma);
-      }
-    }
-
-    return Array.from(cursosMap.values());
-  }
-
-  async getCursosByPrograma(programaId: number): Promise<any[]> {
-    // Buscar cursos diretamente pelo programaId
-    const result = await db
-      .select({
-        curso: cursosInclusao,
-        programa: programasInclusao,
-        turma: turmasInclusao,
-      })
-      .from(cursosInclusao)
-      .leftJoin(programasInclusao, eq(cursosInclusao.programaId, programasInclusao.id))
-      .leftJoin(cursosTurmas, eq(cursosInclusao.id, cursosTurmas.cursoId))
-      .leftJoin(turmasInclusao, eq(cursosTurmas.turmaId, turmasInclusao.id))
-      .where(eq(cursosInclusao.programaId, programaId))
-      .orderBy(desc(cursosInclusao.createdAt));
-
-    // Agrupar turmas por curso
-    const cursosMap = new Map<number, any>();
-
-    for (const row of result) {
-      const cursoId = row.curso.id;
-
-      if (!cursosMap.has(cursoId)) {
-        cursosMap.set(cursoId, {
-          ...row.curso,
-          programa: row.programa,
-          turmas: []
-        });
-      }
-
-      if (row.turma) {
-        cursosMap.get(cursoId)!.turmas.push(row.turma);
-      }
-    }
-
-    return Array.from(cursosMap.values());
-  }
-
-  async getCursosByTurma(turmaId: number): Promise<any[]> {
-    // Buscar cursos através da tabela de junção
-    const result = await db
-      .select({ curso: cursosInclusao })
-      .from(cursosTurmas)
-      .innerJoin(cursosInclusao, eq(cursosTurmas.cursoId, cursosInclusao.id))
-      .where(eq(cursosTurmas.turmaId, turmaId))
-      .orderBy(desc(cursosInclusao.createdAt));
-
-    return result.map(r => r.curso);
-  }
-
-  async getCursoById(id: number): Promise<any | undefined> {
-    const [curso] = await db.select().from(cursosInclusao).where(eq(cursosInclusao.id, id));
-    return curso;
-  }
-
-  async createCurso(data: InsertCursoInclusao, turmaIds?: number[]): Promise<CursoInclusao> {
-    const [curso] = await db.insert(cursosInclusao).values(data).returning();
-    console.log(`✅ [CURSOS] Novo curso criado: ${curso.nome} (Programa ${data.programaId})`);
-
-    // Se tiver turmas selecionadas, adicionar os relacionamentos
-    if (turmaIds && turmaIds.length > 0) {
-      for (const turmaId of turmaIds) {
-        await db.insert(cursosTurmas).values({
-          cursoId: curso.id,
-          turmaId,
-          dataVinculo: new Date()
-        });
-      }
-      console.log(`✅ [CURSOS] Curso ${curso.id} vinculado a ${turmaIds.length} turma(s)`);
-    }
-
-    return curso;
-  }
-
-  async updateCurso(id: number, data: Partial<InsertCursoInclusao>): Promise<CursoInclusao> {
-    const [curso] = await db.update(cursosInclusao)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(cursosInclusao.id, id))
-      .returning();
-    console.log(`✅ [CURSOS] Curso ${id} atualizado`);
-    return curso;
-  }
-
-  async deleteCurso(id: number): Promise<void> {
-    await db.delete(cursosInclusao).where(eq(cursosInclusao.id, id));
-    console.log(`✅ [CURSOS] Curso ${id} deletado (relacionamentos com turmas também foram removidos)`);
-  }
-
-  // Relacionamentos Curso-Turma
-  async addCursoToTurma(cursoId: number, turmaId: number): Promise<CursoTurma | null> {
-    const [relacao] = await db.insert(cursosTurmas).values({
-      cursoId,
-      turmaId,
-      dataVinculo: new Date()
-    }).onConflictDoNothing({ target: [cursosTurmas.cursoId, cursosTurmas.turmaId] }).returning();
-
-    if (relacao) {
-      console.log(`✅ [CURSOS-TURMAS] Curso ${cursoId} vinculado à turma ${turmaId}`);
-    }
-    return relacao || null;
-  }
-
-  async removeCursoFromTurma(cursoId: number, turmaId: number): Promise<void> {
-    await db.delete(cursosTurmas)
-      .where(and(
-        eq(cursosTurmas.cursoId, cursoId),
-        eq(cursosTurmas.turmaId, turmaId)
-      ));
-    console.log(`✅ [CURSOS-TURMAS] Curso ${cursoId} removido da turma ${turmaId}`);
-  }
-
-  async getTurmasByCurso(cursoId: number): Promise<TurmaInclusao[]> {
-    const result = await db.select({ turma: turmasInclusao })
-      .from(cursosTurmas)
-      .innerJoin(turmasInclusao, eq(cursosTurmas.turmaId, turmasInclusao.id))
-      .where(eq(cursosTurmas.cursoId, cursoId));
-    return result.map(r => r.turma);
   }
 
   // ===== MÓDULO INCLUSÃO PRODUTIVA - PARTICIPANTES =====

@@ -34,8 +34,8 @@ import ImpactGestaoVista from "@/components/ImpactGestaoVista";
 import { IndiqueGanhe } from "@/components/IndiqueGanhe";
 import { isLeoByRole } from "@shared/conselho";
 
-import outletLogo from "@assets/7f1ea56f-9e4c-4d9a-8f13-a744dc9538a6_1754683715214.png";
-import griffteLogo from "@assets/c735de54-82fe-432d-876d-508c7a28ca87_1754683710836.png";
+import outletLogo from "../app-assets/7f1ea56f-9e4c-4d9a-8f13-a744dc9538a6_1754683715214.png";
+import griffteLogo from "../app-assets/c735de54-82fe-432d-876d-508c7a28ca87_1754683710836.png";
 import { getPlanImage } from "@/lib/plan-utils";
 
 import {
@@ -519,8 +519,8 @@ export default function Welcome() {
 
   // Buscar dados da Gestão à Vista para todos os programas
   const { data: gestaoVistaData } = useQuery({
-    queryKey: ['gestao-vista', 2025, null, null], // Ano todo, sem filtro de mês/programa
-    queryFn: () => apiRequest('/api/gestao-vista?ano=2025'),
+    queryKey: ['gestao-vista', 2026, null, null], // Ano todo, sem filtro de mês/programa
+    queryFn: () => apiRequest('/api/gestao-vista?ano=2026'),
     staleTime: 5 * 60 * 1000, // Cache por 5 minutos
   });
 
@@ -532,9 +532,9 @@ export default function Welcome() {
       atendimentosIndividuais: { realizados: number; meta: number; percentual: number };
     };
   }>({
-    queryKey: ['/api/psico/indicadores/atencao-social'],
+    queryKey: ['/api/psico/indicadores/atencao-social', { ano: 2026 }],
     enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/atencao-social'),
+    queryFn: () => apiRequest('/api/psico/indicadores/atencao-social?ano=2026'),
   });
 
   const { data: metodoGritoData, isLoading: loadingMetodo } = useQuery<{
@@ -546,9 +546,9 @@ export default function Welcome() {
       acoesSaudeColaboradores: number;
     };
   }>({
-    queryKey: ['/api/psico/indicadores/metodo-grito'],
+    queryKey: ['/api/psico/indicadores/metodo-grito', { ano: 2026 }],
     enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/metodo-grito'),
+    queryFn: () => apiRequest('/api/psico/indicadores/metodo-grito?ano=2026'),
   });
 
 
@@ -567,7 +567,8 @@ export default function Welcome() {
       };
     };
   }>({
-    queryKey: ['/api/negocios-sociais'],
+    queryKey: ['/api/negocios-sociais', { ano: 2026 }],
+    queryFn: () => apiRequest('/api/negocios-sociais?ano=2026'),
     enabled: showNegociosModal,
   });
 
@@ -594,10 +595,12 @@ export default function Welcome() {
         atendimentos: number;
         frequencia: number;
         horaAula: number;
+        evasao: number;
       };
     };
   }>({
-    queryKey: ['/api/pec/dados-programas'],
+    queryKey: ['/api/pec/dados-programas', { ano: 2026 }],
+    queryFn: () => apiRequest('/api/pec/dados-programas?ano=2026'),
     enabled: showPECModal,
   });
 
@@ -605,10 +608,12 @@ export default function Welcome() {
   const { data: inclusaoData, isLoading: loadingInclusao } = useQuery<{
     projetos: Array<{
       nome: string;
-      indicadores: Array<{ nome: string; valor: number; meta: number }>;
+      indicadores: Array<{ nome: string; valor: number; meta?: number; unidade?: string }>;
     }>;
+    geracaoRenda?: { empregados: number; empreendedores: number };
   }>({
-    queryKey: ['/api/inclusao-produtiva/indicadores'],
+    queryKey: ['/api/inclusao-produtiva/indicadores', { ano: 2026 }],
+    queryFn: () => apiRequest('/api/inclusao-produtiva/indicadores?ano=2026'),
     enabled: showInclusaoModal,
   });
 
@@ -736,7 +741,7 @@ export default function Welcome() {
       corTexto: "text-yellow-700",
       categorias: [
         {
-          titulo: "Outlet",
+          titulo: "IOG Outlet",
           dados: [
             { label: "Itens doados", valor: "1.245 itens" },
             { label: "Vendas", valor: "R$ 12.800" },
@@ -744,7 +749,7 @@ export default function Welcome() {
           ]
         },
         {
-          titulo: "Griffte",
+          titulo: "IOG Confecção",
           dados: [
             { label: "Peças confeccionadas", valor: "156 peças" },
             { label: "Clientes atendidos", valor: "67" },
@@ -1039,8 +1044,8 @@ const convertToStories = (historias: any[]) => {
 
   // 🎯 DADOS DE IMPACTO - Buscar dados reais de Meta vs Realizado
   const { data: impactData } = useQuery<any>({
-    queryKey: ['/api/gestao-vista/meta-realizado', { scope: 'annual', period: '2025' }],
-    queryFn: () => apiRequest('/api/gestao-vista/meta-realizado?scope=annual&period=2025'),
+    queryKey: ['/api/gestao-vista/meta-realizado', { scope: 'annual', period: '2026' }],
+    queryFn: () => apiRequest('/api/gestao-vista/meta-realizado?scope=annual&period=2026'),
     staleTime: 5 * 60 * 1000, // Cache por 5 minutos
   });
 
@@ -1531,7 +1536,7 @@ const convertToStories = (historias: any[]) => {
               </DialogTitle>
             </DialogHeader>
             
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
             
             <div className="space-y-4 mt-4">
               {/* Botão/Card 1: Atenção Social */}
@@ -1568,7 +1573,7 @@ const convertToStories = (historias: any[]) => {
                             </div>
                             <p className="text-xs text-gray-700 font-medium mb-1">Visitas Domiciliares</p>
                             <p className="text-xs text-gray-500">
-                              {atencaoSocialData?.data.visitasDomiciliares.percentual}% da Meta 2025
+                              {atencaoSocialData?.data.visitasDomiciliares.percentual}% da Meta 2026
                             </p>
                           </div>
 
@@ -1579,7 +1584,7 @@ const convertToStories = (historias: any[]) => {
                             </div>
                             <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Individuais</p>
                             <p className="text-xs text-gray-500">
-                              {atencaoSocialData?.data.atendimentosIndividuais.percentual}% da Meta 2025
+                              {atencaoSocialData?.data.atendimentosIndividuais.percentual}% da Meta 2026
                             </p>
                           </div>
                         </div>
@@ -1619,40 +1624,31 @@ const convertToStories = (historias: any[]) => {
                           {/* Card Atendimentos Coletivos */}
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.atendimentosColetivos.realizados.toLocaleString('pt-BR')}
+                              {(metodoGritoData?.data.atendimentosColetivos.realizados ?? 0).toLocaleString('pt-BR')}
                             </div>
                             <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Coletivos</p>
                             <p className="text-xs text-gray-500">
-                              {metodoGritoData?.data.atendimentosColetivos.percentualTurmas}% das turmas
+                              {metodoGritoData?.data.atendimentosColetivos.percentualTurmas ?? 0}% das turmas
                             </p>
                           </div>
 
                           {/* Card Espaços Coletivos */}
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.espacosColetivos.total}
+                              {metodoGritoData?.data.espacosColetivos.total ?? 0}
                             </div>
                             <p className="text-xs text-gray-700 font-medium mb-1">#EspaçoOgrito</p>
                             <p className="text-xs text-gray-500">
-                              {metodoGritoData?.data.espacosColetivos.percentual}% da Meta 2025
+                              {metodoGritoData?.data.espacosColetivos.percentual ?? 0}% da Meta 2026
                             </p>
                           </div>
 
                           {/* Card Caravana Comunitária */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.caravanasComunitarias}
+                              {metodoGritoData?.data.caravanasComunitarias ?? 0}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Caravana Comunitária</p>
-                          </div>
-
-                          {/* Card Ações de Saúde */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.acoesSaudeColaboradores}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Ações de Saúde</p>
-                            <p className="text-xs text-gray-500">para colaboradores</p>
                           </div>
                         </div>
                       )}
@@ -1674,7 +1670,7 @@ const convertToStories = (historias: any[]) => {
               </DialogTitle>
             </DialogHeader>
             
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
             
             <div className="space-y-4 mt-4">
               {/* Card Outlet */}
@@ -1689,7 +1685,7 @@ const convertToStories = (historias: any[]) => {
                       <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
                         <Store className="w-5 h-5 text-white" />
                       </div>
-                      <h3 className="text-lg font-bold text-gray-800">Outlet</h3>
+                      <h3 className="text-lg font-bold text-gray-800">IOG Outlet</h3>
                     </div>
                     {expandedNegocioCard === 'outlet' ? (
                       <ChevronUp className="w-5 h-5 text-gray-600" />
@@ -1746,7 +1742,7 @@ const convertToStories = (historias: any[]) => {
                       <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
                         <Scissors className="w-5 h-5 text-white" />
                       </div>
-                      <h3 className="text-lg font-bold text-gray-800">Griffte</h3>
+                      <h3 className="text-lg font-bold text-gray-800">IOG Confecção</h3>
                     </div>
                     {expandedNegocioCard === 'griffte' ? (
                       <ChevronUp className="w-5 h-5 text-gray-600" />
@@ -1792,11 +1788,11 @@ const convertToStories = (historias: any[]) => {
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <BookOpen className="w-6 h-6 text-yellow-600" />
-                PEC
+                Programa de Esporte e Cultura
               </DialogTitle>
             </DialogHeader>
             
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
             
             <div className="space-y-4 mt-4">
               {/* Card Casa Sonhar */}
@@ -1840,7 +1836,7 @@ const convertToStories = (historias: any[]) => {
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.frequencia}%
+                              {Math.round(pecData?.data.casaSonhar.frequencia ?? 0)}%
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
@@ -1852,12 +1848,12 @@ const convertToStories = (historias: any[]) => {
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {pecData?.data.casaSonhar.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-casa-sonhar">
-                            <div className="text-3xl font-bold text-red-500 mb-1">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">
                               {(pecData?.data.casaSonhar as any)?.evasao || 0}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
@@ -1910,7 +1906,7 @@ const convertToStories = (historias: any[]) => {
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.frequencia}%
+                              {Math.round(pecData?.data.programaEsporteCultura.frequencia ?? 0)}%
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
@@ -1922,12 +1918,12 @@ const convertToStories = (historias: any[]) => {
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {pecData?.data.programaEsporteCultura.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-esporte-cultura">
-                            <div className="text-3xl font-bold text-red-500 mb-1">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">
                               {(pecData?.data.programaEsporteCultura as any)?.evasao || 0}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
@@ -1980,15 +1976,21 @@ const convertToStories = (historias: any[]) => {
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.serenata.frequencia}%
+                              {Math.round(pecData?.data.serenata.frequencia ?? 0)}%
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                             <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.serenata.horaAula.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {pecData?.data.serenata.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2 w-1/2 mx-auto">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">
+                              {(pecData?.data.serenata as any)?.evasao ?? 0}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
                       )}
@@ -2010,13 +2012,14 @@ const convertToStories = (historias: any[]) => {
               </DialogTitle>
             </DialogHeader>
             
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
             
             <div className="space-y-4 mt-4">
               {loadingInclusao ? (
                 <div className="text-center py-8 text-gray-500">Carregando...</div>
               ) : inclusaoData?.projetos ? (
-                inclusaoData.projetos.map((projeto, index) => {
+                <>
+                {inclusaoData.projetos.map((projeto, index) => {
                   const bgColors = ['bg-yellow-50', 'bg-yellow-50', 'bg-yellow-50'];
                   const iconColors = ['bg-yellow-500', 'bg-yellow-500', 'bg-yellow-500'];
                   const textColors = ['text-yellow-600', 'text-yellow-600', 'text-yellow-600'];
@@ -2050,7 +2053,9 @@ const convertToStories = (historias: any[]) => {
                               {projeto.indicadores.map((indicador, idx) => (
                                 <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
                                   <div className={`text-3xl font-bold ${textColors[index % 3]} mb-1`}>
-                                    {indicador.valor.toLocaleString('pt-BR')}
+                                    {indicador.unidade === '%'
+                                      ? `${Math.round(indicador.valor)}%`
+                                      : Math.round(indicador.valor).toLocaleString('pt-BR')}
                                   </div>
                                   <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
                                   {indicador.meta && (
@@ -2072,7 +2077,47 @@ const convertToStories = (historias: any[]) => {
                       </div>
                     </div>
                   );
-                })
+                })}
+                {/* Card Geração de Renda - último, com expandir/recolher */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === 'geracaoRenda' ? null : 'geracaoRenda')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <TrendingUp className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">GERAÇÃO DE RENDA</h3>
+                      </div>
+                      {expandedInclusaoCard === 'geracaoRenda' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
+                    </div>
+                    {expandedInclusaoCard === 'geracaoRenda' && (
+                      <div className="mt-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">
+                              {(inclusaoData.geracaoRenda?.empregados ?? 0).toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Empregados</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">
+                              {(inclusaoData.geracaoRenda?.empreendedores ?? 0).toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Empreendedores</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                </>
               ) : (
                 <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
               )}
@@ -2953,7 +2998,7 @@ const convertToStories = (historias: any[]) => {
                 </DialogTitle>
               </DialogHeader>
             
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
+            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
 
               {/* Categorias e Dados */}
               <div className="mt-4 space-y-6">

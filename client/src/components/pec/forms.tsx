@@ -6,7 +6,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { CalendarIcon, Upload, ChevronsUpDown, Check, Search } from 'lucide-react';
+import { CalendarIcon, Upload, ChevronsUpDown, Check, GraduationCap, Palette } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { CORES_DISPONIVEIS, ICONES_DISPONIVEIS } from '@/components/VincularProfessoresTurma';
 
 import { AttendanceControl } from './AttendanceControl';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -46,24 +48,12 @@ const projectSchema = z.object({
 
 const activitySchema = z.object({
   project_id: z.number().min(1, "Projeto é obrigatório"),
-  name: z.string().min(1, "Nome da atividade é obrigatório"),
+  name: z.string().min(1, "Nome da oficina é obrigatório"),
   description: z.string().min(1, "Descrição é obrigatória"),
-  period: z.enum(['matutino', 'vespertino', 'noturno'], {
-    required_error: "Período do dia é obrigatório"
-  }),
-  start_time: z.string().optional(),
-  end_time: z.string().optional(),
   control_presence: z.boolean().default(true),
   status: z.enum(['ativa', 'inativa']).default('ativa')
-}).refine(data => {
-  if (data.start_time && data.end_time) {
-    return data.start_time < data.end_time;
-  }
-  return true;
-}, {
-  message: "Horário de início deve ser anterior ao horário de fim",
-  path: ["end_time"]
 });
+
 
 const instanceSchema = z.object({
   project_id: z.number().min(1, "Projeto é obrigatório"),
@@ -81,23 +71,23 @@ const instanceSchema = z.object({
   period: z.enum(['matutino', 'vespertino', 'noturno'], {
     required_error: "Período do dia é obrigatório"
   }),
-  start_time: z.string().optional(),
-  end_time: z.string().optional(),
+  start_time: z.string().min(1, "Horário de início é obrigatório"),
+  end_time: z.string().min(1, "Horário de fim é obrigatório"),
   total_hours: z.number().optional(),
   observations: z.string().optional(),
   control_mode: z.enum(['manual', 'intelbras']).default('manual'),
   intelbras_group_id: z.string().optional(),
-  professor_id: z.number().min(1, "Professor responsável é obrigatório"),
-  selected_students: z.array(z.string()).optional().default([])
+  professor_id: z.number().optional(),
+  selected_students: z.array(z.string()).optional().default([]),
+
+  diasSemana: z.array(z.string()).optional().default([]),
 }).refine(data => {
-  if (data.start_time && data.end_time) {
-    return data.start_time < data.end_time;
-  }
-  return true;
+  return data.start_time < data.end_time;
 }, {
   message: "Horário de início deve ser anterior ao horário de fim",
   path: ["end_time"]
 });
+
 
 // Schema completo para matrícula com todas as 11 seções
 const enrollmentSchema = z.object({
@@ -541,9 +531,6 @@ export function ActivityForm({
       project_id: 0,
       name: '',
       description: '',
-      period: 'matutino',
-      start_time: '',
-      end_time: '',
       control_presence: true,
       status: 'ativa'
     }
@@ -556,18 +543,12 @@ export function ActivityForm({
         project_id: activity.project_id || projectId || 0,
         name: activity.name || '',
         description: activity.description || '',
-        period: activity.period || activity.day_period || 'matutino',
-        start_time: activity.start_time || '',
-        end_time: activity.end_time || '',
         control_presence: activity.control_presence ?? activity.requires_attendance ?? true,
         status: activity.status || 'ativa'
       } : {
         project_id: projectId || 0,
         name: '',
         description: '',
-        period: 'matutino',
-        start_time: '',
-        end_time: '',
         control_presence: true,
         status: 'ativa'
       };
@@ -580,12 +561,12 @@ export function ActivityForm({
     mutationFn: (data: any) => apiRequest('/api/pec/activities', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/pec/activities'] });
-      toast({ title: "Atividade criada com sucesso!" });
+      toast({ title: "Oficina criada com sucesso!" });
       onClose();
       form.reset();
     },
     onError: () => {
-      toast({ title: "Erro ao criar atividade", variant: "destructive" });
+      toast({ title: "Erro ao criar oficina", variant: "destructive" });
     }
   });
 
@@ -593,11 +574,11 @@ export function ActivityForm({
     mutationFn: (data: any) => apiRequest(`/api/pec/activities/${activity?.id}`, { method: 'PUT', body: JSON.stringify(data) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/pec/activities'] });
-      toast({ title: "Atividade atualizada com sucesso!" });
+      toast({ title: "Oficina atualizada com sucesso!" });
       onClose();
     },
     onError: () => {
-      toast({ title: "Erro ao atualizar atividade", variant: "destructive" });
+      toast({ title: "Erro ao atualizar oficina", variant: "destructive" });
     }
   });
 
@@ -606,9 +587,6 @@ export function ActivityForm({
       project_id: data.project_id,
       name: data.name,
       description: data.description,
-      period: data.period,
-      start_time: data.start_time,
-      end_time: data.end_time,
       control_presence: data.control_presence,
       status: data.status
     };
@@ -624,7 +602,7 @@ export function ActivityForm({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{activity ? 'Editar Atividade' : 'Nova Atividade'}</DialogTitle>
+          <DialogTitle>{activity ? 'Editar Oficina' : 'Nova Oficina'}</DialogTitle>
         </DialogHeader>
         
         <Form {...form}>
@@ -662,7 +640,7 @@ export function ActivityForm({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Nome da Atividade *</FormLabel>
+                  <FormLabel>Nome da Oficina *</FormLabel>
                   <FormControl>
                     <Input placeholder="Ex: Aula de Teatro" {...field} data-testid="input-activity-name" />
                   </FormControl>
@@ -690,68 +668,7 @@ export function ActivityForm({
               )}
             />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <FormField
-                control={form.control}
-                name="period"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Período do Dia *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-activity-period">
-                          <SelectValue placeholder="Selecione o período" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="matutino">Matutino</SelectItem>
-                        <SelectItem value="vespertino">Vespertino</SelectItem>
-                        <SelectItem value="noturno">Noturno</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
-              <FormField
-                control={form.control}
-                name="start_time"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Horário de Início</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="time" 
-                        placeholder="08:00" 
-                        {...field} 
-                        data-testid="input-activity-start-time"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="end_time"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Horário de Fim</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="time" 
-                        placeholder="10:00" 
-                        {...field} 
-                        data-testid="input-activity-end-time"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
 
             <FormField
               control={form.control}
@@ -806,7 +723,7 @@ export function ActivityForm({
                 disabled={createMutation.isPending || updateMutation.isPending}
                 data-testid="btn-save-activity"
               >
-                {activity ? 'Atualizar' : 'Criar'} Atividade
+                {activity ? 'Atualizar' : 'Criar'} Oficina
               </Button>
             </div>
           </form>
@@ -878,7 +795,10 @@ export function InstanceForm({
       control_mode: instance.control_mode || 'manual',
       intelbras_group_id: instance.intelbras_group_id || '',
       professor_id: instance.professor_id || 0,
-      selected_students: instance.selected_students || []
+      selected_students: instance.selected_students || [],
+
+      // ✅ NOVO
+      diasSemana: instance.diasSemana || instance.days_of_week || [],
     } : {
       project_id: 0,
       activity_id: activityId || 0,
@@ -898,7 +818,10 @@ export function InstanceForm({
       control_mode: 'manual',
       intelbras_group_id: '',
       professor_id: 0,
-      selected_students: []
+      selected_students: [],
+
+      // ✅ NOVO
+      diasSemana: [],
     }
   });
 
@@ -910,14 +833,128 @@ export function InstanceForm({
     selectedProjectId ? activity.project_id === selectedProjectId : true
   );
 
+  // Professor selection for linking
+  const [professorSelections, setProfessorSelections] = useState<Array<{ id: number; cor: string; icone: string }>>([]);
+
+  const { data: professoresDisponiveis = [] } = useQuery({
+    queryKey: ['/api/coordenador/professores', 'pec'],
+    queryFn: async () => {
+      const response = await fetch('/api/coordenador/professores?programa=pec');
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: open,
+  });
+
+  const { data: vinculadosExistentes = [] } = useQuery({
+    queryKey: ['/api/coordenador/professor-turmas', instance?.id, 'pec'],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenador/professor-turmas/${instance?.id}?tipo=pec`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: open && !!instance?.id,
+  });
+
+  useEffect(() => {
+    if (vinculadosExistentes.length > 0) {
+      setProfessorSelections(vinculadosExistentes.map((v: any) => ({
+        id: v.professor_id,
+        cor: v.cor || '#3B82F6',
+        icone: v.icone || 'book'
+      })));
+    } else if (!instance?.id) {
+      setProfessorSelections([]);
+    }
+  }, [vinculadosExistentes, instance?.id]);
+
+  // Reset form with correct field mapping when dialog opens or instance changes
+  useEffect(() => {
+    if (!open) return;
+    const activity = allActivities.find((a: any) => a.id === (instance?.activity_id || 0));
+    const projectId = activity?.project_id || instance?.project_id || 0;
+    form.reset(instance ? {
+      project_id: projectId,
+      activity_id: instance.activity_id || 0,
+      title: instance.title || instance.nome || instance.name || '',
+      code: instance.code || instance.codigo || '',
+      min_age: instance.min_age ?? instance.age_min ?? 6,
+      max_age: instance.max_age ?? instance.age_max ?? 17,
+      start_date: instance.start_date ? new Date(instance.start_date)
+        : instance.occurrence_start ? new Date(instance.occurrence_start)
+        : instance.dataInicio ? new Date(instance.dataInicio) : new Date(),
+      end_date: instance.end_date ? new Date(instance.end_date)
+        : instance.occurrence_end ? new Date(instance.occurrence_end)
+        : instance.dataFim ? new Date(instance.dataFim) : new Date(),
+      location: instance.location || instance.local || '',
+      situation: instance.situation || instance.status || 'planejamento',
+      period: instance.period || instance.period_label || 'matutino',
+      start_time: (instance.start_time || instance.horarioInicio) ? String(instance.start_time || instance.horarioInicio).slice(0, 5) : '',
+      end_time: (instance.end_time || instance.horarioFim) ? String(instance.end_time || instance.horarioFim).slice(0, 5) : '',
+      total_hours: instance.total_hours || instance.expected_total_hours || 0,
+      observations: instance.observations || instance.notes || '',
+      control_mode: instance.control_mode || 'manual',
+      intelbras_group_id: instance.intelbras_group_id || '',
+      professor_id: instance.professor_id || 0,
+      selected_students: [],
+      diasSemana: instance.diasSemana || instance.dias_semana || [],
+    } : {
+      project_id: 0,
+      activity_id: activityId || 0,
+      title: '',
+      code: '',
+      min_age: 6,
+      max_age: 17,
+      start_date: new Date(),
+      end_date: new Date(),
+      location: '',
+      situation: 'planejamento',
+      period: 'matutino',
+      start_time: '',
+      end_time: '',
+      total_hours: 0,
+      observations: '',
+      control_mode: 'manual',
+      intelbras_group_id: '',
+      professor_id: 0,
+      selected_students: [],
+      diasSemana: [],
+    });
+  }, [open, instance?.id]);
+
+  const linkProfessorsToTurma = async (turmaId: number) => {
+    if (professorSelections.length > 0) {
+      try {
+        await apiRequest(`/api/coordenador/professor-turmas/${turmaId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            professores: professorSelections.map(s => ({ id: s.id, cor: s.cor, icone: s.icone })),
+            turmaTipo: 'pec'
+          })
+        });
+      } catch (err) {
+        console.error("Erro ao vincular professores:", err);
+      }
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest('/api/pec/instances', { method: 'POST', body: JSON.stringify(data) }),
-    onSuccess: () => {
+    onSuccess: async (response: any) => {
+      let turmaId: number | null = null;
+      try {
+        const result = typeof response === 'object' && response.id ? response : (response?.json ? await response.json() : null);
+        turmaId = result?.id || result?.turmaId || null;
+      } catch {}
+      if (turmaId && professorSelections.length > 0) {
+        await linkProfessorsToTurma(turmaId);
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenador/professor-turmas'] });
       toast({ title: "Turma criada com sucesso!" });
       onClose();
       form.reset();
+      setProfessorSelections([]);
     },
     onError: () => {
       toast({ title: "Erro ao criar turma", variant: "destructive" });
@@ -926,8 +963,12 @@ export function InstanceForm({
 
   const updateMutation = useMutation({
     mutationFn: (data: any) => apiRequest(`/api/pec/instances/${instance?.id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    onSuccess: () => {
+    onSuccess: async () => {
+      if (instance?.id) {
+        await linkProfessorsToTurma(instance.id);
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/coordenador/professor-turmas'] });
       toast({ title: "Turma atualizada com sucesso!" });
       onClose();
     },
@@ -936,9 +977,44 @@ export function InstanceForm({
     }
   });
 
+  const DIAS = [
+  { key: "seg", label: "Segunda" },
+  { key: "ter", label: "Terça" },
+  { key: "qua", label: "Quarta" },
+  { key: "qui", label: "Quinta" },
+  { key: "sex", label: "Sexta" },
+  { key: "sab", label: "Sábado" },
+  { key: "dom", label: "Domingo" },
+];
+
   const onSubmit = (data: any) => {
+    if (!data.diasSemana || data.diasSemana.length === 0) {
+      toast({ title: "Selecione os dias da semana", description: "É obrigatório selecionar pelo menos um dia da semana para a turma.", variant: "destructive" });
+      return;
+    }
+    const DAY_MAP: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
+    let calculatedHours: number | undefined = undefined;
+    if (data.start_date && data.end_date && data.start_time && data.end_time && data.diasSemana.length > 0) {
+      const jsDays = data.diasSemana.map((d: string) => DAY_MAP[d]).filter((d: number | undefined) => d !== undefined);
+      const [sh, sm] = data.start_time.split(':').map(Number);
+      const [eh, em] = data.end_time.split(':').map(Number);
+      const hoursPerSession = Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60);
+      const current = new Date(data.start_date);
+      const end = new Date(data.end_date);
+      current.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      let classDays = 0;
+      while (current <= end) {
+        if (jsDays.includes(current.getDay())) classDays++;
+        current.setDate(current.getDate() + 1);
+      }
+      calculatedHours = Math.round(classDays * hoursPerSession * 100) / 100;
+    }
     const formattedData = {
       ...data,
+      ...(calculatedHours !== undefined ? { total_hours: calculatedHours } : instance ? {} : { total_hours: 0 }),
+      occurrence_start: format(data.start_date, 'yyyy-MM-dd'),
+      occurrence_end: format(data.end_date, 'yyyy-MM-dd'),
       start_date: format(data.start_date, 'yyyy-MM-dd'),
       end_date: format(data.end_date, 'yyyy-MM-dd'),
       monitorUserId: monitorUserId || null
@@ -950,6 +1026,7 @@ export function InstanceForm({
       createMutation.mutate(formattedData);
     }
   };
+
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -994,7 +1071,7 @@ export function InstanceForm({
                 name="activity_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Atividade *</FormLabel>
+                    <FormLabel>Oficina *</FormLabel>
                     <Select 
                       onValueChange={(value) => field.onChange(parseInt(value))} 
                       value={field.value?.toString() || ""}
@@ -1002,12 +1079,12 @@ export function InstanceForm({
                     >
                       <FormControl>
                         <SelectTrigger data-testid="select-instance-activity">
-                          <SelectValue placeholder={activities.length === 0 ? "Nenhuma atividade disponível" : "Selecione a atividade"} />
+                          <SelectValue placeholder={activities.length === 0 ? "Nenhuma oficina disponível" : "Selecione a oficina"} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         {activities.length === 0 ? (
-                          <SelectItem value="none" disabled>Nenhuma atividade para este projeto</SelectItem>
+                          <SelectItem value="none" disabled>Nenhuma oficina para este projeto</SelectItem>
                         ) : activities.map((activity: any) => (
                           <SelectItem key={activity.id} value={activity.id.toString()}>
                             {activity.name}
@@ -1016,7 +1093,7 @@ export function InstanceForm({
                       </SelectContent>
                     </Select>
                     {activities.length === 0 && selectedProjectId > 0 && (
-                      <p className="text-xs text-amber-600">Este projeto não possui atividades cadastradas. Cadastre uma atividade primeiro.</p>
+                      <p className="text-xs text-amber-600">Este projeto não possui oficinas cadastradas. Cadastre uma oficina primeiro.</p>
                     )}
                     <FormMessage />
                   </FormItem>
@@ -1024,35 +1101,19 @@ export function InstanceForm({
               />
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Título da Turma *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex: Teatro Infantil - Turma A" {...field} data-testid="input-instance-title" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="code"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Código</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ex: TI-A-2025" {...field} data-testid="input-instance-code" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Título da Turma *</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ex: Teatro Infantil - Turma A" {...field} data-testid="input-instance-title" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
@@ -1224,7 +1285,7 @@ export function InstanceForm({
                 name="start_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Horário de Início</FormLabel>
+                    <FormLabel>Horário de Início *</FormLabel>
                     <FormControl>
                       <Input 
                         type="time" 
@@ -1243,7 +1304,7 @@ export function InstanceForm({
                 name="end_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Horário de Fim</FormLabel>
+                    <FormLabel>Horário de Fim *</FormLabel>
                     <FormControl>
                       <Input 
                         type="time" 
@@ -1273,26 +1334,121 @@ export function InstanceForm({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="total_hours"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Carga Horária Total</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number" 
-                        min="0"
-                        placeholder="Ex: 40"
-                        {...field} 
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        data-testid="input-instance-hours"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="diasSemana"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Dias da Semana</FormLabel>
+                  <div className="flex flex-wrap gap-2">
+                    {DIAS.map((dia) => {
+                      const isSelected = (field.value || []).includes(dia.label);
+                      return (
+                        <button
+                          key={dia.key}
+                          type="button"
+                          onClick={() => {
+                            const current = field.value || [];
+                            if (isSelected) {
+                              field.onChange(current.filter((d: string) => d !== dia.label));
+                            } else {
+                              field.onChange([...current, dia.label]);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                            isSelected
+                              ? 'bg-purple-600 text-white border-purple-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-purple-400'
+                          }`}
+                        >
+                          {dia.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Selecione os dias em que a turma acontece</p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Professor Selection */}
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-blue-500" />
+                Professores Vinculados
+              </h3>
+              {professoresDisponiveis.filter((p: any) => p.ativo).length === 0 ? (
+                <p className="text-sm text-gray-500">Nenhum professor cadastrado.</p>
+              ) : (
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {professoresDisponiveis.filter((p: any) => p.ativo).map((prof: any) => {
+                    const selected = professorSelections.some(s => s.id === prof.id);
+                    const sel = professorSelections.find(s => s.id === prof.id);
+                    return (
+                      <div key={prof.id} className={`border rounded-lg transition-colors ${selected ? 'bg-blue-50 border-blue-300' : 'hover:bg-gray-50'}`}>
+                        <label className="flex items-center gap-3 p-2.5 cursor-pointer">
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => {
+                              if (selected) {
+                                setProfessorSelections(prev => prev.filter(s => s.id !== prof.id));
+                              } else {
+                                setProfessorSelections(prev => [...prev, { id: prof.id, cor: '#3B82F6', icone: 'book' }]);
+                              }
+                            }}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{prof.nome}</p>
+                            <p className="text-xs text-gray-500">{prof.email}</p>
+                          </div>
+                          {selected && <Badge className="bg-blue-100 text-blue-800 text-xs">Vinculado</Badge>}
+                        </label>
+                        {selected && sel && (
+                          <div className="px-2.5 pb-2.5 space-y-2 border-t pt-2 ml-9">
+                            <div>
+                              <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                                <Palette className="w-3 h-3" /> Cor
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {CORES_DISPONIVEIS.map(c => (
+                                  <button key={c.value} type="button"
+                                    onClick={() => setProfessorSelections(prev => prev.map(s => s.id === prof.id ? { ...s, cor: c.value } : s))}
+                                    className={`w-5 h-5 rounded-full transition-all ${c.bg} ${sel.cor === c.value ? 'ring-2 ring-offset-1 ring-gray-800 scale-110' : 'opacity-60 hover:opacity-100'}`}
+                                    title={c.label}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium text-gray-600 mb-1">Ícone</p>
+                              <div className="flex flex-wrap gap-1">
+                                {ICONES_DISPONIVEIS.map(ic => {
+                                  const IconComp = ic.icon;
+                                  return (
+                                    <button key={ic.value} type="button"
+                                      onClick={() => setProfessorSelections(prev => prev.map(s => s.id === prof.id ? { ...s, icone: ic.value } : s))}
+                                      className={`w-6 h-6 rounded flex items-center justify-center transition-all border ${sel.icone === ic.value ? 'border-blue-500 bg-blue-100 text-blue-700 scale-110' : 'border-gray-200 text-gray-400 hover:bg-gray-100'}`}
+                                      title={ic.label}
+                                    >
+                                      <IconComp className="w-3 h-3" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {professorSelections.length > 0 && (
+                <p className="text-xs text-gray-500 mt-1">{professorSelections.length} professor(es) selecionado(s)</p>
+              )}
             </div>
 
             <FormField
@@ -1363,136 +1519,57 @@ export function InstanceForm({
               )}
             </div>
 
-            {/* Seção Professor e Alunos */}
-            <div className="border-t pt-6 space-y-4">
-              <h3 className="text-lg font-semibold">Professor Responsável e Alunos</h3>
-              
-              {/* Professor Responsável */}
-              <FormField
-                control={form.control}
-                name="professor_id"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Professor Responsável *</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={`w-full justify-between ${!field.value && "text-muted-foreground"}`}
-                            data-testid="select-instance-professor"
-                          >
-                            {field.value
-                              ? professors.find((professor: any) => professor.id === field.value)?.nome_completo
-                              : "Selecione o educador responsável"}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-full p-0">
-                        <Command>
-                          <CommandInput placeholder="Buscar educador..." />
-                          <CommandEmpty>Nenhum educador encontrado.</CommandEmpty>
-                          <CommandGroup className="max-h-48 overflow-y-auto">
-                            {professors.map((professor: any) => (
-                              <CommandItem
-                                value={professor.nome_completo}
-                                key={professor.id}
-                                onSelect={() => {
-                                  field.onChange(professor.id);
-                                }}
-                              >
-                                <Check
-                                  className={`mr-2 h-4 w-4 ${
-                                    professor.id === field.value ? "opacity-100" : "opacity-0"
-                                  }`}
-                                />
-                                {professor.nome_completo}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            {(() => {
+              // removed student selection section - use dedicated "Gerenciar Alunos" button instead
+              return null;
+            })()}
 
-              {/* Seleção de Alunos */}
-              <FormField
-                control={form.control}
-                name="selected_students"
-                render={({ field }) => {
-                  const [searchTerm, setSearchTerm] = useState("");
-                  const filteredStudents = students.filter((student: any) =>
-                    student.nome_completo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    student.cpf.includes(searchTerm)
-                  );
 
-                  return (
-                    <FormItem>
-                      <FormLabel>Alunos Matriculados (opcional)</FormLabel>
-                      <div className="border rounded-lg p-4">
-                        <p className="text-sm text-gray-600 mb-3">
-                          Selecione alunos para matricular na turma (você pode adicionar depois):
-                        </p>
-                        
-                        {/* Campo de busca */}
-                        <div className="relative mb-3">
-                          <Input
-                            placeholder="Buscar aluno por nome ou CPF..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pr-8"
-                          />
-                          <Search className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                        </div>
 
-                        <div className="max-h-48 overflow-y-auto">
-                          {filteredStudents.length === 0 ? (
-                            <p className="text-sm text-gray-500 italic">
-                              {searchTerm ? "Nenhum aluno encontrado com este termo de busca" : "Nenhum aluno disponível para matrícula"}
-                            </p>
-                          ) : (
-                            <div className="space-y-2">
-                              {filteredStudents.map((student: any) => (
-                                <div key={student.cpf} className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id={`student-${student.cpf}`}
-                                    checked={field.value?.includes(student.cpf) || false}
-                                    onCheckedChange={(checked) => {
-                                      const current = field.value || [];
-                                      if (checked) {
-                                        field.onChange([...current, student.cpf]);
-                                      } else {
-                                        field.onChange(current.filter((cpf: string) => cpf !== student.cpf));
-                                      }
-                                    }}
-                                    data-testid={`checkbox-student-${student.cpf}`}
-                                  />
-                                  <Label
-                                    htmlFor={`student-${student.cpf}`}
-                                    className="text-sm cursor-pointer flex-1"
-                                  >
-                                    {student.nome_completo} - CPF: {student.cpf}
-                                  </Label>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <FormMessage />
-                      <p className="text-sm text-gray-600">
-                        {field.value?.length || 0} aluno(s) selecionado(s)
-                      </p>
-                    </FormItem>
-                  );
-                }}
-              />
-            </div>
+            {(() => {
+              const DAY_LABEL_TO_JS: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
+              const watchDias = form.watch('diasSemana') || [];
+              const watchStartDate = form.watch('start_date');
+              const watchEndDate = form.watch('end_date');
+              const watchStartTime = form.watch('start_time');
+              const watchEndTime = form.watch('end_time');
+
+              const jsDays = watchDias.map((d: string) => DAY_LABEL_TO_JS[d]).filter((d: number | undefined) => d !== undefined);
+              let classDaysCount = 0;
+              let hoursPerSession = 0;
+
+              if (watchStartTime && watchEndTime) {
+                const [sh, sm] = watchStartTime.split(':').map(Number);
+                const [eh, em] = watchEndTime.split(':').map(Number);
+                hoursPerSession = Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60);
+              }
+
+              if (watchStartDate && watchEndDate && jsDays.length > 0) {
+                const current = new Date(watchStartDate);
+                const end = new Date(watchEndDate);
+                current.setHours(0, 0, 0, 0);
+                end.setHours(0, 0, 0, 0);
+                while (current <= end) {
+                  if (jsDays.includes(current.getDay())) classDaysCount++;
+                  current.setDate(current.getDate() + 1);
+                }
+              }
+
+              const totalHours = Math.round(classDaysCount * hoursPerSession * 100) / 100;
+
+              if (jsDays.length > 0 && watchStartDate && watchEndDate && hoursPerSession > 0) {
+                return (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-blue-800 mb-2">📊 Carga Horária Total Calculada</h4>
+                    <div className="text-sm text-blue-700 space-y-1">
+                      <p>{classDaysCount} dias de aula × {hoursPerSession.toFixed(1)}h por sessão = <strong>{totalHours}h total</strong></p>
+                      <p className="text-xs text-blue-500">Dias: {watchDias.join(', ')} | Período: {format(watchStartDate, 'dd/MM/yyyy')} a {format(watchEndDate, 'dd/MM/yyyy')}</p>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             <div className="flex justify-end gap-3">
               <Button type="button" variant="outline" onClick={onClose} data-testid="btn-cancel-instance">

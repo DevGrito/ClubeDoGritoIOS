@@ -9,22 +9,43 @@ export const AutoRedirect: React.FC = () => {
   const errorCount = useRef(0);
 
   useEffect(() => {
-    // Proteção contra loops infinitos
     if (errorCount.current > 3) {
-      console.error('🚨 AutoRedirect: Muitos erros, parando redirecionamentos');
+      console.error("🚨 AutoRedirect: Muitos erros, parando redirecionamentos");
       return;
     }
-    
-    // Verificar se é um coordenador ou monitor autenticado - bypass total
-    const isCoordenadorAuth = sessionStorage.getItem('coordenador_auth') === 'true';
-    const isMonitorAuth = sessionStorage.getItem('monitor_auth') === 'true';
-    if (isCoordenadorAuth || isMonitorAuth) {
-      return; // Coordenadores e monitores têm seu próprio sistema de auth
+
+    // ✅ flags RBAC no sessionStorage
+    const isCoordenadorAuth =
+      sessionStorage.getItem("coordenador_auth") === "true";
+    const isMonitorAuth =
+      sessionStorage.getItem("monitor_auth") === "true";
+    const isProfessorAuth =
+      sessionStorage.getItem("professor_auth") === "true";
+
+    // ✅ flags no localStorage
+    const actorType = localStorage.getItem("actorType");
+    const rawUserPapel = localStorage.getItem("userPapel");
+    const userPapel = rawUserPapel ? rawUserPapel.toLowerCase() : null;
+
+    // ✅ bypass robusto (se for RBAC, AutoRedirect não interfere)
+    const isCoordRole = !!userPapel && userPapel.startsWith("coordenador_");
+    const isProfessorOrMonitor = userPapel === "monitor" || userPapel === "professor";
+
+    if (
+      isCoordenadorAuth ||
+      isMonitorAuth ||
+      isProfessorAuth ||
+      actorType === "coordenador" ||
+      actorType === "monitor" ||
+      actorType === "professor" ||
+      isCoordRole ||
+      isProfessorOrMonitor
+    ) {
+      return;
     }
+
     
     // Verificar se usuário está logado
-    const rawUserPapel = localStorage.getItem('userPapel');
-    const userPapel = rawUserPapel ? rawUserPapel.toLowerCase() : null;
     const isVerified = localStorage.getItem('isVerified') === 'true';
 
     // 🔐 SECURITY: DEV tem acesso APENAS se autenticado pelo backend (não por URL)
@@ -55,7 +76,8 @@ export const AutoRedirect: React.FC = () => {
   '/ingresso/resgate/confirmar', '/scanner', '/scanner-login',
   '/login/coordenador', '/login/monitor', '/login/professor', '/ingressos/compras/extras',
   '/ingressos-esgotados',
-  '/gestao/vista/dashboard'
+  '/gestao/vista/dashboard',
+   '/dashboard/gestao/vista'
 ];
     
     if (!userPapel || !isVerified) {

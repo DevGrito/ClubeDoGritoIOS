@@ -846,3 +846,12 @@ button.checkbox-green[data-state="checked"] {
     animation: none;
   }
 }
+
+details[open] > summary > span:first-child {
+  transform: rotate(90deg);
+  display: inline-block;
+}
+details > summary > span:first-child {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}

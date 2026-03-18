@@ -171,7 +171,7 @@ export default function GestaoVistaScreen() {
   const { toast } = useToast();
   
   // Estados para filtros
-  const [period, setPeriod] = useState('2025-08');
+  const [period, setPeriod] = useState('2026-01');
   const [scope, setScope] = useState('monthly');
   const [sectorFilter, setSectorFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');

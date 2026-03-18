@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Smartphone, Check, Calendar, Sparkles, LogOut } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import coneImage from "@assets/image_1764861877259.png";
+import coneImage from "../app-assets/image_1764861877259.png";
 import { planPrices, planDetails } from "@/lib/stripe";
 import useEmblaCarousel from 'embla-carousel-react';
 

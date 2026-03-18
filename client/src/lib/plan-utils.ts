@@ -1,7 +1,7 @@
 // Plan images
-import gritoImage from "@assets/O GRITO_ilustracao_personagens-06_1752082042712.png";
-import ecoImage from "@assets/O GRITO_ilustracao_personagens-03_1752082053539.png";
-import vozImage from "@assets/O GRITO_ilustracao_personagens-05_1752082064753.png";
+import gritoImage from "../app-assets/O GRITO_ilustracao_personagens-06_1752082042712.png";
+import ecoImage from "../app-assets/O GRITO_ilustracao_personagens-03_1752082053539.png";
+import vozImage from "../app-assets/O GRITO_ilustracao_personagens-05_1752082064753.png";
 
 export const getPlanImage = (planId: string) => {
   switch (planId) {

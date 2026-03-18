@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import girlImage from "@assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
+import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function CoordenadorLogin() {
   const [, setLocation] = useLocation();
@@ -117,16 +117,32 @@ export default function CoordenadorLogin() {
         localStorage.setItem("coordenadorId", String(data.coordenador.id));
         localStorage.setItem("coordenadorNome", data.coordenador.nome || "Coordenador");
         localStorage.setItem("coordenadorEmail", data.coordenador.email || "");
-        localStorage.setItem("userPapel", data.role || data.coordenador.role || "coordenador");
+       const role = (data.role || data.coordenador.role || "coordenador_inclusao").toLowerCase();
 
-        // opcional (pra o app saber que é coordenador)
+        // ✅ grava “verificado” pra AutoRedirect não te jogar pra /plans
+        localStorage.setItem("isVerified", "true");
+
+        // ✅ marca que é coordenador (ajuda o bypass)
         localStorage.setItem("actorType", "coordenador");
-        sessionStorage.setItem("coordenador_auth", "true");
-        sessionStorage.setItem("coordenador_data", JSON.stringify(data.coordenador));
-        
-        console.log("✅ Login bem-sucedido:", data.coordenador, "role:", data.role);
+        localStorage.setItem("userPapel", role);
 
-        setLocation(data?.coordenador?.redirectPath || "/rbac/coordenador");
+        // ✅ IGNORA redirectPath do backend (ele pode estar apontando pra RBAC/plans)
+        const roleRouteMap: Record<string, string> = {
+          coordenador_inclusao: "/coordenador/inclusao-produtiva",
+          coordenador_pec: "/coordenador/esporte-cultura",
+          coordenador_psico: "/coordenador/psicossocial",
+        };
+
+       const target = roleRouteMap[role];
+        if (!target) {
+          toast({
+            title: "Erro no login",
+            description: "Seu perfil não foi identificado. Fale com o admin.",
+            variant: "destructive",
+          });
+          return;
+        }
+        setLocation(target);
       } catch (error) {
         console.error("Erro ao fazer login:", error);
         toast({

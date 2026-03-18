@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { formatCPF } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import PsicoMonthlyReport from "@/components/psico/PsicoMonthlyReport";
-import PsicoDashboard from "@/components/psico/PsicoDashboard";
+import CoordenadorDashboard from "@/components/CoordenadorDashboard";
 import { 
   Users,
   User,
@@ -51,15 +52,35 @@ import {
   Lock,
   ExternalLink,
   ClipboardList,
-  ChevronDown
+  ChevronDown,
+  ChevronRight,
+  Pencil
 } from "lucide-react";
 import AlterarSenha from "@/components/AlterarSenha";
+import DemandaEspontaneaSection from "@/components/DemandaEspontaneaSection";
+
+const LOWER_WORDS_PT = new Set(['de','da','do','dos','das','e','em','por','para','com','a','o','as','os','ao','aos']);
+const normalizeName = (name: string) =>
+  name.toLowerCase().split(' ').map((w, i) =>
+    i === 0 || !LOWER_WORDS_PT.has(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w
+  ).join(' ');
 
 export default function CoordenadorPsicoPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSection, setActiveSection] = useState('dashboard');
+  const changeSection = (section: string) => {
+    setActiveSection(section);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.getElementById('coordenador-psico-content-area');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    });
+  };
   const [showImportModal, setShowImportModal] = useState(false);
   const [showFamiliaModal, setShowFamiliaModal] = useState(false);
   const [showEditFamiliaModal, setShowEditFamiliaModal] = useState(false);
@@ -74,6 +95,8 @@ export default function CoordenadorPsicoPage() {
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
   const [showDeleteFamiliaDialog, setShowDeleteFamiliaDialog] = useState(false);
   const [showDeleteCasoDialog, setShowDeleteCasoDialog] = useState(false);
+  const [confirmDeleteAtendido, setConfirmDeleteAtendido] = useState<{ open: boolean; id: number | null; nome: string }>({ open: false, id: null, nome: '' });
+  const [confirmDeleteRegistro, setConfirmDeleteRegistro] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
   const [showViewCasoModal, setShowViewCasoModal] = useState(false);
   const [showEditCasoModal, setShowEditCasoModal] = useState(false);
   const [showAlterarSenhaModal, setShowAlterarSenhaModal] = useState(false);
@@ -83,7 +106,41 @@ export default function CoordenadorPsicoPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [buscaAtendido, setBuscaAtendido] = useState('');
+  const [atendidoSelecionadoNome, setAtendidoSelecionadoNome] = useState('');
   const [buscaAtendidoFamilia, setBuscaAtendidoFamilia] = useState('');
+  const [filtroPrograma, setFiltroPrograma] = useState<'todos' | 'pec' | 'inclusao'>('todos');
+  const [buscaParticipante, setBuscaParticipante] = useState('');
+
+  const [freqPrograma, setFreqPrograma] = useState<'pec' | 'inclusao'>('pec');
+  const [freqTurmaId, setFreqTurmaId] = useState('');
+  const [freqBusca, setFreqBusca] = useState('');
+  const [freqExpandida, setFreqExpandida] = useState<string | null>(null);
+  const [showCadastroAtendido, setShowCadastroAtendido] = useState(false);
+  const [cadastroAtendidoForm, setCadastroAtendidoForm] = useState({ nome: '', cpf: '', data_nascimento: '', telefone: '', endereco: '', observacoes: '' });
+
+  const [confSubTab, setConfSubTab] = useState<"realizados" | "novo">("realizados");
+  const [confSearchTerm, setConfSearchTerm] = useState("");
+  const [confExpandedParticipante, setConfExpandedParticipante] = useState<string | null>(null);
+  const [confExpandedRegistro, setConfExpandedRegistro] = useState<number | null>(null);
+  const [psicoRegistroForm, setPsicoRegistroForm] = useState({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
+  const [registroPartBusca, setRegistroPartBusca] = useState("");
+  const [registroPartOpen, setRegistroPartOpen] = useState(false);
+  const [editRegistroId, setEditRegistroId] = useState<number | null>(null);
+  const [editRegistroForm, setEditRegistroForm] = useState({ titulo: "", tipo: "", conteudo: "", participanteNome: "", data: "" });
+  const [editRegistroPartBusca, setEditRegistroPartBusca] = useState("");
+  const [editRegistroPartOpen, setEditRegistroPartOpen] = useState(false);
+
+  // Estados para registros gerais (coordenador)
+  const [geraisSubTab, setGeraisSubTab] = useState<"realizados" | "novo">("realizados");
+  const [geraisSearchTerm, setGeraisSearchTerm] = useState("");
+  const [geraisForm, setGeraisForm] = useState({ tipo: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
+  const [editGeraisId, setEditGeraisId] = useState<number | null>(null);
+  const [editGeraisForm, setEditGeraisForm] = useState({ tipo: "", conteudo: "", participanteNome: "", data: "" });
+  const [geraisColaboradoresIds, setGeraisColaboradoresIds] = useState<number[]>([]);
+  const [geraisColabBusca, setGeraisColabBusca] = useState("");
+  const [editGeraisColaboradoresIds, setEditGeraisColaboradoresIds] = useState<number[]>([]);
+  const [editGeraisColabBusca, setEditGeraisColabBusca] = useState("");
+  const [viewGeraisGeralRecord, setViewGeraisGeralRecord] = useState<any | null>(null);
 
   // Estados para formulários
   const [familiaForm, setFamiliaForm] = useState({
@@ -198,23 +255,59 @@ export default function CoordenadorPsicoPage() {
   
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
   // Pegar ID do coordenador do sessionStorage (login de coordenador)
-  const coordenadorData = sessionStorage.getItem("coordenador_data");
-  const coordenadorId = coordenadorData ? JSON.parse(coordenadorData).id : null;
-  const userId = coordenadorId ? coordenadorId.toString() : null;
+  const rawCoordData =
+    sessionStorage.getItem("coordenador_data") ||
+    localStorage.getItem("coordenador_data");
+
+  let coordenadorId: number | null = null;
+
+  try {
+    if (rawCoordData) coordenadorId = Number(JSON.parse(rawCoordData)?.id || null);
+  } catch {
+    coordenadorId = null;
+  }
+
+  // ✅ fallback: outras chaves comuns no seu projeto
+  const fallbackId =
+    Number(localStorage.getItem("coordenadorId") || 0) ||
+    Number(localStorage.getItem("userId") || 0);
+
+  // ✅ id final
+  const finalId = coordenadorId || fallbackId || null;
+
+  // ✅ userId que habilita as queries
+  const userId = finalId ? String(finalId) : null;
   const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
+
+  // Estados de filtro do dashboard
+  const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
+  const [dashFiltroMes, setDashFiltroMes] = useState(0);
 
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
     queryKey: ['/api/coordenador/dashboard', userId, 'psico'],
     queryFn: async () => {
       const response = await fetch(`/api/coordenador/dashboard/${userId}?area=psico`, {
-        headers: { 'x-user-id': userId || '' }
+        credentials: "include",
+        headers: { 'x-user-id': userId || '' },
       });
-      if (!response.ok) throw new Error('Failed to fetch dashboard data');
+      if (!response.ok) throw new Error('Falha ao carregar dados do painel');
       return response.json();
     },
-    enabled: !!userId
+    enabled: !!userId,
+  });
+
+  // Query para buscar dados demográficos do dashboard psico
+  const { data: psicoDemogData, isLoading: isPsicoDemogLoading } = useQuery({
+    queryKey: ['/api/coordenador/dashboard-demografico-psico', dashFiltroAno, dashFiltroMes],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenador/dashboard-demografico-psico?ano=${dashFiltroAno}&mes=${dashFiltroMes}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error('Falha ao carregar dashboard psico');
+      return response.json();
+    },
   });
 
   // Query para buscar dados do perfil do coordenador
@@ -222,10 +315,11 @@ export default function CoordenadorPsicoPage() {
     queryKey: ['/api/coordenadores', coordenadorId],
     queryFn: async () => {
       const response = await fetch(`/api/coordenadores/${coordenadorId}`);
-      if (!response.ok) throw new Error('Failed to fetch coordinator data');
+      if (!response.ok) throw new Error('Falha ao carregar dados do coordenador');
       return response.json();
     },
-    enabled: !!coordenadorId
+    enabled: !!coordenadorId,
+    
   });
 
   // Atualizar form quando userData carregar
@@ -282,12 +376,12 @@ export default function CoordenadorPsicoPage() {
             'Content-Type': 'application/json',
             'x-user-id': userId || ''
           },
-          body: JSON.stringify({
-            familiaId: familia.familia.id,
-            inclusaoIds,
-            pecIds
+         body: JSON.stringify({
+        familiaId: familia?.data?.id, // <-- backend retorna { success, data }
+        inclusaoIds,
+        pecIds
           })
-        });
+       });
       }
 
       return familia;
@@ -314,7 +408,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao cadastrar família",
-        description: error.message,
+        description: error.message || "Não foi possível cadastrar a família. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -323,7 +417,7 @@ export default function CoordenadorPsicoPage() {
   const updateFamiliaMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number, data: typeof familiaForm }) => {
       return await apiRequest(`/api/psico/familias/${id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': userId || ''
@@ -352,7 +446,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao atualizar família",
-        description: error.message,
+        description: error.message || "Não foi possível atualizar a família. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -388,7 +482,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao criar caso",
-        description: error.message,
+        description: error.message || "Não foi possível criar o caso. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -412,6 +506,7 @@ export default function CoordenadorPsicoPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['/api/psico/atendimentos'] });
       setBuscaAtendido('');
+      setAtendidoSelecionadoNome('');
       setAtendimentoForm({
         familiaId: null,
         casoId: null,
@@ -428,7 +523,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao registrar atendimento",
-        description: error.message,
+        description: error.message || "Não foi possível registrar o atendimento. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -463,7 +558,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao criar plano",
-        description: error.message,
+        description: error.message || "Não foi possível criar o plano. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -517,19 +612,36 @@ export default function CoordenadorPsicoPage() {
     }
   });
 
-  // Query para buscar participantes vinculados
-  const { data: participantesData, isLoading: isLoadingParticipantes } = useQuery({
-    queryKey: ['/api/psico/participantes'],
+  const { data: participantesData = [], isLoading: isLoadingParticipantes } = useQuery({
+    queryKey: ['/api/psico/participantes', userId, filtroPrograma],
     queryFn: async () => {
-      const response = await fetch('/api/psico/participantes', {
-        headers: { 'x-user-id': userId || '' }
+      const params = new URLSearchParams();
+      if (filtroPrograma && filtroPrograma !== 'todos') params.set('filtro', filtroPrograma);
+      const response = await fetch(`/api/psico/participantes?${params.toString()}`, {
+        credentials: "include",
+        headers: { 'x-user-id': userId || '' },
       });
-      if (!response.ok) throw new Error('Failed to fetch participantes');
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Falha ao carregar participantes');
+      }
+
       const data = await response.json();
-      return data.participantes || [];
+      const lista = data?.participantes || data?.data || [];
+      if (!Array.isArray(lista)) return [];
+      for (const p of lista) {
+        if (p.nome) p.nome = p.nome.replace(/^\s+|\s+$/g, '');
+      }
+      lista.sort((a: any, b: any) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+      return lista;
     },
-    enabled: !!userId
+    enabled: !!userId,
   });
+
+  const participantesFiltrados = buscaParticipante
+    ? participantesData.filter((p: any) => p.nome?.toLowerCase().includes(buscaParticipante.toLowerCase()))
+    : participantesData;
 
   // Query para buscar histórico de atendimentos de um participante
   const { data: historicoData, isLoading: isLoadingHistorico } = useQuery({
@@ -548,30 +660,38 @@ export default function CoordenadorPsicoPage() {
   });
 
   // Mutation para sincronizar participantes existentes
-  const syncParticipantesMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest('/api/psico/sync-participantes', {
-        method: 'POST',
-        headers: {
-          'x-user-id': userId || ''
-        }
-      });
-    },
-    onSuccess: (data: any) => {
-      toast({
-        title: "Sincronização concluída!",
-        description: `${data.vinculosCriados.total} vínculos criados (${data.vinculosCriados.inclusao} Inclusão + ${data.vinculosCriados.pec} PEC)`
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/psico/participantes'] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro na sincronização",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  });
+const syncParticipantesMutation = useMutation({
+  mutationFn: async () => {
+    const resp = await fetch('/api/psico/sync-participantes', {
+      method: "POST",
+      credentials: "include",
+      headers: { 'x-user-id': userId || '' },
+    });
+
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(json?.error || "Erro ao sincronizar");
+    return json;
+  },
+  onSuccess: (data: any) => {
+    const total = data?.vinculosCriados?.total ?? 0;
+    const inc = data?.vinculosCriados?.inclusao ?? 0;
+    const pec = data?.vinculosCriados?.pec ?? 0;
+
+    toast({
+      title: "Sincronização concluída!",
+      description: `${total} vínculos criados (${inc} Inclusão + ${pec} PEC)`,
+    });
+
+    queryClient.invalidateQueries({ queryKey: ['/api/psico/participantes'] });
+  },
+  onError: (error: any) => {
+    toast({
+      title: "Erro na sincronização",
+      description: error.message || "Não foi possível sincronizar. Tente novamente.",
+      variant: "destructive",
+    });
+  },
+});
 
   const updatePerfilMutation = useMutation({
     mutationFn: async (data: typeof perfilForm) => {
@@ -593,7 +713,7 @@ export default function CoordenadorPsicoPage() {
     onError: (error: any) => {
       toast({
         title: "Erro ao atualizar perfil",
-        description: error.message,
+        description: error.message || "Não foi possível atualizar o perfil. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -614,9 +734,8 @@ export default function CoordenadorPsicoPage() {
       return response.json();
     },
     enabled: !!userId,
-    select: (data: any) => data?.familias || []
-  });
-
+    select: (res: any) => res?.data || [], // <-- backend retorna { success, data }
+  })
   // Query para buscar casos
   const { data: casos = [], isLoading: isLoadingCasos } = useQuery({
     queryKey: ['/api/psico/casos'],
@@ -628,44 +747,275 @@ export default function CoordenadorPsicoPage() {
       return response.json();
     },
     enabled: !!userId,
-    select: (data: any) => data?.casos || []
+    select: (res: any) => res?.data || [], // <-- backend retorna { success, data }
   });
 
   // Query para buscar atendimentos
-  const { data: atendimentos = [], isLoading: isLoadingAtendimentos } = useQuery({
-    queryKey: ['/api/psico/atendimentos'],
+const { data: atendimentos = [], isLoading: isLoadingAtendimentos } = useQuery({
+  queryKey: ['/api/psico/atendimentos'],
+  queryFn: async () => {
+    const response = await fetch('/api/psico/atendimentos', {
+      headers: { 'x-user-id': userId || '' }
+    });
+    if (!response.ok) throw new Error('Erro ao buscar atendimentos');
+    const result = await response.json();
+    console.log('🔍 [ATENDIMENTOS DEBUG] Dados recebidos:', result);
+    console.log('🔍 [ATENDIMENTOS DEBUG] Array (data):', result?.data);
+    console.log('🔍 [ATENDIMENTOS DEBUG] Quantidade:', result?.data?.length);
+    return result;
+  },
+  enabled: !!userId,
+  select: (res: any) => {
+    const atends = res?.data || []; // <-- backend retorna { success, data }
+    console.log('🔍 [ATENDIMENTOS DEBUG] Após select:', atends);
+    console.log('🔍 [ATENDIMENTOS DEBUG] Após select - quantidade:', atends.length);
+    return atends;
+  },
+});
+  // Query para buscar planos
+const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
+  queryKey: ['/api/psico/planos'],
+  queryFn: async () => {
+    const response = await fetch('/api/psico/planos', {
+      headers: { 'x-user-id': userId || '' }
+    });
+    if (!response.ok) throw new Error('Erro ao buscar planos');
+    return response.json();
+  },
+  enabled: !!userId,
+  select: (res: any) => res?.data || [], // <-- backend retorna { success, data }
+});
+  const { data: atendidosRegistrados = [], isLoading: loadingAtendidosReg } = useQuery({
+    queryKey: ['/api/psico/coordenador/atendidos-registrados'],
     queryFn: async () => {
-      const response = await fetch('/api/psico/atendimentos', {
-        headers: { 'x-user-id': userId || '' }
-      });
-      if (!response.ok) throw new Error('Erro ao buscar atendimentos');
-      const result = await response.json();
-      console.log('🔍 [ATENDIMENTOS DEBUG] Dados recebidos:', result);
-      console.log('🔍 [ATENDIMENTOS DEBUG] Array de atendimentos:', result?.atendimentos);
-      console.log('🔍 [ATENDIMENTOS DEBUG] Quantidade:', result?.atendimentos?.length);
-      return result;
+      const res = await fetch(`/api/psico/coordenador/atendidos-registrados`, { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.atendidos || [];
     },
-    enabled: !!userId,
-    select: (data: any) => {
-      const atends = data?.atendimentos || [];
-      console.log('🔍 [ATENDIMENTOS DEBUG] Após select:', atends);
-      console.log('🔍 [ATENDIMENTOS DEBUG] Após select - quantidade:', atends.length);
-      return atends;
+    enabled: !!userId && activeSection === 'participantes',
+  });
+
+  const { data: atendidosComunidade = [], isLoading: loadingComunidade } = useQuery({
+    queryKey: ['/api/psico/atendidos-comunidade'],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/atendidos-comunidade', { headers: { 'x-user-id': userId || '' } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!userId && activeSection === 'participantes',
+  });
+
+  const { data: psicoDashStats } = useQuery({
+    queryKey: ['/api/psico/dashboard-stats'],
+    queryFn: async () => {
+      const res = await fetch(`/api/psico/dashboard-stats`, { headers: { 'x-user-id': userId || '' } });
+      if (!res.ok) return {};
+      return res.json();
+    },
+    enabled: activeSection === 'participantes',
+  });
+
+  const { data: freqChamadasData = { chamadas: [] }, isLoading: loadingFreqChamadas } = useQuery({
+    queryKey: ['/api/psico/chamadas', freqPrograma, freqTurmaId],
+    queryFn: async () => {
+      let url = `/api/psico/chamadas?programa=${freqPrograma}`;
+      if (freqTurmaId) url += `&turmaId=${freqTurmaId}`;
+      const res = await fetch(url, { headers: { 'x-user-id': userId || '' } });
+      if (!res.ok) return { chamadas: [] };
+      return res.json().catch(() => ({ chamadas: [] }));
+    },
+    enabled: !!userId && activeSection === 'frequencias',
+  });
+  const freqHistorico = freqChamadasData?.chamadas || [];
+
+  const { data: freqTurmas = [] } = useQuery({
+    queryKey: ['/api/psico/freq-turmas', freqPrograma, userId],
+    queryFn: async () => {
+      if (freqPrograma === 'pec') {
+        const res = await fetch('/api/pec/instances', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+        const json = await res.json().catch(() => []);
+        if (!res.ok) return [];
+        const arr = Array.isArray(json) ? json : [];
+        return arr.map((t: any) => ({ id: t.id, nome: t.name || t.title || `Turma ${t.id}` }));
+      } else {
+        const res = await fetch('/api/turmas-inclusao', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+        const json = await res.json().catch(() => []);
+        if (!res.ok) return [];
+        const arr = Array.isArray(json) ? json : [];
+        return arr.map((t: any) => ({ id: t.id, nome: t.nome || t.title || `Turma ${t.id}` }));
+      }
+    },
+    enabled: !!userId && activeSection === 'frequencias',
+  });
+
+  const { data: todosAtendidosParaAtendimento = [] } = useQuery({
+    queryKey: ['/api/psico/todos-atendidos-para-atendimento'],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/todos-atendidos-para-atendimento', { headers: { 'x-user-id': userId || '' } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!userId && (activeSection === 'atendimentos' || activeSection === 'confidencial' || showAtendimentoModal),
+  });
+
+  const cadastroAtendidoMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest('/api/psico/atendidos-comunidade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': userId || '' },
+        body: JSON.stringify({ ...data, coordenador_id: userId ? parseInt(userId) : null }),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Atendido cadastrado com sucesso!" });
+      setShowCadastroAtendido(false);
+      setCadastroAtendidoForm({ nome: '', cpf: '', data_nascimento: '', telefone: '', endereco: '', observacoes: '' });
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/atendidos-comunidade'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/todos-atendidos-para-atendimento'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Erro ao cadastrar atendido", description: error.message, variant: "destructive" });
     }
   });
 
-  // Query para buscar planos
-  const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
-    queryKey: ['/api/psico/planos'],
-    queryFn: async () => {
-      const response = await fetch('/api/psico/planos', {
-        headers: { 'x-user-id': userId || '' }
+  const deleteAtendidoComunidadeMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest(`/api/psico/atendidos-comunidade/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-user-id': userId || '' },
       });
-      if (!response.ok) throw new Error('Erro ao buscar planos');
-      return response.json();
     },
-    enabled: !!userId,
-    select: (data: any) => data?.planos || []
+    onSuccess: () => {
+      toast({ title: "Atendido removido com sucesso!" });
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/atendidos-comunidade'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/todos-atendidos-para-atendimento'] });
+    },
+  });
+
+  const { data: coordRegistrosConf = [], isLoading: loadingRegistrosConf } = useQuery({
+    queryKey: ['/api/psico/coordenador/registros-confidenciais'],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/coordenador/registros-confidenciais', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      const json = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(json?.error || "Falha ao buscar registros");
+      return Array.isArray(json) ? json : [];
+    },
+    enabled: !!userId && activeSection === 'confidencial',
+  });
+
+  const createRegistroConfMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest('/api/psico/coordenador/registros-confidenciais', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-confidenciais'] });
+      toast({ title: "Registro salvo!" });
+      setConfSubTab("realizados");
+      setPsicoRegistroForm({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
+    },
+    onError: (error: any) => toast({ title: "Erro ao salvar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
+  });
+
+  const deleteRegistroConfMutation = useMutation({
+    mutationFn: async (registroId: number) => {
+      return apiRequest(`/api/psico/coordenador/registros-confidenciais/${registroId}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-confidenciais'] });
+      toast({ title: "Registro excluído!" });
+    },
+    onError: (error: any) => toast({ title: "Erro ao excluir registro", description: error.message || "Tente novamente.", variant: "destructive" }),
+  });
+
+  const updateRegistroConfMutation = useMutation({
+    mutationFn: async ({ id, ...body }: { id: number; titulo: string; tipo: string; conteudo: string; participanteNome: string; data: string }) => {
+      return apiRequest(`/api/psico/coordenador/registros-confidenciais/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-confidenciais'] });
+      toast({ title: "Registro atualizado!" });
+      setEditRegistroId(null);
+    },
+    onError: (error: any) => toast({ title: "Erro ao atualizar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
+  });
+
+  // Query e mutations para registros gerais (coordenador)
+  const { data: coordRegistrosGerais = [], isLoading: loadingRegistrosGerais } = useQuery({
+    queryKey: ['/api/psico/coordenador/registros-gerais'],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/coordenador/registros-gerais', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      const json = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(json?.error || "Falha ao buscar registros gerais");
+      return Array.isArray(json) ? json : [];
+    },
+    enabled: !!userId && activeSection === 'registros-gerais',
+  });
+
+  const { data: colaboradoresDataPsico } = useQuery<any>({
+    queryKey: ["/api/colaboradores"],
+    queryFn: async () => {
+      const res = await fetch(`/api/colaboradores?pageSize=200`, { credentials: "include" });
+      return res.json();
+    },
+  });
+  const todosColaboradoresPsico: any[] = (colaboradoresDataPsico?.items || []).sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+
+  // Query para acompanhamentos pedagógicos dos professores
+  const { data: todosAcompanhamentos = [] } = useQuery({
+    queryKey: ['/api/professor/acompanhamentos/all'],
+    queryFn: async () => {
+      const res = await fetch('/api/professor/acompanhamentos/all');
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!userId && activeSection === 'acompanhamentos',
+  });
+
+  const createGeraisMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest('/api/psico/coordenador/registros-gerais', { method: 'POST', body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-gerais'] });
+      toast({ title: "Registro salvo!" });
+      setGeraisSubTab("realizados");
+      setGeraisForm({ tipo: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
+      setGeraisColaboradoresIds([]);
+      setGeraisColabBusca("");
+    },
+    onError: (error: any) => toast({ title: "Erro ao salvar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
+  });
+
+  const deleteGeraisMutation = useMutation({
+    mutationFn: async (registroId: number) => {
+      return apiRequest(`/api/psico/coordenador/registros-gerais/${registroId}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-gerais'] });
+      toast({ title: "Registro excluído!" });
+    },
+    onError: (error: any) => toast({ title: "Erro ao excluir registro", description: error.message || "Tente novamente.", variant: "destructive" }),
+  });
+
+  const updateGeraisMutation = useMutation({
+    mutationFn: async ({ id, ...body }: { id: number; tipo: string; conteudo: string; participanteNome: string; data: string; colaboradoresIds?: number[] | null }) => {
+      return apiRequest(`/api/psico/coordenador/registros-gerais/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-gerais'] });
+      toast({ title: "Registro atualizado!" });
+      setEditGeraisId(null);
+      setEditGeraisColaboradoresIds([]);
+      setEditGeraisColabBusca("");
+    },
+    onError: (error: any) => toast({ title: "Erro ao atualizar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
   });
 
   // Handlers para salvar dados
@@ -871,38 +1221,35 @@ export default function CoordenadorPsicoPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Carregando coordenação psicossocial...</p>
+          <p className="text-slate-400">Carregando coordenação psicossocial...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="coordenador-psico-page">
+    <div className="min-h-screen bg-slate-900" data-testid="coordenador-psico-page">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-4 md:px-6">
+      <div className="bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center">
               <Heart className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
+              <h1 className="text-xl md:text-2xl font-bold text-white" data-testid="text-welcome">
                 Coordenação Psicossocial
               </h1>
-              <p className="text-gray-600" data-testid="text-username">
+              <p className="text-slate-400" data-testid="text-username">
                 Olá {userData?.nome || 'Coordenador'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant="outline" data-testid="badge-role">
-              💜 Coordenador Psicossocial
-            </Badge>
-            <Button 
+<Button 
               variant="outline" 
               size="sm" 
               onClick={() => setShowImportModal(true)}
@@ -977,251 +1324,17 @@ export default function CoordenadorPsicoPage() {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
-        {/* Tabs Principais */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="dashboard" data-testid="tab-dashboard">
-              <Heart className="w-4 h-4 mr-2" />
-              Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="participantes" data-testid="tab-participantes">
-              <Users className="w-4 h-4 mr-2" />
-              Participantes
-            </TabsTrigger>
-            <TabsTrigger value="casos" data-testid="tab-casos">
-              <FileText className="w-4 h-4 mr-2" />
-              Casos
-            </TabsTrigger>
-          </TabsList>
+        <CoordenadorDashboard
+          data={psicoDemogData}
+          isLoading={isPsicoDemogLoading}
+          tipo="psico"
+          filtroAno={dashFiltroAno}
+          filtroMes={dashFiltroMes}
+          onFilterChange={(ano, mes) => { setDashFiltroAno(ano); setDashFiltroMes(mes); }}
+          titleOverride="Psicossocial"
+        />
 
-          {/* Aba Dashboard */}
-          <TabsContent value="dashboard" className="space-y-6">
-            <PsicoDashboard
-              familias={familias}
-              casos={casos}
-              atendimentos={atendimentos}
-              participantes={participantesData || []}
-              encaminhamentos={[]}
-              onViewDetails={(caso: any) => {
-                setActiveTab('casos');
-                setActiveSection('casos');
-              }}
-              onExportCSV={handleExportCSV}
-            />
-          </TabsContent>
-
-          {/* Aba Participantes */}
-          <TabsContent value="participantes" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>Participantes (Inclusão Produtiva e PEC)</span>
-                  <Badge variant="outline" className="text-lg">
-                    {participantesData?.length || 0} participantes
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600 mb-6">
-                  Lista de participantes da Inclusão Produtiva e PEC (Esporte e Cultura) vinculados automaticamente como atendidos do Psicossocial.
-                </p>
-                
-                {participantesData && participantesData.length === 0 && (
-                  <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-yellow-900">Nenhum participante encontrado</h3>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          Os alunos já cadastrados no sistema ainda não foram vinculados. Clique no botão abaixo para sincronizar automaticamente.
-                        </p>
-                        <Button 
-                          className="mt-3" 
-                          onClick={() => syncParticipantesMutation.mutate()}
-                          disabled={syncParticipantesMutation.isPending}
-                          data-testid="button-sync-participantes"
-                        >
-                          {syncParticipantesMutation.isPending ? (
-                            <>
-                              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                              Sincronizando...
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="w-4 h-4 mr-2" />
-                              Sincronizar Alunos Existentes
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="mb-4 flex gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input 
-                      placeholder="Buscar participante por nome..." 
-                      className="pl-10" 
-                      data-testid="input-search-participante"
-                    />
-                  </div>
-                  {participantesData && participantesData.length > 0 && (
-                    <Button 
-                      variant="outline"
-                      onClick={() => syncParticipantesMutation.mutate()}
-                      disabled={syncParticipantesMutation.isPending}
-                      data-testid="button-sync-participantes-header"
-                    >
-                      {syncParticipantesMutation.isPending ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Sincronizando
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          Sincronizar
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-
-                {isLoadingParticipantes ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">Carregando participantes...</p>
-                  </div>
-                ) : participantesData && participantesData.length > 0 ? (
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Nome</TableHead>
-                          <TableHead>Programa</TableHead>
-                          <TableHead>Gênero</TableHead>
-                          <TableHead>Idade</TableHead>
-                          <TableHead>Família Vinculada</TableHead>
-                          <TableHead>Papel</TableHead>
-                          <TableHead>Contato</TableHead>
-                          <TableHead>Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {participantesData.map((participante: any) => (
-                          <TableRow key={participante.id} data-testid={`row-participante-${participante.id}`}>
-                            <TableCell className="font-medium">{participante.nome}</TableCell>
-                            <TableCell>
-                              <Badge 
-                                className={participante.programa_origem === 'pec' 
-                                  ? 'bg-blue-100 text-blue-800' 
-                                  : 'bg-green-100 text-green-800'}
-                              >
-                                {participante.programa_origem === 'pec' ? '🏃 PEC' : '🎓 Inclusão'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {participante.genero || '-'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{participante.idade ? `${participante.idade} anos` : '-'}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{participante.familia_nome}</span>
-                                <span className="text-xs text-gray-500">ID: {participante.familia_id}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {participante.papel ? (
-                                <Badge className="bg-indigo-100 text-indigo-800">
-                                  {participante.papel}
-                                </Badge>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col text-sm">
-                                {participante.telefone && (
-                                  <span>{participante.telefone}</span>
-                                )}
-                                {participante.email && (
-                                  <span className="text-xs text-gray-500">{participante.email}</span>
-                                )}
-                                {!participante.telefone && !participante.email && (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => {
-                                    setSelectedParticipante(participante);
-                                    setShowHistoricoModal(true);
-                                  }}
-                                  data-testid={`button-historico-participante-${participante.id}`}
-                                  title="Ver histórico de atendimentos"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 border rounded-lg bg-gray-50">
-                    <UserCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600 font-medium">Nenhum participante vinculado</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Participantes cadastrados na Inclusão Produtiva ou PEC aparecerão aqui automaticamente
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Aba Casos - Conteúdo Atual */}
-          <TabsContent value="casos" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              
-              {/* Indicadores da Área */}
-              <Card data-testid="card-indicadores">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Target className="w-5 h-5 text-purple-500" />
-                    Indicadores da Área
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Famílias Atendidas:</span>
-                    <span className="font-semibold" data-testid="text-familias-atendidas">
-                      {dashboardData?.familiasAtendidas || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Casos em Acompanhamento:</span>
-                    <span className="font-semibold" data-testid="text-casos-acompanhamento">
-                      {dashboardData?.casosAcompanhamento || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Taxa de Resolutividade:</span>
-                    <span className="font-semibold text-purple-600" data-testid="text-taxa-resolutividade">
-                      {dashboardData?.taxaResolutividade || 0}%
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
 
           {/* Gestão de Famílias */}
           <Card data-testid="card-familias">
@@ -1240,7 +1353,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'familias' ? 'default' : 'outline'}
                   data-testid="button-familias"
-                  onClick={() => setActiveSection('familias')}
+                  onClick={() => changeSection('familias')}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Famílias
@@ -1249,7 +1362,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'casos' ? 'default' : 'outline'}
                   data-testid="button-casos"
-                  onClick={() => setActiveSection('casos')}
+                  onClick={() => changeSection('casos')}
                 >
                   <UserCheck className="w-4 h-4 mr-2" />
                   Casos Ativos
@@ -1258,7 +1371,7 @@ export default function CoordenadorPsicoPage() {
             </CardContent>
           </Card>
 
-          {/* Participantes/Alunos */}
+          {/* Atendidos */}
           <Card data-testid="card-participantes">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -1268,50 +1381,94 @@ export default function CoordenadorPsicoPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-gray-600 text-sm">
-                Visualize os atendidos dos programas Inclusão Produtiva e PEC.
-              </p>
-              <Button 
-                className="w-full" 
-                variant={activeSection === 'participantes' ? 'default' : 'outline'}
-                data-testid="button-participantes"
-                onClick={() => setActiveSection('participantes')}
-              >
-                <UserCheck className="w-4 h-4 mr-2" />
-                Ver Atendidos
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Serviços Psicossociais */}
-          <Card data-testid="card-servicos">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <HeartHandshake className="w-5 h-5 text-green-500" />
-                Serviços Psicossociais
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-gray-600 text-sm">
-                Coordene atendimentos individuais, grupos terapêuticos e oficinas.
+                Pessoas com registros psicossociais cadastrados.
               </p>
               <div className="space-y-2">
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'atendimentos' ? 'default' : 'outline'}
-                  data-testid="button-atendimentos"
-                  onClick={() => setActiveSection('atendimentos')}
+                  variant={activeSection === 'participantes' ? 'default' : 'outline'}
+                  data-testid="button-participantes"
+                  onClick={() => changeSection('participantes')}
+                >
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  Ver Atendidos
+                </Button>
+                <Button
+                  className="w-full"
+                  variant={activeSection === 'demanda' ? 'default' : 'outline'}
+                  onClick={() => changeSection('demanda')}
                 >
                   <HeartHandshake className="w-4 h-4 mr-2" />
-                  Atendimentos
+                  Demanda Espontânea
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Frequências e Acompanhamentos */}
+          <Card data-testid="card-frequencias">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Calendar className="w-5 h-5 text-blue-500" />
+                Frequências e Turmas
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Acompanhe as frequências das turmas de Inclusão Produtiva e PEC, e os acompanhamentos pedagógicos.
+              </p>
+              <div className="space-y-2">
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'frequencias' ? 'default' : 'outline'}
+                  onClick={() => changeSection('frequencias')}
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Ver Frequências
                 </Button>
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'grupos' ? 'default' : 'outline'}
-                  data-testid="button-grupos"
-                  onClick={() => setActiveSection('grupos')}
+                  variant={activeSection === 'acompanhamentos' ? 'default' : 'outline'}
+                  data-testid="button-acompanhamentos-freq"
+                  onClick={() => changeSection('acompanhamentos')}
                 >
-                  <Activity className="w-4 h-4 mr-2" />
-                  Grupos Terapêuticos
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  Acompanhamentos
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Registros Psicossociais */}
+          <Card data-testid="card-servicos">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <HeartHandshake className="w-5 h-5 text-green-500" />
+                Registros Psicossociais
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Gerencie registros confidenciais, gerais e documentação psicossocial.
+              </p>
+              <div className="space-y-2">
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'confidencial' ? 'default' : 'outline'}
+                  data-testid="button-confidencial"
+                  onClick={() => changeSection('confidencial')}
+                >
+                  <Lock className="w-4 h-4 mr-2" />
+                  Registros Confidenciais
+                </Button>
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'registros-gerais' ? 'default' : 'outline'}
+                  data-testid="button-registros-gerais"
+                  onClick={() => changeSection('registros-gerais')}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Registros Gerais
                 </Button>
               </div>
             </CardContent>
@@ -1334,7 +1491,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'violacoes' ? 'default' : 'outline'}
                   data-testid="button-violacoes"
-                  onClick={() => setActiveSection('violacoes')}
+                  onClick={() => changeSection('violacoes')}
                 >
                   <Shield className="w-4 h-4 mr-2" />
                   Violações de Direitos
@@ -1343,7 +1500,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'medidas' ? 'default' : 'outline'}
                   data-testid="button-medidas"
-                  onClick={() => setActiveSection('medidas')}
+                  onClick={() => changeSection('medidas')}
                 >
                   <Target className="w-4 h-4 mr-2" />
                   Medidas Protetivas
@@ -1369,7 +1526,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'rede' ? 'default' : 'outline'}
                   data-testid="button-rede"
-                  onClick={() => setActiveSection('rede')}
+                  onClick={() => changeSection('rede')}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Rede de Serviços
@@ -1378,14 +1535,24 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'encaminhamentos' ? 'default' : 'outline'}
                   data-testid="button-encaminhamentos"
-                  onClick={() => setActiveSection('encaminhamentos')}
+                  onClick={() => changeSection('encaminhamentos')}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Encaminhamentos
                 </Button>
+                <Button 
+                  className="w-full" 
+                  variant={activeSection === 'grupos' ? 'default' : 'outline'}
+                  data-testid="button-grupos"
+                  onClick={() => changeSection('grupos')}
+                >
+                  <Activity className="w-4 h-4 mr-2" />
+                  Grupos Terapêuticos
+                </Button>
               </div>
             </CardContent>
           </Card>
+
 
           {/* Relatórios Gerenciais */}
           <Card data-testid="card-relatorios">
@@ -1404,7 +1571,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'relatorios' ? 'default' : 'outline'}
                   data-testid="button-relatorios"
-                  onClick={() => setActiveSection('relatorios')}
+                  onClick={() => changeSection('relatorios')}
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Relatórios
@@ -1413,7 +1580,7 @@ export default function CoordenadorPsicoPage() {
                   className="w-full" 
                   variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
                   data-testid="button-perfil"
-                  onClick={() => setActiveSection('configuracoes')}
+                  onClick={() => changeSection('configuracoes')}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   Meu Perfil
@@ -1431,18 +1598,9 @@ export default function CoordenadorPsicoPage() {
           </p>
         </div>
 
+
         {/* Área de Conteúdo Dinâmica */}
-        <div className="mt-8">
-          {activeSection === 'dashboard' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Dashboard Principal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">Visualização geral dos indicadores e métricas de Coordenação Psicossocial.</p>
-              </CardContent>
-            </Card>
-          )}
+        <div className="mt-8" id="coordenador-psico-content-area">
 
           {activeSection === 'familias' && (
             <div className="space-y-6">
@@ -2044,180 +2202,789 @@ export default function CoordenadorPsicoPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    <span>Atendidos (Inclusão Produtiva e PEC)</span>
-                    <Badge variant="outline" className="text-lg">
-                      {participantesData?.length || 0} atendidos
-                    </Badge>
+                    <span>Atendidos</span>
+
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-gray-600 mb-6">
-                    Lista de participantes da Inclusão Produtiva e PEC (Esporte e Cultura) vinculados automaticamente como atendidos do Psicossocial.
-                  </p>
-                  
-                  {participantesData && participantesData.length === 0 && (
-                    <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-yellow-900">Nenhum atendido encontrado</h3>
-                          <p className="text-sm text-yellow-700 mt-1">
-                            Os alunos já cadastrados no sistema ainda não foram vinculados. Clique no botão abaixo para sincronizar automaticamente.
-                          </p>
-                          <Button 
-                            className="mt-3" 
-                            onClick={() => syncParticipantesMutation.mutate()}
-                            disabled={syncParticipantesMutation.isPending}
-                            data-testid="button-sync-participantes"
-                          >
-                            {syncParticipantesMutation.isPending ? (
-                              <>
-                                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                                Sincronizando...
-                              </>
-                            ) : (
-                              <>
-                                <RefreshCw className="w-4 h-4 mr-2" />
-                                Sincronizar Alunos Existentes
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+                    <div className="bg-purple-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-purple-700">{(psicoDashStats as any)?.data?.atendimentoIndividual || 0}</div>
+                      <div className="text-xs text-purple-600">Atend. Individuais</div>
                     </div>
-                  )}
-                  
-                  <div className="mb-4 flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input 
-                        placeholder="Buscar participante por nome..." 
-                        className="pl-10" 
-                        data-testid="input-search-participante"
-                      />
+                    <div className="bg-blue-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-blue-700">{(psicoDashStats as any)?.data?.visitaDomiciliar || 0}</div>
+                      <div className="text-xs text-blue-600">Visitas Domiciliares</div>
                     </div>
-                    {participantesData && participantesData.length > 0 && (
-                      <Button 
-                        variant="outline"
-                        onClick={() => syncParticipantesMutation.mutate()}
-                        disabled={syncParticipantesMutation.isPending}
-                        data-testid="button-sync-participantes"
-                      >
-                        {syncParticipantesMutation.isPending ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                            Sincronizando
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Sincronizar
-                          </>
-                        )}
-                      </Button>
-                    )}
+                    <div className="bg-green-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-green-700">{(psicoDashStats as any)?.data?.atendimentoColetivo || 0}</div>
+                      <div className="text-xs text-green-600">Atend. Coletivos</div>
+                    </div>
+                    <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-yellow-700">{(psicoDashStats as any)?.data?.espacoOGrito || 0}</div>
+                      <div className="text-xs text-yellow-600">Espaço O Grito</div>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-red-700">{(psicoDashStats as any)?.data?.acoesSaude || 0}</div>
+                      <div className="text-xs text-red-600">Ações p/ Saúde</div>
+                    </div>
+                    <div className="bg-orange-50 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold text-orange-700">{(psicoDashStats as any)?.data?.demandasEspontaneas || 0}</div>
+                      <div className="text-xs text-orange-600">Dem. Espontâneas</div>
+                    </div>
                   </div>
 
-                  {isLoadingParticipantes ? (
-                    <div className="text-center py-8">
-                      <p className="text-gray-500">Carregando participantes...</p>
+                  <div className="mt-2">
+                    <div className="mb-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                        <Input placeholder="Buscar atendido por nome ou CPF..." value={buscaParticipante} onChange={(e) => setBuscaParticipante(e.target.value)} className="pl-10" />
+                      </div>
                     </div>
-                  ) : participantesData && participantesData.length > 0 ? (
-                    <div className="border rounded-lg overflow-hidden">
+                    {loadingAtendidosReg ? (
+                      <div className="text-center py-6 text-gray-500">Carregando atendidos...</div>
+                    ) : (
                       <Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead>Nome</TableHead>
-                            <TableHead>Programa</TableHead>
-                            <TableHead>Gênero</TableHead>
-                            <TableHead>Idade</TableHead>
-                            <TableHead>Família Vinculada</TableHead>
-                            <TableHead>Papel</TableHead>
-                            <TableHead>Contato</TableHead>
+                            <TableHead>CPF</TableHead>
+                            <TableHead>Registros</TableHead>
                             <TableHead>Ações</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {participantesData.map((participante: any) => (
-                            <TableRow key={participante.id} data-testid={`row-participante-${participante.id}`}>
-                              <TableCell className="font-medium">{participante.nome}</TableCell>
-                              <TableCell>
-                                <Badge 
-                                  className={participante.programa_origem === 'pec' 
-                                    ? 'bg-blue-100 text-blue-800' 
-                                    : 'bg-green-100 text-green-800'}
-                                >
-                                  {participante.programa_origem === 'pec' ? '🏃 PEC' : '🎓 Inclusão'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline">
-                                  {participante.genero || '-'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>{participante.idade ? `${participante.idade} anos` : '-'}</TableCell>
-                              <TableCell>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{participante.familia_nome}</span>
-                                  <span className="text-xs text-gray-500">ID: {participante.familia_id}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                {participante.papel ? (
-                                  <Badge className="bg-indigo-100 text-indigo-800">
-                                    {participante.papel}
-                                  </Badge>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-col text-sm">
-                                  {participante.telefone && (
-                                    <span>{participante.telefone}</span>
-                                  )}
-                                  {participante.email && (
-                                    <span className="text-xs text-gray-500">{participante.email}</span>
-                                  )}
-                                  {!participante.telefone && !participante.email && (
-                                    <span className="text-gray-400">-</span>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2">
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm"
-                                    onClick={() => {
-                                      setSelectedParticipante(participante);
-                                      setShowHistoricoModal(true);
-                                    }}
-                                    data-testid={`button-historico-participante-${participante.id}`}
-                                    title="Ver histórico de atendimentos"
-                                  >
-                                    <Eye className="h-4 w-4" />
+                          {(() => {
+                            const filtered = (atendidosRegistrados as any[]).filter((a: any) => {
+                              if (!buscaParticipante.trim()) return true;
+                              const termo = buscaParticipante.toLowerCase();
+                              return (a.nome || "").toLowerCase().includes(termo) || (a.cpf || "").includes(buscaParticipante);
+                            }).sort((a: any, b: any) => (a.nome || "").localeCompare(b.nome || "", 'pt-BR'));
+                            if (filtered.length === 0) return (
+                              <TableRow>
+                                <TableCell colSpan={4} className="text-center text-gray-500 py-8">
+                                  Nenhum atendido encontrado. Cadastre registros na seção "Serviços Psicossociais".
+                                </TableCell>
+                              </TableRow>
+                            );
+                            return filtered.map((a: any) => (
+                              <TableRow key={a.id} className="cursor-pointer hover:bg-purple-50" onClick={() => { setSelectedParticipante(a); setShowHistoricoModal(true); }}>
+                                <TableCell className="font-medium">{a.nome ? normalizeName(a.nome) : "-"}</TableCell>
+                                <TableCell className="text-sm text-gray-500">{formatCPF(a.cpf)}</TableCell>
+                                <TableCell>
+                                  <Badge className="bg-purple-100 text-purple-800">{a.totalAtendimentos} registro(s)</Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedParticipante(a); setShowHistoricoModal(true); }}>
+                                    <Eye className="w-4 h-4 mr-1" /> Ver
                                   </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                                </TableCell>
+                              </TableRow>
+                            ));
+                          })()}
                         </TableBody>
                       </Table>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeSection === 'frequencias' && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-500" />
+                    Frequências das Turmas
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2 flex-wrap mb-4">
+                    <span className="text-sm font-medium text-gray-700">Programa:</span>
+                    <Button size="sm" variant={freqPrograma === "pec" ? "default" : "outline"} onClick={() => { setFreqPrograma("pec"); setFreqTurmaId(""); setFreqExpandida(null); }} className={freqPrograma === "pec" ? "bg-yellow-500 hover:bg-yellow-600" : ""}>
+                      PEC
+                    </Button>
+                    <Button size="sm" variant={freqPrograma === "inclusao" ? "default" : "outline"} onClick={() => { setFreqPrograma("inclusao"); setFreqTurmaId(""); setFreqExpandida(null); }} className={freqPrograma === "inclusao" ? "bg-green-600 hover:bg-green-700" : ""}>
+                      Inclusão Produtiva
+                    </Button>
+                  </div>
+
+                  {!freqTurmaId ? (
+                    <div>
+                      <h3 className="font-semibold text-gray-800 mb-3">Turmas - {freqPrograma === "pec" ? "PEC" : "Inclusão Produtiva"}</h3>
+                      <input type="text" placeholder="Buscar turma..." value={freqBusca} onChange={(e) => setFreqBusca(e.target.value)} className="w-full px-3 py-2 mb-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      {(freqTurmas as any[]).length > 0 ? (
+                        <div className="space-y-1">
+                          {[...(freqTurmas as any[])].filter((t: any) => !freqBusca || (t.nome || t.title || `Turma ${t.id}`).toLowerCase().includes(freqBusca.toLowerCase())).sort((a: any, b: any) => {
+                            const aMax = freqHistorico.filter((c: any) => String(c.turmaId) === String(a.id)).reduce((m: string, c: any) => c.data > m ? c.data : m, "");
+                            const bMax = freqHistorico.filter((c: any) => String(c.turmaId) === String(b.id)).reduce((m: string, c: any) => c.data > m ? c.data : m, "");
+                            if (!aMax && !bMax) return (b.id || 0) - (a.id || 0);
+                            if (!aMax) return 1;
+                            if (!bMax) return -1;
+                            return bMax.localeCompare(aMax);
+                          }).map((t: any) => {
+                            const turmasChamadas = freqHistorico.filter((c: any) => String(c.turmaId) === String(t.id));
+                            const totalChamadas = turmasChamadas.length;
+                            const freqMedia = totalChamadas > 0 ? Math.round(turmasChamadas.reduce((acc: number, c: any) => acc + (c.presentes || 0), 0) / turmasChamadas.reduce((acc: number, c: any) => acc + (c.total || 1), 0) * 100) : 0;
+                            return (
+                              <div key={t.id} className="flex items-center justify-between px-4 py-3 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => { setFreqTurmaId(String(t.id)); setFreqExpandida(null); }}>
+                                <div>
+                                  <span className="font-medium text-gray-800 text-sm">{t.nome || t.title || `Turma ${t.id}`}</span>
+                                  <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                                    <span>{totalChamadas} chamadas</span>
+                                    <span>Freq: <span className={`font-medium ${freqMedia >= 70 ? "text-green-600" : freqMedia >= 50 ? "text-yellow-600" : "text-red-600"}`}>{freqMedia}%</span></span>
+                                  </div>
+                                </div>
+                                <ChevronDown className="w-4 h-4 text-gray-400 -rotate-90" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-400 border rounded-lg">
+                          Nenhuma turma encontrada para {freqPrograma === "pec" ? "PEC" : "Inclusão Produtiva"}
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="text-center py-12 border rounded-lg bg-gray-50">
-                      <UserCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                      <p className="text-gray-600 font-medium">Nenhum participante vinculado</p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Participantes cadastrados na Inclusão Produtiva ou PEC aparecerão aqui automaticamente
-                      </p>
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Button size="sm" variant="ghost" onClick={() => { setFreqTurmaId(""); setFreqExpandida(null); }} className="text-gray-600 hover:text-gray-800 px-2">
+                          ← Voltar
+                        </Button>
+                        <h3 className="font-semibold text-gray-800">
+                          {(freqTurmas as any[]).find((t: any) => String(t.id) === freqTurmaId)?.nome || (freqTurmas as any[]).find((t: any) => String(t.id) === freqTurmaId)?.title || "Turma"}
+                        </h3>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                        <div className={`${freqPrograma === "pec" ? "bg-yellow-50" : "bg-green-50"} rounded-lg p-3 text-center`}>
+                          <div className={`text-2xl font-bold ${freqPrograma === "pec" ? "text-yellow-700" : "text-green-700"}`}>{freqHistorico.length}</div>
+                          <div className={`text-xs ${freqPrograma === "pec" ? "text-yellow-600" : "text-green-600"}`}>Chamadas</div>
+                        </div>
+                        <div className="bg-purple-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-purple-700">
+                            {freqHistorico.length > 0 ? Math.round(freqHistorico.reduce((acc: number, c: any) => acc + (c.presentes || 0), 0) / freqHistorico.reduce((acc: number, c: any) => acc + (c.total || 1), 0) * 100) : 0}%
+                          </div>
+                          <div className="text-xs text-purple-600">Frequência Média</div>
+                        </div>
+                      </div>
+
+                      {loadingFreqChamadas ? (
+                        <div className="text-center py-4 text-gray-500">Carregando...</div>
+                      ) : freqHistorico.length > 0 ? (
+                        <div className="space-y-2">
+                          {freqHistorico.map((c: any, i: number) => (
+                            <div key={c.id || i} className="border rounded-lg overflow-hidden">
+                              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => setFreqExpandida(freqExpandida === c.id ? null : c.id)}>
+                                <span className="text-sm font-medium">{c.data}</span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-sm">
+                                    <span className="text-green-600 font-medium">{c.presentes || 0}</span>
+                                    <span className="text-gray-400"> / </span>
+                                    <span className="text-gray-600">{c.total || 0}</span>
+                                  </span>
+                                  <span className="text-xs text-gray-400">{freqExpandida === c.id ? "▲" : "▼"}</span>
+                                </div>
+                              </div>
+                              {freqExpandida === c.id && c.presencas && (
+                                <div className="border-t">
+                                  {[...c.presencas].sort((a: any, b: any) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR')).map((p: any, pi: number) => (
+                                    <div key={p.alunoCpf || pi} className={`flex items-center justify-between px-4 py-2 border-b last:border-b-0 text-sm ${p.presente ? "bg-green-50" : "bg-red-50"}`}>
+                                      <span>{(p.nome || 'Sem nome').trim()}</span>
+                                      <Badge variant="outline" className={p.presente ? "border-green-500 text-green-600" : "border-red-500 text-red-600"}>
+                                        {p.presente ? "Presente" : p.justificativa ? `Falta - ${p.justificativa}` : "Falta"}
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-400 border rounded-lg">Nenhuma chamada registrada para esta turma</div>
+                      )}
                     </div>
                   )}
                 </CardContent>
               </Card>
             </div>
           )}
+
+          {activeSection === 'confidencial' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Lock className="w-5 h-5 text-purple-500" />
+                    Registros Confidenciais
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-800">
+                    <strong>Registros Confidenciais:</strong> Registre atendimentos individuais, visitas domiciliares, encaminhamentos e outras intervenções psicossociais de forma segura e organizada.
+                  </div>
+
+                  <div className="flex gap-2 mb-2">
+                    <Button size="sm" variant={confSubTab === "realizados" ? "default" : "outline"} onClick={() => setConfSubTab("realizados")} className={confSubTab === "realizados" ? "bg-purple-600 hover:bg-purple-700" : ""}>
+                      Registros Realizados
+                    </Button>
+                    <Button size="sm" variant={confSubTab === "novo" ? "default" : "outline"} onClick={() => setConfSubTab("novo")} className={confSubTab === "novo" ? "bg-purple-600 hover:bg-purple-700" : ""}>
+                      <Plus className="w-4 h-4 mr-1" /> Novo Registro
+                    </Button>
+                  </div>
+
+                  {confSubTab === "novo" && (
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+                      <h4 className="font-semibold text-purple-800">Novo Registro Confidencial</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Tipo de Atendimento</label>
+                          <Select value={psicoRegistroForm.tipo} onValueChange={(v) => setPsicoRegistroForm({...psicoRegistroForm, tipo: v})}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="atendimento_individual">Atendimento Individual</SelectItem>
+                              <SelectItem value="visita_domiciliar">Visita Domiciliar</SelectItem>
+                              <SelectItem value="situacao_risco">Situação de Risco</SelectItem>
+                              <SelectItem value="encaminhamento">Encaminhamento</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Data</label>
+                          <Input type="date" value={psicoRegistroForm.data} onChange={(e) => setPsicoRegistroForm({...psicoRegistroForm, data: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Título</label>
+                          <Input value={psicoRegistroForm.titulo} onChange={(e) => setPsicoRegistroForm({...psicoRegistroForm, titulo: e.target.value})} placeholder="Ex: Atendimento - Maria Silva" />
+                        </div>
+                        <div className="relative">
+                          <label className="text-sm font-medium mb-1 block">Participante</label>
+                          <Input
+                            value={registroPartOpen ? registroPartBusca : psicoRegistroForm.participanteNome}
+                            onChange={(e) => {
+                              setRegistroPartBusca(e.target.value);
+                              setRegistroPartOpen(true);
+                              setPsicoRegistroForm({...psicoRegistroForm, participanteNome: e.target.value, participanteCpf: "", participanteDataNascimento: ""});
+                            }}
+                            onFocus={() => { setRegistroPartOpen(true); setRegistroPartBusca(psicoRegistroForm.participanteNome || ""); }}
+                            onBlur={() => setTimeout(() => setRegistroPartOpen(false), 200)}
+                            placeholder="Buscar por nome (PEC/Inclusão/Comunidade) ou digitar novo"
+                          />
+                          {registroPartOpen && (() => {
+                            const todosParticipantes = (todosAtendidosParaAtendimento as any[] || []);
+                            const filtrados = registroPartBusca.trim()
+                              ? todosParticipantes.filter((p: any) => 
+                                  (p.label || p.nome || "").toLowerCase().includes(registroPartBusca.toLowerCase()) ||
+                                  (p.cpf || "").includes(registroPartBusca)
+                                )
+                              : todosParticipantes;
+                            if (filtrados.length === 0 && registroPartBusca.trim().length >= 2) return (
+                              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+                                <p className="text-xs text-gray-500 mb-1">Nenhum participante encontrado.</p>
+                                <p className="text-xs text-purple-600 font-medium">O nome digitado será usado como novo participante.</p>
+                              </div>
+                            );
+                            if (filtrados.length === 0) return null;
+                            return (
+                              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                {filtrados.slice(0, 20).map((p: any, i: number) => (
+                                  <button
+                                    key={p.id || i}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                    onClick={() => {
+                                      const nome = p.nome || p.label || "";
+                                      const cpf = p.cpf || "";
+                                      const dataNasc = p.data_nascimento || "";
+                                      setPsicoRegistroForm({...psicoRegistroForm, participanteNome: nome, participanteCpf: cpf, participanteDataNascimento: dataNasc});
+                                      setRegistroPartBusca(nome);
+                                      setRegistroPartOpen(false);
+                                    }}
+                                  >
+                                    <span className="font-medium text-gray-900">{p.nome || p.label}</span>
+                                    {p.cpf && <span className="text-xs text-gray-400">{formatCPF(p.cpf)}</span>}
+                                    <span className="text-xs text-gray-400 ml-auto">{p.origem === 'inclusao' ? 'Inclusão' : p.origem === 'pec' ? 'PEC' : 'Comunidade'}</span>
+                                  </button>
+                                ))}
+                                {filtrados.length > 20 && <div className="px-3 py-1 text-xs text-gray-400 text-center">Mostrando 20 de {filtrados.length}</div>}
+                              </div>
+                            );
+                          })()}
+                          {psicoRegistroForm.participanteNome && !registroPartOpen && (
+                            <button type="button" className="absolute right-2 top-8 text-gray-400 hover:text-red-500 text-xs" onClick={() => { setPsicoRegistroForm({...psicoRegistroForm, participanteNome: "", participanteCpf: "", participanteDataNascimento: ""}); setRegistroPartBusca(""); }}>✕</button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-1 block">Descrição / Conteúdo</label>
+                        <textarea
+                          className="w-full border rounded-lg p-2 text-sm min-h-[120px]"
+                          value={psicoRegistroForm.conteudo}
+                          onChange={(e) => setPsicoRegistroForm({...psicoRegistroForm, conteudo: e.target.value})}
+                          placeholder="Descreva em detalhes o atendimento, observações, encaminhamentos realizados..."
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" size="sm" onClick={() => setConfSubTab("realizados")}>Cancelar</Button>
+                        <Button
+                          size="sm"
+                          className="bg-purple-600 hover:bg-purple-700"
+                          disabled={!psicoRegistroForm.titulo || !psicoRegistroForm.conteudo || !psicoRegistroForm.participanteNome || createRegistroConfMutation.isPending}
+                          onClick={() => createRegistroConfMutation.mutate(psicoRegistroForm)}
+                        >
+                          {createRegistroConfMutation.isPending ? "Salvando..." : "Salvar Registro"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {confSubTab === "realizados" && (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Input
+                          value={confSearchTerm}
+                          onChange={(e) => setConfSearchTerm(e.target.value)}
+                          placeholder="Pesquisar por nome do participante..."
+                          className="pl-9"
+                        />
+                      </div>
+
+                      {loadingRegistrosConf ? (
+                        <div className="text-center py-6 text-gray-500">Carregando registros...</div>
+                      ) : (() => {
+                        const allRegistros = (coordRegistrosConf as any[]);
+                        const tipoLabel: Record<string, string> = { atendimento_individual: "Atendimento Individual", visita_domiciliar: "Visita Domiciliar", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", relato_espontaneo: "Relato Espontâneo", observacao_comportamental: "Observação Comportamental", contato_familiar: "Contato Familiar", outro: "Outro" };
+                        const grouped: Record<string, any[]> = {};
+                        const semParticipante: any[] = [];
+                        allRegistros.forEach((r: any) => {
+                          const nome = (r.participanteNome || "").trim();
+                          if (!nome) { semParticipante.push(r); return; }
+                          if (!grouped[nome]) grouped[nome] = [];
+                          grouped[nome].push(r);
+                        });
+                        const participantNames = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "pt-BR"));
+                        const filteredNames = confSearchTerm.trim()
+                          ? participantNames.filter(n => n.toLowerCase().includes(confSearchTerm.toLowerCase()))
+                          : participantNames;
+                        const totalRegistros = allRegistros.length;
+                        if (totalRegistros === 0) return (
+                          <div className="text-center py-8 text-gray-400 border rounded-lg">Nenhum registro confidencial</div>
+                        );
+                        if (confSearchTerm && filteredNames.length === 0 && semParticipante.length === 0) return (
+                          <div className="text-center py-8 text-gray-400 border rounded-lg">Nenhum participante encontrado para essa pesquisa</div>
+                        );
+
+                        const renderRegistro = (r: any) => {
+                          if (editRegistroId === r.id) {
+                            return (
+                              <div key={r.id} className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+                                <h4 className="font-semibold text-purple-800">Editar Registro Confidencial</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-sm font-medium mb-1 block">Título</label>
+                                    <Input value={editRegistroForm.titulo} onChange={(e) => setEditRegistroForm({...editRegistroForm, titulo: e.target.value})} />
+                                  </div>
+                                  <div>
+                                    <label className="text-sm font-medium mb-1 block">Tipo</label>
+                                    <Select value={editRegistroForm.tipo} onValueChange={(v) => setEditRegistroForm({...editRegistroForm, tipo: v})}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="atendimento_individual">Atendimento Individual</SelectItem>
+                                        <SelectItem value="visita_domiciliar">Visita Domiciliar</SelectItem>
+                                        <SelectItem value="situacao_risco">Situação de Risco</SelectItem>
+                                        <SelectItem value="encaminhamento">Encaminhamento</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <label className="text-sm font-medium mb-1 block">Data</label>
+                                    <Input type="date" value={editRegistroForm.data} onChange={(e) => setEditRegistroForm({...editRegistroForm, data: e.target.value})} />
+                                  </div>
+                                  <div className="relative">
+                                    <label className="text-sm font-medium mb-1 block">Participante (opcional)</label>
+                                    <Input
+                                      value={editRegistroPartOpen ? editRegistroPartBusca : editRegistroForm.participanteNome}
+                                      onChange={(e) => {
+                                        setEditRegistroPartBusca(e.target.value);
+                                        setEditRegistroPartOpen(true);
+                                        setEditRegistroForm({...editRegistroForm, participanteNome: e.target.value});
+                                      }}
+                                      onFocus={() => { setEditRegistroPartOpen(true); setEditRegistroPartBusca(editRegistroForm.participanteNome || ""); }}
+                                      onBlur={() => setTimeout(() => setEditRegistroPartOpen(false), 200)}
+                                      placeholder="Buscar ou digitar nome do atendido"
+                                    />
+                                    {editRegistroPartOpen && (() => {
+                                      const todos = (todosAtendidosParaAtendimento as any[] || []);
+                                      const filtrados = editRegistroPartBusca.trim()
+                                        ? todos.filter((p: any) => (p.label || p.nome || "").toLowerCase().includes(editRegistroPartBusca.toLowerCase()))
+                                        : todos;
+                                      if (filtrados.length === 0) return null;
+                                      return (
+                                        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                          {filtrados.slice(0, 20).map((p: any, i: number) => (
+                                            <button key={p.id || i} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                              onClick={() => { setEditRegistroForm({...editRegistroForm, participanteNome: p.nome || p.label}); setEditRegistroPartBusca(p.nome || p.label); setEditRegistroPartOpen(false); }}>
+                                              <span className="font-medium text-gray-900">{p.nome || p.label}</span>
+                                              <span className="text-xs text-gray-400 ml-auto">{p.origem === 'inclusao' ? 'Inclusão' : p.origem === 'pec' ? 'PEC' : 'Comunidade'}</span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium mb-1 block">Conteúdo</label>
+                                  <textarea className="w-full border rounded-lg p-2 text-sm min-h-[120px]" value={editRegistroForm.conteudo} onChange={(e) => setEditRegistroForm({...editRegistroForm, conteudo: e.target.value})} />
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button variant="outline" size="sm" onClick={() => setEditRegistroId(null)}>Cancelar</Button>
+                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700"
+                                    disabled={!editRegistroForm.titulo || !editRegistroForm.conteudo || updateRegistroConfMutation.isPending}
+                                    onClick={() => updateRegistroConfMutation.mutate({ id: r.id, ...editRegistroForm })}>
+                                    {updateRegistroConfMutation.isPending ? "Salvando..." : "Salvar Alterações"}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          }
+                          const isRegExpanded = confExpandedRegistro === r.id;
+                          return (
+                            <div key={r.id} className="border rounded-lg ml-4 overflow-hidden">
+                              <button
+                                type="button"
+                                className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-purple-50/50 transition-colors text-left"
+                                onClick={() => setConfExpandedRegistro(isRegExpanded ? null : r.id)}
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <ChevronRight className={`w-3 h-3 text-purple-400 transition-transform flex-shrink-0 ${isRegExpanded ? "rotate-90" : ""}`} />
+                                  <span className="font-medium text-sm truncate">{r.titulo}</span>
+                                  <Badge variant="outline" className="text-xs border-purple-300 text-purple-600 flex-shrink-0">{tipoLabel[r.tipo] || r.tipo}</Badge>
+                                  <span className="text-xs text-gray-400 flex-shrink-0">{r.data ? new Date(r.data + "T12:00:00").toLocaleDateString("pt-BR") : "-"}</span>
+                                </div>
+                                <div className="flex gap-1 ml-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <Button variant="ghost" size="sm" className="text-purple-500 hover:text-purple-700 hover:bg-purple-50 h-7 w-7 p-0"
+                                    onClick={() => {
+                                      setEditRegistroId(r.id);
+                                      setEditRegistroForm({ titulo: r.titulo || "", tipo: r.tipo || "", conteudo: r.conteudo || "", participanteNome: r.participanteNome || "", data: r.data || "" });
+                                      setEditRegistroPartBusca(r.participanteNome || "");
+                                    }}>
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                                    onClick={() => setConfirmDeleteRegistro({ open: true, id: r.id })}>
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              </button>
+                              {isRegExpanded && (
+                                <div className="border-t bg-gray-50 px-4 py-3 space-y-2">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                                    <div><span className="text-gray-500 font-medium">Tipo:</span> <span>{tipoLabel[r.tipo] || r.tipo}</span></div>
+                                    <div><span className="text-gray-500 font-medium">Data:</span> <span>{r.data ? new Date(r.data + "T12:00:00").toLocaleDateString("pt-BR") : "-"}</span></div>
+                                    {r.participanteNome && <div><span className="text-gray-500 font-medium">Participante:</span> <span className="text-purple-600">{r.participanteNome}</span></div>}
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500 font-medium text-sm">Conteúdo:</span>
+                                    <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap bg-white rounded p-2 border">{r.conteudo}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        };
+
+                        return (
+                          <div className="space-y-2">
+                            {confSearchTerm && <p className="text-xs text-gray-500">{filteredNames.length} participante(s) encontrado(s)</p>}
+                            {filteredNames.map((nome) => {
+                              const registros = grouped[nome];
+                              const isExpanded = confExpandedParticipante === nome;
+                              return (
+                                <div key={nome} className="border rounded-lg overflow-hidden">
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-purple-50 transition-colors"
+                                    onClick={() => setConfExpandedParticipante(isExpanded ? null : nome)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <ChevronDown className={`w-4 h-4 text-purple-500 transition-transform ${isExpanded ? "rotate-0" : "-rotate-90"}`} />
+                                      <span className="font-medium text-gray-900">{nome}</span>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs border-purple-300 text-purple-600">{registros.length} registro(s)</Badge>
+                                  </button>
+                                  {isExpanded && (
+                                    <div className="border-t bg-gray-50 p-3 space-y-2">
+                                      {registros.map((r: any) => renderRegistro(r))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {semParticipante.length > 0 && !confSearchTerm && (
+                              <div className="border rounded-lg overflow-hidden">
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50 transition-colors"
+                                  onClick={() => setConfExpandedParticipante(confExpandedParticipante === "__sem_participante__" ? null : "__sem_participante__")}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${confExpandedParticipante === "__sem_participante__" ? "rotate-0" : "-rotate-90"}`} />
+                                    <span className="font-medium text-gray-500 italic">Sem participante vinculado</span>
+                                  </div>
+                                  <Badge variant="outline" className="text-xs">{semParticipante.length} registro(s)</Badge>
+                                </button>
+                                {confExpandedParticipante === "__sem_participante__" && (
+                                  <div className="border-t bg-gray-50 p-3 space-y-2">
+                                    {semParticipante.map((r: any) => renderRegistro(r))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeSection === 'registros-gerais' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-500" />
+                    Registros Gerais
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                    <strong>Registros Gerais:</strong> Registros não-confidenciais criados por monitores e coordenadores psicossociais. Todos os registros de ambas as funções são exibidos aqui.
+                  </div>
+
+                  <div className="flex gap-2 mb-2">
+                    <Button size="sm" variant={geraisSubTab === "realizados" ? "default" : "outline"} onClick={() => setGeraisSubTab("realizados")} className={geraisSubTab === "realizados" ? "bg-blue-600 hover:bg-blue-700" : ""}>
+                      Registros Realizados
+                    </Button>
+                    <Button size="sm" variant={geraisSubTab === "novo" ? "default" : "outline"} onClick={() => setGeraisSubTab("novo")} className={geraisSubTab === "novo" ? "bg-blue-600 hover:bg-blue-700" : ""}>
+                      <Plus className="w-4 h-4 mr-1" /> Novo Registro
+                    </Button>
+                  </div>
+
+                  {geraisSubTab === "novo" && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                      <h4 className="font-semibold text-blue-800">Novo Registro Geral</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Tipo</label>
+                          <Select value={geraisForm.tipo} onValueChange={(v) => { setGeraisForm({...geraisForm, tipo: v}); setGeraisColaboradoresIds([]); setGeraisColabBusca(""); }}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
+                              <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Data</label>
+                          <Input type="date" value={geraisForm.data} onChange={(e) => setGeraisForm({...geraisForm, data: e.target.value})} />
+                        </div>
+                        {geraisForm.tipo !== "espaco_o_grito" && (
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Participante (opcional)</label>
+                          <Input value={geraisForm.participanteNome} onChange={(e) => setGeraisForm({...geraisForm, participanteNome: e.target.value})} placeholder="Nome do participante" />
+                        </div>
+                        )}
+                        {geraisForm.tipo === "espaco_o_grito" && (
+                          <div className="md:col-span-2">
+                            <label className="text-sm font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400 text-xs">({geraisColaboradoresIds.length} selecionado(s))</span></label>
+                            <Input className="mb-2" placeholder="Filtrar colaboradores..." value={geraisColabBusca} onChange={(e) => setGeraisColabBusca(e.target.value)} />
+                            <div className="border rounded-lg max-h-52 overflow-y-auto bg-white">
+                              {todosColaboradoresPsico.filter((c: any) => !geraisColabBusca || c.nome.toLowerCase().includes(geraisColabBusca.toLowerCase())).map((c: any) => {
+                                const checked = geraisColaboradoresIds.includes(c.id);
+                                return (
+                                  <label key={c.id} className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer border-b last:border-0">
+                                    <input type="checkbox" checked={checked} onChange={() => setGeraisColaboradoresIds(prev => checked ? prev.filter(id => id !== c.id) : [...prev, c.id])} className="w-4 h-4 accent-blue-600" />
+                                    <span className="text-sm text-gray-800">{c.nome}</span>
+                                    {c.vinculo && <span className="ml-auto text-xs text-gray-400">{c.vinculo}</span>}
+                                  </label>
+                                );
+                              })}
+                              {todosColaboradoresPsico.length === 0 && <div className="px-3 py-4 text-sm text-gray-400 text-center">Carregando colaboradores...</div>}
+                            </div>
+                            {geraisColaboradoresIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{geraisColaboradoresIds.length} colaborador(es) selecionado(s)</p>}
+                          </div>
+                        )}
+                        <div className="md:col-span-2">
+                          <label className="text-sm font-medium mb-1 block">Conteúdo</label>
+                          <Textarea value={geraisForm.conteudo} onChange={(e) => setGeraisForm({...geraisForm, conteudo: e.target.value})} placeholder="Descreva o registro..." rows={4} />
+                        </div>
+                      </div>
+                      <Button onClick={() => createGeraisMutation.mutate({ ...geraisForm, colaboradoresIds: geraisForm.tipo === "espaco_o_grito" ? geraisColaboradoresIds : null })} disabled={createGeraisMutation.isPending || !geraisForm.conteudo.trim() || (geraisForm.tipo === "espaco_o_grito" && geraisColaboradoresIds.length === 0)} className="bg-blue-600 hover:bg-blue-700">
+                        {createGeraisMutation.isPending ? "Salvando..." : "Salvar Registro"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {geraisSubTab === "realizados" && (
+                    <div className="space-y-3">
+                      <Input placeholder="Buscar registros..." value={geraisSearchTerm} onChange={(e) => setGeraisSearchTerm(e.target.value)} className="mb-2" />
+                      {loadingRegistrosGerais ? (
+                        <div className="text-center py-4 text-gray-500">Carregando...</div>
+                      ) : (coordRegistrosGerais as any[]).filter((r: any) => !geraisSearchTerm || r.conteudo?.toLowerCase().includes(geraisSearchTerm.toLowerCase()) || r.participanteNome?.toLowerCase().includes(geraisSearchTerm.toLowerCase())).length === 0 ? (
+                        <div className="text-center py-8 text-gray-400">Nenhum registro encontrado.</div>
+                      ) : (
+                        (coordRegistrosGerais as any[]).filter((r: any) => !geraisSearchTerm || r.conteudo?.toLowerCase().includes(geraisSearchTerm.toLowerCase()) || r.participanteNome?.toLowerCase().includes(geraisSearchTerm.toLowerCase())).map((r: any) => (
+                          <div key={r.id} className="border rounded-lg p-3 bg-white space-y-2">
+                            {editGeraisId === r.id ? (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <Select value={editGeraisForm.tipo} onValueChange={(v) => { setEditGeraisForm({...editGeraisForm, tipo: v}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); }}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
+                                      <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Input type="date" value={editGeraisForm.data} onChange={(e) => setEditGeraisForm({...editGeraisForm, data: e.target.value})} />
+                                </div>
+                                {editGeraisForm.tipo !== "espaco_o_grito" && (
+                                  <Input value={editGeraisForm.participanteNome} onChange={(e) => setEditGeraisForm({...editGeraisForm, participanteNome: e.target.value})} placeholder="Participante" />
+                                )}
+                                {editGeraisForm.tipo === "espaco_o_grito" && (
+                                  <div>
+                                    <label className="text-xs font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400">({editGeraisColaboradoresIds.length} selecionado(s))</span></label>
+                                    <Input className="mb-1" placeholder="Filtrar..." value={editGeraisColabBusca} onChange={(e) => setEditGeraisColabBusca(e.target.value)} />
+                                    <div className="border rounded-lg max-h-40 overflow-y-auto bg-white">
+                                      {todosColaboradoresPsico.filter((c: any) => !editGeraisColabBusca || c.nome.toLowerCase().includes(editGeraisColabBusca.toLowerCase())).map((c: any) => {
+                                        const checked = editGeraisColaboradoresIds.includes(c.id);
+                                        return (
+                                          <label key={c.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b last:border-0">
+                                            <input type="checkbox" checked={checked} onChange={() => setEditGeraisColaboradoresIds(prev => checked ? prev.filter(id => id !== c.id) : [...prev, c.id])} className="w-3.5 h-3.5 accent-blue-600" />
+                                            <span className="text-xs text-gray-800">{c.nome}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                                <Textarea value={editGeraisForm.conteudo} onChange={(e) => setEditGeraisForm({...editGeraisForm, conteudo: e.target.value})} rows={3} />
+                                <div className="flex gap-2">
+                                  <Button size="sm" onClick={() => updateGeraisMutation.mutate({ id: r.id, ...editGeraisForm, colaboradoresIds: editGeraisForm.tipo === "espaco_o_grito" ? editGeraisColaboradoresIds : null })} disabled={updateGeraisMutation.isPending}>Salvar</Button>
+                                  <Button size="sm" variant="outline" onClick={() => { setEditGeraisId(null); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); }}>Cancelar</Button>
+                                </div>
+                              </div>
+                            ) : (() => {
+                                const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                                let colaboradoresIdsList2: number[] = [];
+                                let colaboradoresDisplay2 = "";
+                                if (r.colaboradoresIds) {
+                                  try {
+                                    colaboradoresIdsList2 = JSON.parse(r.colaboradoresIds);
+                                    const nomes = colaboradoresIdsList2.map((id: number) => todosColaboradoresPsico.find((c: any) => c.id === id)?.nome).filter(Boolean);
+                                    colaboradoresDisplay2 = nomes.join(", ");
+                                  } catch {}
+                                }
+                                return (
+                              <>
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <Badge variant="outline" className="text-xs mb-1 text-blue-700 border-blue-300">{tipoLabels[r.tipo] || r.tipo}</Badge>
+                                    {r.participanteNome && <p className="text-sm font-medium text-gray-700">{r.participanteNome}</p>}
+                                    {colaboradoresDisplay2 && (
+                                      <details className="text-xs">
+                                        <summary className="cursor-pointer text-green-700 font-medium select-none list-none flex items-center gap-1">
+                                          <span className="inline-block w-3 h-3 mr-0.5">▶</span>
+                                          Colaboradores ({colaboradoresIdsList2.length})
+                                        </summary>
+                                        <ul className="mt-1 pl-4 space-y-0.5 text-gray-700">
+                                          {[...colaboradoresIdsList2].map((id: number) => ({ id, nome: (todosColaboradoresPsico as any[]).find((c: any) => c.id === id)?.nome })).filter(x => x.nome).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }) => (
+                                            <li key={id} className="list-disc">{nome}</li>
+                                          ))}
+                                        </ul>
+                                      </details>
+                                    )}
+                                    <p className="text-xs text-gray-500">{r.data ? new Date(r.data + "T12:00:00").toLocaleDateString("pt-BR") : r.data} · Criado por: {r.criadoPorRole === 'coordenador' ? 'Coordenador' : 'Monitor'}</p>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <Button size="sm" variant="ghost" className="text-gray-400 hover:text-blue-600 h-7 w-7 p-0" onClick={() => setViewGeraisGeralRecord({ ...r, colaboradoresIdsList2 })}>
+                                      <Eye className="w-3 h-3" />
+                                    </Button>
+                                    {r.criadoPorUserId === userId && (
+                                      <>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditGeraisId(r.id); setEditGeraisForm({ tipo: r.tipo, conteudo: r.conteudo, participanteNome: r.participanteNome || "", data: r.data }); setEditGeraisColaboradoresIds(colaboradoresIdsList2); setEditGeraisColabBusca(""); }}>
+                                          <Pencil className="w-3 h-3" />
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => deleteGeraisMutation.mutate(r.id)} disabled={deleteGeraisMutation.isPending}>
+                                          <Trash2 className="w-3 h-3 text-red-500" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.conteudo}</p>
+                              </>
+                                );
+                              })()}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* DIALOG VISUALIZAÇÃO REGISTRO GERAL */}
+          <Dialog open={!!viewGeraisGeralRecord} onOpenChange={(open) => { if (!open) setViewGeraisGeralRecord(null); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>
+                  {viewGeraisGeralRecord && (() => {
+                    const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                    return tipoLabels[viewGeraisGeralRecord.tipo] || viewGeraisGeralRecord.tipo;
+                  })()}
+                </DialogTitle>
+                <DialogDescription>
+                  {viewGeraisGeralRecord?.data ? new Date(viewGeraisGeralRecord.data + "T12:00:00").toLocaleDateString("pt-BR") : ""}
+                  {viewGeraisGeralRecord?.criadoPorRole && ` · Criado por: ${viewGeraisGeralRecord.criadoPorRole === 'coordenador' ? 'Coordenador' : 'Monitor'}`}
+                </DialogDescription>
+              </DialogHeader>
+              {viewGeraisGeralRecord && (
+                <div className="space-y-3">
+                  {viewGeraisGeralRecord.participanteNome && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-1">Participante</p>
+                      <p className="text-sm text-gray-800">{viewGeraisGeralRecord.participanteNome}</p>
+                    </div>
+                  )}
+                  {viewGeraisGeralRecord.colaboradoresIdsList2?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-green-700 mb-1">Colaboradores presentes ({viewGeraisGeralRecord.colaboradoresIdsList2.length})</p>
+                      <ul className="space-y-0.5 pl-3">
+                        {[...viewGeraisGeralRecord.colaboradoresIdsList2].map((id: number) => ({ id, nome: (todosColaboradoresPsico as any[]).find((c: any) => c.id === id)?.nome })).filter((x: any) => x.nome).sort((a: any, b: any) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }: any) => (
+                          <li key={id} className="text-sm text-gray-700 list-disc">{nome}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 mb-1">Descrição</p>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{viewGeraisGeralRecord.conteudo}</p>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {activeSection === 'atendimentos' && (
             <div className="space-y-6">
@@ -2987,6 +3754,14 @@ export default function CoordenadorPsicoPage() {
             </Card>
           )}
 
+          {activeSection === 'demanda' && (
+            <DemandaEspontaneaSection
+              userId={String(userId || "")}
+              userRole="coordenador_psico"
+            />
+          )}
+
+
           {activeSection === 'relatorios' && (
             <Card>
               <CardHeader>
@@ -3105,6 +3880,52 @@ export default function CoordenadorPsicoPage() {
             </Card>
           )}
 
+          {activeSection === 'acompanhamentos' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-blue-500" />
+                    Acompanhamentos Pedagógicos
+                  </CardTitle>
+                  <p className="text-sm text-gray-500">Observações registradas pelos professores sobre os alunos.</p>
+                </CardHeader>
+                <CardContent>
+                  {todosAcompanhamentos.length === 0 ? (
+                    <p className="text-gray-500 text-center py-10">Nenhum acompanhamento registrado ainda.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {todosAcompanhamentos.map((ac: any) => {
+                        const dateStr = ac.data;
+                        return (
+                          <div key={ac.id} className="border rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+                              <span className="font-medium text-sm">{ac.titulo || 'Acompanhamento'}</span>
+                              <div className="flex gap-2">
+                                {ac.tipoObservacao && (
+                                  <Badge variant="outline" className="text-xs capitalize">{ac.tipoObservacao}</Badge>
+                                )}
+                                {dateStr && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {new Date(dateStr + (dateStr.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR')}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {ac.alunoCpf && (
+                              <p className="text-xs text-blue-600 mb-1">Aluno CPF: {ac.alunoCpf}</p>
+                            )}
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{ac.observacoes}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {activeSection === 'configuracoes' && (
             <Card>
               <CardHeader>
@@ -3180,8 +4001,6 @@ export default function CoordenadorPsicoPage() {
             </Card>
           )}
         </div>
-          </TabsContent>
-        </Tabs>
       </div>
 
       {/* Modal de Importação */}
@@ -3853,50 +4672,47 @@ export default function CoordenadorPsicoPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="atend-atendido">Atendido</Label>
-              <Input
-                placeholder="🔍 Buscar atendido por nome..."
-                value={buscaAtendido}
-                onChange={(e) => setBuscaAtendido(e.target.value)}
-                className="mb-2"
-                data-testid="input-busca-atendido"
-              />
-              <Select 
-                value={atendimentoForm.vinculoId?.toString() || ''} 
-                onValueChange={(value) => {
-                  const participante = participantesData?.find((p: any) => p.vinculo_id?.toString() === value);
-                  setAtendimentoForm({ 
-                    ...atendimentoForm, 
-                    vinculoId: value ? parseInt(value) : null,
-                    programaOrigem: participante?.programa_origem || null,
-                    familiaId: participante?.familia_id || null
-                  });
-                  setBuscaAtendido('');
-                }}
-              >
-                <SelectTrigger id="atend-atendido" data-testid="select-atendimento-atendido">
-                  <SelectValue placeholder="Selecione o atendido" />
-                </SelectTrigger>
-                <SelectContent>
-                  {participantesData
-                    ?.filter((p: any) => 
-                      !buscaAtendido || 
-                      p.nome.toLowerCase().includes(buscaAtendido.toLowerCase())
-                    )
-                    .map((participante: any) => (
-                      <SelectItem key={participante.vinculo_id} value={participante.vinculo_id.toString()}>
-                        {participante.nome} ({participante.programa_origem === 'inclusao' ? 'Inclusão' : 'PEC'})
-                      </SelectItem>
-                    ))}
-                  {participantesData?.filter((p: any) => 
-                    !buscaAtendido || 
-                    p.nome.toLowerCase().includes(buscaAtendido.toLowerCase())
-                  ).length === 0 && (
-                    <div className="p-2 text-center text-sm text-gray-500">
-                      Nenhum atendido encontrado
-                    </div>
-                  )}
-                </SelectContent>
-              </Select>
+              <div className="relative">
+                <Input
+                  id="atend-atendido"
+                  placeholder="🔍 Buscar atendido por nome..."
+                  value={atendidoSelecionadoNome || buscaAtendido}
+                  onChange={(e) => {
+                    setAtendidoSelecionadoNome('');
+                    setBuscaAtendido(e.target.value);
+                    if (!e.target.value) {
+                      setAtendimentoForm({ ...atendimentoForm, vinculoId: null, programaOrigem: null, familiaId: null });
+                    }
+                  }}
+                  data-testid="input-busca-atendido"
+                />
+                {buscaAtendido && !atendidoSelecionadoNome && (
+                  <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-md shadow-lg mt-1 max-h-48 overflow-y-auto">
+                    {(todosAtendidosParaAtendimento as any[])
+                      .filter((p: any) => (p.nome || '').toLowerCase().includes(buscaAtendido.toLowerCase()))
+                      .slice(0, 30)
+                      .map((pessoa: any) => (
+                        <div
+                          key={`${pessoa.origem}_${pessoa.id}`}
+                          className="px-3 py-2 cursor-pointer hover:bg-purple-50 text-sm border-b last:border-b-0"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setAtendidoSelecionadoNome(pessoa.label || pessoa.nome);
+                            setBuscaAtendido('');
+                            setAtendimentoForm({ ...atendimentoForm, vinculoId: pessoa.id, programaOrigem: pessoa.origem, familiaId: null });
+                          }}
+                        >
+                          {pessoa.label || pessoa.nome}
+                        </div>
+                      ))}
+                    {(todosAtendidosParaAtendimento as any[]).filter((p: any) =>
+                      (p.nome || '').toLowerCase().includes(buscaAtendido.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500 text-center">Nenhum atendido encontrado</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -4025,6 +4841,7 @@ export default function CoordenadorPsicoPage() {
               onClick={() => {
                 setShowAtendimentoModal(false);
                 setBuscaAtendido('');
+                setAtendidoSelecionadoNome('');
                 setAtendimentoForm({
                   familiaId: null,
                   casoId: null,
@@ -4069,59 +4886,83 @@ export default function CoordenadorPsicoPage() {
             <DialogDescription>
               {selectedParticipante && (
                 <div className="mt-2">
-                  <p className="font-medium">{selectedParticipante.nome}</p>
-                  <Badge className={selectedParticipante.programa_origem === 'pec' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}>
-                    {selectedParticipante.programa_origem === 'pec' ? '🏃 PEC' : '🎓 Inclusão'}
-                  </Badge>
+                  <p className="font-medium">{normalizeName(selectedParticipante.nome || "")}</p>
+                  {selectedParticipante.programa_origem && (
+                    <Badge className={selectedParticipante.programa_origem === 'pec' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}>
+                      {selectedParticipante.programa_origem === 'pec' ? 'PEC' : 'Inclusão Produtiva'}
+                    </Badge>
+                  )}
                 </div>
               )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {isLoadingHistorico ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                <p className="text-gray-500 mt-4">Carregando histórico...</p>
-              </div>
-            ) : historicoData && historicoData.atendimentos && historicoData.atendimentos.length > 0 ? (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-600">
-                  Total de atendimentos: <strong>{historicoData.atendimentos.length}</strong>
-                </p>
-                {historicoData.atendimentos.map((atendimento: any) => (
-                  <div key={atendimento.id} className="border rounded-lg p-4 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">
-                          {atendimento.tipo === 'individual' && 'Atendimento Individual'}
-                          {atendimento.tipo === 'familiar' && 'Atendimento Familiar'}
-                          {atendimento.tipo === 'grupo' && 'Atendimento em Grupo'}
-                          {atendimento.tipo === 'visita_domiciliar' && 'Visita Domiciliar'}
-                        </h4>
-                        <p className="text-sm text-gray-500">
-                          {new Date(atendimento.dataAtendimento).toLocaleDateString('pt-BR')} • {atendimento.duracaoMinutos} min
-                        </p>
+            {(() => {
+              // Prioridade 1: atendimentos já incluídos no objeto (vêm de registros_confidenciais)
+              const registros: any[] = selectedParticipante?.atendimentos || [];
+              if (registros.length > 0) {
+                const tipoLabel: Record<string, string> = {
+                  atendimento_individual: 'Atendimento Individual',
+                  atendimento_familiar: 'Atendimento Familiar',
+                  atendimento_grupo: 'Atendimento em Grupo',
+                  visita_domiciliar: 'Visita Domiciliar',
+                  acolhimento: 'Acolhimento',
+                  encaminhamento: 'Encaminhamento',
+                };
+                return (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">Total de registros: <strong>{registros.length}</strong></p>
+                    {registros.map((r: any) => (
+                      <div key={r.id} className="border rounded-lg p-4 space-y-1">
+                        <div className="flex justify-between items-start">
+                          <h4 className="font-medium">{r.titulo || tipoLabel[r.tipo] || r.tipo}</h4>
+                          <Badge variant="outline">{tipoLabel[r.tipo] || r.tipo}</Badge>
+                        </div>
+                        {r.data && <p className="text-sm text-gray-500">{new Date(r.data).toLocaleDateString('pt-BR')}</p>}
+                        {r.vertente && r.vertente !== 'todos' && <p className="text-xs text-gray-400">Vertente: {r.vertente}</p>}
                       </div>
-                      <Badge variant="outline">{atendimento.tipo}</Badge>
-                    </div>
-                    {atendimento.profissionalResponsavel && (
-                      <p className="text-sm"><strong>Profissional:</strong> {atendimento.profissionalResponsavel}</p>
-                    )}
-                    {atendimento.resumo && (
-                      <p className="text-sm"><strong>Resumo:</strong> {atendimento.resumo}</p>
-                    )}
-                    {atendimento.observacoes && (
-                      <p className="text-sm text-gray-600">{atendimento.observacoes}</p>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500">Nenhum atendimento registrado ainda.</p>
-              </div>
-            )}
+                );
+              }
+              // Prioridade 2: histórico por vinculo_id (participantes de PEC/Inclusão)
+              if (isLoadingHistorico) return (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                  <p className="text-gray-500 mt-4">Carregando histórico...</p>
+                </div>
+              );
+              if (historicoData?.atendimentos?.length > 0) return (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600">Total de atendimentos: <strong>{historicoData.atendimentos.length}</strong></p>
+                  {historicoData.atendimentos.map((atendimento: any) => (
+                    <div key={atendimento.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-medium">
+                            {atendimento.tipo === 'individual' && 'Atendimento Individual'}
+                            {atendimento.tipo === 'familiar' && 'Atendimento Familiar'}
+                            {atendimento.tipo === 'grupo' && 'Atendimento em Grupo'}
+                            {atendimento.tipo === 'visita_domiciliar' && 'Visita Domiciliar'}
+                          </h4>
+                          <p className="text-sm text-gray-500">
+                            {new Date(atendimento.dataAtendimento).toLocaleDateString('pt-BR')} • {atendimento.duracaoMinutos} min
+                          </p>
+                        </div>
+                        <Badge variant="outline">{atendimento.tipo}</Badge>
+                      </div>
+                      {atendimento.resumo && <p className="text-sm"><strong>Resumo:</strong> {atendimento.resumo}</p>}
+                    </div>
+                  ))}
+                </div>
+              );
+              return (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Nenhum registro encontrado.</p>
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter>
@@ -5074,6 +5915,50 @@ export default function CoordenadorPsicoPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Dialog de confirmação - Remover Atendido Comunidade */}
+      <AlertDialog open={confirmDeleteAtendido.open} onOpenChange={(open) => setConfirmDeleteAtendido(prev => ({ ...prev, open }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover atendido</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover <strong>{confirmDeleteAtendido.nome}</strong> dos atendidos? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => { if (confirmDeleteAtendido.id) deleteAtendidoComunidadeMutation.mutate(confirmDeleteAtendido.id); setConfirmDeleteAtendido({ open: false, id: null, nome: '' }); }}
+              disabled={deleteAtendidoComunidadeMutation.isPending}
+            >
+              {deleteAtendidoComunidadeMutation.isPending ? "Removendo..." : "Remover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de confirmação - Excluir Registro Confidencial */}
+      <AlertDialog open={confirmDeleteRegistro.open} onOpenChange={(open) => setConfirmDeleteRegistro(prev => ({ ...prev, open }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir registro</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este registro confidencial? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => { if (confirmDeleteRegistro.id) deleteRegistroConfMutation.mutate(confirmDeleteRegistro.id); setConfirmDeleteRegistro({ open: false, id: null }); }}
+              disabled={deleteRegistroConfMutation.isPending}
+            >
+              {deleteRegistroConfMutation.isPending ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Dialog de confirmação - Excluir Caso */}
       <AlertDialog open={showDeleteCasoDialog} onOpenChange={setShowDeleteCasoDialog}>
         <AlertDialogContent>
@@ -5100,6 +5985,47 @@ export default function CoordenadorPsicoPage() {
         open={showAlterarSenhaModal} 
         onOpenChange={setShowAlterarSenhaModal}
       />
+
+      <Dialog open={showCadastroAtendido} onOpenChange={setShowCadastroAtendido}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Cadastrar Atendido da Comunidade</DialogTitle>
+            <DialogDescription>Preencha os dados do atendido. Após cadastrar, ele ficará disponível para registro de atendimentos.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nome *</Label>
+              <Input value={cadastroAtendidoForm.nome} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, nome: e.target.value }))} placeholder="Nome completo" />
+            </div>
+            <div>
+              <Label>CPF</Label>
+              <Input value={cadastroAtendidoForm.cpf} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, cpf: e.target.value }))} placeholder="000.000.000-00" />
+            </div>
+            <div>
+              <Label>Data de Nascimento</Label>
+              <Input type="date" value={cadastroAtendidoForm.data_nascimento} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, data_nascimento: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Telefone</Label>
+              <Input value={cadastroAtendidoForm.telefone} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
+            </div>
+            <div>
+              <Label>Endereço</Label>
+              <Input value={cadastroAtendidoForm.endereco} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Endereço completo" />
+            </div>
+            <div>
+              <Label>Observações</Label>
+              <Textarea value={cadastroAtendidoForm.observacoes} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, observacoes: e.target.value }))} placeholder="Observações adicionais..." rows={3} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCadastroAtendido(false)}>Cancelar</Button>
+            <Button onClick={() => { if (!cadastroAtendidoForm.nome.trim()) { toast({ title: "Nome é obrigatório", variant: "destructive" }); return; } cadastroAtendidoMutation.mutate(cadastroAtendidoForm); }} disabled={cadastroAtendidoMutation.isPending}>
+              {cadastroAtendidoMutation.isPending ? "Salvando..." : "Cadastrar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

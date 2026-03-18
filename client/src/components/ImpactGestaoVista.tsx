@@ -67,12 +67,18 @@ function formatValue(valor: number, tipo: 'percent' | 'count'): string {
   return new Intl.NumberFormat('pt-BR').format(valor);
 }
 
+const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
 // Componente de linha de indicador - v2.0
 interface IndicadorLineProps {
   label: string;
   indicador: Indicador;
   delay?: number;
   prefersReducedMotion?: boolean;
+  semestral?: boolean;
+  inverse?: boolean;
+  mesReferencia?: number; // mês atual (1-12) para cálculo de meta proporcional
+  prorateSemestre?: boolean; // quando true: usa meta semestral (meta/2) em vez de mensal
 }
 
 function useGestaoVista(ano: number, mes: number | null) {
@@ -94,16 +100,37 @@ function useGestaoVista(ano: number, mes: number | null) {
   });
 }
 
-function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false, semestral = false }: IndicadorLineProps) {
+function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false, semestral = false, inverse = false, mesReferencia, prorateSemestre = false }: IndicadorLineProps) {
   const { valor, meta, tipo, color, progress } = indicador;
   const isSemMeta = tipo === 'count' && !meta;
-  
-  // console.log('🎨 [INDICADOR v2.0]', label, { valor, meta, tipo });
-  
-  // Calcular percentual em relação à meta
-  const percentualDaMeta = meta && meta > 0 ? (valor / meta) * 100 : progress;
+
+  // Meta proporcional: mensal ou semestral dependendo do indicador
+  const isSemestre1 = mesReferencia ? mesReferencia <= 6 : false;
+  const isSemestre2 = mesReferencia ? mesReferencia > 6 : false;
+
+  // Modo semestral: usa meta/2 (para indicadores com meta por semestre)
+  const useProratedMeta =
+    tipo === 'count' && meta && meta > 0 && mesReferencia &&
+    (prorateSemestre ? (isSemestre1 || isSemestre2) : (mesReferencia >= 1 && mesReferencia < 12));
+
+  let metaProporcional: number | undefined = meta;
+  let nomePeriodo: string | null = null;
+  if (useProratedMeta && mesReferencia) {
+    if (prorateSemestre) {
+      metaProporcional = Math.round(meta! / 2);
+      nomePeriodo = isSemestre1 ? '1º Semestre' : '2º Semestre';
+    } else {
+      metaProporcional = Math.round((meta! / 12) * mesReferencia);
+      nomePeriodo = 'até ' + MONTH_NAMES[mesReferencia - 1];
+    }
+  }
+  const nomeMes = mesReferencia ? MONTH_NAMES[mesReferencia - 1] : null;
+
+  // Calcular percentual em relação à meta (proporcional para count, anual para percent)
+  const metaParaCalculo = useProratedMeta ? metaProporcional : meta;
+  const percentualDaMeta = metaParaCalculo && metaParaCalculo > 0 ? (valor / metaParaCalculo) * 100 : progress;
   const excedeMeta = percentualDaMeta > 100;
-  
+
   // Calcular as partes da barra
   const progressoNaMeta = excedeMeta ? 100 : percentualDaMeta;
   const excessoAlemDaMeta = excedeMeta ? Math.min(percentualDaMeta - 100, 100) : 0;
@@ -142,12 +169,25 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
         <span className="text-sm font-semibold text-gray-700">{label}</span>
       </div>
       <div className="flex justify-between items-center mb-2">
-        <span className="text-xs text-gray-600">
-          Realizado: {new Intl.NumberFormat('pt-BR').format(valor)}
-        </span>
-        {meta && meta > 0 && (
+        <div className="flex items-center gap-2">
           <span className="text-xs text-gray-600">
-            Meta: {new Intl.NumberFormat('pt-BR').format(meta)}
+            Realizado: {new Intl.NumberFormat('pt-BR').format(valor)}{tipo === 'percent' ? '%' : ''}
+          </span>
+          {inverse && (
+            <span className="text-xs text-gray-400 italic">↓ Quanto menor, melhor</span>
+          )}
+        </div>
+        {useProratedMeta && metaProporcional && (
+          <div className="text-right">
+            <span className="text-xs font-semibold text-gray-700">
+              Meta {nomePeriodo}: {new Intl.NumberFormat('pt-BR').format(metaProporcional)}
+            </span>
+            <span className="text-xs text-gray-400 ml-1">(Anual: {new Intl.NumberFormat('pt-BR').format(meta!)})</span>
+          </div>
+        )}
+        {!useProratedMeta && meta && meta > 0 && (
+          <span className="text-xs text-gray-600">
+            Meta: {new Intl.NumberFormat('pt-BR').format(meta)}{tipo === 'percent' ? '%' : ''}
           </span>
         )}
         {isSemMeta && <span className="text-xs text-gray-400">(sem meta)</span>}
@@ -205,19 +245,30 @@ interface ImpactGestaoVistaProps {
 
 // Componente principal
 export default function ImpactGestaoVista({ 
-  titulo = "Gestão à Vista 2025",
+  titulo,
   subtitulo = "Metas Anuais",
   mostrarFiltros = true,
   mostrarAlunosEmFormacao = false
 }: ImpactGestaoVistaProps = {}) {
-  const ano = 2025; // Fixado em 2025 (único ano com dados)
+  const [ano, setAno] = useState(2026); // Padrão 2026 para dados em tempo real
   const [mes, setMes] = useState<number | null>(null);
   const [hasShownError, setHasShownError] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const { toast } = useToast();
   
-  const { data, isLoading, error } = useGestaoVista(ano, mes);
+  const tituloFinal = titulo || `Gestão à Vista ${ano}`;
   
+  const { data, isLoading, error } = useGestaoVista(ano, mes);
+
+  const { data: metasInclusao } = useQuery<{ metas: Record<string, number> }>({
+    queryKey: ['/api/metas-indicadores', ano, 'inclusao'],
+    queryFn: () => fetch(`/api/metas-indicadores?ano=${ano}&vertente=inclusao`).then(r => r.json()),
+    staleTime: 60000,
+  });
+
+  // Mês de referência para meta proporcional: mês selecionado ou mês atual
+  const mesReferencia = mes ?? (new Date().getMonth() + 1);
+
   // Detectar preferência de movimento reduzido
   const prefersReducedMotion = typeof window !== 'undefined' 
     ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -262,7 +313,7 @@ export default function ImpactGestaoVista({
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-xl font-bold">{titulo}</CardTitle>
+              <CardTitle className="text-xl font-bold">{tituloFinal}</CardTitle>
               <p className="text-sm text-gray-500 mt-1">{subtitulo}</p>
             </div>
             
@@ -288,6 +339,19 @@ export default function ImpactGestaoVista({
               transition={{ duration: 0.2 }}
               className="flex flex-col gap-2"
             >
+              {/* Filtro de Ano */}
+              <Select
+                value={ano.toString()}
+                onValueChange={(value) => setAno(parseInt(value))}
+              >
+                <SelectTrigger className="w-full" data-testid="select-ano">
+                  <SelectValue placeholder="Ano" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2026">2026</SelectItem>
+                  <SelectItem value="2025">2025</SelectItem>
+                </SelectContent>
+              </Select>
               {/* Filtro de Mês */}
               <Select
                 value={mes === null ? 'null' : mes.toString()}
@@ -343,6 +407,7 @@ export default function ImpactGestaoVista({
               indicador={data.indicadores.alunosFormados}
               delay={1}
               prefersReducedMotion={prefersReducedMotion}
+              mesReferencia={mesReferencia}
             />
             {mostrarAlunosEmFormacao && (
               <IndicadorLine
@@ -350,6 +415,7 @@ export default function ImpactGestaoVista({
                 indicador={data.indicadores.alunosEmFormacao}
                 delay={2}
                 prefersReducedMotion={prefersReducedMotion}
+                mesReferencia={mesReferencia}
               />
             )}
             <IndicadorLine
@@ -357,50 +423,79 @@ export default function ImpactGestaoVista({
               indicador={data.indicadores.frequencia}
               delay={3}
               prefersReducedMotion={prefersReducedMotion}
+              mesReferencia={mesReferencia}
             />
-            <IndicadorLine
-              label="Avaliação de aprendizagem"
-              indicador={data.indicadores.criterioSucesso}
-              delay={4}
-              prefersReducedMotion={prefersReducedMotion}
-              semestral={true}
-            />
-            <IndicadorLine
-              label="NPS"
-              indicador={data.indicadores.nps}
-              delay={5}
-              prefersReducedMotion={prefersReducedMotion}
-              semestral={true}
-            />
+            {ano !== 2026 && (
+              <IndicadorLine
+                label="Avaliação de aprendizagem"
+                indicador={data.indicadores.criterioSucesso}
+                delay={4}
+                prefersReducedMotion={prefersReducedMotion}
+                semestral={true}
+              />
+            )}
+            {ano !== 2026 && (
+              <IndicadorLine
+                label="NPS"
+                indicador={data.indicadores.nps}
+                delay={5}
+                prefersReducedMotion={prefersReducedMotion}
+                semestral={true}
+              />
+            )}
             <IndicadorLine
               label="Evasão"
               indicador={data.indicadores.evasao}
               delay={6}
               prefersReducedMotion={prefersReducedMotion}
+              inverse
+              mesReferencia={mesReferencia}
             />
-            <IndicadorLine
-              label="Geração de renda"
-              indicador={data.indicadores.pessoasEmpregadas}
-              delay={7}
-              prefersReducedMotion={prefersReducedMotion}
-            />
-            <IndicadorLine
-              label="Famílias Acompanhadas F3D"
-              indicador={data.indicadores.familiasAtivas}
-              delay={8}
-              prefersReducedMotion={prefersReducedMotion}
-            />
+            {(() => {
+              const empregados = data.indicadores.pessoasEmpregadas?.valor || 0;
+              const empreendedores = data.indicadores.empreendedores?.valor || 0;
+              const totalRenda = empregados + empreendedores;
+              const metaAnual = metasInclusao?.metas?.geracaoRenda ?? 1500;
+              const pct = metaAnual > 0 ? (totalRenda / metaAnual) * 100 : 0;
+              const color: Indicador['color'] = pct >= 100 ? 'blue' : pct >= 80 ? 'green' : pct >= 50 ? 'yellow' : 'red';
+              const geracaoRendaIndicador: Indicador = {
+                valor: totalRenda,
+                meta: metaAnual,
+                tipo: 'count',
+                color,
+                progress: Math.min(pct, 100),
+              };
+              return (
+                <IndicadorLine
+                  label="Geração de renda"
+                  indicador={geracaoRendaIndicador}
+                  delay={7}
+                  prefersReducedMotion={prefersReducedMotion}
+                  mesReferencia={mesReferencia}
+                />
+              );
+            })()}
+            {ano !== 2026 && (
+              <IndicadorLine
+                label="Famílias Acompanhadas F3D"
+                indicador={data.indicadores.familiasAtivas}
+                delay={8}
+                prefersReducedMotion={prefersReducedMotion}
+              />
+            )}
             <IndicadorLine
               label="Visitas em domicílio"
               indicador={data.indicadores.visitas}
               delay={9}
               prefersReducedMotion={prefersReducedMotion}
+              mesReferencia={mesReferencia}
             />
             <IndicadorLine
               label="Atendimentos Psicossociais"
               indicador={data.indicadores.atendimentos}
               delay={10}
               prefersReducedMotion={prefersReducedMotion}
+              mesReferencia={mesReferencia}
             />
           </div>
         ) : (

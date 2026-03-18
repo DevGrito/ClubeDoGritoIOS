@@ -280,28 +280,24 @@ export default function DevPanel() {
   };
 
   // Função para navegar para uma tela específica
+  const getDevUrl = (rota: string) => `${rota}?dev_access=true&origin=dev_panel`;
+
   const abrirTela = (rota: string) => {
-    // ⭐ ESPECIAL: Se for /dev/marketing, navegar na mesma aba (mantém autenticação)
     if (rota === '/dev/marketing') {
-      console.log('✅ [DEV PANEL] Navegando para /dev/marketing na mesma aba');
       setLocation(rota);
       return;
     }
-    
-    // ⭐ IMPORTANTE: Usar localStorage (compartilhado entre abas) ao invés de sessionStorage
     localStorage.setItem('dev_panel_active', 'true');
     localStorage.setItem('dev_panel_timestamp', Date.now().toString());
-    
-    // Construir URL com parâmetros de desenvolvedor para bypass de permissões
-    const devUrl = `${rota}?dev_access=true&origin=dev_panel`;
-    
-    // Abrir em nova aba para não perder o painel do desenvolvedor
+    const devUrl = getDevUrl(rota);
     const novaAba = window.open(devUrl, '_blank');
-    
-    if (novaAba) {
-      console.log('✅ [DEV PANEL] Nova aba aberta com dev_access ativo:', devUrl);
-    } else {
-      console.error('❌ [DEV PANEL] Falha ao abrir nova aba - bloqueador de pop-up?');
+    if (!novaAba) {
+      toast({
+        title: "Popup bloqueado pelo navegador",
+        description: "Clique com o botão direito no botão 'Abrir Tela' e escolha 'Abrir link em nova aba'. Ou permita popups para este site nas configurações do navegador.",
+        variant: "destructive",
+        duration: 8000,
+      });
     }
   };
 
@@ -566,18 +562,20 @@ export default function DevPanel() {
                           </div>
                           <div className="text-right">
                             <div className="flex items-center gap-2 mb-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
+                              <a
+                                href={getDevUrl(tela.rota)}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  abrirTela(tela.rota);
+                                  localStorage.setItem('dev_panel_active', 'true');
+                                  localStorage.setItem('dev_panel_timestamp', Date.now().toString());
                                 }}
-                                className="text-xs bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 font-medium"
                               >
-                                <Eye className="w-3 h-3 mr-1" />
+                                <Eye className="w-3 h-3" />
                                 Dev Access
-                              </Button>
+                              </a>
                               <Badge variant={tela.status === 'OK' ? 'secondary' : 'destructive'}>
                                 {tela.status}
                               </Badge>
@@ -701,14 +699,19 @@ export default function DevPanel() {
                   )}
 
                   <div>
-                    <Button
-                      onClick={() => abrirTela(selectedTela.rota)}
-                      className="w-full"
-                      size="sm"
+                    <a
+                      href={getDevUrl(selectedTela.rota)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        localStorage.setItem('dev_panel_active', 'true');
+                        localStorage.setItem('dev_panel_timestamp', Date.now().toString());
+                      }}
+                      className="flex items-center justify-center w-full gap-2 px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                     >
-                      <Eye className="w-4 h-4 mr-2" />
+                      <Eye className="w-4 h-4" />
                       Abrir Tela em Nova Aba
-                    </Button>
+                    </a>
                   </div>
                 </CardContent>
               </Card>

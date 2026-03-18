@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import girlImage from "@assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
+import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function MarketingLogin() {
   const [, setLocation] = useLocation();

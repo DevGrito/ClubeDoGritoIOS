@@ -11,6 +11,7 @@ import {
   attachPaymentMethodSafely,
   normalizePhoneToE164,
   getPhoneSearchVariants,
+  findBestActiveSubscription,
 } from "./stripeHelpers";
 import { keysToCamelCase } from "./utils/caseConversion";
 import { HttpError } from "./utils/httpError";
@@ -72,6 +73,7 @@ import {
   // 📊 GESTÃO À VISTA - Tabelas
   gvSectors,
   gvProjects,
+  projects,
   gvMgmtIndicators,
   gvIndicatorAssignments,
   gvIndicatorTargets,
@@ -106,10 +108,9 @@ import {
   type PresencaInclusao,
   type InsertPresencaInclusao,
   participantesInclusao,
-  cursosInclusao,
   programasInclusao,
   monitorParticipantes,
-  aluno,
+  aluno, chamada, chamadaAluno, turma,
   atividadesMonitor,
   insertAtividadeMonitorSchema,
   updateMonitorParticipanteSchema,
@@ -191,16 +192,21 @@ import {
   turmasInclusao,
   turma,
   planoAula,
+  aulaRegistrada,
   participantesTurmas,
-  monitorPerfis
+  alunoTurma,
+  monitorPerfis,
+  registrosConfidenciais,
+  professorTurmas,
+  psicoRegistros
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, or, sql, desc, asc, ilike, like, inArray, isNull, isNotNull, ne, not } from "drizzle-orm";
+import { eq, and, or, sql, desc, asc, ilike, like, inArray, isNull, isNotNull, ne, not, gte, lt } from "drizzle-orm";
 import { isLeoMartins, isAdminEmail, isConselhoEmail } from "@shared/conselho";
 import { z } from "zod";
 import multer from "multer";
 import { putCache, getCache, deleteCache } from "./imports/importCache";
-import { buildInclusaoPreviewFromExcel } from "./imports/inclusaoImport";
+import { buildInclusaoPreviewFromExcelAsync } from "./imports/inclusaoImport";
 
 
 import {
@@ -227,6 +233,70 @@ import { toE164BR } from "../client/src/utils/phone";
 
 import { isDevRequest } from "./middleware/devAccess";
 import { registerPecImportRoutes } from "./imports/pecImport";
+import { saveInstagramMetrics, getLatestMetrics, getMetricsHistory } from './services/instagramService';
+
+function formatPostgresError(error: any, context: string): { status: number; message: string } {
+  const code = error?.code || 'unknown';
+  const constraint = error?.constraint || '';
+  const detail = error?.detail || '';
+  const column = error?.column || '';
+  const table = error?.table || '';
+
+  // Log detalhado para debug
+  console.error(`❌ [DB ERROR] Contexto: ${context}`);
+  console.error(`   → Código PG  : ${code}`);
+  console.error(`   → Constraint : ${constraint}`);
+  console.error(`   → Coluna     : ${column}`);
+  console.error(`   → Tabela     : ${table}`);
+  console.error(`   → Detalhe    : ${detail}`);
+  console.error(`   → Mensagem   : ${error?.message || ''}`);
+
+  if (code === '23505') {
+    // unique_violation
+    if (constraint.includes('cpf') || detail.includes('(cpf)')) {
+      return { status: 409, message: `Erro ao salvar ${context}: CPF já vinculado a outro cadastro no sistema. Verifique se o aluno/participante já existe.` };
+    }
+    if (constraint.includes('email') || detail.includes('(email)')) {
+      return { status: 409, message: `Erro ao salvar ${context}: e-mail já está em uso por outro cadastro.` };
+    }
+    if (constraint.includes('telefone') || detail.includes('(telefone)') || constraint.includes('phone')) {
+      return { status: 409, message: `Erro ao salvar ${context}: telefone já cadastrado no sistema em outro registro.` };
+    }
+    if (constraint.includes('nome') || constraint.includes('name') || constraint.includes('title') || detail.includes('(nome)')) {
+      return { status: 409, message: `Erro ao salvar ${context}: já existe um registro com este nome. Escolha um nome diferente.` };
+    }
+    return { status: 409, message: `Erro ao salvar ${context}: registro duplicado (constraint: ${constraint || 'desconhecida'}). Verifique os dados e tente novamente.` };
+  }
+
+  if (code === '23503') {
+    // foreign_key_violation
+    return { status: 400, message: `Erro ao salvar ${context}: um dos dados informados (${constraint || 'referência'}) não existe mais no sistema. Atualize a página e tente novamente.` };
+  }
+
+  if (code === '23502') {
+    // not_null_violation
+    const fieldNames: Record<string, string> = {
+      nome: 'Nome', nome_completo: 'Nome completo', cpf: 'CPF', email: 'E-mail',
+      telefone: 'Telefone', data_nascimento: 'Data de nascimento', genero: 'Gênero',
+      idade: 'Idade', titulo: 'Título', descricao: 'Descrição', programa_id: 'Programa',
+      turma_id: 'Turma', professor_id: 'Professor', data: 'Data'
+    };
+    const fieldLabel = fieldNames[column] || column || 'desconhecido';
+    return { status: 400, message: `Erro ao salvar ${context}: o campo "${fieldLabel}" é obrigatório e não foi preenchido.` };
+  }
+
+  if (code === '22001') {
+    // string_data_right_truncation
+    return { status: 400, message: `Erro ao salvar ${context}: um dos campos excede o tamanho máximo permitido. Verifique os dados inseridos.` };
+  }
+
+  if (code === '22P02') {
+    // invalid_text_representation (ex: uuid inválido, enum inválido)
+    return { status: 400, message: `Erro ao salvar ${context}: formato de dados inválido (${detail || column || 'campo desconhecido'}). Verifique se os valores estão corretos.` };
+  }
+
+  return { status: 500, message: `Erro interno ao salvar ${context}. Tente novamente ou contate o suporte.` };
+}
 
 // Initialize Twilio client safely (lazy initialization)
 let twilioClient: any = null;
@@ -560,34 +630,7 @@ async function requireAuth(
   next: express.NextFunction
 ) {
   try {
-    // 🔒 PRIORIDADE 1: Validar sessão de coordenador (se existir)
-    const session = req.session as any;
-    if (session?.isCoordinator && session?.coordenadorId) {
-      console.log(
-        `✅ [AUTH SESSION] Coordenador autenticado: ${session.userName} (coordId=${session.coordenadorId})`
-      );
-
-      // Buscar dados atualizados do coordenador
-      const coordenador = await db
-        .select()
-        .from(coordenadores)
-        .where(eq(coordenadores.id, session.coordenadorId))
-        .limit(1);
-
-      if (coordenador && coordenador.length > 0) {
-        (req as any).coordenador = coordenador[0];
-       (req as any).user = {
-          id: session.coordenadorId, // ✅ aqui!
-          papel: session.userPapel, 
-          email: session.userEmail,
-          nome: session.userName,
-          role: session.userPapel,
-        };
-        return next();
-      }
-    }
-
-    // Verificar se é modo dev por vários critérios
+    // 🔒 PRIORIDADE 0: Dev mode — bypass RBAC completamente
     const devAccessQuery = req.query.dev_access === "true";
     const devAccessHeader = req.headers["x-dev-access"] === "true";
     const devReferer =
@@ -596,54 +639,88 @@ async function requireAuth(
     const isDevMode =
       isDevRequest(req) || devAccessQuery || devAccessHeader || devReferer;
 
-    // Permitir acesso em modo dev sem autenticação
     if (isDevMode) {
-      (req as any).user = { id: 1, nome: 'Dev User', papel: 'dev' };
+      const devUser: any = { id: 1, nome: 'Dev User', papel: 'dev' };
+      const urlMatch = req.path.match(/\/api\/monitor\/([0-9]+)/);
+      const headerUserId = req.headers["x-user-id"];
+      const targetId = urlMatch ? parseInt(urlMatch[1]) : (headerUserId ? parseInt(String(headerUserId)) : null);
+      if (targetId && !isNaN(targetId)) {
+        try {
+          const targetUser = await db.select().from(users).where(eq(users.id, targetId)).limit(1);
+          if (targetUser?.length) {
+            devUser.id = targetId;
+            devUser.email = targetUser[0].email;
+            devUser.nome = targetUser[0].nome || 'Dev User';
+          }
+          if (!devUser.email || devUser.id === 1) {
+            const monitorRow = await db.select().from(monitores).where(eq(monitores.id, targetId)).limit(1);
+            if (monitorRow?.length) {
+              devUser.email = monitorRow[0].email;
+              devUser.monitorId = monitorRow[0].id;
+            }
+          }
+        } catch (e) { /* silently continue */ }
+      }
+      (req as any).user = devUser;
       (req as any).isDeveloper = true;
       return next();
     }
 
-   const userId = req.headers["x-user-id"];
-
-    
-  if (!userId) {
-    return res.status(401).json({
-      error: "Autenticação obrigatória - cabeçalho x-user-id necessário",
-    });
-  }
-
-     
-    const userIdNum = parseInt(String(userId), 10);
-      if (isNaN(userIdNum)) {
-        return res.status(401).json({ error: "ID de usuário inválido" });
+    // 🔒 PRIORIDADE 1: x-user-id header presente — autenticação direta (monitor/professor)
+    // Tem prioridade sobre sessão de coordenador para evitar conflito em máquina compartilhada
+    const xUserIdHeader = req.headers["x-user-id"];
+    if (xUserIdHeader) {
+      const xUserIdNum = parseInt(String(xUserIdHeader), 10);
+      if (!isNaN(xUserIdNum)) {
+        const userByHeader = await storage.getUser(xUserIdNum);
+        if (userByHeader) {
+          (req as any).user = userByHeader;
+          return next();
+        }
+        // Se não encontrou como usuário, tenta como coordenador pelo header
+        const coordByHeader = await db.select().from(coordenadores).where(eq(coordenadores.id, xUserIdNum)).limit(1);
+        if (coordByHeader && coordByHeader.length > 0) {
+          const coord = coordByHeader[0];
+          const coordinatorRoleMap: Record<string, string> = {
+            psicossocial: "coordenador_psico",
+            esporte_cultura: "coordenador_pec",
+            inclusao_produtiva: "coordenador_inclusao",
+          };
+          const papel = coordinatorRoleMap[coord.setor] ?? "coordenador";
+          (req as any).user = { id: xUserIdNum, papel, role: papel, email: coord.email, nome: coord.nome };
+          return next();
+        }
+        return res.status(401).json({ error: "Usuário não encontrado" });
+      }
     }
 
-    // Tentar buscar como usuário primeiro
-    let user = await storage.getUser(userIdNum);
-
-    // Se não encontrar como usuário, tentar buscar como coordenador
-    if (!user) {
+    // 🔒 PRIORIDADE 2: Sessão de coordenador (sem x-user-id)
+    const session = req.session as any;
+    if (session?.isCoordinator && session?.coordenadorId) {
+      const coordId = session.coordenadorId;
       const coordenador = await db
         .select()
         .from(coordenadores)
-        .where(eq(coordenadores.id, userIdNum))
+        .where(eq(coordenadores.id, coordId))
         .limit(1);
 
       if (coordenador && coordenador.length > 0) {
         (req as any).coordenador = coordenador[0];
-        (req as any).user = { id: userIdNum };
-        console.log(
-          "🔐 [AUTH] Coordenador autenticado via header:",
-          coordenador[0].nome
-        );
+        (req as any).user = {
+          id: coordId,
+          papel: session.userPapel || "coordenador",
+          role: session.userPapel || "coordenador",
+          email: session.coordenadorEmail || session.userEmail || coordenador[0].email,
+          nome: session.coordenadorNome || session.userName || coordenador[0].nome,
+          actorType: "coordenador",
+        };
         return next();
       }
-
-      return res.status(401).json({ error: "Usuário não encontrado" });
     }
 
-    (req as any).user = user;
-    next();
+    return res.status(401).json({
+      error: "Autenticação obrigatória - cabeçalho x-user-id necessário",
+    });
   } catch (error) {
     console.error("Erro no middleware de autenticação:", error);
     res.status(500).json({ error: "Erro interno do servidor" });
@@ -787,10 +864,10 @@ function ensureSelfAccess(
 
 // Middleware específicos para cada papel RBAC
 const requireProfessor = requireRole(['professor']);
-const requireMonitor = requireRole(['monitor']);
+const requireMonitor = requireRole(['monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico']);
 const requireCoordenadorInclusao = requireRole(['coordenador_inclusao']);
 const requireCoordenadorPEC = requireRole(['coordenador_pec']);
-const requireCoordenadorPsico = requireRole(['coordenador_psico', 'coordenador']);
+const requireCoordenadorPsico = requireRole(['coordenador_psico', 'coordenador', 'monitor_psico']);
 const requireAnyCoordenador = requireRole(['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico']);
 
 // Middleware para verificar múltiplos papéis (permite qualquer um da lista)
@@ -808,46 +885,49 @@ function validateImageFile(
 ) {
   try {
     const f = req.file;
+
     if (!f) {
       return res.status(400).json({ error: "Nenhum arquivo foi enviado" });
     }
 
-    // Em memoryStorage precisamos usar o buffer
-    if (!f.buffer || !f.size) {
+    // ✅ diskStorage: valida usando o arquivo salvo em disco
+    if (!f.path) {
+      return res.status(400).json({ error: "Arquivo inválido (sem caminho no disco)" });
+    }
+
+    // lê o arquivo real
+    const buf = fs.readFileSync(f.path);
+
+    if (!buf || buf.length === 0) {
       return res.status(400).json({ error: "Arquivo inválido ou vazio" });
     }
 
-    // 1) Validação por "magic number" no próprio buffer
-    if (!validateImageMagicNumber(f.buffer)) {
+    // 1) magic number
+    if (!validateImageMagicNumber(buf)) {
       return res.status(400).json({
         error: "Arquivo não é uma imagem válida ou formato não suportado",
         details: "Apenas JPEG, PNG e WEBP são permitidos",
       });
     }
 
-    // 2) Limite de tamanho (5 MB)
-    if (f.size > 5 * 1024 * 1024) {
+    // 2) tamanho (também dá pra usar f.size, mas garantimos pelo buffer)
+    if (buf.length > 5 * 1024 * 1024) {
       return res.status(400).json({
         error: "Arquivo muito grande",
         details: "Tamanho máximo permitido: 5MB",
       });
     }
 
-    // 3) (Opcional) checar mimetype/extensão para reforçar
-    const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
-    const ext = require("node:path")
-      .extname(f.originalname || "")
-      .toLowerCase();
+    // 3) reforço por mime/extensão
+    const allowedMimes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const ext = path.extname(f.originalname || "").toLowerCase();
     const allowedExt = [".jpg", ".jpeg", ".png", ".webp"];
+
     if (!allowedMimes.includes(f.mimetype) || !allowedExt.includes(ext)) {
       return res.status(400).json({ error: "Formato não permitido" });
     }
 
-    console.log(
-      `✅ [FILE VALIDATION] Arquivo ${
-        f.originalname || "(sem nome)"
-      } validado com sucesso`
-    );
+    console.log(`✅ [FILE VALIDATION] Arquivo ${f.originalname || "(sem nome)"} validado com sucesso`);
     return next();
   } catch (err: any) {
     console.error("❌ [FILE VALIDATION] Erro:", err?.message || err);
@@ -1719,265 +1799,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SINCRONIZAÇÃO STRIPE - CRM de Doadores
   // =============================================================================
 
-  // Endpoint para sincronizar status dos doadores com Stripe API
-  app.post("/api/donors/sync-stripe", async (req, res) => {
-    try {
-      console.log(
-        "🔄 [STRIPE SYNC] Iniciando sincronização completa de doadores..."
-      );
-
-      const syncResults = {
-        updated: 0,
-        created: 0,
-        errors: [] as any[],
-      };
-
-      // ETAPA 1: Buscar TODAS as subscriptions do Stripe
-      console.log("📥 [STRIPE SYNC] Buscando subscriptions do Stripe...");
-      const allSubscriptions = [];
-      let hasMore = true;
-      let startingAfter = undefined;
-
-      while (hasMore) {
-        const subscriptionsList = await stripe.subscriptions.list({
-          limit: 100,
-          starting_after: startingAfter,
-          expand: ["data.customer"],
-        });
-
-        allSubscriptions.push(...subscriptionsList.data);
-        hasMore = subscriptionsList.has_more;
-        if (hasMore && subscriptionsList.data.length > 0) {
-          startingAfter =
-            subscriptionsList.data[subscriptionsList.data.length - 1].id;
-        }
-      }
-
-      console.log(
-        `📦 [STRIPE SYNC] Encontradas ${allSubscriptions.length} subscriptions no Stripe`
-      );
-
-      // ETAPA 2: Processar cada subscription
-      for (const subscription of allSubscriptions) {
-        try {
-          // Verificar se já existe no banco local
-          const existingDonor = await db
-            .select()
-            .from(doadores)
-            .where(eq(doadores.stripeSubscriptionId, subscription.id))
-            .limit(1);
-
-          if (existingDonor.length > 0) {
-            // ATUALIZAR doador existente
-            const doador = existingDonor[0];
-
-            // Mapear status do Stripe para nosso sistema
-            let localStatus = "pending";
-            if (
-              ["active", "trialing", "past_due"].includes(subscription.status)
-            ) {
-              localStatus = "paid";
-            } else if (
-              ["canceled", "unpaid", "incomplete_expired"].includes(
-                subscription.status
-              )
-            ) {
-              localStatus = "cancelled";
-            }
-
-            // Atualizar status no banco local se diferente
-            if (doador.status !== localStatus) {
-              await db
-                .update(doadores)
-                .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-                  status: localStatus,
-                  ultimaDoacao: subscription.current_period_end
-                    ? new Date(subscription.current_period_end * 1000)
-                    : null,
-                })
-                .where(eq(doadores.id, doador.id));
-
-              console.log(
-                `✅ [STRIPE SYNC] Doador ${doador.id} atualizado: ${doador.status} → ${localStatus}`
-              );
-              syncResults.updated++;
-            }
-          } else {
-            // CRIAR novo doador
-            console.log(
-              `🆕 [STRIPE SYNC] Nova subscription encontrada: ${subscription.id}`
-            );
-
-            // Extrair informações do customer
-            const customer = subscription.customer as any;
-            const customerEmail = customer?.email || "";
-            const customerName = customer?.name || "Doador Stripe";
-            const customerPhone = customer?.phone || "";
-
-            // Determinar plano baseado no valor
-            const amount = subscription.items.data[0]?.price?.unit_amount || 0;
-            const amountInReais = amount / 100;
-            const interval =
-              subscription.items.data[0]?.price?.recurring?.interval || "month";
-
-            let plano = "eco";
-            if (interval === "month") {
-              if (amountInReais > 30) plano = "platinum";
-              else if (amountInReais >= 30) plano = "grito";
-              else if (amountInReais >= 20) plano = "voz";
-              else if (amountInReais >= 10) plano = "eco";
-              else plano = "eco";
-            } else {
-              // Para semestral/anual, usar plano base
-              if (amountInReais > 30) plano = "platinum";
-              else if (amountInReais >= 30) plano = "grito";
-              else if (amountInReais >= 20) plano = "voz";
-              else plano = "eco";
-            }
-
-            // Mapear status
-            let status = "pending";
-            if (
-              ["active", "trialing", "past_due"].includes(subscription.status)
-            ) {
-              status = "paid";
-            } else if (
-              ["canceled", "unpaid", "incomplete_expired"].includes(
-                subscription.status
-              )
-            ) {
-              status = "cancelled";
-            }
-
-            // Criar usuário temporário ou buscar por telefone/email
-            let userId = null;
-
-            // Tentar encontrar usuário existente por telefone ou email
-            if (customerPhone) {
-              const existingUser = await db
-                .select()
-                .from(users)
-                .where(eq(users.telefone, customerPhone))
-                .limit(1);
-
-              if (existingUser.length > 0) {
-                userId = existingUser[0].id;
-              }
-            }
-
-            if (!userId && customerEmail) {
-              const existingUser = await db
-                .select()
-                .from(users)
-                .where(eq(users.email, customerEmail))
-                .limit(1);
-
-              if (existingUser.length > 0) {
-                userId = existingUser[0].id;
-              }
-            }
-
-            // ✅ Verificar duplicação antes de criar doador
-            const existingDoador = await findExistingDonor({
-              subscriptionId: subscription.id,
-              customerId:
-                typeof customer === "string" ? customer : customer?.id,
-            });
-
-            if (existingDoador) {
-              // Atualizar doador existente com dados completos
-              await db
-                .update(doadores)
-                .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-                  plano,
-                  valor: amountInReais,
-                  periodicidade:
-                    interval === "year"
-                      ? "anual"
-                      : interval === "month"
-                      ? "mensal"
-                      : "semestral",
-                  status,
-                  ultimaDoacao: subscription.current_period_end
-                    ? new Date(subscription.current_period_end * 1000)
-                    : null,
-                  userId: userId || existingDoador.userId,
-                  ativo: status === "paid",
-                })
-                .where(eq(doadores.id, existingDoador.id));
-              console.log(
-                `♻️ [STRIPE SYNC] Doador existente atualizado: ${customerName} (${customerEmail})`
-              );
-              syncResults.updated++;
-            } else {
-              await db.insert(doadores).values({
-                userId,
-                plano,
-                valor: amountInReais,
-                periodicidade:
-                  interval === "year"
-                    ? "anual"
-                    : interval === "month"
-                    ? "mensal"
-                    : "semestral",
-                status,
-                dataDoacaoInicial: new Date(subscription.created * 1000),
-                ultimaDoacao: subscription.current_period_end
-                  ? new Date(subscription.current_period_end * 1000)
-                  : null,
-                stripeCustomerId:
-                  typeof customer === "string" ? customer : customer?.id,
-                stripeSubscriptionId: subscription.id,
-                ativo: status === "paid",
-              });
-              console.log(
-                `✅ [STRIPE SYNC] Novo doador criado: ${customerName} (${customerEmail})`
-              );
-              syncResults.created++;
-            }
-          }
-        } catch (error) {
-          console.error(
-            `❌ [STRIPE SYNC] Erro ao processar subscription ${subscription.id}:`,
-            error
-          );
-          syncResults.errors.push({
-            subscriptionId: subscription.id,
-            error: (error as Error).message,
-          });
-        }
-      }
-
-      console.log(`🎯 [STRIPE SYNC] Sincronização concluída:`);
-      console.log(`   - ${syncResults.updated} doadores atualizados`);
-      console.log(`   - ${syncResults.created} doadores criados`);
-      console.log(`   - ${syncResults.errors.length} erros`);
-
-      res.json({
-        success: true,
-        updated: syncResults.updated,
-        created: syncResults.created,
-        errors: syncResults.errors.length,
-        details: syncResults.errors,
-      });
-    } catch (error: any) {
-      console.error("❌ [STRIPE SYNC] Erro geral:", error);
-      res.status(500).json({ error: "Erro na sincronização com Stripe" });
-    }
-  });
-
+ 
   // Endpoint para buscar detalhes completos de um doador (CRM)
   app.get("/api/donors/:id/details", async (req, res) => {
     try {
       const doadorId = parseInt(req.params.id);
 
-      // Buscar dados completos do doador
       const [doadorDetails] = await db
         .select({
           id: doadores.id,
@@ -1985,12 +1812,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           nome: users.nome,
           telefone: users.telefone,
           email: users.email,
+
           plano: doadores.plano,
           valor: doadores.valor,
+          periodicidade: doadores.periodicidade,
           status: doadores.status,
+
           dataInicio: doadores.dataDoacaoInicial,
           ultimaDoacao: doadores.ultimaDoacao,
+
+          stripeCustomerId: doadores.stripeCustomerId,
           stripeSubscriptionId: doadores.stripeSubscriptionId,
+
+          userSubscriptionStatus: users.subscriptionStatus,
+          userAtivo: users.ativo,
+
           gritos: users.gritos,
           nivel: users.nivel,
         })
@@ -2003,7 +1839,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Doador não encontrado" });
       }
 
-      // Buscar histórico de doações
       const historicoDoacoes = await db
         .select({
           totalDoacoes: sql<string>`COALESCE(COUNT(${historicoDoacao.id}), 0)`,
@@ -2012,11 +1847,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(historicoDoacao)
         .where(eq(historicoDoacao.doadorId, doadorId));
 
-      // Buscar missões concluídas se tiver userId (tabelas não existem ainda, retornar 0)
       let missoesConcluidas = 0;
       let checkins = 0;
 
-      // Calcular engajamento médio (missões + check-ins)
       const totalActivities = missoesConcluidas + checkins;
       const daysSinceStart = doadorDetails.dataInicio
         ? Math.max(
@@ -2027,20 +1860,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             )
           )
         : 1;
-      const engajamentoMedio = Math.round(
-        (totalActivities / daysSinceStart) * 100
-      );
+
+      const engajamentoMedio = Math.round((totalActivities / daysSinceStart) * 100);
 
       res.json({
         ...doadorDetails,
         totalDoacoes: historicoDoacoes[0]?.totalDoacoes || 0,
-        valorTotalDoacoes: parseFloat(
-          historicoDoacoes[0]?.valorTotalDoacoes || "0"
-        ),
+        valorTotalDoacoes: parseFloat(historicoDoacoes[0]?.valorTotalDoacoes || "0"),
         missoesConcluidas,
         checkins,
         engajamentoMedio,
-        numeroSequencial: doadorId, // Pode ser melhorado com lógica específica
+        numeroSequencial: doadorId,
       });
     } catch (error: any) {
       console.error("❌ [DONOR DETAILS] Erro:", error);
@@ -2315,9 +2145,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await db
           .update(typeformResponses)
           .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
             userId: user.id,
             doadorId: doador[0].id,
             processado: true,
@@ -2672,146 +2499,189 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ========== ENDPOINT DE SINCRONIZAÇÃO STRIPE -> BANCO LOCAL ==========
-  // Sincroniza doadores que existem no Stripe mas não no banco local
-  app.post("/api/admin/sync-stripe-donors", async (req, res) => {
-    try {
-      console.log("🔄 [SYNC] Iniciando sincronização Stripe -> Banco Local...");
+ // ========== ENDPOINT DE SINCRONIZAÇÃO STRIPE -> BANCO LOCAL ==========
+// Sincroniza doadores que existem no Stripe mas não no banco local
+app.post("/api/admin/sync-stripe-donors", async (req, res) => {
+  try {
+    console.log("🔄 [SYNC] Iniciando sincronização Stripe -> Banco Local...");
 
-      const results = {
-        totalStripeCustomers: 0,
-        totalStripeSubscriptions: 0,
-        usersCreated: 0,
-        usersUpdated: 0,
-        doadoresCreated: 0,
-        doadoresUpdated: 0,
-        errors: [] as string[],
-        details: [] as any[],
+    const results = {
+      totalStripeCustomers: 0,
+      totalStripeSubscriptions: 0,
+      usersCreated: 0,
+      usersUpdated: 0,
+      doadoresCreated: 0,
+      doadoresUpdated: 0,
+      errors: [] as string[],
+      details: [] as any[],
+    };
+
+    // 1) Buscar TODOS os customers do Stripe
+    let hasMore = true;
+    let startingAfter: string | undefined;
+    const allCustomers: any[] = [];
+
+    while (hasMore) {
+      const customersPage = await stripe.customers.list({
+        limit: 100,
+        starting_after: startingAfter,
+      });
+
+      allCustomers.push(...customersPage.data);
+      hasMore = customersPage.has_more;
+      if (customersPage.data.length > 0) {
+        startingAfter = customersPage.data[customersPage.data.length - 1].id;
+      }
+    }
+
+    results.totalStripeCustomers = allCustomers.length;
+    console.log(`📊 [SYNC] Encontrados ${allCustomers.length} customers no Stripe`);
+
+    // Helper: escolher melhor subscription
+    const pickBestSubscription = (subs: any[]) => {
+      const order: Record<string, number> = {
+        active: 1,
+        trialing: 2,
+        past_due: 3,
+        unpaid: 4,
+        incomplete: 5,
+        incomplete_expired: 6,
+        canceled: 9,
       };
 
-      // 1. Buscar TODOS os customers do Stripe
-      let hasMore = true;
-      let startingAfter: string | undefined;
-      const allCustomers: any[] = [];
+      return subs
+        .slice()
+        .sort((a, b) => (order[a.status] ?? 99) - (order[b.status] ?? 99))[0];
+    };
 
-      while (hasMore) {
-        const customersPage = await stripe.customers.list({
-          limit: 100,
-          starting_after: startingAfter,
+    // 2) Para cada customer, buscar subscriptions e sincronizar
+    for (const customer of allCustomers) {
+      try {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: customer.id,
+          limit: 20,
+          expand: ["data.items.data.price"],
         });
-        allCustomers.push(...customersPage.data);
-        hasMore = customersPage.has_more;
-        if (customersPage.data.length > 0) {
-          startingAfter = customersPage.data[customersPage.data.length - 1].id;
+
+        results.totalStripeSubscriptions += subscriptions.data.length;
+
+        if (subscriptions.data.length === 0) continue;
+
+        const subscription = pickBestSubscription(subscriptions.data);
+
+        const telefone = customer.phone || "";
+        const nome = customer.name || "Doador Stripe";
+        const email = customer.email || null;
+
+        if (!telefone) {
+          results.errors.push(`Customer ${customer.id} (${nome}) sem telefone (ok, seguindo via customerId)`);
         }
-      }
 
-      results.totalStripeCustomers = allCustomers.length;
-      console.log(
-        `📊 [SYNC] Encontrados ${allCustomers.length} customers no Stripe`
-      );
+        const price = subscription.items?.data?.[0]?.price;
+        const priceAmount = price?.unit_amount || 0;
+        const valorNum = priceAmount / 100;
 
-      // 2. Para cada customer, buscar subscriptions e sincronizar
-      for (const customer of allCustomers) {
-        try {
-          // Buscar subscriptions do customer
-          const subscriptions = await stripe.subscriptions.list({
-            customer: customer.id,
-            limit: 10,
-          });
+        const interval = price?.recurring?.interval || "month";
+        const intervalCount = price?.recurring?.interval_count || 1;
 
-          results.totalStripeSubscriptions += subscriptions.data.length;
+        let periodicidade = "mensal";
+        if (interval === "year") periodicidade = "anual";
+        else if (interval === "month" && intervalCount === 3) periodicidade = "trimestral";
+        else if (interval === "month" && intervalCount === 6) periodicidade = "semestral";
+        else periodicidade = "mensal";
 
-          // Pular se não tem subscription
-          if (subscriptions.data.length === 0) continue;
+        let plano =
+          subscription.metadata?.plano ||
+          customer.metadata?.plano ||
+          "eco";
 
-          // Usar a subscription mais recente
-          const subscription = subscriptions.data[0];
-          const telefone = customer.phone || "";
-          const nome = customer.name || "Doador Stripe";
-          const email = customer.email || null;
-
-          // Extrair valor da subscription
-          const priceAmount =
-            subscription.items.data[0]?.price?.unit_amount || 0;
-          const valorNum = priceAmount / 100;
-
-          // Extrair plano dos metadados ou inferir pelo valor
-          let plano =
-            subscription.metadata?.plano || customer.metadata?.plano || "eco";
+        if (!subscription.metadata?.plano && !customer.metadata?.plano) {
           if (valorNum >= 50) plano = "platinum";
-          else if (valorNum >= 29) plano = "grito";
+          else if (valorNum >= 29.9) plano = "grito";
+          else if (valorNum >= 19.9) plano = "voz";
           else plano = "eco";
+        }
 
-          // Extrair periodicidade
-          const interval =
-            subscription.items.data[0]?.price?.recurring?.interval || "month";
-          const intervalCount =
-            subscription.items.data[0]?.price?.recurring?.interval_count || 1;
-          let periodicidade = "mensal";
-          if (interval === "year") periodicidade = "anual";
-          else if (intervalCount === 3) periodicidade = "trimestral";
-          else if (intervalCount === 6) periodicidade = "semestral";
+        const isActive = ["active", "trialing"].includes(subscription.status);
+        const isPastDue = subscription.status === "past_due";
 
-          // Pular se não tem telefone
-          if (!telefone) {
-            results.errors.push(
-              `Customer ${customer.id} (${nome}) sem telefone`
-            );
-            continue;
-          }
+        let statusLocal: "paid" | "pending" | "cancelled" = "pending";
+        if (isActive) statusLocal = "paid";
+        else if (isPastDue) statusLocal = "pending";
+        else if (["canceled", "unpaid", "incomplete_expired"].includes(subscription.status)) statusLocal = "cancelled";
 
-          // 3. Verificar/criar usuário
-          let userId: number | null = null;
-          const existingUser = await db
-            .select()
-            .from(users)
-            .where(
-              or(
-                eq(users.telefone, telefone),
-                eq(users.stripeCustomerId, customer.id)
-              )
-            )
-            .limit(1);
+        // 3) Verificar/criar usuário (prioridade: metadata.userId > stripeCustomerId > telefone > email)
+        const metaUserIdRaw = (customer.metadata?.userId || customer.metadata?.user_id || "").trim();
+        const metaUserId = metaUserIdRaw ? parseInt(metaUserIdRaw, 10) : NaN;
 
-          if (existingUser.length > 0) {
-            // Atualizar usuário existente
-            userId = existingUser[0].id;
-            await db.update(users).set({
+        let existingUser: any[] = [];
+
+        if (!Number.isNaN(metaUserId)) {
+          existingUser = await db.select().from(users).where(eq(users.id, metaUserId)).limit(1);
+        }
+
+        if (existingUser.length === 0) {
+          existingUser = await db.select().from(users).where(eq(users.stripeCustomerId, customer.id)).limit(1);
+        }
+
+        if (existingUser.length === 0 && telefone) {
+          existingUser = await db.select().from(users).where(eq(users.telefone, telefone)).limit(1);
+        }
+
+        if (existingUser.length === 0 && email) {
+          existingUser = await db.select().from(users).where(eq(users.email, email)).limit(1);
+        }
+
+        let userId: number | null = null;
+
+        if (existingUser.length > 0) {
+          userId = existingUser[0].id;
+
+          await db
+            .update(users)
+            .set({
               stripeCustomerId: customer.id,
               stripeSubscriptionId: subscription.id,
               subscriptionStatus: subscription.status,
               plano: plano,
+              ativo: isActive,
               nome: existingUser[0].nome || nome,
               email: email || existingUser[0].email || null,
-            }).where(eq(users.id, userId));
-            results.usersUpdated++;
-          } else {
-            // Criar novo usuário
-            const [newUser] = await db
-              .insert(users)
-              .values({
-                nome: nome,
-                telefone: telefone,
-                email: email,
-                plano: plano,
-                stripeCustomerId: customer.id,
-                stripeSubscriptionId: subscription.id,
-                subscriptionStatus: subscription.status,
-                role: "doador",
-                verificado: false,
-                ativo: true,
-              })
-              .returning();
-            userId = newUser.id;
-            results.usersCreated++;
-            console.log(
-              `✅ [SYNC] Novo usuário criado: ${nome} (ID ${userId})`
-            );
-          }
+            })
+            .where(eq(users.id, userId));
 
-          // 4. Verificar/criar doador
-          const existingDoador = await db
+          results.usersUpdated++;
+        } else {
+          const [newUser] = await db
+            .insert(users)
+            .values({
+              nome: nome,
+              telefone: telefone,
+              email: email,
+              plano: plano,
+              stripeCustomerId: customer.id,
+              stripeSubscriptionId: subscription.id,
+              subscriptionStatus: subscription.status,
+              role: "doador",
+              verificado: false,
+              ativo: isActive,
+            })
+            .returning();
+
+          userId = newUser.id;
+          results.usersCreated++;
+          console.log(`✅ [SYNC] Novo usuário criado: ${nome} (ID ${userId})`);
+        }
+
+        // 4) Verificar/criar doador (preferir por userId; fallback por subId/customerId)
+        let existingDoador: any[] = [];
+
+        if (userId) {
+          existingDoador = await db.select().from(doadores).where(eq(doadores.userId, userId)).limit(1);
+        }
+
+        if (existingDoador.length === 0) {
+          existingDoador = await db
             .select()
             .from(doadores)
             .where(
@@ -2821,96 +2691,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
               )
             )
             .limit(1);
+        }
 
-          if (existingDoador.length > 0) {
-            // Atualizar doador existente
-            await db.update(doadores).set({
+        if (existingDoador.length > 0) {
+          await db
+            .update(doadores)
+            .set({
               userId: userId,
               stripeSubscriptionId: subscription.id,
               stripeCustomerId: customer.id,
               plano: plano,
               valor: valorNum.toString(),
               periodicidade: periodicidade,
-              status: subscription.status === 'active' || subscription.status === 'trialing' ? 'paid' : 'pending',
-              ativo: subscription.status === 'active' || subscription.status === 'trialing',
-            }).where(eq(doadores.id, existingDoador[0].id));
-            results.doadoresUpdated++;
-          } else {
-            // Criar novo doador
-            const [newDoador] = await db
-              .insert(doadores)
-              .values({
-                userId: userId,
-                plano: plano,
-                valor: valorNum.toString(),
-                periodicidade: periodicidade,
-                stripeCustomerId: customer.id,
-                stripeSubscriptionId: subscription.id,
-                status:
-                  subscription.status === "active" ||
-                  subscription.status === "trialing"
-                    ? "paid"
-                    : "pending",
-                ativo:
-                  subscription.status === "active" ||
-                  subscription.status === "trialing",
-                dataDoacaoInicial: new Date(subscription.created * 1000),
-              })
-              .returning();
-            results.doadoresCreated++;
-            console.log(
-              `✅ [SYNC] Novo doador criado: ${nome} (ID ${newDoador.id})`
-            );
-          }
+              status: statusLocal,
+              ativo: isActive,
+              ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+              updatedAt: new Date(),
+            })
+            .where(eq(doadores.id, existingDoador[0].id));
 
-          results.details.push({
-            customerId: customer.id,
-            nome: nome,
-            telefone: telefone,
-            valor: valorNum,
-            plano: plano,
-            status: subscription.status,
-            userId: userId,
-          });
-        } catch (customerError: any) {
-          results.errors.push(
-            `Erro ao processar ${customer.id}: ${customerError?.message}`
-          );
+          results.doadoresUpdated++;
+        } else {
+          const [newDoador] = await db
+            .insert(doadores)
+            .values({
+              userId: userId,
+              plano: plano,
+              valor: valorNum.toString(),
+              periodicidade: periodicidade,
+              stripeCustomerId: customer.id,
+              stripeSubscriptionId: subscription.id,
+              status: statusLocal,
+              ativo: isActive,
+              dataDoacaoInicial: new Date(subscription.created * 1000),
+              ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+              updatedAt: new Date(),
+            })
+            .returning();
+
+          results.doadoresCreated++;
+          console.log(`✅ [SYNC] Novo doador criado: ${nome} (ID ${newDoador.id})`);
         }
-      }
 
-      console.log(`✅ [SYNC] Sincronização concluída:`, {
+        results.details.push({
+          customerId: customer.id,
+          nome,
+          telefone,
+          valor: valorNum,
+          plano,
+          periodicidade,
+          statusStripe: subscription.status,
+          statusLocal,
+          userId,
+        });
+      } catch (customerError: any) {
+        results.errors.push(`Erro ao processar ${customer.id}: ${customerError?.message}`);
+      }
+    }
+
+    console.log(`✅ [SYNC] Sincronização concluída:`, {
+      usersCreated: results.usersCreated,
+      usersUpdated: results.usersUpdated,
+      doadoresCreated: results.doadoresCreated,
+      doadoresUpdated: results.doadoresUpdated,
+      errors: results.errors.length,
+    });
+
+    res.json({
+      success: true,
+      message: "Sincronização concluída",
+      results: {
+        totalStripeCustomers: results.totalStripeCustomers,
+        totalStripeSubscriptions: results.totalStripeSubscriptions,
         usersCreated: results.usersCreated,
         usersUpdated: results.usersUpdated,
         doadoresCreated: results.doadoresCreated,
         doadoresUpdated: results.doadoresUpdated,
-        errors: results.errors.length,
-      });
+        errorsCount: results.errors.length,
+        errors: results.errors.slice(0, 10),
+        details: results.details,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ [SYNC] Erro na sincronização:", error?.message);
+    res.status(500).json({
+      success: false,
+      error: "Erro na sincronização",
+      message: error?.message,
+    });
+  }
+});
 
-      res.json({
-        success: true,
-        message: "Sincronização concluída",
-        results: {
-          totalStripeCustomers: results.totalStripeCustomers,
-          totalStripeSubscriptions: results.totalStripeSubscriptions,
-          usersCreated: results.usersCreated,
-          usersUpdated: results.usersUpdated,
-          doadoresCreated: results.doadoresCreated,
-          doadoresUpdated: results.doadoresUpdated,
-          errorsCount: results.errors.length,
-          errors: results.errors.slice(0, 10), // Limitar erros retornados
-          details: results.details,
-        },
-      });
-    } catch (error: any) {
-      console.error("❌ [SYNC] Erro na sincronização:", error?.message);
-      res.status(500).json({
-        success: false,
-        error: "Erro na sincronização",
-        message: error?.message,
-      });
-    }
-  });
   // ========== FIM DO ENDPOINT DE SINCRONIZAÇÃO ==========
 
   // === ENDPOINT DE POLLING: Buscar client_secret quando vier null ===
@@ -3446,9 +3317,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await db
                 .update(users)
                 .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
                   dataPrimeiraEntrada: new Date(),
                   gritosTotal: (user[0].gritosTotal || 0) + 50,
                 })
@@ -7836,67 +7704,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return phone;
   }
 
-  // LOGIN DE COORDENADORES
-  app.post("/auth/login-coordenador", async (req, res) => {
-    try {
-      const raw = String(req.body?.email || "").trim();
-      if (!raw) return res.status(400).json({ error: "E-mail é obrigatório" });
-
-      // normaliza
-      const email = raw.toLowerCase();
-
-      // busca coordenador ativo por email
-      const [coord] = await db
-        .select()
-        .from(coordenadores)
-        .where(
-          and(ilike(coordenadores.email, email), eq(coordenadores.ativo, true))
-        )
-        .limit(1);
-
-      if (!coord)
-        return res.status(401).json({ error: "E-mail não autorizado" });
-
-      // opcional: carregar dados do usuário vinculado
-      let user: any = null;
-      if (coord.userId) {
-        const [u] = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, coord.userId))
-          .limit(1);
-        user = u || null;
-      }
-
-      return res.json({
-        success: true,
-        role: "coordenador",
-        setor: coord.setor,
-        redirectPath: coord.redirectPath, // já vem da tabela (vide sua screenshot)
-        user: user
-          ? {
-              id: user.id,
-              nome: user.nome || "Coordenador",
-              email: user.email || email,
-              telefone: user.telefone || "",
-              papel: "coordenador",
-              role: "coordenador",
-            }
-          : {
-              id: 0,
-              nome: "Coordenador",
-              email,
-              telefone: "",
-              papel: "coordenador",
-              role: "coordenador",
-            },
-      });
-    } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "Erro interno" });
-    }
-  });
-
  // Send login code via SMS
 app.post("/api/send-login-code", async (req, res) => {
   try {
@@ -8354,124 +8161,7 @@ app.post("/api/send-login-code", async (req, res) => {
   }
 });
 
-
-  // Professor-specific login code verification (includes new test users)
-  app.post("/api/professor/verify-login-code", async (req, res) => {
-    try {
-      const { telefone, codigo } = req.body;
-
-      if (!telefone || !codigo) {
-        return res
-          .status(400)
-          .json({ error: "Telefone e código são obrigatórios" });
-      }
-
-      // Check stored verification code for regular users
-      // Try multiple formats to match
-      const normalizedForCheck = telefone.replace(/\D/g, "").replace(/^55/, "");
-      const possibleKeys = [
-        telefone,
-        normalizedForCheck,
-        `+55${normalizedForCheck}`,
-        `+5531${normalizedForCheck.substring(2)}`,
-      ];
-
-      let storedCode = null;
-      let matchedKey = null;
-
-      for (const key of possibleKeys) {
-        storedCode = verificationCodes.get(key);
-        if (storedCode) {
-          matchedKey = key;
-          break;
-        }
-      }
-
-      if (!storedCode) {
-        return res
-          .status(400)
-          .json({ error: "Código de verificação não encontrado ou expirado" });
-      }
-
-      if (storedCode !== codigo) {
-        return res
-          .status(400)
-          .json({ error: "Código de verificação inválido" });
-      }
-
-      // Remove verification code after successful verification
-      verificationCodes.delete(telefone);
-      verificationCodes.delete(matchedKey);
-      for (const key of possibleKeys) {
-        verificationCodes.delete(key);
-      }
-
-      // Professor-specific test users
-      if (telefone === "+5531999990001") {
-        return res.json({
-          success: true,
-          nome: "Felipe",
-          email: "marketing@institutoogrito.org",
-          telefone: telefone,
-          papel: "professor",
-          professorTipo: "lider",
-          needsCouncilApproval: false,
-        });
-      }
-
-      if (telefone === "+5531999990002") {
-        return res.json({
-          success: true,
-          nome: "Emily",
-          email: "emily@institutoogrito.org",
-          telefone: telefone,
-          papel: "professor",
-          professorTipo: "regular",
-          needsCouncilApproval: false,
-        });
-      }
-
-      if (telefone === "+5531999990003") {
-        return res.json({
-          success: true,
-          nome: "Tati",
-          email: "tati@institutoogrito.org",
-          telefone: telefone,
-          papel: "professor",
-          professorTipo: "regular",
-          needsCouncilApproval: false,
-        });
-      }
-
-      // Fall back to regular verification logic for other users
-      let user = await storage.getUserByTelefone(telefone);
-      if (!user) {
-        user = await storage.createUser({
-          cpf: "00000000000",
-          nome: "Usuário",
-          sobrenome: "",
-          telefone,
-          email: "",
-          plano: "eco",
-        });
-      }
-
-      res.json({
-        success: true,
-        nome: user.nome,
-        email: user.email || "",
-        telefone: user.telefone,
-        papel: "professor",
-        professorTipo: "regular",
-        needsCouncilApproval: false,
-      });
-    } catch (error: any) {
-      console.error("Error verifying professor login code:", error);
-      res.status(500).json({ error: "Erro ao verificar código" });
-    }
-  });
-
-  // Verify login code (regular users - restored to original)
+    // Verify login code (regular users - restored to original)
   // ✅ ROTA COMPLETA (corrigida) — /api/verify-login-code
   app.post("/api/verify-login-code", async (req, res) => {
   try {
@@ -8602,7 +8292,7 @@ app.post("/api/send-login-code", async (req, res) => {
           needsCouncilApproval = false;
           console.log(`✅ DOADOR LOGIN - No approval needed`);
         } else {
-          const conselhoStatus = user.conselhoStatus || "pendente";
+          const conselhoStatus = user.conselhoStatus;
 
           if (conselhoStatus === "aprovado") {
             papel = "conselho";
@@ -8612,13 +8302,7 @@ app.post("/api/send-login-code", async (req, res) => {
           } else if (conselhoStatus === "recusado") {
             needsCouncilApproval = true;
           } else {
-            try {
-              await storage.updateConselhoStatus(user.telefone, "pendente");
-              needsCouncilApproval = true;
-            } catch (error) {
-              console.error("Error updating council status:", error);
-              needsCouncilApproval = true;
-            }
+            needsCouncilApproval = false;
           }
         }
       }
@@ -8635,6 +8319,7 @@ app.post("/api/send-login-code", async (req, res) => {
         papel,
         professorTipo,
       },
+      conselhoStatus: user.conselhoStatus || null,
       needsCouncilApproval,
       hasActiveSubscription: true,
     });
@@ -8934,9 +8619,6 @@ app.post("/api/send-login-code", async (req, res) => {
           await db
             .update(referrals)
             .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
               referredUserId: updatedUser.id,
               status: "completo",
               completadoEm: new Date(),
@@ -9088,19 +8770,51 @@ app.post("/api/send-login-code", async (req, res) => {
             );
           } else {
             console.log(
-              `❌ [EMAIL LOGIN] Usuário encontrado mas não é patrocinador. Role: ${user.role}`
+              `📋 [EMAIL LOGIN] Usuário não é patrocinador nem conselheiro. Verificando solicitação: ${cleanEmail}`
             );
-            return res
-              .status(401)
-              .json({ error: "E-mail não autorizado para acesso direto" });
+            const [existente] = await db.select().from(conselheiros).where(eq(conselheiros.email, cleanEmail));
+            if (existente && existente.tipo === "recusado") {
+              return res.status(403).json({
+                rejected: true,
+                error: "Seu acesso ao Conselho foi negado pelo administrador.",
+              });
+            }
+            if (!existente) {
+              await db.insert(conselheiros).values({
+                email: cleanEmail,
+                nome: user.nome || cleanEmail,
+                tipo: "conselho",
+                ativo: false,
+              });
+            }
+            return res.status(202).json({
+              pendingApproval: true,
+              message: "Sua solicitação de acesso ao Conselho foi enviada. Aguarde aprovação do administrador.",
+            });
           }
         } else {
           console.log(
-            `❌ [EMAIL LOGIN] Nenhum usuário encontrado com e-mail: ${cleanEmail}`
+            `📋 [EMAIL LOGIN] E-mail não encontrado no sistema. Verificando solicitação: ${cleanEmail}`
           );
-          return res
-            .status(401)
-            .json({ error: "E-mail não autorizado para acesso direto" });
+          const [existente] = await db.select().from(conselheiros).where(eq(conselheiros.email, cleanEmail));
+          if (existente && existente.tipo === "recusado") {
+            return res.status(403).json({
+              rejected: true,
+              error: "Seu acesso ao Conselho foi negado pelo administrador.",
+            });
+          }
+          if (!existente) {
+            await db.insert(conselheiros).values({
+              email: cleanEmail,
+              nome: cleanEmail,
+              tipo: "conselho",
+              ativo: false,
+            });
+          }
+          return res.status(202).json({
+            pendingApproval: true,
+            message: "Sua solicitação de acesso ao Conselho foi enviada. Aguarde aprovação do administrador.",
+          });
         }
       } else {
         console.log(
@@ -10038,8 +9752,44 @@ app.post("/api/send-login-code", async (req, res) => {
 
     try {
       // Parâmetros de período e departamento
-      const periodo = (req.query.periodo as string) || "2025";
-      let departamento = (req.query.departamento as string) || "";
+      const periodo = req.query.periodo as string || '2025';
+      // Verificar se é ano 2026+ (ainda não há dados cadastrados)
+      const anoFinanceiro = parseInt(periodo.substring(0, 4));
+      if (anoFinanceiro >= 2026) {
+        console.log("[FINANCEIRO] Ano " + anoFinanceiro + " - retornando dados zerados");
+        const mesesVazios = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].map(mes => ({
+          mes,
+          meta_captado: 0,
+          captado: 0,
+          meta_realizado: 0,
+          realizado: 0,
+          saldo: 0
+        }));
+        return res.json({
+          periodo: periodo,
+          departamento: (req.query.departamento as string) || "TODOS",
+          totais: {
+            receitas_meta: 0,
+            receitas_captado: 0,
+            receitas_resultado: 0,
+            despesas_meta: 0,
+            despesas_realizado: 0,
+            despesas_resultado: 0,
+            saldo_final_geral: 0
+          },
+          dados_mensais: mesesVazios,
+          metas: {
+            receitas: 0,
+            despesas: 0
+          },
+          realizados: {
+            contas_receber: 0,
+            contas_pagar: 0
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+      let departamento = req.query.departamento as string || '';
 
       // Mapeamento SLUG → NOME COMPLETO
       const slugToNome: Record<string, string> = {
@@ -10941,140 +10691,7 @@ app.post("/api/send-login-code", async (req, res) => {
     }
   });
 
-  // 🔄 SYNC: Sincronizar planos dos usuários com Stripe (incluindo busca por customer_id)
-  app.post("/api/admin/sync-stripe-plans", async (req, res) => {
-    try {
-      console.log("🔄 [SYNC] Iniciando sincronização de planos do Stripe...");
-
-      if (!stripe) {
-        return res.status(500).json({ error: "Stripe não configurado" });
-      }
-
-      // Buscar todos os usuários com Stripe (subscription_id OU customer_id)
-      const allUsersFromDb = await storage.getAllUsers();
-      const usersWithStripe = allUsersFromDb.filter(
-        (u) => u.stripeSubscriptionId || u.stripeCustomerId
-      );
-
-      console.log(
-        `🔍 [SYNC] Encontrados ${usersWithStripe.length} usuários com dados Stripe`
-      );
-
-      const results = {
-        total: usersWithStripe.length,
-        updated: 0,
-        errors: 0,
-        subscriptionsFound: 0,
-        details: [] as any[],
-      };
-
-      for (const user of usersWithStripe) {
-        try {
-          let subscription = null;
-
-          // Se tem subscription_id, buscar direto
-          if (user.stripeSubscriptionId) {
-            subscription = await stripe.subscriptions.retrieve(
-              user.stripeSubscriptionId
-            );
-          }
-          // Se não tem subscription_id mas tem customer_id, buscar assinaturas do cliente
-          else if (user.stripeCustomerId) {
-            console.log(
-              `🔍 [SYNC] Buscando assinaturas do customer ${user.stripeCustomerId} (${user.nome})`
-            );
-            const subscriptions = await stripe.subscriptions.list({
-              customer: user.stripeCustomerId,
-              status: "active",
-              limit: 1,
-            });
-
-            if (subscriptions.data.length > 0) {
-              subscription = subscriptions.data[0];
-              results.subscriptionsFound++;
-
-              // Atualizar subscription_id no banco
-              await db
-                .update(users)
-                .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
-                  stripeSubscriptionId: subscription.id,
-                  subscriptionStatus: subscription.status,
-                })
-                .where(eq(users.id, user.id));
-
-              console.log(
-                `✅ [SYNC] Subscription encontrada e salva: ${subscription.id} para ${user.nome}`
-              );
-            }
-          }
-
-          if (
-            subscription &&
-            subscription.items &&
-            subscription.items.data &&
-            subscription.items.data.length > 0
-          ) {
-            const priceAmount = subscription.items.data[0].price.unit_amount; // Em centavos
-
-            if (priceAmount) {
-              // Mapear valor para plano
-              let planFromStripe = "eco"; // Default
-              if (priceAmount === 990) {
-                planFromStripe = "eco";
-              } else if (priceAmount === 1990) {
-                planFromStripe = "voz";
-              } else if (priceAmount === 2990) {
-                planFromStripe = "grito";
-              } else if (priceAmount > 2990) {
-                planFromStripe = "platinum";
-              }
-
-              // Atualizar plano no banco
-              await db.update(users).set({ plano: planFromStripe }).where(eq(users.id, user.id));
-
-              results.updated++;
-              results.details.push({
-                userId: user.id,
-                nome: user.nome,
-                telefone: user.telefone,
-                planoAnterior: user.plano,
-                planoNovo: planFromStripe,
-                valorAssinatura: `R$ ${(priceAmount / 100).toFixed(2)}`,
-                subscriptionId: subscription.id,
-              });
-
-              console.log(
-                `✅ [SYNC] Usuário ${user.id} (${user.nome}) - ${
-                  user.plano
-                } → ${planFromStripe} (R$ ${(priceAmount / 100).toFixed(2)})`
-              );
-            }
-          }
-        } catch (error: any) {
-          results.errors++;
-          console.error(
-            `❌ [SYNC] Erro ao processar usuário ${user.id}:`,
-            error.message
-          );
-        }
-      }
-
-      console.log(
-        `✅ [SYNC] Sincronização concluída - ${results.updated} atualizados, ${results.subscriptionsFound} subscription IDs encontrados, ${results.errors} erros`
-      );
-      res.json(results);
-    } catch (error: any) {
-      console.error("❌ [SYNC] Erro na sincronização:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao sincronizar planos: " + error.message });
-    }
-  });
-
-  // 🔄 MIGRATE: Migrar doadores antigos para assinaturas recorrentes
+   // 🔄 MIGRATE: Migrar doadores antigos para assinaturas recorrentes
   app.post(
     "/api/admin/migrate-donors",
     requireAuth,
@@ -11715,6 +11332,133 @@ app.post("/api/send-login-code", async (req, res) => {
   );
 
   // =============================================================================
+  // ENDPOINT ALUNOS STATS - Dados reais de alunos do banco de dados
+  // =============================================================================
+  app.get("/api/leo/alunos-stats", async (req, res) => {
+    try {
+      const anoFiltro = req.query.ano ? parseInt(req.query.ano as string) : new Date().getFullYear();
+
+      const alunosPEC = await pool.query(`
+        SELECT 
+          a.cpf, a.nome_completo, a.situacao_atendimento,
+          a.data_nascimento, a.genero, a.cor_raca, a.bairro,
+          ap.programa, ap.status as programa_status
+        FROM aluno a
+        LEFT JOIN aluno_programa ap ON ap.aluno_cpf = a.cpf
+      `);
+
+      const participantesInclusaoList = await pool.query(`
+        SELECT 
+          pi.id, pi.nome, pi.status, pi.genero, pi.cor_raca, pi.bairro,
+          pi.data_nascimento,
+          ti.nome as turma_nome,
+          prg.nome as programa_nome
+        FROM participantes_inclusao pi
+        LEFT JOIN participantes_turmas pt ON pt.participante_id = pi.id
+        LEFT JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+        LEFT JOIN programas_inclusao prg ON prg.id = ti.programa_id
+      `);
+
+      const pecRows = alunosPEC.rows || [];
+      const inclusaoRows = participantesInclusaoList.rows || [];
+
+      const totalPEC = pecRows.length;
+      const ativosPEC = pecRows.filter((a: any) => 
+        a.programa_status === 'ativo' || a.programa_status === 'em_andamento' || a.situacao_atendimento === 'ativo'
+      ).length;
+
+      const totalInclusao = new Set(inclusaoRows.map((p: any) => p.id)).size;
+      const ativosInclusao = new Set(
+        inclusaoRows.filter((p: any) => p.status === 'ativo' || p.status === 'em_andamento').map((p: any) => p.id)
+      ).size;
+
+      const programasPEC: Record<string, { total: number; ativos: number }> = {};
+      pecRows.forEach((a: any) => {
+        const prog = a.programa || 'Sem programa';
+        if (!programasPEC[prog]) programasPEC[prog] = { total: 0, ativos: 0 };
+        programasPEC[prog].total++;
+        if (a.programa_status === 'ativo' || a.programa_status === 'em_andamento' || a.situacao_atendimento === 'ativo') {
+          programasPEC[prog].ativos++;
+        }
+      });
+
+      const participantesPorPrograma = new Map<string, Set<number>>();
+      const participantesAtivosPorPrograma = new Map<string, Set<number>>();
+      
+      inclusaoRows.forEach((p: any) => {
+        const prog = p.programa_nome || p.turma_nome || 'Sem programa';
+        if (!participantesPorPrograma.has(prog)) {
+          participantesPorPrograma.set(prog, new Set());
+          participantesAtivosPorPrograma.set(prog, new Set());
+        }
+        participantesPorPrograma.get(prog)!.add(p.id);
+        if (p.status === 'ativo' || p.status === 'em_andamento') {
+          participantesAtivosPorPrograma.get(prog)!.add(p.id);
+        }
+      });
+      
+      const programasInclusaoMap: Record<string, { total: number; ativos: number }> = {};
+      participantesPorPrograma.forEach((ids, prog) => {
+        programasInclusaoMap[prog] = {
+          total: ids.size,
+          ativos: participantesAtivosPorPrograma.get(prog)?.size || 0
+        };
+      });
+
+      const frequenciaPEC = await pool.query(`
+        SELECT 
+          ROUND(
+            AVG(CASE WHEN ca.status IN ('presente', 'falta_justificada') THEN 100.0 ELSE 0.0 END)
+          , 1) as freq
+        FROM chamada_aluno ca
+        JOIN chamada c ON c.id = ca.chamada_id
+        WHERE EXTRACT(YEAR FROM c.created_at) = $1
+      `, [anoFiltro]);
+
+      const frequenciaInclusao = await pool.query(`
+        SELECT 
+          ROUND(
+            AVG(CASE WHEN presente = true OR (justificativa IS NOT NULL AND justificativa != '' AND justificativa != 'Sem justificativa') THEN 100.0 ELSE 0.0 END)
+          , 1) as freq
+        FROM presencas_inclusao
+        WHERE EXTRACT(YEAR FROM created_at) = $1
+      `, [anoFiltro]);
+
+      const freqPEC = parseFloat(frequenciaPEC.rows[0]?.freq) || 0;
+      const freqInclusao = parseFloat(frequenciaInclusao.rows[0]?.freq) || 0;
+      const totalComFreq = (freqPEC > 0 ? 1 : 0) + (freqInclusao > 0 ? 1 : 0);
+      const frequenciaMedia = totalComFreq > 0 ? Math.round((freqPEC + freqInclusao) / totalComFreq) : 0;
+
+      res.json({
+        success: true,
+        totalAlunos: totalPEC + totalInclusao,
+        alunosAtivos: ativosPEC + ativosInclusao,
+        frequenciaMedia,
+        pec: {
+          total: totalPEC,
+          ativos: ativosPEC,
+          frequencia: freqPEC,
+          programas: programasPEC
+        },
+        inclusao: {
+          total: totalInclusao,
+          ativos: ativosInclusao,
+          frequencia: freqInclusao,
+          programas: programasInclusaoMap
+        },
+        distribuicao: [
+          { programa: 'Inclusão Produtiva', total: totalInclusao, ativos: ativosInclusao },
+          { programa: 'Polo Esportivo Cultural', total: totalPEC, ativos: ativosPEC },
+        ]
+      });
+    } catch (error: any) {
+      console.error("❌ [LEO ALUNOS] Erro:", error);
+      res.status(500).json({ success: false, error: "Erro ao buscar dados de alunos", message: error.message });
+    }
+  });
+
+
+  // =============================================================================
   // =============================================================================
   // =============================================================================
   // ENDPOINT DOADORES STATS - Dados empresariais completos do Stripe
@@ -11726,7 +11470,10 @@ app.post("/api/send-login-code", async (req, res) => {
         req.query.mes !== undefined
           ? parseInt(req.query.mes as string)
           : undefined;
-      const anoAtual = 2025;
+      const anoParam = req.query.ano !== undefined
+        ? parseInt(req.query.ano as string)
+        : undefined;
+      const anoAtual = anoParam || new Date().getFullYear();
       let inicioMes: number | undefined;
       let fimMes: number | undefined;
 
@@ -11911,15 +11658,25 @@ app.post("/api/send-login-code", async (req, res) => {
 
       if (inicioMes !== undefined && fimMes !== undefined) {
         doadoresAtivos = doadoresAtivos.filter((d) => {
-          // Assinatura criada antes ou durante o mês
           const criadaAntesFimMes = d.created <= fimMes;
-          // Assinatura não cancelada ou cancelada depois do início do mês
           const naoCandeladaOuDepoisInicio =
             !d.canceledAt || d.canceledAt >= inicioMes;
           return criadaAntesFimMes && naoCandeladaOuDepoisInicio;
         });
         console.log(
           `📅 [DOADORES] Após filtro por período: ${doadoresAtivos.length} doadores`
+        );
+      } else if (anoParam) {
+        const inicioAno = Math.floor(new Date(anoParam, 0, 1).getTime() / 1000);
+        const fimAno = Math.floor(new Date(anoParam, 11, 31, 23, 59, 59).getTime() / 1000);
+        doadoresAtivos = doadoresAtivos.filter((d) => {
+          const criadaAntesFimAno = d.created <= fimAno;
+          const naoCandeladaOuDepoisInicioAno =
+            !d.canceledAt || d.canceledAt >= inicioAno;
+          return criadaAntesFimAno && naoCandeladaOuDepoisInicioAno;
+        });
+        console.log(
+          `📅 [DOADORES] Após filtro por ano ${anoParam}: ${doadoresAtivos.length} doadores`
         );
       }
 
@@ -11929,9 +11686,13 @@ app.post("/api/send-login-code", async (req, res) => {
 
       // ===== ESTATÍSTICAS EMPRESARIAIS =====
 
-      // 1. Totais gerais
-      const totalDoadores = doadoresAtivos.length;
-      const arrecadacaoMensal = doadoresAtivos.reduce(
+      const doadoresNaoCancelados = doadoresAtivos.filter((d) => d.status !== 'canceled');
+      const doadoresSoAtivos = doadoresAtivos.filter((d) => d.status === 'active' || d.status === 'trialing');
+      const doadoresPendentes = doadoresAtivos.filter((d) => d.status === 'past_due');
+
+      // 1. Totais gerais (só doadores ativos + trialing)
+      const totalDoadores = doadoresSoAtivos.length;
+      const arrecadacaoMensal = doadoresSoAtivos.reduce(
         (acc, d) => acc + d.valor,
         0
       );
@@ -11947,20 +11708,44 @@ app.post("/api/send-login-code", async (req, res) => {
         "Platinum (R$30+)": { quantidade: 0, valor: 0 },
       };
 
-      doadoresAtivos.forEach((d) => {
-        if (d.valor <= 10) {
+      doadoresNaoCancelados.forEach((d) => {
+        if (d.plano === "eco") {
           porPlano["Eco (R$9,90)"].quantidade++;
           porPlano["Eco (R$9,90)"].valor += d.valor;
-        } else if (d.valor <= 20) {
+        } else if (d.plano === "voz") {
           porPlano["Voz (R$19,90)"].quantidade++;
           porPlano["Voz (R$19,90)"].valor += d.valor;
-        } else if (d.valor < 30) {
+        } else if (d.plano === "grito") {
           porPlano["Grito (R$89,70)"].quantidade++;
           porPlano["Grito (R$89,70)"].valor += d.valor;
-        } else {
+        } else if (d.plano === "platinum") {
           porPlano["Platinum (R$30+)"].quantidade++;
           porPlano["Platinum (R$30+)"].valor += d.valor;
         }
+      });
+
+      const porPlanoAtivos: Record<string, { quantidade: number; valor: number }> = {
+        "Eco": { quantidade: 0, valor: 0 },
+        "Voz": { quantidade: 0, valor: 0 },
+        "Grito": { quantidade: 0, valor: 0 },
+        "Platinum": { quantidade: 0, valor: 0 },
+      };
+      doadoresSoAtivos.forEach((d) => {
+        const key = d.plano === "eco" ? "Eco" : d.plano === "voz" ? "Voz" : d.plano === "grito" ? "Grito" : "Platinum";
+        porPlanoAtivos[key].quantidade++;
+        porPlanoAtivos[key].valor += d.valor;
+      });
+
+      const porPlanoPendentes: Record<string, { quantidade: number; valor: number }> = {
+        "Eco": { quantidade: 0, valor: 0 },
+        "Voz": { quantidade: 0, valor: 0 },
+        "Grito": { quantidade: 0, valor: 0 },
+        "Platinum": { quantidade: 0, valor: 0 },
+      };
+      doadoresPendentes.forEach((d) => {
+        const key = d.plano === "eco" ? "Eco" : d.plano === "voz" ? "Voz" : d.plano === "grito" ? "Grito" : "Platinum";
+        porPlanoPendentes[key].quantidade++;
+        porPlanoPendentes[key].valor += d.valor;
       });
 
       // 3. Evolução mensal de adesões (por mês de criação)
@@ -12000,10 +11785,13 @@ app.post("/api/send-login-code", async (req, res) => {
 
       doadoresAtivos.forEach((d) => {
         const data = new Date(d.created * 1000);
-        const mesIndex = data.getMonth();
-        const mes = mesesNomes[mesIndex];
-        evolucaoMensal[mes].novosDoadadores++;
-        evolucaoMensal[mes].valorTotal += d.valor;
+        const anoCreated = data.getFullYear();
+        if (anoCreated === anoAtual) {
+          const mesIndex = data.getMonth();
+          const mes = mesesNomes[mesIndex];
+          evolucaoMensal[mes].novosDoadadores++;
+          evolucaoMensal[mes].valorTotal += d.valor;
+        }
       });
 
       // Calcular acumulados
@@ -12025,7 +11813,7 @@ app.post("/api/send-login-code", async (req, res) => {
         "R$200+": 0,
       };
 
-      doadoresAtivos.forEach((d) => {
+      doadoresSoAtivos.forEach((d) => {
         if (d.valor <= 25) distribuicaoPorValor["R$1-25"]++;
         else if (d.valor <= 50) distribuicaoPorValor["R$26-50"]++;
         else if (d.valor <= 100) distribuicaoPorValor["R$51-100"]++;
@@ -12034,46 +11822,41 @@ app.post("/api/send-login-code", async (req, res) => {
       });
       // 5. Status das assinaturas - buscar cancelados reais do banco
       // Só conta como cancelado quem NÃO tem nenhuma assinatura ativa
-      let canceledFromDB: any[] = [];
-      try {
-        const canceledResult = await pool.query(`
-          SELECT u.id, u.nome, u.telefone, u.email, u.plano, u.stripe_customer_id, u.motivo_cancelamento
-          FROM users u
-          WHERE u.subscription_status = 'canceled'
-            AND u.stripe_customer_id IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM users u2 
-              WHERE u2.stripe_customer_id = u.stripe_customer_id 
-                AND u2.subscription_status IN ('active', 'trialing')
-            )
-          ORDER BY u.id
-        `);
-        canceledFromDB = canceledResult.rows;
-      } catch (err) {
-        console.log("⚠️ [DOADORES] Erro ao buscar cancelados do banco:", err);
-      }
+      const inicioAnoFilter = Math.floor(new Date(anoAtual, 0, 1).getTime() / 1000);
+      const fimAnoFilter = Math.floor(new Date(anoAtual, 11, 31, 23, 59, 59).getTime() / 1000);
+
+      const canceladosStripe = Array.from(doadoresPorCustomer.values()).filter((d) => {
+        if (d.status !== 'canceled' || !d.canceledAt) return false;
+        if (!d.hasLocalUser) return false;
+        const canceladoNoAno = d.canceledAt >= inicioAnoFilter && d.canceledAt <= fimAnoFilter;
+        const criadoAntesOuDuranteAno = d.created <= fimAnoFilter;
+        return canceladoNoAno && criadoAntesOuDuranteAno;
+      });
+
+      console.log(`📅 [DOADORES] Cancelados no Stripe em ${anoAtual}: ${canceladosStripe.length}`);
 
       const porStatus = {
         active: doadoresAtivos.filter((d) => d.status === "active").length,
         trialing: doadoresAtivos.filter((d) => d.status === "trialing").length,
         past_due: doadoresAtivos.filter((d) => d.status === "past_due").length,
-        canceled: canceledFromDB.length,
+        canceled: canceladosStripe.length,
       };
 
-      // Lista de cancelados para exibição no dashboard
-      const canceladosLista = canceledFromDB.map((u) => ({
-        userId: u.id,
-        id: u.id,
-        nome: u.nome,
-        telefone: u.telefone,
-        email: u.email,
-        plano: u.plano,
+      const canceladosLista = canceladosStripe.map((d) => ({
+        id: d.id,
+        nome: d.name,
+        email: d.email,
+        telefone: d.phone,
+        valor: d.valor,
+        plano: d.plano,
         status: "canceled",
+        dataCancelamento: d.canceledAt ? new Date(d.canceledAt * 1000).toLocaleDateString("pt-BR") : null,
+        dataAdesao: new Date(d.created * 1000).toLocaleDateString("pt-BR"),
       }));
 
       // 6. Taxa de retenção (doadores com mais de 1 mês)
       const agora = Date.now() / 1000;
-      const doadoresAntigos = doadoresAtivos.filter(
+      const doadoresAntigos = doadoresSoAtivos.filter(
         (d) => agora - d.created > 30 * 24 * 60 * 60
       );
       const taxaRetencao =
@@ -12082,7 +11865,7 @@ app.post("/api/send-login-code", async (req, res) => {
           : 0;
 
       // 7. Ticket médio e maior doador
-      const maiorDoador = doadoresAtivos.reduce(
+      const maiorDoador = doadoresSoAtivos.reduce(
         (max, d) => (d.valor > max.valor ? d : max),
         { valor: 0, name: "" }
       );
@@ -12099,7 +11882,7 @@ app.post("/api/send-login-code", async (req, res) => {
       );
 
       res.json({
-        // Totais
+        anoSelecionado: anoAtual,
         totalDoadores,
         arrecadacaoMensal,
         doacaoMedia,
@@ -12110,12 +11893,40 @@ app.post("/api/send-login-code", async (req, res) => {
         // Por status
         porStatus,
 
-        // Por plano (para gráfico de pizza)
         porPlano: Object.entries(porPlano).map(([plano, dados]) => ({
           plano,
           quantidade: dados.quantidade,
           valor: dados.valor,
         })),
+
+        porPlanoAtivos: Object.entries(porPlanoAtivos)
+          .filter(([, dados]) => dados.quantidade > 0)
+          .map(([plano, dados]) => ({
+            plano,
+            quantidade: dados.quantidade,
+            valor: dados.valor,
+          })),
+
+        porPlanoPendentes: Object.entries(porPlanoPendentes)
+          .filter(([, dados]) => dados.quantidade > 0)
+          .map(([plano, dados]) => ({
+            plano,
+            quantidade: dados.quantidade,
+            valor: dados.valor,
+          })),
+
+        porPlanoCancelados: (() => {
+          const acc: Record<string, { quantidade: number; valor: number }> = {};
+          canceladosStripe.forEach((d) => {
+            const key = d.plano === "eco" ? "Eco" : d.plano === "voz" ? "Voz" : d.plano === "grito" ? "Grito" : "Platinum";
+            if (!acc[key]) acc[key] = { quantidade: 0, valor: 0 };
+            acc[key].quantidade++;
+            acc[key].valor += d.valor;
+          });
+          return Object.entries(acc)
+            .filter(([, dados]) => dados.quantidade > 0)
+            .map(([plano, dados]) => ({ plano, quantidade: dados.quantidade, valor: dados.valor }));
+        })(),
 
         // Evolução mensal (para gráfico de linha/barras)
         evolucaoMensal: mesesNomes.map((mes) => ({
@@ -12219,7 +12030,7 @@ app.post("/api/send-login-code", async (req, res) => {
         req.query.mes !== undefined
           ? parseInt(req.query.mes as string)
           : undefined;
-      const anoAtual = 2025;
+      const anoAtual = new Date().getFullYear();
       let whereClause = "ativo = true";
 
       if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
@@ -12630,11 +12441,513 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(400).json({ error: "Mês inválido" });
       }
 
-      const tipoConsulta =
-        mes !== null ? `MENSAL (mês ${mes})` : "ANUAL (agregado)";
-      console.log(
-        `📊 [GESTÃO VISTA] Buscando dados ${tipoConsulta}: ano=${ano}, programa=${programa}, unidade=${unidade}`
-      );
+      const tipoConsulta = mes !== null ? `MENSAL (mês ${mes})` : 'ANUAL (agregado)';
+      console.log(`📊 [GESTÃO VISTA] Buscando dados ${tipoConsulta}: ano=${ano}, programa=${programa}, unidade=${unidade}`);
+
+      // ==================================================================
+      // ANO 2026 - DADOS EM TEMPO REAL DO BANCO DE DADOS
+      // Busca dinâmica de crianças atendidas, alunos formados e frequência
+      // ==================================================================
+      if (ano === 2026) {
+        console.log('📊 [GV 2026] Buscando dados em tempo real do banco...');
+        try {
+          const indicadores2026 = await gestaoVistaData.getIndicadores2026(mes);
+          const geracaoRendaSplit2026 = await gestaoVistaData.getGeracaoRendaSplit2026(mes);
+          const atendidosInclusao2026 = await gestaoVistaData.getAtendimentosInclusao2026(mes);
+          const atendidosPsico2026 = await gestaoVistaData.getAtendidosPsico2026(mes);
+          const metas2026Base = gestaoVistaData.metasAnuais2026;
+          // Buscar metas customizadas do banco (metas_indicadores)
+          let metas2026 = { ...metas2026Base };
+          try {
+            const dbMetasRes = await pool.query(
+              'SELECT vertente, indicador, meta FROM metas_indicadores WHERE ano = $1',
+              [2026]
+            );
+            const dbM: Record<string, Record<string, number>> = { pec: {}, inclusao: {}, psico: {} };
+            for (const row of dbMetasRes.rows) {
+              if (dbM[row.vertente]) dbM[row.vertente][row.indicador] = parseFloat(row.meta);
+            }
+            // Aplicar metas do banco com prioridade sobre os defaults
+            if (dbM.pec.criancasAtendidas != null) metas2026.criancasAtendidas = dbM.pec.criancasAtendidas;
+            if (dbM.inclusao.alunosFormados  != null) metas2026.alunosFormados  = dbM.inclusao.alunosFormados;
+            if (dbM.inclusao.geracaoRenda    != null) { metas2026.geracaoRenda = dbM.inclusao.geracaoRenda; metas2026.pessoasEmpregadas = dbM.inclusao.geracaoRenda; }
+            if (dbM.psico.atendimentos       != null) metas2026.atendimentosPsico = dbM.psico.atendimentos;
+            if (dbM.psico.visitas            != null) metas2026.visitasDomicilio  = dbM.psico.visitas;
+            // Frequência: média de PEC + Inclusão se ambas definidas, senão a que existir
+            const freqPEC = dbM.pec.frequencia ?? null;
+            const freqInc = dbM.inclusao.frequencia ?? null;
+            if (freqPEC != null && freqInc != null) metas2026.frequencia = Math.round((freqPEC + freqInc) / 2);
+            else if (freqPEC != null) metas2026.frequencia = freqPEC;
+            else if (freqInc != null) metas2026.frequencia = freqInc;
+            // Evasão: pior (maior) entre PEC e Inclusão como meta
+            const evasPEC = dbM.pec.evasao ?? null;
+            const evasInc = dbM.inclusao.evasao ?? null;
+            if (evasPEC != null && evasInc != null) metas2026.evasao = Math.max(evasPEC, evasInc);
+            else if (evasPEC != null) metas2026.evasao = evasPEC;
+            else if (evasInc != null) metas2026.evasao = evasInc;
+          } catch (e2: any) {
+            console.warn('[GV 2026] Erro ao buscar metas do banco, usando defaults:', e2.message);
+          }
+
+          // Buscar metas específicas do PEC do banco (pec_dados)
+          let pecMetasDB: Record<string, number | null> = {
+            frequencia_meta: metas2026.frequencia,
+            avaliacao_aprendizagem_meta: metas2026.avaliacaoAprendizagem,
+            evasao_meta: metas2026.evasao,
+            atendidos_meta: metas2026.criancasAtendidas,
+            atendimentos_meta: null,
+            hora_aula_meta: null,
+            alimentacao_meta: null,
+          };
+          try {
+            const pecDadosRes = await pool.query(`
+              SELECT programa_esporte_cultura_atendidos_meta,
+                     programa_esporte_cultura_frequencia_meta,
+                     programa_esporte_cultura_avaliacao_aprendizagem_meta,
+                     programa_esporte_cultura_evasao_meta,
+                     programa_esporte_cultura_atendimentos_meta,
+                     programa_esporte_cultura_hora_aula_meta,
+                     programa_esporte_cultura_alimentacao_meta
+              FROM pec_dados
+              WHERE ano = 2026
+              LIMIT 1
+            `);
+            if (pecDadosRes.rows.length > 0) {
+              const r = pecDadosRes.rows[0];
+              pecMetasDB = {
+                frequencia_meta: r.programa_esporte_cultura_frequencia_meta != null ? Number(r.programa_esporte_cultura_frequencia_meta) : metas2026.frequencia,
+                avaliacao_aprendizagem_meta: r.programa_esporte_cultura_avaliacao_aprendizagem_meta != null ? Number(r.programa_esporte_cultura_avaliacao_aprendizagem_meta) : metas2026.avaliacaoAprendizagem,
+                evasao_meta: r.programa_esporte_cultura_evasao_meta != null ? Number(r.programa_esporte_cultura_evasao_meta) : metas2026.evasao,
+                atendidos_meta: r.programa_esporte_cultura_atendidos_meta != null ? Number(r.programa_esporte_cultura_atendidos_meta) : metas2026.criancasAtendidas,
+                atendimentos_meta: r.programa_esporte_cultura_atendimentos_meta != null ? Number(r.programa_esporte_cultura_atendimentos_meta) : null,
+                hora_aula_meta: r.programa_esporte_cultura_hora_aula_meta != null ? Number(r.programa_esporte_cultura_hora_aula_meta) : null,
+                alimentacao_meta: r.programa_esporte_cultura_alimentacao_meta != null ? Number(r.programa_esporte_cultura_alimentacao_meta) : null,
+              };
+            }
+          } catch (pecErr) {
+            console.error('⚠️ Erro ao buscar metas PEC:', pecErr);
+          }
+          
+          const getKpiColor2026 = (valor: number, meta: number, isInverse: boolean = false) => {
+            if (meta === 0) return { color: 'gray' as const, progress: 0 };
+            const percentual = (valor / meta) * 100;
+            let color: 'green' | 'yellow' | 'red' | 'blue' | 'gray';
+            if (isInverse) {
+              color = percentual <= 80 ? 'green' : percentual <= 100 ? 'yellow' : 'red';
+            } else {
+              color = percentual >= 100 ? 'blue' : percentual >= 80 ? 'green' : percentual >= 50 ? 'yellow' : 'red';
+            }
+            return { color, progress: Math.min(percentual, 100) };
+          };
+
+          const criancasKpi = getKpiColor2026(indicadores2026.criancasAtendidas, metas2026.criancasAtendidas);
+          const alunosFormadosKpi = getKpiColor2026(indicadores2026.alunosFormados, metas2026.alunosFormados);
+          const frequenciaKpi = getKpiColor2026(indicadores2026.frequencia, metas2026.frequencia);
+          const alunosEmFormacaoKpi = getKpiColor2026(indicadores2026.alunosEmFormacao, metas2026.alunosEmFormacao);
+
+          const metaGeracaoRenda2026 = mes !== null ? Math.round(metas2026.geracaoRenda / 12) : metas2026.geracaoRenda;
+          const metaPessoasEmpregadas2026 = mes !== null ? Math.round(metas2026.pessoasEmpregadas / 12) : metas2026.pessoasEmpregadas;
+          const metaEmpreendedores2026 = mes !== null ? Math.round(metas2026.empreendedores / 12) : metas2026.empreendedores;
+
+          const evasaoKpi = getKpiColor2026(indicadores2026.evasao, metas2026.evasao, true);
+          const geracaoRendaKpi = getKpiColor2026(indicadores2026.geracaoRenda, metaGeracaoRenda2026);
+          const visitasKpi = getKpiColor2026(indicadores2026.visitasDomicilio, metas2026.visitasDomicilio);
+          const atendimentosKpi2026 = getKpiColor2026(indicadores2026.atendimentosPsico, metas2026.atendimentosPsico);
+          const avaliacaoKpi = getKpiColor2026(indicadores2026.avaliacaoAprendizagem, metas2026.avaliacaoAprendizagem);
+          const npsKpi = getKpiColor2026(indicadores2026.pesquisaSatisfacao, metas2026.pesquisaSatisfacao);
+
+          const indicadores = {
+            frequencia: {
+              valor: indicadores2026.frequencia,
+              meta: metas2026.frequencia,
+              tipo: 'percent' as const,
+              color: frequenciaKpi.color,
+              progress: frequenciaKpi.progress
+            },
+            evasao: {
+              valor: indicadores2026.evasao,
+              meta: metas2026.evasao,
+              tipo: 'percent' as const,
+              color: evasaoKpi.color,
+              progress: evasaoKpi.progress
+            },
+            criterioSucesso: {
+              valor: indicadores2026.avaliacaoAprendizagem,
+              meta: metas2026.avaliacaoAprendizagem,
+              tipo: 'percent' as const,
+              color: avaliacaoKpi.color,
+              progress: avaliacaoKpi.progress
+            },
+            nps: {
+              valor: indicadores2026.pesquisaSatisfacao,
+              meta: metas2026.pesquisaSatisfacao,
+              tipo: 'count' as const,
+              color: npsKpi.color,
+              progress: npsKpi.progress
+            },
+            alunosFormados: {
+              valor: indicadores2026.alunosFormados,
+              meta: metas2026.alunosFormados,
+              tipo: 'count' as const,
+              color: alunosFormadosKpi.color,
+              progress: alunosFormadosKpi.progress
+            },
+            alunosEmFormacao: {
+              valor: indicadores2026.alunosEmFormacao,
+              meta: metas2026.alunosEmFormacao,
+              tipo: 'count' as const,
+              color: alunosEmFormacaoKpi.color,
+              progress: alunosEmFormacaoKpi.progress
+            },
+            criancasAtendidas: {
+              valor: indicadores2026.criancasAtendidas,
+              meta: metas2026.criancasAtendidas,
+              tipo: 'count' as const,
+              color: criancasKpi.color,
+              progress: criancasKpi.progress
+            },
+            empreendedores: {
+              valor: geracaoRendaSplit2026.empreendedorismo,
+              meta: 500,
+              tipo: 'count' as const,
+              color: getKpiColor2026(geracaoRendaSplit2026.empreendedorismo, 500).color,
+              progress: getKpiColor2026(geracaoRendaSplit2026.empreendedorismo, 500).progress
+            },
+            pessoasEmpregadas: {
+              valor: geracaoRendaSplit2026.empregabilidade,
+              meta: 1000,
+              tipo: 'count' as const,
+              color: getKpiColor2026(geracaoRendaSplit2026.empregabilidade, 1000).color,
+              progress: getKpiColor2026(geracaoRendaSplit2026.empregabilidade, 1000).progress
+            },
+            familiasAtivas: { valor: 0, meta: metas2026.familiasAcompanhadas, tipo: 'count' as const, color: 'gray' as const, progress: 0 },
+            visitas: {
+              valor: indicadores2026.visitasDomicilio,
+              meta: metas2026.visitasDomicilio,
+              tipo: 'count' as const,
+              color: visitasKpi.color,
+              progress: visitasKpi.progress
+            },
+            atendimentos: {
+              valor: indicadores2026.atendimentosPsico,
+              meta: metas2026.atendimentosPsico,
+              tipo: 'count' as const,
+              color: atendimentosKpi2026.color,
+              progress: atendimentosKpi2026.progress
+            },
+            atendimentosColetivos: {
+              valor: indicadores2026.atendimentosColetivos,
+              meta: metas2026.atendimentosColetivos,
+              tipo: 'count' as const,
+              color: 'blue' as const,
+              progress: 0
+            },
+            atendidosInclusao: {
+              valor: atendidosInclusao2026,
+              meta: metas2026.alunosEmFormacao,
+              tipo: 'count' as const,
+              color: 'blue' as const,
+              progress: 0
+            },
+            atendidosPsico: {
+              valor: atendidosPsico2026,
+              meta: metas2026.atendimentosPsico,
+              tipo: 'count' as const,
+              color: 'purple' as const,
+              progress: 0
+            }
+          };
+
+          const pessoasAtivas2026 = {
+            inclusaoProdutiva: { formados: indicadores2026.alunosFormados, emFormacao: indicadores2026.alunosEmFormacao },
+            pec: { criancasAtendidas: indicadores2026.criancasAtendidas },
+            totais: {
+              inclusao: indicadores2026.alunosFormados + indicadores2026.alunosEmFormacao,
+              pec: indicadores2026.criancasAtendidas,
+              geral: indicadores2026.alunosFormados + indicadores2026.alunosEmFormacao + indicadores2026.criancasAtendidas
+            }
+          };
+
+          const counters2026 = {
+            horaAula: 0,
+            atendimentos: indicadores2026.atendimentosPsico,
+            pessoasImpactadas: {
+              diretas: pessoasAtivas2026.totais.geral,
+              indiretas: pessoasAtivas2026.totais.geral * 3,
+              total: pessoasAtivas2026.totais.geral + pessoasAtivas2026.totais.geral * 3
+            }
+          };
+
+          // ── Dados PEC da mesma fonte do coordenador ────────────────
+          let pecDataObj = { totalAlunos: 0, horasAula: 0, frequenciaMedia: 0, evasao: 0, nps: 0 };
+          try {
+            const mesNum = mes !== null ? mes : 0;
+
+            // 1. Crianças Atendidas — tabela aluno (mesma lógica do coordenador)
+            const alunosRaw = await pool.query(`SELECT situacao_atendimento, created_at FROM aluno`);
+            const filteredAlunos = (alunosRaw.rows || []).filter((s: any) => {
+              if ((s.situacao_atendimento || '').toLowerCase() === 'inativo') return false;
+              if (!s.created_at) return true;
+              const d = new Date(s.created_at);
+              if (d.getFullYear() > 2026) return false;
+              if (mesNum > 0 && d.getFullYear() === 2026 && (d.getMonth() + 1) > mesNum) return false;
+              return true;
+            });
+            pecDataObj.totalAlunos = filteredAlunos.length;
+
+            // 2. Horas Aula — tabela sessions (mesma lógica do coordenador)
+            const horasRes = await pool.query(`
+              SELECT COALESCE(SUM(
+                (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                  WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+                * COALESCE(s.hours, 0)
+              ), 0) as total_hours
+              FROM sessions s
+              JOIN activity_instances ai ON ai.id = s.activity_instance_id
+              LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+              LEFT JOIN projects p ON p.id = pa.project_id
+              WHERE p.name IS NOT NULL
+                AND ($1::int = 0 OR (EXTRACT(YEAR FROM s.date) = 2026 AND EXTRACT(MONTH FROM s.date) = $1::int))
+            `, [mesNum]);
+            pecDataObj.horasAula = Math.round(Number(horasRes.rows?.[0]?.total_hours || 0));
+
+            // 3. Frequência — tabela pec_sessions (mesma lógica do coordenador)
+            const freqWhere = mesNum > 0
+              ? `AND EXTRACT(YEAR FROM s.created_at) = 2026 AND EXTRACT(MONTH FROM s.created_at) = ${mesNum}`
+              : `AND (s.created_at IS NULL OR EXTRACT(YEAR FROM s.created_at) = 2026)`;
+            const freqRes = await pool.query(`
+              SELECT
+                COUNT(CASE WHEN a->>'presente' = 'true' OR a->>'status' = 'falta_justificada' THEN 1 END) as presentes,
+                COUNT(*) as total_registros
+              FROM sessions s, jsonb_array_elements(s.attendance::jsonb) as a
+              WHERE s.attendance IS NOT NULL AND jsonb_typeof(s.attendance::jsonb) = 'array'
+              ${freqWhere}
+            `);
+            const presentes = Number(freqRes.rows?.[0]?.presentes || 0);
+            const totalReg  = Number(freqRes.rows?.[0]?.total_registros || 0);
+            pecDataObj.frequenciaMedia = totalReg > 0 ? Math.round((presentes / totalReg) * 100) : 0;
+
+            // 4. Evasão — tabela instance_enrollments (mesma lógica do coordenador)
+            const totalMatrRes = await pool.query(`SELECT COUNT(*) as cnt FROM instance_enrollments`);
+            const totalMatriculas = Number(totalMatrRes.rows?.[0]?.cnt || 0);
+            let evasaoQ = `SELECT COUNT(*) as cnt FROM instance_enrollments
+              WHERE evadido = true
+                AND motivo_evasao = 'Desistência da oficina/curso'`;
+            if (mesNum > 0) {
+              evasaoQ += ` AND EXTRACT(YEAR FROM data_evasao) = 2026 AND EXTRACT(MONTH FROM data_evasao) <= ${mesNum}`;
+            } else {
+              evasaoQ += ` AND (data_evasao IS NULL OR EXTRACT(YEAR FROM data_evasao) = 2026)`;
+            }
+            const evasaoRes = await pool.query(evasaoQ);
+            const evasaoCount = Number(evasaoRes.rows?.[0]?.cnt || 0);
+            pecDataObj.evasao = totalMatriculas > 0 ? Math.round((evasaoCount / totalMatriculas) * 100) : 0;
+
+            // 5. NPS = Avaliação de Aprendizagem (0 por ora, igual ao coordenador)
+            pecDataObj.nps = 0;
+
+            console.log('📊 [GV 2026] pecData (fonte coordenador):', pecDataObj);
+          } catch (pecErr) {
+            console.error('⚠️ [GV 2026] Erro ao buscar pecData:', pecErr);
+          }
+
+          // Sobrescrever criancasAtendidas com valor do coordenador (mesma fonte, mais preciso)
+          if (pecDataObj.totalAlunos > 0) {
+            const metaCriancas = indicadores.criancasAtendidas?.meta || 500;
+            const pctCriancas = (pecDataObj.totalAlunos / metaCriancas) * 100;
+            indicadores.criancasAtendidas = {
+              ...indicadores.criancasAtendidas,
+              valor: pecDataObj.totalAlunos,
+              progress: Math.min(pctCriancas, 200),
+              color: pctCriancas >= 100 ? 'blue' : pctCriancas >= 70 ? 'green' : pctCriancas >= 40 ? 'yellow' : 'red',
+            };
+          }
+
+          // Sobrescrever frequência: média simples entre coordenador PEC e coordenador Inclusão
+          try {
+            const mesNumFreq = mes !== null ? mes : 0;
+            const freqIncFilter = mesNumFreq > 0
+              ? `WHERE EXTRACT(YEAR FROM data) = 2026 AND EXTRACT(MONTH FROM data) = ${mesNumFreq}`
+              : `WHERE EXTRACT(YEAR FROM data) = 2026`;
+            const freqIncResult = await pool.query(`
+              SELECT
+                COUNT(CASE WHEN presente = true OR (justificativa IS NOT NULL AND justificativa != '' AND justificativa != 'Sem justificativa') THEN 1 END) as presentes,
+                COUNT(*) as total_registros
+              FROM presencas_inclusao ${freqIncFilter}
+            `);
+            const presInc = Number(freqIncResult.rows?.[0]?.presentes || 0);
+            const totInc = Number(freqIncResult.rows?.[0]?.total_registros || 0);
+            const freqInclusao = totInc > 0 ? Math.round((presInc / totInc) * 100) : 0;
+            const freqPEC = pecDataObj.frequenciaMedia;
+            const divisor = (freqPEC > 0 ? 1 : 0) + (freqInclusao > 0 ? 1 : 0);
+            if (divisor > 0) {
+              const freqCombinada = Math.round((freqPEC + freqInclusao) / divisor);
+              const metaFreq = indicadores.frequencia?.meta || 85;
+              const pctFreq = (freqCombinada / metaFreq) * 100;
+              indicadores.frequencia = {
+                ...indicadores.frequencia,
+                valor: freqCombinada,
+                progress: Math.min(pctFreq, 100),
+                color: pctFreq >= 100 ? 'blue' : pctFreq >= 80 ? 'green' : pctFreq >= 50 ? 'yellow' : 'red',
+              };
+              console.log(`[GV 2026] Frequência: PEC=${freqPEC}% Inclusão=${freqInclusao}% → média=${freqCombinada}%`);
+            }
+          } catch (freqErr) {
+            console.error('[GV 2026] Erro ao calcular frequência combinada:', freqErr);
+          }
+
+          // Sobrescrever evasão: calcular percentual (evadidos / total matriculados)
+          try {
+            const mesNumEv = mes !== null ? mes : 0;
+            // Inclusão: usa motivo_desligamento = 'Desistência' e data_desligamento para filtro mensal
+            const evIncFilter = mesNumEv > 0
+              ? `AND EXTRACT(YEAR FROM pt.data_desligamento) = 2026 AND EXTRACT(MONTH FROM pt.data_desligamento) = ${mesNumEv}`
+              : `AND EXTRACT(YEAR FROM pt.data_desligamento) = 2026`;
+            const evIncTotalFilter = mesNumEv > 0
+              ? `AND EXTRACT(YEAR FROM pt.created_at) = 2026 AND EXTRACT(MONTH FROM pt.created_at) = ${mesNumEv}`
+              : `AND EXTRACT(YEAR FROM pt.created_at) = 2026`;
+            const evasaoIncResult = await pool.query(`
+              SELECT
+                COUNT(CASE WHEN pt.motivo_desligamento = 'Desistência' THEN 1 END) as evasao_cnt,
+                COUNT(*) as total_cnt
+              FROM participantes_turmas pt
+              WHERE 1=1 ${evIncTotalFilter}
+            `);
+            const evasaoIncDesistResult = await pool.query(`
+              SELECT COUNT(*) as evasao_cnt
+              FROM participantes_turmas pt
+              WHERE pt.motivo_desligamento = 'Desistência' ${evIncFilter}
+            `);
+            const evasaoInc = Number(evasaoIncDesistResult.rows?.[0]?.evasao_cnt || 0);
+            const totalInc = Number(evasaoIncResult.rows?.[0]?.total_cnt || 0);
+            // PEC: usa motivo_evasao = 'Desistência da oficina/curso' e data_evasao para filtro mensal
+            const evPecFilter = mesNumEv > 0
+              ? `AND EXTRACT(YEAR FROM data_evasao) = 2026 AND EXTRACT(MONTH FROM data_evasao) = ${mesNumEv}`
+              : `AND (data_evasao IS NULL OR EXTRACT(YEAR FROM data_evasao) = 2026)`;
+            const evPecTotalFilter = mesNumEv > 0
+              ? `AND EXTRACT(YEAR FROM enrollment_date) = 2026 AND EXTRACT(MONTH FROM enrollment_date) = ${mesNumEv}`
+              : `AND EXTRACT(YEAR FROM enrollment_date) = 2026`;
+            const evasaoPecResult = await pool.query(`
+              SELECT COUNT(*) as cnt FROM instance_enrollments
+              WHERE evadido = true AND motivo_evasao = 'Desistência da oficina/curso'
+              ${evPecFilter}
+            `);
+            const totalPecResult = await pool.query(`SELECT COUNT(*) as cnt FROM instance_enrollments WHERE ${evPecTotalFilter.replace('AND ', '')}`);
+            const evasaoPecCount = Number(evasaoPecResult.rows?.[0]?.cnt || 0);
+            const totalPec = Number(totalPecResult.rows?.[0]?.cnt || 0);
+            const evasaoTotal = evasaoInc + evasaoPecCount;
+            const totalMatriculados = totalInc + totalPec;
+            const evasaoPct = totalMatriculados > 0 ? Math.round((evasaoTotal / totalMatriculados) * 100) : 0;
+            const metaEvasaoPct = 10; // Meta: < 10%
+            const progress = Math.min((evasaoPct / metaEvasaoPct) * 100, 100);
+            indicadores.evasao = {
+              ...indicadores.evasao,
+              valor: evasaoPct,
+              meta: metaEvasaoPct,
+              tipo: 'percent' as const,
+              progress: progress,
+              color: evasaoPct <= metaEvasaoPct ? 'green' : evasaoPct <= metaEvasaoPct * 1.5 ? 'yellow' : 'red',
+            };
+            console.log(`[GV 2026] Evasão: Inc=${evasaoInc}/${totalInc} PEC=${evasaoPecCount}/${totalPec} → ${evasaoTotal}/${totalMatriculados} = ${evasaoPct}%`);
+          } catch (evErr) {
+            console.error('[GV 2026] Erro ao calcular evasão combinada:', evErr);
+          }
+
+          console.log('📊 [GV 2026] Retornando indicadores em tempo real:', indicadores2026);
+
+          // ── Inclusão Produtiva: dados diretos do banco ──
+          let inclusaoData = { atendimentos: 0, horasAula: 0, alimentacao: 0, alunosAtivos: 0 };
+          try {
+            const mesFiltro = mes !== null ? mes : 0;
+            const presDateFilter = mesFiltro > 0
+              ? `AND EXTRACT(YEAR FROM pi.data) = 2026 AND EXTRACT(MONTH FROM pi.data) = ${mesFiltro}`
+              : `AND EXTRACT(YEAR FROM pi.data) = 2026`;
+
+            const [presResult, alimentResult, ativosResult] = await Promise.all([
+              pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true ${presDateFilter}`),
+              pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true AND pi.teve_alimentacao = true ${presDateFilter}`),
+              pool.query(`SELECT COUNT(DISTINCT pt.participante_id) as cnt FROM participantes_turmas pt JOIN turmas_inclusao ti ON pt.turma_id = ti.id WHERE (EXTRACT(YEAR FROM ti.data_inicio) = 2026 OR EXTRACT(YEAR FROM ti.data_fim) = 2026 OR (ti.data_inicio <= make_date(2026, 12, 31) AND (ti.data_fim IS NULL OR ti.data_fim >= make_date(2026, 1, 1))) OR EXTRACT(YEAR FROM ti.created_at) = 2026)`),
+            ]);
+
+            const horasDateFilter = mesFiltro > 0
+              ? `AND EXTRACT(YEAR FROM pi2.data) = 2026 AND EXTRACT(MONTH FROM pi2.data) = ${mesFiltro}`
+              : `AND EXTRACT(YEAR FROM pi2.data) = 2026`;
+            const horasResult = await pool.query(`
+              SELECT COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+                     ti.horario_entrada, ti.horario_saida
+              FROM presencas_inclusao pi2
+              JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+              WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+                ${horasDateFilter}
+              GROUP BY pi2.turma_id, pi2.data, ti.horario_entrada, ti.horario_saida
+            `);
+            let horasAulaCalc = 0;
+            for (const row of horasResult.rows) {
+              const entrada = row.horario_entrada as string;
+              const saida = row.horario_saida as string;
+              const presentes = Number(row.presentes_count || 0);
+              if (entrada && saida && presentes > 0) {
+                const [hE, mE] = String(entrada).split(':').map(Number);
+                const [hS, mS] = String(saida).split(':').map(Number);
+                const diffMinutes = (hS * 60 + mS) - (hE * 60 + mE);
+                if (diffMinutes > 0) horasAulaCalc += presentes * (diffMinutes / 60);
+              }
+            }
+
+            const freqDateFilter = mesFiltro > 0
+              ? `WHERE EXTRACT(YEAR FROM data) = 2026 AND EXTRACT(MONTH FROM data) = ${mesFiltro}`
+              : `WHERE EXTRACT(YEAR FROM data) = 2026`;
+            const freqResult = await pool.query(`
+              SELECT
+                COUNT(CASE WHEN presente = true OR (justificativa IS NOT NULL AND justificativa != '' AND justificativa != 'Sem justificativa') THEN 1 END) as presentes,
+                COUNT(*) as total_registros
+              FROM presencas_inclusao
+              ${freqDateFilter}
+            `);
+            const freqPresentes = Number(freqResult.rows?.[0]?.presentes || 0);
+            const freqTotal = Number(freqResult.rows?.[0]?.total_registros || 0);
+            const freqInclusao = freqTotal > 0 ? Math.round((freqPresentes / freqTotal) * 100) : 0;
+
+            inclusaoData = {
+              atendimentos: Number(presResult.rows?.[0]?.cnt || 0),
+              horasAula: Math.round(horasAulaCalc),
+              alimentacao: Number(alimentResult.rows?.[0]?.cnt || 0),
+              alunosAtivos: Number(ativosResult.rows?.[0]?.cnt || 0),
+              frequencia: freqInclusao,
+            };
+          } catch (e) {
+            console.error("❌ [GV 2026] Erro ao buscar dados inclusão:", e);
+          }
+
+          return res.json({
+            periodo: { ano: 2026, tipo: mes !== null ? 'mensal' : 'anual', mes: mes !== null ? mes : undefined },
+            indicadores,
+            pecMetas: pecMetasDB,
+            pecData: pecDataObj,
+            pessoasAtivas: pessoasAtivas2026,
+            counters: counters2026,
+            inclusaoData,
+          });
+        } catch (error) {
+          console.error('❌ [GV 2026] Erro ao buscar dados:', error);
+          return res.json({
+            periodo: { ano: 2026, tipo: 'anual' },
+            indicadores: {
+              frequencia: { valor: 0, meta: 85, tipo: 'percent', color: 'gray', progress: 0 },
+              evasao: { valor: 0, meta: 10, tipo: 'percent', color: 'gray', progress: 0 },
+              criterioSucesso: { valor: 0, meta: 90, tipo: 'percent', color: 'gray', progress: 0 },
+              nps: { valor: 0, meta: 70, tipo: 'count', color: 'gray', progress: 0 },
+              alunosFormados: { valor: 0, meta: 800, tipo: 'count', color: 'gray', progress: 0 },
+              alunosEmFormacao: { valor: 0, meta: 1600, tipo: 'count', color: 'gray', progress: 0 },
+              criancasAtendidas: { valor: 0, meta: 500, tipo: 'count', color: 'gray', progress: 0 },
+              empreendedores: { valor: 0, meta: 500, tipo: 'count', color: 'gray', progress: 0 },
+              pessoasEmpregadas: { valor: 0, meta: 1000, tipo: 'count', color: 'gray', progress: 0 },
+              familiasAtivas: { valor: 0, meta: 250, tipo: 'count', color: 'gray', progress: 0 },
+              visitas: { valor: 0, meta: 3460, tipo: 'count', color: 'gray', progress: 0 },
+              atendimentos: { valor: 0, meta: 420, tipo: 'count', color: 'gray', progress: 0 }
+            }
+          });
+        }
+      }
 
       // Buscar dados mensais dos programas para agregar
       const [dadosInclusao, dadosPEC, dadosPsicossocial, dadosFavela3D] =
@@ -13049,14 +13362,17 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         });
 
         // ==================================================================
-        // 9. GERAÇÃO DE RENDA (PESSOAS EMPREGADAS) - LAB (Inclusão Produtiva)
-        // Somar valores mensais ou pegar valor do mês
+        // 9. GERAÇÃO DE RENDA (EMPREGADOS + EMPREENDEDORES) - Inclusão Produtiva
+        // Conta diretamente da tabela inclusao_geracao_de_renda (todos os tipos)
         // META ANUAL 2025: 160
         // ==================================================================
-        const pessoasEmpregadasValor = getValorSomadoOuMensal(
-          dadosMensais2025.geracaoRenda
-        );
-        const pessoasEmpregadasMeta = metasAnuais2025.geracaoRenda;
+        const grQuery = mes !== null
+          ? `SELECT COUNT(*) AS total FROM inclusao_geracao_de_renda WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1 AND EXTRACT(MONTH FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $2`
+          : `SELECT COUNT(*) AS total FROM inclusao_geracao_de_renda WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1`;
+        const grParams = mes !== null ? [ano, mes] : [ano];
+        const grResult = await pool.query(grQuery, grParams);
+        const pessoasEmpregadasValor = parseInt(grResult.rows[0]?.total || '0');
+        const pessoasEmpregadasMeta = 1000; // Meta anual Inclusão Produtiva
         console.log(
           `📊 [GERAÇÃO DE RENDA] Valor ${
             mes !== null ? `mês ${mes}` : "anual (soma)"
@@ -13294,6 +13610,72 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           indicadores
         );
 
+        // ── Inclusão Produtiva: dados diretos do banco (sem auth) ──
+        let inclusaoData = { atendimentos: 0, horasAula: 0, alimentacao: 0, alunosAtivos: 0 };
+        try {
+          const anoFiltro = ano;
+          const mesFiltro = mes !== null ? mes : 0;
+          const presDateFilter = mesFiltro > 0
+            ? `AND EXTRACT(YEAR FROM pi.data) = ${anoFiltro} AND EXTRACT(MONTH FROM pi.data) = ${mesFiltro}`
+            : `AND EXTRACT(YEAR FROM pi.data) = ${anoFiltro}`;
+
+          const [presResult, alimentResult, ativosResult] = await Promise.all([
+            pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true ${presDateFilter}`),
+            pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true AND pi.teve_alimentacao = true ${presDateFilter}`),
+            pool.query(`SELECT COUNT(DISTINCT pt.participante_id) as cnt FROM participantes_turmas pt JOIN turmas_inclusao ti ON pt.turma_id = ti.id WHERE (EXTRACT(YEAR FROM ti.data_inicio) = ${anoFiltro} OR EXTRACT(YEAR FROM ti.data_fim) = ${anoFiltro} OR (ti.data_inicio <= make_date(${anoFiltro}, 12, 31) AND (ti.data_fim IS NULL OR ti.data_fim >= make_date(${anoFiltro}, 1, 1))) OR EXTRACT(YEAR FROM ti.created_at) = ${anoFiltro})`),
+          ]);
+
+          // Horas aula: soma das horas por aluno presente
+          const horasDateFilter2 = mesFiltro > 0
+            ? `AND EXTRACT(YEAR FROM pi2.data) = ${anoFiltro} AND EXTRACT(MONTH FROM pi2.data) = ${mesFiltro}`
+            : `AND EXTRACT(YEAR FROM pi2.data) = ${anoFiltro}`;
+          const horasResult = await pool.query(`
+            SELECT COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+                   ti.horario_entrada, ti.horario_saida
+            FROM presencas_inclusao pi2
+            JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+            WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+              ${horasDateFilter2}
+            GROUP BY pi2.turma_id, pi2.data, ti.horario_entrada, ti.horario_saida
+          `);
+          let horasAulaCalc = 0;
+          for (const row of horasResult.rows) {
+            const entrada = row.horario_entrada as string;
+            const saida = row.horario_saida as string;
+            const presentes = Number(row.presentes_count || 0);
+            if (entrada && saida && presentes > 0) {
+              const [hE, mE] = String(entrada).split(':').map(Number);
+              const [hS, mS] = String(saida).split(':').map(Number);
+              const diffMinutes = (hS * 60 + mS) - (hE * 60 + mE);
+              if (diffMinutes > 0) horasAulaCalc += presentes * (diffMinutes / 60);
+            }
+          }
+
+          const freqDateFilter2 = mesFiltro > 0
+            ? `WHERE EXTRACT(YEAR FROM data) = ${anoFiltro} AND EXTRACT(MONTH FROM data) = ${mesFiltro}`
+            : `WHERE EXTRACT(YEAR FROM data) = ${anoFiltro}`;
+          const freqResult2 = await pool.query(`
+            SELECT
+              COUNT(CASE WHEN presente = true OR (justificativa IS NOT NULL AND justificativa != '' AND justificativa != 'Sem justificativa') THEN 1 END) as presentes,
+              COUNT(*) as total_registros
+            FROM presencas_inclusao
+            ${freqDateFilter2}
+          `);
+          const freqPresentes2 = Number(freqResult2.rows?.[0]?.presentes || 0);
+          const freqTotal2 = Number(freqResult2.rows?.[0]?.total_registros || 0);
+          const freqInclusao2 = freqTotal2 > 0 ? Math.round((freqPresentes2 / freqTotal2) * 100) : 0;
+
+          inclusaoData = {
+            atendimentos: Number(presResult.rows?.[0]?.cnt || 0),
+            horasAula: Math.round(horasAulaCalc),
+            alimentacao: Number(alimentResult.rows?.[0]?.cnt || 0),
+            alunosAtivos: Number(ativosResult.rows?.[0]?.cnt || 0),
+            frequencia: freqInclusao2,
+          };
+        } catch (e) {
+          console.error("❌ [GESTÃO VISTA] Erro ao buscar dados inclusão:", e);
+        }
+
         responseSent = true;
         res.json({
           periodo: {
@@ -13306,6 +13688,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           racaCor,
           idade,
           counters,
+          inclusaoData,
         });
       } catch (dbError: any) {
         console.error("❌ [GESTÃO VISTA] Erro ao buscar dados:", dbError);
@@ -13421,184 +13804,217 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.get("/api/dados-demograficos", async (req, res) => {
     try {
-      console.log("📊 [DEMOGRAFICOS] Buscando dados agregados...");
+      const ano = req.query.ano ? Number(req.query.ano) : new Date().getFullYear();
+      const mes = req.query.mes ? Number(req.query.mes) : 0;
+      console.log(`📊 [DEMOGRAFICOS] Buscando dados agregados para ano=${ano}...`);
 
-      // Buscar dados de ambos os programas
-      const dados = await db.select().from(dadosDemograficos);
+      // Para 2025 ou anterior: usar tabela estática histórica
+      if (ano <= 2025) {
+        const dados = await db.select().from(dadosDemograficos);
 
-      if (!dados || dados.length === 0) {
-        return res.json({
-          success: false,
-          error: "Dados demográficos não encontrados",
-        });
+        if (!dados || dados.length === 0) {
+          return res.json({ success: false, error: "Dados demográficos não encontrados" });
+        }
+
+        const dadosPEC = dados.find((d) => d.programa === "pec");
+        const dadosInclusao = dados.find((d) => d.programa === "inclusao");
+
+        const totalParticipantes = (dadosPEC?.totalParticipantes || 0) + (dadosInclusao?.totalParticipantes || 0);
+        const generoFeminino = (dadosPEC?.generoFeminino || 0) + (dadosInclusao?.generoFeminino || 0);
+        const generoMasculino = (dadosPEC?.generoMasculino || 0) + (dadosInclusao?.generoMasculino || 0);
+        const generoNaoInformado = (dadosPEC?.generoNaoInformado || 0) + (dadosInclusao?.generoNaoInformado || 0);
+        const corBranca = (dadosPEC?.corBranca || 0) + (dadosInclusao?.corBranca || 0);
+        const corParda = (dadosPEC?.corParda || 0) + (dadosInclusao?.corParda || 0);
+        const corPreta = (dadosPEC?.corPreta || 0) + (dadosInclusao?.corPreta || 0);
+
+        const genero = [
+          { name: "Feminino", value: generoFeminino, percentage: totalParticipantes > 0 ? Math.round((generoFeminino / totalParticipantes) * 100) : 0 },
+          { name: "Masculino", value: generoMasculino, percentage: totalParticipantes > 0 ? Math.round((generoMasculino / totalParticipantes) * 100) : 0 },
+          ...(generoNaoInformado > 0 ? [{ name: "Não informado", value: generoNaoInformado, percentage: totalParticipantes > 0 ? Math.round((generoNaoInformado / totalParticipantes) * 100) : 0 }] : []),
+        ];
+
+        const racaCor = [
+          { name: "Parda", value: corParda, percentage: totalParticipantes > 0 ? Math.round((corParda / totalParticipantes) * 100) : 0 },
+          { name: "Preta", value: corPreta, percentage: totalParticipantes > 0 ? Math.round((corPreta / totalParticipantes) * 100) : 0 },
+          { name: "Branca", value: corBranca, percentage: totalParticipantes > 0 ? Math.round((corBranca / totalParticipantes) * 100) : 0 },
+        ];
+
+        const pecIdade = (dadosPEC?.idade6 || 0) + (dadosPEC?.idade7 || 0) + (dadosPEC?.idade8 || 0) + (dadosPEC?.idade9 || 0) + (dadosPEC?.idade10 || 0) + (dadosPEC?.idade11 || 0) + (dadosPEC?.idade12 || 0);
+
+        const idade = [
+          { name: "6 a 12 anos", value: pecIdade, percentage: totalParticipantes > 0 ? Math.round((pecIdade / totalParticipantes) * 100) : 0 },
+          { name: "13-18 anos", value: dadosInclusao?.idade13a18 || 0, percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade13a18 || 0) / totalParticipantes) * 100) : 0 },
+          { name: "19-30 anos", value: dadosInclusao?.idade19a30 || 0, percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade19a30 || 0) / totalParticipantes) * 100) : 0 },
+          { name: "31-39 anos", value: dadosInclusao?.idade31a39 || 0, percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade31a39 || 0) / totalParticipantes) * 100) : 0 },
+          { name: "40+ anos", value: dadosInclusao?.idade40mais || 0, percentage: totalParticipantes > 0 ? Math.round(((dadosInclusao?.idade40mais || 0) / totalParticipantes) * 100) : 0 },
+        ];
+
+        console.log(`✅ [DEMOGRAFICOS 2025-STATIC] ${totalParticipantes} participantes`);
+        return res.json({ success: true, totalParticipantes, genero, racaCor, idade });
       }
 
-      // Separar dados por programa
-      const dadosPEC = dados.find((d) => d.programa === "pec");
-      const dadosInclusao = dados.find((d) => d.programa === "inclusao");
+      // Para 2026 em diante: dados em tempo real de aluno (PEC) + participantes_inclusao (Inclusão)
 
-      // Calcular totais agregados
-      const totalParticipantes =
-        (dadosPEC?.totalParticipantes || 0) +
-        (dadosInclusao?.totalParticipantes || 0);
+      // --- PEC: tabela aluno ---
+      const allAlunos = await db.select({
+        cpf: aluno.cpf,
+        situacao: aluno.situacao_atendimento,
+        genero: aluno.genero,
+        dataNascimento: aluno.data_nascimento,
+        corRaca: aluno.cor_raca,
+        createdAt: aluno.createdAt,
+      }).from(aluno);
 
-      // Agregar gênero
-      const generoFeminino =
-        (dadosPEC?.generoFeminino || 0) + (dadosInclusao?.generoFeminino || 0);
-      const generoMasculino =
-        (dadosPEC?.generoMasculino || 0) +
-        (dadosInclusao?.generoMasculino || 0);
-      const generoNaoInformado =
-        (dadosPEC?.generoNaoInformado || 0) +
-        (dadosInclusao?.generoNaoInformado || 0);
-
-      // Agregar cor/raça
-      const corBranca =
-        (dadosPEC?.corBranca || 0) + (dadosInclusao?.corBranca || 0);
-      const corParda =
-        (dadosPEC?.corParda || 0) + (dadosInclusao?.corParda || 0);
-      const corPreta =
-        (dadosPEC?.corPreta || 0) + (dadosInclusao?.corPreta || 0);
-
-      // Preparar dados com porcentagens
-      const genero = [
-        {
-          name: "Feminino",
-          value: generoFeminino,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((generoFeminino / totalParticipantes) * 100)
-              : 0,
-        },
-        {
-          name: "Masculino",
-          value: generoMasculino,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((generoMasculino / totalParticipantes) * 100)
-              : 0,
-        },
-        ...(generoNaoInformado > 0
-          ? [
-              {
-                name: "Não informado",
-                value: generoNaoInformado,
-                percentage:
-                  totalParticipantes > 0
-                    ? Math.round(
-                        (generoNaoInformado / totalParticipantes) * 100
-                      )
-                    : 0,
-              },
-            ]
-          : []),
-      ];
-
-      const racaCor = [
-        {
-          name: "Parda",
-          value: corParda,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((corParda / totalParticipantes) * 100)
-              : 0,
-        },
-        {
-          name: "Preta",
-          value: corPreta,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((corPreta / totalParticipantes) * 100)
-              : 0,
-        },
-        {
-          name: "Branca",
-          value: corBranca,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((corBranca / totalParticipantes) * 100)
-              : 0,
-        },
-      ];
-
-      // Calcular faixas etárias agregadas
-      // PEC: 6-12 anos
-      const pecIdade =
-        (dadosPEC?.idade6 || 0) +
-        (dadosPEC?.idade7 || 0) +
-        (dadosPEC?.idade8 || 0) +
-        (dadosPEC?.idade9 || 0) +
-        (dadosPEC?.idade10 || 0) +
-        (dadosPEC?.idade11 || 0) +
-        (dadosPEC?.idade12 || 0);
-
-      const idade = [
-        {
-          name: "6 a 12 anos",
-          value: pecIdade,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round((pecIdade / totalParticipantes) * 100)
-              : 0,
-        },
-        {
-          name: "13-18 anos",
-          value: dadosInclusao?.idade13a18 || 0,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round(
-                  ((dadosInclusao?.idade13a18 || 0) / totalParticipantes) * 100
-                )
-              : 0,
-        },
-        {
-          name: "19-30 anos",
-          value: dadosInclusao?.idade19a30 || 0,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round(
-                  ((dadosInclusao?.idade19a30 || 0) / totalParticipantes) * 100
-                )
-              : 0,
-        },
-        {
-          name: "31-39 anos",
-          value: dadosInclusao?.idade31a39 || 0,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round(
-                  ((dadosInclusao?.idade31a39 || 0) / totalParticipantes) * 100
-                )
-              : 0,
-        },
-        {
-          name: "40+ anos",
-          value: dadosInclusao?.idade40mais || 0,
-          percentage:
-            totalParticipantes > 0
-              ? Math.round(
-                  ((dadosInclusao?.idade40mais || 0) / totalParticipantes) * 100
-                )
-              : 0,
-        },
-      ];
-
-      console.log(
-        `✅ [DEMOGRAFICOS] Dados agregados: ${totalParticipantes} participantes`
-      );
-
-      res.json({
-        success: true,
-        totalParticipantes,
-        genero,
-        racaCor,
-        idade,
+      const alunosFiltrados = allAlunos.filter(s => {
+        if ((s.situacao || '').toLowerCase() === 'inativo') return false;
+        if (!s.createdAt) return true;
+        return new Date(s.createdAt).getFullYear() <= ano;
       });
+
+      // --- Inclusão: participantes_inclusao via turmas do ano ---
+      // Build date range for the selected period (month or full year)
+      const periodoInicio = mes > 0
+        ? sql`make_date(${ano}::int, ${mes}::int, 1)`
+        : sql`make_date(${ano}::int, 1, 1)`;
+      const periodoFim = mes > 0
+        ? sql`(make_date(${ano}::int, ${mes}::int, 1) + interval '1 month' - interval '1 day')::date`
+        : sql`make_date(${ano}::int, 12, 31)`;
+
+      const activeParticipantIds = await db.execute(sql`
+        SELECT DISTINCT pt.participante_id
+        FROM participantes_turmas pt
+        JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+        WHERE (
+          ti.data_inicio <= ${periodoFim}
+          AND (ti.data_fim IS NULL OR ti.data_fim >= ${periodoInicio})
+        ) OR (
+          ti.data_inicio IS NULL
+          AND EXTRACT(YEAR FROM ti.created_at) = ${ano}
+          ${mes > 0 ? sql`AND EXTRACT(MONTH FROM ti.created_at) = ${mes}` : sql``}
+        )
+      `);
+      const activeIds = new Set((activeParticipantIds.rows || []).map((r: any) => Number(r.participante_id)));
+
+      const allParticipants = await db.select({
+        id: participantesInclusao.id,
+        genero: participantesInclusao.genero,
+        dataNascimento: participantesInclusao.dataNascimento,
+        corRaca: participantesInclusao.corRaca,
+      }).from(participantesInclusao);
+
+      const participantesFiltrados = allParticipants.filter(p => activeIds.has(p.id));
+
+      // --- Normalização e agregação ---
+      const generoMap: Record<string, number> = {};
+      const corRacaMap: Record<string, number> = {};
+      const faixaEtariaMap: Record<string, number> = { "6 a 12 anos": 0, "13-18 anos": 0, "19-30 anos": 0, "31-39 anos": 0, "40+ anos": 0 };
+      const now = new Date();
+
+      const normalizeGenero = (raw: string | null) => {
+        const g = (raw || '').trim().toLowerCase();
+        if (g === 'feminino') return 'Feminino';
+        if (g === 'masculino') return 'Masculino';
+        if (g === 'outro') return 'Outro';
+        return 'Não informado';
+      };
+
+      const normalizeCorRaca = (raw: string | null) => {
+        const c = (raw || '').trim().toLowerCase();
+        if (c === 'parda' || c === 'pardo') return 'Parda';
+        if (c === 'preta' || c === 'preto') return 'Preta';
+        if (c === 'branca' || c === 'branco') return 'Branca';
+        if (c === 'indigena' || c === 'indígena') return 'Indígena';
+        if (c === 'amarela' || c === 'amarelo') return 'Amarela';
+        return 'Não informado';
+      };
+
+      const addToFaixa = (dataNascimento: any) => {
+        if (!dataNascimento) return;
+        const birth = new Date(dataNascimento);
+        const age = Math.floor((now.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (age >= 6 && age <= 12) faixaEtariaMap["6 a 12 anos"]++;
+        else if (age >= 13 && age <= 18) faixaEtariaMap["13-18 anos"]++;
+        else if (age >= 19 && age <= 30) faixaEtariaMap["19-30 anos"]++;
+        else if (age >= 31 && age <= 39) faixaEtariaMap["31-39 anos"]++;
+        else if (age >= 40) faixaEtariaMap["40+ anos"]++;
+      };
+
+      for (const s of alunosFiltrados) {
+        const g = normalizeGenero(s.genero);
+        generoMap[g] = (generoMap[g] || 0) + 1;
+        const cr = normalizeCorRaca(s.corRaca);
+        corRacaMap[cr] = (corRacaMap[cr] || 0) + 1;
+        addToFaixa(s.dataNascimento);
+      }
+
+      for (const p of participantesFiltrados) {
+        const g = normalizeGenero(p.genero);
+        generoMap[g] = (generoMap[g] || 0) + 1;
+        const cr = normalizeCorRaca(p.corRaca);
+        corRacaMap[cr] = (corRacaMap[cr] || 0) + 1;
+        addToFaixa(p.dataNascimento);
+      }
+
+      const totalParticipantes = alunosFiltrados.length + participantesFiltrados.length;
+
+      const toArray = (map: Record<string, number>) =>
+        Object.entries(map)
+          .filter(([, v]) => v > 0)
+          .map(([name, value]) => ({
+            name,
+            value,
+            percentage: totalParticipantes > 0 ? Math.round((value / totalParticipantes) * 100) : 0,
+          }));
+
+      const genero = toArray(generoMap);
+      const racaCor = toArray(corRacaMap);
+      const idade = Object.entries(faixaEtariaMap)
+        .filter(([, v]) => v > 0)
+        .map(([name, value]) => ({
+          name,
+          value,
+          percentage: totalParticipantes > 0 ? Math.round((value / totalParticipantes) * 100) : 0,
+        }));
+
+      // --- Combinar com dados históricos de 2025 (tabela estática) ---
+      // Isso garante que o acumulado histórico seja somado aos dados ao vivo
+      try {
+        const dadosHist = await db.select().from(dadosDemograficos);
+        for (const d of dadosHist) {
+          // Gênero
+          generoMap['Feminino']  = (generoMap['Feminino']  || 0) + (d.generoFeminino  || 0);
+          generoMap['Masculino'] = (generoMap['Masculino'] || 0) + (d.generoMasculino || 0);
+          if (d.generoNaoInformado) generoMap['Não informado'] = (generoMap['Não informado'] || 0) + d.generoNaoInformado;
+          // Raça/Cor
+          if (d.corPreta)  corRacaMap['Preta']  = (corRacaMap['Preta']  || 0) + d.corPreta;
+          if (d.corParda)  corRacaMap['Parda']  = (corRacaMap['Parda']  || 0) + d.corParda;
+          if (d.corBranca) corRacaMap['Branca'] = (corRacaMap['Branca'] || 0) + d.corBranca;
+          // Faixa etária PEC (6-12)
+          const pecIdade = (d.idade6||0)+(d.idade7||0)+(d.idade8||0)+(d.idade9||0)+(d.idade10||0)+(d.idade11||0)+(d.idade12||0);
+          if (pecIdade > 0) faixaEtariaMap['6 a 12 anos'] = (faixaEtariaMap['6 a 12 anos'] || 0) + pecIdade;
+          // Faixa etária Inclusão
+          if (d.idade13a18) faixaEtariaMap['13-18 anos'] = (faixaEtariaMap['13-18 anos'] || 0) + d.idade13a18;
+          if (d.idade19a30) faixaEtariaMap['19-30 anos'] = (faixaEtariaMap['19-30 anos'] || 0) + d.idade19a30;
+          if (d.idade31a39) faixaEtariaMap['31-39 anos'] = (faixaEtariaMap['31-39 anos'] || 0) + d.idade31a39;
+          if (d.idade40mais) faixaEtariaMap['40+ anos']  = (faixaEtariaMap['40+ anos']  || 0) + d.idade40mais;
+        }
+        const histTotal = dadosHist.reduce((s, d) => s + (d.totalParticipantes || 0), 0);
+        const totalCombinado = totalParticipantes + histTotal;
+        const generoFinal = toArray(generoMap).map(e => ({ ...e, percentage: totalCombinado > 0 ? Math.round((e.value / totalCombinado) * 100) : 0 }));
+        const racaCorFinal = toArray(corRacaMap).map(e => ({ ...e, percentage: totalCombinado > 0 ? Math.round((e.value / totalCombinado) * 100) : 0 }));
+        const idadeFinal = Object.entries(faixaEtariaMap).filter(([,v])=>v>0).map(([name,value])=>({ name, value, percentage: totalCombinado > 0 ? Math.round((value / totalCombinado) * 100) : 0 }));
+        console.log(`✅ [DEMOGRAFICOS ${ano}-COMBINED] live=${totalParticipantes} hist=${histTotal} total=${totalCombinado}`);
+        return res.json({ success: true, totalParticipantes: totalCombinado, genero: generoFinal, racaCor: racaCorFinal, idade: idadeFinal });
+      } catch (histErr) {
+        console.error('[DEMOGRAFICOS] Erro ao combinar histórico:', histErr);
+      }
+
+      console.log(`✅ [DEMOGRAFICOS ${ano}-REALTIME] PEC=${alunosFiltrados.length} Inclusão=${participantesFiltrados.length} Total=${totalParticipantes}`);
+      return res.json({ success: true, totalParticipantes, genero, racaCor, idade });
+
     } catch (error) {
       console.error("❌ [DEMOGRAFICOS] Erro:", error);
-      res
-        .status(500)
-        .json({ success: false, error: "Erro ao buscar dados demográficos" });
+      res.status(500).json({ success: false, error: "Erro ao buscar dados demográficos" });
     }
   });
 
@@ -14068,7 +14484,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         req.query.mes !== undefined
           ? parseInt(req.query.mes as string)
           : undefined;
-      const anoAtual = 2025;
+      const anoAtual = new Date().getFullYear();
       const result = await pool.query(
         "SELECT * FROM colaboradores WHERE ativo = true"
       );
@@ -14105,16 +14521,45 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const distribuicaoArray = Object.entries(distribuicao).map(
         ([name, value]) => ({ name, value })
       );
+
+      const porVinculo = colaboradoresList.reduce((acc: any, c: any) => {
+        const vinculo = c.vinculo || "Não informado";
+        if (!acc[vinculo]) acc[vinculo] = 0;
+        acc[vinculo]++;
+        return acc;
+      }, {});
+
+      const setoresOrdem = [
+        "Programa Esportivo Cultural",
+        "Inclusão Produtiva",
+        "ADM/Financeiro",
+        "Marketing e Comunicação",
+        "Psicossocial",
+        "Negócios Sociais",
+        "Almoxarifado",
+      ];
+      const porSetor = setoresOrdem.map((setor) => ({
+        setor,
+        total: colaboradoresList.filter((c: any) => c.setor === setor).length,
+      }));
+
       res.json({
         total: colaboradoresList.length,
         totalColaboradores: colaboradoresList.length,
+        clt: porVinculo["CLT"] || 0,
+        cnpj: porVinculo["CNPJ"] || 0,
         distribuicao: distribuicaoArray,
+        porSetor,
         items: colaboradoresList.map((c: any) => ({
           id: c.id,
           nome: c.nome,
           telefone: c.telefone,
           email: c.email,
+          cpf: c.cpf,
           departamento: c.departamento,
+          vinculo: c.vinculo,
+          setor: c.setor,
+          cargo: c.cargo,
           satisfacao: c.satisfacao,
           ativo: c.ativo,
           dataAdmissao: c.data_admissao,
@@ -14134,37 +14579,25 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/colaboradores", async (req, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
-      const pageSize = parseInt(req.query.pageSize as string) || 10;
+      const pageSize = parseInt(req.query.pageSize as string) || 100;
       const offset = (page - 1) * pageSize;
-      const mesParam =
-        req.query.mes !== undefined
-          ? parseInt(req.query.mes as string)
-          : undefined;
-      const anoAtual = 2025;
-      const result = await pool.query(
-        "SELECT * FROM colaboradores WHERE ativo = true ORDER BY nome"
-      );
-      let colaboradoresList = result.rows || [];
-      if (mesParam !== undefined && mesParam >= 0 && mesParam <= 11) {
-        const dataFimMes = new Date(anoAtual, mesParam + 1, 0);
-        const dataInicioMes = new Date(anoAtual, mesParam, 1);
-        colaboradoresList = colaboradoresList.filter((c: any) => {
-          const dataAdmissao = c.data_admissao
-            ? new Date(c.data_admissao)
-            : c.created_at
-            ? new Date(c.created_at)
-            : new Date(0);
-          const dataDesligamento = c.data_desligamento
-            ? new Date(c.data_desligamento)
-            : null;
-          const admitidoAntesOuDuranteMes = dataAdmissao <= dataFimMes;
-          const naoDesligadoAntes =
-            !dataDesligamento || dataDesligamento >= dataInicioMes;
-          return admitidoAntesOuDuranteMes && naoDesligadoAntes;
-        });
+      const search = (req.query.search as string || "").trim();
+
+      let query = "SELECT * FROM colaboradores WHERE ativo = true";
+      const params: any[] = [];
+
+      if (search) {
+        params.push(`%${search}%`);
+        query += ` AND nome ILIKE $${params.length}`;
       }
+
+      query += " ORDER BY nome";
+
+      const result = await pool.query(query, params);
+      const colaboradoresList = result.rows || [];
       const total = colaboradoresList.length;
       const paginatedList = colaboradoresList.slice(offset, offset + pageSize);
+
       res.json({
         total,
         items: paginatedList.map((c: any) => ({
@@ -14173,7 +14606,9 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           telefone: c.telefone,
           email: c.email,
           departamento: c.departamento,
-          satisfacao: c.satisfacao,
+          vinculo: c.vinculo,
+          cargo: c.cargo,
+          setor: c.setor,
           ativo: c.ativo,
         })),
       });
@@ -14504,8 +14939,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.get("/api/admin/conselho-requests", async (req, res) => {
     try {
-      const pendingRequests = await storage.getPendingConselhoRequests();
-      res.json(pendingRequests);
+      const pendentes = await db.select().from(conselheiros).where(and(eq(conselheiros.ativo, false), sql`${conselheiros.tipo} != 'recusado' OR ${conselheiros.tipo} IS NULL`));
+      const aprovados = await db.select().from(conselheiros).where(eq(conselheiros.ativo, true));
+      const recusados = await db.select().from(conselheiros).where(eq(conselheiros.tipo, "recusado"));
+      res.json({ pendentes, aprovados, recusados });
     } catch (error: any) {
       res
         .status(500)
@@ -14515,25 +14952,27 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.post("/api/admin/conselho-approve", async (req, res) => {
     try {
-      const { telefone, action, approvedBy } = req.body;
+      const { email, action, approvedBy } = req.body;
 
-      if (!telefone || !action || !approvedBy) {
+      if (!email || !action || !approvedBy) {
         return res.status(400).json({ error: "Dados incompletos" });
       }
 
-      const status = action === "approve" ? "aprovado" : "recusado";
+      const cleanEmail = email.trim().toLowerCase();
 
-      const updatedUser = await storage.updateConselhoStatus(
-        telefone,
-        status,
-        approvedBy
-      );
-
-      res.json({
-        success: true,
-        message: `Usuário ${status} com sucesso`,
-        user: updatedUser,
-      });
+      if (action === "approve") {
+        await db.update(conselheiros)
+          .set({ ativo: true })
+          .where(eq(conselheiros.email, cleanEmail));
+        console.log(`✅ [CONSELHO] E-mail aprovado por ${approvedBy}: ${cleanEmail}`);
+        res.json({ success: true, message: "Conselheiro aprovado com sucesso" });
+      } else {
+        await db.update(conselheiros)
+          .set({ tipo: "recusado" })
+          .where(eq(conselheiros.email, cleanEmail));
+        console.log(`❌ [CONSELHO] E-mail recusado por ${approvedBy}: ${cleanEmail}`);
+        res.json({ success: true, message: "Solicitação recusada" });
+      }
     } catch (error: any) {
       console.error("Error updating conselho status:", error);
       res
@@ -14624,7 +15063,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/professor/dashboard/:professorId", async (req, res) => {
     try {
       const professorId = parseInt(req.params.professorId);
-      const summary = await storage.getProfessorDashboardSummary(professorId);
+      const summary = await storage.getProfessorDashboardSummary(professorId, req.query.vertente as string | undefined);
       res.json(summary);
     } catch (error: any) {
       console.error("Error fetching professor dashboard:", error);
@@ -14684,6 +15123,29 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.post("/api/professor/students", async (req, res) => {
     try {
       const studentData = req.body;
+      console.log(`📝 [CRIAR ALUNO PEC] Iniciando cadastro — Nome: "${studentData.nome_completo || 'não informado'}", CPF: "${studentData.cpf || 'não informado'}"`);
+
+      // Validações de campos obrigatórios
+      if (!studentData.cpf || studentData.cpf.replace(/\D/g, '').length < 11) {
+        console.warn(`⚠️ [CRIAR ALUNO PEC] CPF inválido — valor recebido: "${studentData.cpf}", tamanho após limpeza: ${(studentData.cpf || '').replace(/\D/g, '').length}`);
+        return res.status(400).json({ error: "CPF inválido: deve conter exatamente 11 dígitos numéricos." });
+      }
+      if (!studentData.nome_completo || studentData.nome_completo.trim() === '') {
+        console.warn(`⚠️ [CRIAR ALUNO PEC] Nome completo ausente — body recebido: ${JSON.stringify(studentData)}`);
+        return res.status(400).json({ error: "O nome completo do aluno é obrigatório." });
+      }
+      if (!studentData.data_nascimento) {
+        console.warn(`⚠️ [CRIAR ALUNO PEC] Data de nascimento ausente — CPF: "${studentData.cpf}"`);
+        return res.status(400).json({ error: "A data de nascimento é obrigatória." });
+      }
+
+      // Verificar CPF duplicado antes de tentar inserir
+      const cpfLimpo = studentData.cpf.replace(/\D/g, '');
+      const existingAluno = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, cpfLimpo)).limit(1);
+      if (existingAluno.length > 0) {
+        console.warn(`⚠️ [CRIAR ALUNO PEC] CPF duplicado detectado — CPF: "${cpfLimpo}" já existe na tabela aluno`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado no sistema. Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
+      }
 
       // CONSOLIDAÇÃO AUTOMÁTICA: Garantir que aluno vire um user também
       if (studentData.telefone && studentData.nome_completo) {
@@ -14697,19 +15159,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             tipo: "aluno",
             fonte: "educacao",
           });
-          console.log(
-            `✅ [CONSOLIDAÇÃO] Aluno consolidado: ${studentData.nome_completo} (${studentData.telefone}) como user ID ${consolidatedUser.id}`
-          );
+          console.log(`✅ [CONSOLIDAÇÃO] Aluno consolidado: ${studentData.nome_completo} (${studentData.telefone}) como user ID ${consolidatedUser.id}`);
         } catch (error) {
-          console.error("Erro na consolidação do aluno:", error);
+          console.error("⚠️ [CRIAR ALUNO PEC] Erro na consolidação do aluno (cadastro continuou):", error);
         }
       }
 
-      const aluno = await storage.createAluno(studentData);
-      res.json(aluno);
-    } catch (error) {
-      console.error("Error creating aluno:", error);
-      res.status(500).json({ error: "Failed to create aluno" });
+      const novoAluno = await storage.createAluno(studentData);
+      console.log(`✅ [CRIAR ALUNO PEC] Aluno criado com sucesso — CPF: "${novoAluno.cpf}", ID: ${novoAluno.id}`);
+      res.json(novoAluno);
+    } catch (error: any) {
+      console.error(`❌ [CRIAR ALUNO PEC] Erro inesperado ao criar aluno`);
+      console.error(`   → CPF      : ${req.body?.cpf || 'não informado'}`);
+      console.error(`   → Nome     : ${req.body?.nome_completo || 'não informado'}`);
+      console.error(`   → Erro     : ${error?.message || error}`);
+      console.error(`   → Stack    :`, error?.stack);
+      const pgErr = formatPostgresError(error, 'aluno PEC');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -14735,6 +15201,123 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     } catch (error) {
       console.error("Error deleting aluno:", error);
       res.status(500).json({ error: "Failed to delete aluno" });
+    }
+  });
+
+  // ==== RESPONSAVEL (GUARDIAN) MANAGEMENT ====
+  app.get("/api/alunos/:cpf/responsavel", async (req, res) => {
+    try {
+      const cpf = req.params.cpf;
+      const responsavel = await storage.getResponsavelByAlunoCpf(cpf);
+      if (!responsavel) {
+        return res.status(404).json({ error: "Responsável não encontrado" });
+      }
+      res.json(responsavel);
+    } catch (error) {
+      console.error("Erro ao buscar responsável:", error);
+      res.status(500).json({ error: "Erro ao buscar responsável" });
+    }
+  });
+
+  app.get("/api/alunos/:cpf/responsaveis", async (req, res) => {
+    try {
+      const cpf = req.params.cpf;
+      const responsaveis = await storage.getResponsaveisByAlunoCpf(cpf);
+      res.json(responsaveis);
+    } catch (error) {
+      console.error("Erro ao buscar responsáveis:", error);
+      res.status(500).json({ error: "Erro ao buscar responsáveis" });
+    }
+  });
+
+  app.post("/api/alunos/:cpf/responsavel", async (req, res) => {
+    try {
+      const alunoCpf = req.params.cpf;
+      const alunoRecord = await storage.getAluno(alunoCpf);
+      if (!alunoRecord) {
+        return res.status(404).json({ error: "Aluno não encontrado" });
+      }
+      const realCpf = alunoRecord.cpf;
+
+      const responsavelData = req.body;
+      if (!responsavelData.nome_completo) {
+        return res.status(400).json({ error: "Nome do responsável é obrigatório" });
+      }
+      if (!responsavelData.cpf || String(responsavelData.cpf).replace(/\D/g, '').length !== 11) {
+        return res.status(400).json({ error: "CPF do responsável é obrigatório" });
+      }
+
+      let responsavel;
+      if (responsavelData.cpf) {
+        const existing = await storage.getResponsavelByCpf(responsavelData.cpf);
+        if (existing) {
+          responsavel = await storage.updateResponsavel(existing.id, responsavelData);
+        } else {
+          responsavel = await storage.createResponsavel(responsavelData);
+        }
+      } else {
+        responsavel = await storage.createResponsavel(responsavelData);
+      }
+
+      const ePrincipal = responsavelData.e_principal ?? false;
+      await storage.addResponsavelToAluno(realCpf, responsavel.id, ePrincipal);
+      await storage.updateAluno(realCpf, { id_responsavel: ePrincipal ? responsavel.id : (alunoRecord.id_responsavel || responsavel.id) } as any);
+      res.status(201).json({ ...responsavel, e_principal: ePrincipal });
+    } catch (error: any) {
+      console.error("Erro ao criar/atualizar responsável:", error);
+      res.status(500).json({ error: error.message || "Erro ao salvar responsável" });
+    }
+  });
+
+  app.put("/api/alunos/:cpf/responsavel", async (req, res) => {
+    try {
+      const alunoCpf = req.params.cpf;
+      const responsavel = await storage.getResponsavelByAlunoCpf(alunoCpf);
+      if (!responsavel) {
+        return res.status(404).json({ error: "Responsável não encontrado" });
+      }
+      const updated = await storage.updateResponsavel(responsavel.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Erro ao atualizar responsável:", error);
+      res.status(500).json({ error: error.message || "Erro ao atualizar responsável" });
+    }
+  });
+
+  app.put("/api/alunos/:cpf/responsaveis/:responsavelId", async (req, res) => {
+    try {
+      const responsavelId = parseInt(req.params.responsavelId);
+      const updated = await storage.updateResponsavel(responsavelId, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Erro ao atualizar responsável:", error);
+      res.status(500).json({ error: error.message || "Erro ao atualizar responsável" });
+    }
+  });
+
+  app.delete("/api/alunos/:cpf/responsaveis/:responsavelId", async (req, res) => {
+    try {
+      const alunoRecord = await storage.getAluno(req.params.cpf);
+      const alunoCpf = alunoRecord?.cpf || req.params.cpf;
+      const responsavelId = parseInt(req.params.responsavelId);
+      await storage.removeResponsavelFromAluno(alunoCpf, responsavelId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Erro ao remover responsável:", error);
+      res.status(500).json({ error: error.message || "Erro ao remover responsável" });
+    }
+  });
+
+  app.patch("/api/alunos/:cpf/responsaveis/:responsavelId/principal", async (req, res) => {
+    try {
+      const alunoCpf = req.params.cpf;
+      const responsavelId = parseInt(req.params.responsavelId);
+      await storage.setResponsavelPrincipal(alunoCpf, responsavelId);
+      await storage.updateAluno(alunoCpf, { id_responsavel: responsavelId } as any);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Erro ao definir responsável principal:", error);
+      res.status(500).json({ error: error.message || "Erro ao definir responsável principal" });
     }
   });
 
@@ -14776,50 +15359,92 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     }
   });
 
+
+  // Get PEC students for professor view (same data as monitor/pec)
+  app.get("/api/professor/pec/alunos", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      console.log("📚 [PROFESSOR PEC] Listando alunos das turmas do professor", userId);
+
+      // 1) Find professor record
+      const userRow = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+      if (!userRow.rows.length) return res.json([]);
+
+      const profRow = await pool.query(
+        "SELECT id FROM professores WHERE email = $1 AND programa = 'pec' LIMIT 1",
+        [userRow.rows[0].email]
+      );
+      if (!profRow.rows.length) return res.json([]);
+
+      const profId = profRow.rows[0].id;
+
+      // 2) Get turma_ids assigned to this professor
+      const turmaRows = await pool.query(
+        "SELECT turma_id FROM professor_turmas WHERE professor_id = $1 AND turma_tipo = 'pec'",
+        [profId]
+      );
+      if (!turmaRows.rows.length) return res.json([]);
+      const turmaIds = turmaRows.rows.map((r: any) => r.turma_id);
+
+      // 3) Get student CPFs enrolled in those turmas
+      const enrollRows = await pool.query(
+        'SELECT DISTINCT student_cpf FROM instance_enrollments WHERE activity_instance_id = ANY($1) AND active = true',
+        [turmaIds]
+      );
+      if (!enrollRows.rows.length) return res.json([]);
+      const cpfs = enrollRows.rows.map((r: any) => r.student_cpf);
+
+      // 4) Get aluno records
+      const alunoRows = await pool.query(
+        'SELECT cpf, nome_completo, telefone, data_nascimento, situacao_atendimento FROM aluno WHERE cpf = ANY($1) ORDER BY nome_completo',
+        [cpfs]
+      );
+
+      console.log(`✅ [PROFESSOR PEC] ${alunoRows.rows.length} alunos das turmas do professor`);
+      res.json(alunoRows.rows);
+    } catch (error: any) {
+      console.error("Error fetching PEC alunos for professor:", error);
+      res.status(500).json({ error: "Failed to fetch PEC students" });
+    }
+  });
   // Get all students for class enrollment
-   app.get("/api/students/all", async (req, res) => {
-  try {
-    const area = req.query.area as "pec" | "inclusao" | undefined;
-    const status = (req.query.status as "ativos" | "inativos" | "todos" | undefined) ?? "ativos";
+    app.get("/api/students/all", async (req, res) => {
+      try {
+        const area = req.query.area as "pec" | "inclusao" | undefined;
+        const status = (req.query.status as "ativos" | "inativos" | "todos" | undefined) ?? "ativos";
 
-    if (area && area !== "pec" && area !== "inclusao") {
-      return res.status(400).json({ error: "Invalid area. Use 'pec' or 'inclusao'." });
-    }
-    if (!["ativos", "inativos", "todos"].includes(status)) {
-      return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
-    }
+        if (area && area !== "pec" && area !== "inclusao") {
+          return res.status(400).json({ error: "Invalid area. Use 'pec' or 'inclusao'." });
+        }
+        if (!["ativos", "inativos", "todos"].includes(status)) {
+          return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
+        }
 
-    const students = await storage.getAllAlunos({ area, status });
+        const students = await storage.getAllAlunos({ area, status });
 
-    // devolve o que o front espera (inclui situacao_atendimento)
-    const normalized = students.map((s: any) => ({
-      id: s.cpf,
-      cpf: s.cpf,
-      nome: s.nome_completo,
-      telefone: s.telefone || s.whatsapp || null,
-      situacao_atendimento: s.situacao_atendimento ?? "ativo",
-      area: s.area || null,
-      createdAt: s.createdAt,
-    }));
+        // devolve o que o front espera (inclui situacao_atendimento)
+        const normalized = students.map((s: any) => ({
+          id: s.cpf,
+          cpf: s.cpf,
+          nome: s.nome_completo,
+          telefone: s.telefone || s.whatsapp || null,
+          situacao_atendimento: s.situacao_atendimento ?? "ativo",
+          area: s.area || null,
+          createdAt: s.createdAt,
+        }));
 
-    res.json(normalized);
-  } catch (error) {
-    console.error("Error fetching students:", error);
-    res.status(500).json({ error: "Failed to fetch students" });
-  }
-});
-
+        res.json(normalized);
+      } catch (error) {
+        console.error("Error fetching students:", error);
+        res.status(500).json({ error: "Failed to fetch students" });
+      }
+    });
     app.get("/api/students/:cpf", async (req, res) => {
       try {
         const cpf = String(req.params.cpf || "").replace(/\D/g, "");
         const student = await storage.getAlunoByCpf(cpf);
 
         if (!student) {
-          return res.status(404).json({ error: "Aluno não encontrado" });
-        }
-
-        // ✅ Garante que nessa tela só é PEC
-        if (student.area !== "pec") {
           return res.status(404).json({ error: "Aluno não encontrado" });
         }
 
@@ -14939,7 +15564,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.delete("/api/professor/classes/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteTurma(id);
+      await storage.deleteTurmaInclusao(id);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting turma:", error);
@@ -15054,7 +15679,6 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           .json({ error: "Registros de chamada são obrigatórios" });
       }
 
-      // Group records by class and date to create chamada entries
       const chamadaGroups: { [key: string]: any } = {};
       for (const record of attendanceRecords) {
         const key = `${record.classId}-${record.date}`;
@@ -15071,21 +15695,32 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const results = [];
 
-      // Process each group
       for (const group of Object.values(chamadaGroups) as any[]) {
-        // Create or get chamada entry
-        const chamadaRecord = await storage.createChamada({
-          turmaId: group.turmaId,
-          data: group.data,
-          professorId: group.professorId,
-        });
+        const existingChamadas = await db.select().from(chamada)
+          .where(and(
+            eq(chamada.turmaId, group.turmaId),
+            eq(chamada.data, group.data)
+          ))
+          .limit(1);
 
-        // Create chamadaAluno entries for each student
+        let chamadaRecord;
+        if (existingChamadas.length > 0) {
+          chamadaRecord = existingChamadas[0];
+          await db.delete(chamadaAluno).where(eq(chamadaAluno.chamadaId, chamadaRecord.id));
+        } else {
+          chamadaRecord = await storage.createChamada({
+            turmaId: group.turmaId,
+            data: group.data,
+            professorId: group.professorId,
+          });
+        }
+
         for (const record of group.records) {
           const chamadaAlunoRecord = await storage.createChamadaAluno({
             chamadaId: chamadaRecord.id,
             alunoCpf: record.studentCpf,
             status: record.status,
+            justificativa: record.justificativa || '',
           });
           results.push(chamadaAlunoRecord);
         }
@@ -15197,6 +15832,17 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // ==== ACOMPANHAMENTO ROUTES ====
+  // Get all acompanhamentos (for coordenador view)
+  app.get("/api/professor/acompanhamentos/all", async (req, res) => {
+    try {
+      const acompanhamentos = await storage.getAllAcompanhamentos();
+      res.json(acompanhamentos);
+    } catch (error) {
+      console.error("Error fetching all acompanhamentos:", error);
+      res.status(500).json({ error: "Failed to fetch acompanhamentos" });
+    }
+  });
+
   // Get acompanhamentos by professor
   app.get("/api/professor/acompanhamentos/:professorId", async (req, res) => {
     try {
@@ -15442,7 +16088,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/professor/dashboard/:professorId", async (req, res) => {
     try {
       const professorId = parseInt(req.params.professorId);
-      const summary = await storage.getProfessorDashboardSummary(professorId);
+      const summary = await storage.getProfessorDashboardSummary(professorId, req.query.vertente as string | undefined);
       res.json(summary);
     } catch (error) {
       console.error("Error fetching dashboard summary:", error);
@@ -15927,6 +16573,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // Delete registered lesson
+  // PATCH /api/professor/registered-lessons/:id/foto - Upload foto comprovante de aula
+  app.patch("/api/professor/registered-lessons/:id/foto", memUpload.single("foto"), async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!req.file) {
+        return res.status(400).json({ error: "Foto é obrigatória" });
+      }
+      const fileName = `aulas/foto_aula_${id}_${Date.now()}.${req.file.originalname.split('.').pop() || 'jpg'}`;
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      await storage.updateAulaRegistrada(parseInt(id), { fotoComprovante: url } as any);
+      res.json({ success: true, url });
+    } catch (error: any) {
+      console.error("Error uploading aula foto:", error);
+      res.status(500).json({ error: "Erro ao fazer upload da foto" });
+    }
+  });
+
   app.delete("/api/professor/registered-lessons/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -16113,18 +16776,70 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             .json({ error: access.error!.message });
         }
 
-        // Retornar dados do dashboard específicos para professor
-        const dashboardData = {
-          totalAlunos: 0,
-          turmasAtivas: 0,
-          aulasMinistradas: 0,
-          proximasAulas: [],
-        };
+        const vertente = (req.query.vertente as string) || 'pec';
+        console.log(`✅ [RBAC PROFESSOR] Dashboard userId=${userId} vertente=${vertente}`);
 
-        console.log(
-          `✅ [RBAC PROFESSOR] Dashboard acessado por usuário ${userId}`
+        // Find professor record
+        const userRow = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+        if (!userRow.rows.length) return res.json({ totalAlunos: 0, turmasAtivas: 0, horasAula: 0 });
+
+        const programa = vertente === 'inclusao' ? 'inclusao_produtiva' : 'pec';
+        const profRow = await pool.query(
+          'SELECT id FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
+          [userRow.rows[0].email, programa]
         );
-        res.json(dashboardData);
+        if (!profRow.rows.length) return res.json({ totalAlunos: 0, turmasAtivas: 0, horasAula: 0 });
+
+        const profId = profRow.rows[0].id;
+        const turmaTipo = vertente === 'inclusao' ? 'inclusao' : 'pec';
+        const turmaRows = await pool.query(
+          'SELECT turma_id FROM professor_turmas WHERE professor_id = $1 AND turma_tipo = $2',
+          [profId, turmaTipo]
+        );
+        const turmaIds: number[] = turmaRows.rows.map((r: any) => r.turma_id);
+
+        if (!turmaIds.length) return res.json({ totalAlunos: 0, turmasAtivas: 0, horasAula: 0 });
+
+        let totalAlunos = 0;
+        let turmasAtivas = 0;
+        let horasAula = 0;
+
+        let meusAlunos = 0;
+        let alunosFormados = 0;
+
+        if (vertente === 'pec') {
+          const [meusAlunosRes, formadosRes, turmasRes, horasRes] = await Promise.all([
+            pool.query('SELECT COUNT(DISTINCT student_cpf) FROM instance_enrollments WHERE activity_instance_id = ANY($1)', [turmaIds]),
+            pool.query("SELECT COUNT(DISTINCT ie.student_cpf) FROM instance_enrollments ie JOIN activity_instances ai ON ie.activity_instance_id = ai.id WHERE ie.activity_instance_id = ANY($1) AND ai.status = 'encerrada'", [turmaIds]),
+            pool.query("SELECT COUNT(*) FROM activity_instances WHERE id = ANY($1) AND status NOT IN ('encerrada','inativo')", [turmaIds]),
+            pool.query(`
+              SELECT COALESCE(SUM(
+                (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                  WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+                * COALESCE(s.hours, 0)
+              ), 0) as hora_aula
+              FROM sessions s
+              WHERE s.activity_instance_id = ANY($1)
+            `, [turmaIds]),
+          ]);
+          meusAlunos = parseInt(meusAlunosRes.rows[0].count);
+          alunosFormados = parseInt(formadosRes.rows[0].count);
+          totalAlunos = meusAlunos;
+          turmasAtivas = parseInt(turmasRes.rows[0].count);
+          horasAula = Math.round(Number(horasRes.rows[0].hora_aula || 0));
+        } else {
+          const [meusAlunosRes, formadosRes, turmasRes] = await Promise.all([
+            pool.query('SELECT COUNT(DISTINCT participante_id) FROM turmas_inclusao_participantes WHERE turma_id = ANY($1)', [turmaIds]),
+            pool.query("SELECT COUNT(DISTINCT tip.participante_id) FROM turmas_inclusao_participantes tip JOIN turmas_inclusao ti ON tip.turma_id = ti.id WHERE tip.turma_id = ANY($1) AND ti.status = 'concluido'", [turmaIds]),
+            pool.query("SELECT COUNT(*) FROM turmas_inclusao WHERE id = ANY($1) AND status NOT IN ('concluido','inativo')", [turmaIds]),
+          ]);
+          meusAlunos = parseInt(meusAlunosRes.rows[0].count);
+          alunosFormados = parseInt(formadosRes.rows[0].count);
+          totalAlunos = meusAlunos;
+          turmasAtivas = parseInt(turmasRes.rows[0].count);
+        }
+
+        res.json({ totalAlunos, turmasAtivas, horasAula, meusAlunos, alunosFormados });
       } catch (error: any) {
         console.error("Error fetching professor dashboard:", error);
         res
@@ -16135,10 +16850,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   );
 
 
-  // ================ MONITOR - PERFIL ================
-  
-  
-  
+  // ================ MONITOR - PERFIL ================ 
   // GET /api/monitor/:userId/perfil - Buscar perfil do monitor (separado por vertente)
   app.get("/api/monitor/:userId/perfil", requireAuth, requireMonitor, async (req, res) => {
     try {
@@ -16287,31 +16999,24 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             .json({ error: access.error!.message });
         }
 
-      // Buscar dados reais do banco
-      const grupos = await db.select().from(monitorGrupos).where(eq(monitorGrupos.monitorUserId, userId));
-      const gruposAtivos = grupos.filter(g => g.status !== 'inativo').length;
+      // Buscar dados GLOBAIS (mesmos que professor PEC)
+      // Alunos: tabela aluno
+      const [alunosCount] = await db.select({ count: sql<number>`count(*)` }).from(aluno);
       
-      // Contar participantes do monitor
-      const participantes = await db.select().from(monitorParticipantes).where(eq(monitorParticipantes.monitorUserId, userId));
-      const totalAlunos = participantes.length;
+      // Turmas: tabela activityInstances
+      const [turmasCount] = await db.select({ count: sql<number>`count(*)` }).from(activityInstances);
       
-      // Contar atividades realizadas (com data no passado)
-      const atividades = await db.select().from(atividadesMonitor).where(eq(atividadesMonitor.monitorUserId, userId));
-      const hoje = new Date();
-      const atividadesRealizadas = atividades.filter(a => {
-        if (!a.data) return false;
-        const dataAtiv = new Date(a.data);
-        return dataAtiv <= hoje;
-      }).length;
+      // Atividades/Aulas: tabela sessions
+      const [sessionsCount] = await db.select({ count: sql<number>`count(*)` }).from(sessions);
       
       const dashboardData = {
-        totalAlunos: 0,
-        gruposAtivos: 0,
-        atividadesRealizadas: 0,
+        totalAlunos: alunosCount?.count || 0,
+        gruposAtivos: turmasCount?.count || 0,
+        atividadesRealizadas: sessionsCount?.count || 0,
         proximasAtividades: []
       };
 
-      console.log(`✅ [RBAC MONITOR] Dashboard acessado por usuário ${userId} - Alunos: ${totalAlunos}, Grupos: ${gruposAtivos}, Atividades: ${atividadesRealizadas}`);
+      console.log(`✅ [RBAC MONITOR] Dashboard acessado por usuário ${userId} - Alunos: ${alunosCount?.count}, Grupos: ${turmasCount?.count}, Atividades: ${sessionsCount?.count}`);
       res.json(dashboardData);
     } catch (error: any) {
       console.error("Error fetching monitor dashboard:", error);
@@ -16339,18 +17044,27 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const studentData = req.body;
       const user = (req as any).user;
-      
-      console.log(`📝 [MONITOR PEC] Monitor ${user.id} criando novo aluno: ${studentData.nome_completo}`);
+      const cpfLimpo = (studentData.cpf || '').replace(/\D/g, '');
 
-      if (!studentData.cpf || !studentData.nome_completo || !studentData.data_nascimento) {
-        return res.status(400).json({ 
-          error: "Campos obrigatórios: cpf, nome_completo, data_nascimento" 
-        });
+      console.log(`📝 [MONITOR PEC] Monitor ID ${user.id} iniciando cadastro — Nome: "${studentData.nome_completo || 'não informado'}", CPF: "${cpfLimpo || 'não informado'}"`);
+
+      if (!cpfLimpo || cpfLimpo.length < 11) {
+        console.warn(`⚠️ [MONITOR PEC] CPF inválido — valor recebido: "${studentData.cpf}", tamanho após limpeza: ${cpfLimpo.length}`);
+        return res.status(400).json({ error: "CPF inválido: deve conter exatamente 11 dígitos numéricos." });
+      }
+      if (!studentData.nome_completo || studentData.nome_completo.trim() === '') {
+        console.warn(`⚠️ [MONITOR PEC] Nome completo ausente — Monitor ID ${user.id}, CPF: "${cpfLimpo}"`);
+        return res.status(400).json({ error: "O nome completo do aluno é obrigatório." });
+      }
+      if (!studentData.data_nascimento) {
+        console.warn(`⚠️ [MONITOR PEC] Data de nascimento ausente — Monitor ID ${user.id}, CPF: "${cpfLimpo}"`);
+        return res.status(400).json({ error: "A data de nascimento do aluno é obrigatória." });
       }
 
-      const existingAluno = await db.select().from(aluno).where(eq(aluno.cpf, studentData.cpf)).limit(1);
+      const existingAluno = await db.select({ cpf: aluno.cpf, nome: aluno.nome_completo }).from(aluno).where(eq(aluno.cpf, cpfLimpo)).limit(1);
       if (existingAluno.length > 0) {
-        return res.status(400).json({ error: "CPF já cadastrado no sistema" });
+        console.warn(`⚠️ [MONITOR PEC] CPF duplicado — CPF: "${cpfLimpo}" já cadastrado para "${existingAluno[0].nome}"`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado para "${existingAluno[0].nome}". Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
       }
 
       if (studentData.telefone && studentData.nome_completo) {
@@ -16360,26 +17074,50 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             nome: studentData.nome_completo,
             telefone: studentData.telefone,
             email: studentData.email,
-            cpf: studentData.cpf,
+            cpf: cpfLimpo,
             tipo: 'aluno',
             fonte: 'monitor_pec'
           });
           console.log(`✅ [CONSOLIDAÇÃO] Aluno consolidado: ${studentData.nome_completo} como user ID ${consolidatedUser.id}`);
         } catch (error) {
-          console.error('Erro na consolidação do aluno:', error);
+          console.error('⚠️ [MONITOR PEC] Erro na consolidação do aluno (cadastro continuou):', error);
         }
       }
 
-      const newAluno = await storage.createAluno(studentData);
-      console.log(`✅ [MONITOR PEC] Aluno criado com sucesso: ${newAluno.cpf}`);
+      const newAluno = await storage.createAluno({ ...studentData, cpf: cpfLimpo });
+      console.log(`✅ [MONITOR PEC] Aluno criado com sucesso — CPF: "${newAluno.cpf}", ID: ${newAluno.id}, Monitor: ${user.id}`);
       res.status(201).json(newAluno);
     } catch (error: any) {
-      console.error("❌ [MONITOR PEC] Erro ao criar aluno:", error);
-      res.status(500).json({ error: "Erro ao criar aluno: " + error.message });
+      console.error(`❌ [MONITOR PEC] Erro inesperado ao criar aluno`);
+      console.error(`   → Monitor  : ${(req as any).user?.id || 'não identificado'}`);
+      console.error(`   → CPF      : ${req.body?.cpf || 'não informado'}`);
+      console.error(`   → Nome     : ${req.body?.nome_completo || 'não informado'}`);
+      console.error(`   → Erro     : ${error?.message || error}`);
+      console.error(`   → Stack    :`, error?.stack);
+      const pgErr = formatPostgresError(error, 'aluno PEC (monitor)');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
   // ================ MONITOR INCLUSÃO - GESTÃO DE PARTICIPANTES (ROTAS ESPECÍFICAS PRIMEIRO) ================
+
+    async function syncParticipanteInclusaoStatus(participanteId: number) {
+    // Existe matrícula em alguma turma?
+    const vinculo = await db
+      .select({ id: participantesTurmas.id }) // ajuste caso sua tabela não tenha id
+      .from(participantesTurmas)
+      .where(eq(participantesTurmas.participanteId, participanteId))
+      .limit(1);
+
+    const novoStatus = vinculo.length > 0 ? "ativo" : "inativo";
+
+    await db
+      .update(participantesInclusao)
+      .set({ status: novoStatus })
+      .where(eq(participantesInclusao.id, participanteId));
+
+    return novoStatus;
+  }
 
   // GET /api/monitor/inclusao/participantes - Listar todos os participantes de Inclusão
   app.get("/api/monitor/inclusao/participantes", requireAuth, requireMonitor, async (req, res) => {
@@ -16414,10 +17152,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       console.log(`📝 [MONITOR INCLUSÃO] Monitor ${user.id} criando novo participante: ${participanteData.nome}`);
 
-      if (!participanteData.nome || !participanteData.genero || !participanteData.idade) {
-        return res.status(400).json({ 
-          error: "Campos obrigatórios: nome, genero, idade" 
-        });
+      if (!participanteData.nome) {
+        return res.status(400).json({ error: "O nome do participante é obrigatório." });
+      }
+      if (!participanteData.genero) {
+        return res.status(400).json({ error: "O gênero do participante é obrigatório." });
+      }
+      if (!participanteData.idade) {
+        return res.status(400).json({ error: "A idade do participante é obrigatória." });
       }
 
       if (participanteData.dataIngresso) {
@@ -16455,17 +17197,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const validationResult = insertParticipanteInclusaoSchema.safeParse({
         ...participanteData,
-        coordenadorId: user.id
       });
 
       if (!validationResult.success) {
         return res.status(400).json({
-          error: "Dados inválidos",
+          error: "Alguns dados estão incorretos. Verifique os campos e tente novamente.",
           details: validationResult.error.errors
         });
       }
 
       const participante = await storage.createParticipante(validationResult.data, turmaIds);
+
+// 🔥 regra: status depende de vínculo com turma
+        try {
+          await syncParticipanteInclusaoStatus(participante.id);
+        } catch (e) {
+          console.warn("⚠️ Não foi possível sincronizar status do participante:", e);
+        }
 
       try {
         const vinculoExistente = await db.select()
@@ -16501,7 +17249,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       res.status(201).json(participante);
     } catch (error: any) {
       console.error("❌ [MONITOR INCLUSÃO] Erro ao criar participante:", error);
-      res.status(500).json({ error: "Erro ao criar participante: " + error.message });
+      const pgErr = formatPostgresError(error, 'participante');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -16549,7 +17298,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       res.json(updated[0]);
     } catch (error: any) {
       console.error("❌ [MONITOR INCLUSÃO] Erro ao atualizar participante:", error);
-      res.status(500).json({ error: "Erro ao atualizar participante" });
+      const pgErr = formatPostgresError(error, 'participante');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -16561,9 +17311,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       
       const updated = await db.update(participantesInclusao)
         .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, status: "inativo" })
+          status: "inativo" })
         .where(eq(participantesInclusao.id, parseInt(id)))
         .returning();
       
@@ -16587,9 +17335,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       
       const updated = await db.update(participantesInclusao)
         .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, status: "ativo" })
+          status: "ativo" })
         .where(eq(participantesInclusao.id, parseInt(id)))
         .returning();
       
@@ -16607,93 +17353,88 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   // GET /api/monitor/:monitorId/alunos - Lista alunos do monitor
   // GET /api/monitor/:monitorId/alunos - Lista alunos do monitor (PEC e Inclusão Produtiva)
-  app.get("/api/monitor/:monitorId/alunos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      const programType = req.query.programType as string; // 'pec', 'inclusao' ou undefined (todos)
+ app.get("/api/monitor/:monitorId/alunos", requireAuth, requireMonitor, async (req, res) => {
+  try {
+    const monitorId = Number(req.params.monitorId);
+    const user = (req as any).user;
 
-        const access = ensureSelfAccess(user, monitorId, "alunos");
-        if (!access.allowed) {
-          return res
-            .status(access.error!.status)
-            .json({ error: access.error!.message });
-        }
+    // aceita programType OU vertente (pra não quebrar com o front)
+    const programTypeRaw = (req.query.programType ?? req.query.vertente) as string | undefined;
+    const programType = programTypeRaw ? String(programTypeRaw) : undefined;
 
-        console.log(
-          `📚 [MONITOR ALUNOS] Buscando alunos do monitor ${monitorId}, programa: ${
-            programType || "todos"
-          }`
-        );
-
-        // Buscar os participantes vinculados ao monitor com JOIN para ambas as fontes
-        const alunosData = await db
-          .select({
-            id: monitorParticipantes.id,
-            programType: monitorParticipantes.programType,
-
-            // Dados de Inclusão Produtiva
-            inclusaoId: monitorParticipantes.inclusaoParticipanteId,
-            inclusaoNome: participantesInclusao.nome,
-            inclusaoPrograma: participantesInclusao.programaAtual,
-
-            // Dados de PEC
-            pecCpf: monitorParticipantes.pecAlunoCpf,
-            pecNome: aluno.nome_completo,
-            pecMatricula: aluno.numero_matricula,
-
-            // Campos de acompanhamento
-            observacoesPrivadas: monitorParticipantes.observacoesPrivadas,
-            acompanhamentoStatus: monitorParticipantes.acompanhamentoStatus,
-            ultimaInteracao: monitorParticipantes.ultimaInteracao,
-          })
-          .from(monitorParticipantes)
-          .leftJoin(
-            participantesInclusao,
-            eq(
-              monitorParticipantes.inclusaoParticipanteId,
-              participantesInclusao.id
-            )
-          )
-          .leftJoin(aluno, eq(monitorParticipantes.pecAlunoCpf, aluno.cpf))
-          .where(
-            and(
-              eq(monitorParticipantes.monitorUserId, monitorId),
-              programType
-                ? eq(monitorParticipantes.programType, programType)
-                : undefined
-            )
-          );
-
-        // Normalizar dados: unificar campos de ambas as fontes
-        const alunosNormalizados = alunosData.map((aluno) => {
-          const isPec = aluno.programType === "pec";
-
-          return {
-            id: aluno.id,
-            programType: aluno.programType,
-            studentId: isPec ? aluno.pecCpf : aluno.inclusaoId,
-            nome: isPec ? aluno.pecNome : aluno.inclusaoNome,
-            grupo: isPec ? aluno.pecMatricula : aluno.inclusaoPrograma,
-            observacoesPrivadas: aluno.observacoesPrivadas,
-            acompanhamentoStatus: aluno.acompanhamentoStatus,
-            ultimaInteracao: aluno.ultimaInteracao,
-            frequencia: 0, // TODO: calcular frequência por programa
-          };
-        });
-
-        console.log(
-          `✅ [MONITOR ALUNOS] ${alunosNormalizados.length} alunos encontrados para monitor ${monitorId}`
-        );
-        res.json(alunosNormalizados);
-      } catch (error: any) {
-        console.error("❌ [MONITOR ALUNOS] Erro ao buscar alunos:", error);
-        res
-          .status(500)
-          .json({ error: "Falha ao buscar alunos: " + error.message });
-      }
+    const access = ensureSelfAccess(user, monitorId, "alunos");
+    if (!access.allowed) {
+      return res.status(access.error!.status).json({ error: access.error!.message });
     }
-  );
+
+    console.log(
+      `📚 [MONITOR ALUNOS] Buscando alunos do monitor ${monitorId}, programa: ${programType || "todos"}`
+    );
+
+    // filtros (sem undefined dentro do and)
+    const filters: any[] = [eq(monitorParticipantes.monitorUserId, monitorId)];
+    if (programType) {
+      filters.push(eq(monitorParticipantes.programType, programType));
+    }
+
+    const alunosData = await db
+      .select({
+        id: monitorParticipantes.id,
+        programType: monitorParticipantes.programType,
+
+        // Inclusão
+        inclusaoId: monitorParticipantes.inclusaoParticipanteId,
+        inclusaoNome: participantesInclusao.nome,
+        inclusaoPrograma: participantesInclusao.programaAtual,
+
+        // PEC
+        pecCpf: monitorParticipantes.pecAlunoCpf,
+        pecNome: aluno.nome_completo,
+        pecMatricula: aluno.numero_matricula,
+
+        // Acompanhamento
+        observacoesPrivadas: monitorParticipantes.observacoesPrivadas,
+        acompanhamentoStatus: monitorParticipantes.acompanhamentoStatus,
+        ultimaInteracao: monitorParticipantes.ultimaInteracao,
+      })
+      .from(monitorParticipantes)
+      .leftJoin(
+        participantesInclusao,
+        eq(monitorParticipantes.inclusaoParticipanteId, participantesInclusao.id)
+      )
+      .leftJoin(
+        aluno,
+        eq(monitorParticipantes.pecAlunoCpf, aluno.cpf)
+      )
+      .where(and(...filters));
+
+    const alunosNormalizados = alunosData.map((row) => {
+      const isPec = row.programType === "pec";
+
+      return {
+        id: row.id,
+        programType: row.programType,
+        studentId: isPec ? row.pecCpf : row.inclusaoId,
+        nome: isPec ? row.pecNome : row.inclusaoNome,
+        grupo: isPec ? row.pecMatricula : row.inclusaoPrograma,
+        observacoesPrivadas: row.observacoesPrivadas,
+        acompanhamentoStatus: row.acompanhamentoStatus,
+        ultimaInteracao: row.ultimaInteracao,
+        frequencia: 0, // TODO
+      };
+    });
+
+    console.log(
+      `✅ [MONITOR ALUNOS] ${alunosNormalizados.length} alunos encontrados para monitor ${monitorId}`
+    );
+
+    return res.json(alunosNormalizados);
+  } catch (error: any) {
+    console.error("❌ [MONITOR ALUNOS] Erro ao buscar alunos:", error);
+    return res.status(500).json({ error: "Falha ao buscar alunos: " + error.message });
+  }
+});
+
 
   // PATCH /api/monitor/alunos/:id - Atualizar informações de acompanhamento de aluno
   app.patch(
@@ -16852,6 +17593,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const monitorId = parseInt(req.params.monitorId);
       const vertente = req.query.vertente as string | undefined;
+      const contexto = req.query.contexto as string | undefined;
       const user = (req as any).user;
       
       const access = ensureSelfAccess(user, monitorId, 'atividades');
@@ -16860,11 +17602,17 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
       
       // Buscar atividades da tabela atividadesMonitor
+      // Se contexto=psicossocial, filtrar apenas atividades do psicossocial
+      const conditions = [eq(atividadesMonitor.monitorUserId, monitorId)];
+      if (contexto) {
+        conditions.push(eq(atividadesMonitor.contexto, contexto));
+      }
+      if (vertente && vertente !== "todos") {
+        conditions.push(eq(atividadesMonitor.vertente, vertente));
+      }
       const atividadesLegacy = await db.select()
         .from(atividadesMonitor)
-        .where(vertente 
-          ? and(eq(atividadesMonitor.monitorUserId, monitorId), eq(atividadesMonitor.vertente, vertente)) 
-          : eq(atividadesMonitor.monitorUserId, monitorId))
+        .where(and(...conditions))
         .orderBy(desc(atividadesMonitor.data));
       
       // Se vertente for 'pec', também buscar sessões da tabela sessions
@@ -16906,6 +17654,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             turmaId: sess.activity_instance_id,
             turmaNome: instance?.instanceTitle,
             criadoEm: sess.createdAt,
+            fotoComprovante: (sess as any).fotoComprovante || null,
             source: 'sessions'
           };
         });
@@ -16981,12 +17730,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       
       // Caso contrário, criar na tabela atividadesMonitor (legacy)
       const dataConverted = req.body.data ? new Date(req.body.data) : undefined;
+      const contexto = req.query.contexto as string || req.body.contexto;
 
       const validated = insertAtividadeMonitorSchema.parse({
         ...req.body,
         data: dataConverted,
         monitorUserId: monitorId,
-        vertente: vertente || req.body.vertente
+        vertente: vertente || req.body.vertente,
+        contexto: contexto || undefined
       });
       
       const newAtividade = await db.insert(atividadesMonitor)
@@ -17089,295 +17840,339 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
 
   // GET /api/monitor/:monitorId/grupos - List monitor's groups
-  app.get("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const vertente = req.query.vertente as string | undefined; // 'pec' ou 'inclusao'
+  app.get(
+    "/api/monitor/:monitorId/grupos",
+    requireAuth,
+    requireMonitor,
+    async (req, res) => {
+      try {
+      const monitorIdParam = Number(req.params.monitorId);
       const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'grupos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
+
+      let monitorRow: any[] = [];
+
+      if (user.email) {
+        monitorRow = await db
+          .select({
+            id: monitores.id,
+            email: monitores.email,
+            programa: monitores.programa
+          })
+          .from(monitores)
+          .where(eq(monitores.email, user.email))
+          .limit(1);
       }
-      
-      // Para PEC: buscar da tabela activityInstances via staffAssignments
-      if (vertente === 'pec') {
-        // Buscar turmas PEC onde o monitor está atribuído
-        const assignments = await db.select({
-          instanceId: staffAssignments.activity_instance_id,
-          role: staffAssignments.role
-        })
-          .from(staffAssignments)
-          .where(eq(staffAssignments.person_id, monitorId));
-        
-        if (assignments.length === 0) {
-          return res.json([]);
+
+      if (!monitorRow?.length && monitorIdParam) {
+        monitorRow = await db
+            .select({
+              id: monitores.id,
+              email: monitores.email,
+              programa: monitores.programa
+            })
+            .from(monitores)
+            .where(eq(monitores.id, monitorIdParam))
+            .limit(1);
+        if (monitorRow?.length) {
+          console.log(`[GRUPOS] Fallback: monitor encontrado por ID ${monitorIdParam}`);
         }
+      }
+
+      if (!monitorRow?.length && user.id) {
+        const userRow = await db.select().from(users).where(eq(users.id, Number(user.id))).limit(1);
+        if (userRow?.length && userRow[0].email) {
+          monitorRow = await db
+            .select({
+              id: monitores.id,
+              email: monitores.email,
+              programa: monitores.programa
+            })
+            .from(monitores)
+            .where(eq(monitores.email, userRow[0].email))
+            .limit(1);
+          if (monitorRow?.length) {
+            console.log(`[GRUPOS] Fallback: monitor encontrado via users.email ${userRow[0].email}`);
+          }
+        }
+      }
+
+      if (!monitorRow?.length && monitorIdParam) {
+        const impersonatedUser = await db.select().from(users).where(eq(users.id, monitorIdParam)).limit(1);
+        if (impersonatedUser?.length && impersonatedUser[0].email) {
+          monitorRow = await db
+            .select({
+              id: monitores.id,
+              email: monitores.email,
+              programa: monitores.programa
+            })
+            .from(monitores)
+            .where(eq(monitores.email, impersonatedUser[0].email))
+            .limit(1);
+          if (monitorRow?.length) {
+            console.log(`[GRUPOS] Fallback: monitor encontrado via users.id=${monitorIdParam} -> email=${impersonatedUser[0].email}`);
+          }
+        }
+      }
+
+      if (!monitorRow?.length) {
+        const vertenteQuery = String(req.query.vertente || "").toLowerCase();
+        let programaMatch = "pec";
+        if (vertenteQuery === "inclusao" || vertenteQuery === "inclusao_produtiva") programaMatch = "inclusao_produtiva";
+        else if (vertenteQuery === "psicossocial" || vertenteQuery === "psico") programaMatch = "psicossocial";
         
-        const instanceIds = assignments.map(a => a.instanceId);
-        
-        // Buscar detalhes das turmas
-        // Buscar detalhes das turmas
-        const turmas = await db.select()
-          .from(activityInstances)
-          .where(inArray(activityInstances.id, instanceIds))
-          .orderBy(activityInstances.created_at);
-        
-        // Buscar nomes das atividades
-        const activityIds = [...new Set(turmas.map(t => t.activity_id).filter(Boolean))];
-        const activities = activityIds.length > 0 
-          ? await db.select().from(pecActivities).where(inArray(pecActivities.id, activityIds))
-          : [];
-        const activityMap = new Map(activities.map(a => [a.id, a.name || a.title]));
-        
-        // Calcular frequência e contar participantes (enrollments)
-        const turmasComFrequencia = await Promise.all(turmas.map(async (turma) => {
-          try {
-            // Contar participantes vinculados à turma (enrollments)
-            const participantesVinculados = await db.select()
-              .from(instanceEnrollments)
-              .where(and(eq(instanceEnrollments.activity_instance_id, turma.id), eq(instanceEnrollments.active, true)));
-            const qtdParticipantes = participantesVinculados.length;
-            console.log(`📊 Turma ${turma.id}: ${qtdParticipantes} alunos encontrados em instanceEnrollments`);
-            
-            // Buscar sessões para calcular frequência
-            const sessoes = await db.select()
-              .from(sessions)
-              .where(eq(sessions.activity_instance_id, turma.id));
-            
-            if (sessoes.length === 0) {
-              return { 
-                id: turma.id,
-                nome: turma.title,
-                codigo: turma.code,
-                local: turma.location,
-                status: turma.situation || 'ativo',
-                horarioInicio: turma.start_time,
-                horarioFim: turma.end_time,
-                dataInicio: turma.occurrence_start,
-                dataFim: turma.occurrence_end,
-                createdAt: turma.created_at,
-                frequencia: null, 
-                qtdParticipantes,
-                alunos: qtdParticipantes,
-                vertente: 'pec',
-                atividade: activityMap.get(turma.activity_id) || 'PEC'
-              };
-            }
-            
-            // Calcular frequência média das sessões
-            let totalPresentes = 0;
-            let totalRegistros = 0;
-            
-            for (const sessao of sessoes) {
-              if (sessao.attendance && typeof sessao.attendance === 'object') {
-                const att = sessao.attendance as any;
-                if (Array.isArray(att)) {
-                  totalRegistros += att.length;
-                  totalPresentes += att.filter((a: any) => a.present || a.presente).length;
+        monitorRow = await db
+          .select({
+            id: monitores.id,
+            email: monitores.email,
+            programa: monitores.programa
+          })
+          .from(monitores)
+          .where(eq(monitores.programa, programaMatch))
+          .limit(1);
+        if (monitorRow?.length) {
+          console.log(`[GRUPOS] Fallback: monitor encontrado por programa=${programaMatch} -> monitores.id=${monitorRow[0].id}`);
+        }
+      }
+
+      const monitor = monitorRow?.[0];
+      if (!monitor) {
+        console.error(`[GRUPOS] Monitor não encontrado. email=${user.email}, monitorIdParam=${monitorIdParam}, userId=${user.id}`);
+        return res.status(403).json({ error: "Monitor não encontrado para este login" });
+      }
+
+      // ✅ Usa SEMPRE o monitor real do login
+      const monitorIdResolved = Number(monitor.id);
+
+        // 3) Vertente via query
+        const vertenteRaw = String(req.query.vertente || "").toLowerCase();
+        const vertente =
+          vertenteRaw === "pec" || vertenteRaw === "inclusao" ? vertenteRaw : undefined;
+
+        // ===== PEC =====
+        if (vertente === "pec") {
+          // Monitor PEC vê todas as turmas PEC (activity_instances)
+          const turmas = await db
+            .select()
+            .from(activityInstances)
+            .orderBy(activityInstances.created_at);
+
+          const activityIds = [...new Set(turmas.map((t) => t.activity_id).filter(Boolean))];
+          const activities =
+            activityIds.length > 0
+              ? await db.select().from(pecActivities).where(inArray(pecActivities.id, activityIds))
+              : [];
+          const activityMap = new Map(activities.map((a) => [a.id, a.name || a.title]));
+
+          const turmasComFrequencia = await Promise.all(
+            turmas.map(async (turma) => {
+              try {
+                const participantesVinculados = await db
+                  .select()
+                  .from(instanceEnrollments)
+                  .where(
+                    and(
+                      eq(instanceEnrollments.activity_instance_id, turma.id),
+                      eq(instanceEnrollments.active, true)
+                    )
+                  );
+
+                const totalParticipantes = participantesVinculados.length;
+                const alunosConcluidos = 0;
+
+                const sessoes = await db
+                  .select()
+                  .from(sessions)
+                  .where(eq(sessions.activity_instance_id, turma.id));
+
+                let frequencia: number | null = null;
+
+                if (sessoes.length > 0) {
+                  let totalPresentes = 0;
+                  let totalRegistros = 0;
+
+                  for (const sessao of sessoes) {
+                    const att: any = sessao.attendance;
+                    if (Array.isArray(att)) {
+                      totalRegistros += att.length;
+                      totalPresentes += att.filter((a: any) => a.presente === true).length;
+                    }
+                  }
+
+                  frequencia =
+                    totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : null;
                 }
-              }
-            }
-            
-            const frequencia = totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : null;
-            return { 
-              id: turma.id,
-              nome: turma.title,
-              codigo: turma.code,
-              local: turma.location,
-              status: turma.situation || 'ativo',
-              horarioInicio: turma.start_time,
-              horarioFim: turma.end_time,
-              dataInicio: turma.occurrence_start,
-              dataFim: turma.occurrence_end,
-              createdAt: turma.created_at,
-              frequencia, 
-              qtdParticipantes,
-                alunos: qtdParticipantes,
-              vertente: 'pec',
-              atividade: activityMap.get(turma.activity_id) || 'PEC'
-            };
-          } catch (e) {
-            return { 
-              id: turma.id,
-              nome: turma.title,
-              codigo: turma.code,
-              local: turma.location,
-              status: turma.situation || 'ativo',
-              frequencia: null, 
-              qtdParticipantes: 0,
-              vertente: 'pec',
-              atividade: activityMap.get(turma.activity_id) || 'PEC'
-            };
-          }
-        }));
 
-        return res.json(turmasComFrequencia);
-      }
-      // Para Inclusão: buscar de turmas_inclusao onde professorId = monitorId
-      if (vertente === 'inclusao') {
-        const turmas = await db.select()
-          .from(turmasInclusao)
-          .orderBy(turmasInclusao.createdAt);
-        
-        // Calcular frequência e contar participantes
-        const turmasComFrequencia = await Promise.all(turmas.map(async (turma) => {
-          try {
-            // Contar participantes vinculados à turma
-            const participantesVinculados = await db.select()
-              .from(participantesTurmas)
-              .where(and(
-                eq(participantesTurmas.turmaId, turma.id),
-                eq(participantesTurmas.status, 'ativo')
-              ));
-            const qtdParticipantes = participantesVinculados.length;
-            console.log(`📊 Turma Inclusão ${turma.id}: ${qtdParticipantes} participantes em participantesTurmas`);
-            
-            // Buscar presenças para calcular frequência
-            const presencas = await db.select()
-              .from(presencasInclusao)
-              .where(eq(presencasInclusao.turmaId, turma.id));
-            
-            if (presencas.length === 0) {
-              return { 
-                id: turma.id,
-                nome: turma.nome,
-                codigo: turma.codigo,
-                local: turma.local,
-                status: turma.status || 'ativo',
-                horarioInicio: turma.horarioEntrada,
-                horarioFim: turma.horarioSaida,
-                dataInicio: turma.dataInicio,
-                dataFim: turma.dataFim,
-                createdAt: turma.createdAt,
-                frequencia: null, 
-                qtdParticipantes,
-                alunos: qtdParticipantes,
-                vertente: 'inclusao',
-                descricao: turma.descricao
-              };
-            }
-            
-            // Calcular frequência média
-            const totalPresentes = presencas.filter(p => p.presente).length;
-            const frequencia = presencas.length > 0 ? Math.round((totalPresentes / presencas.length) * 100) : null;
-            
-            return { 
-              id: turma.id,
-              nome: turma.nome,
-              codigo: turma.codigo,
-              local: turma.local,
-              status: turma.status || 'ativo',
-              horarioInicio: turma.horarioEntrada,
-              horarioFim: turma.horarioSaida,
-              dataInicio: turma.dataInicio,
-              dataFim: turma.dataFim,
-              createdAt: turma.createdAt,
-              frequencia, 
-              qtdParticipantes,
-              alunos: qtdParticipantes,
-              vertente: 'inclusao',
-              descricao: turma.descricao
-            };
-          } catch (e) {
-            console.error(`Erro ao processar turma inclusão ${turma.id}:`, e);
-            return { 
-              id: turma.id,
-              nome: turma.nome,
-              codigo: turma.codigo,
-              local: turma.local,
-              status: turma.status || 'ativo',
-              frequencia: null, 
-              qtdParticipantes: 0,
-              alunos: 0,
-              vertente: 'inclusao',
-              descricao: turma.descricao
-            };
-          }
-        }));
-
-        return res.json(turmasComFrequencia);
-      }
-      
-      // Fallback: manter comportamento original com monitorGrupos para outros casos
-      // Para Inclusão ou sem vertente: manter comportamento original com monitorGrupos
-      const grupos = await db.select()
-        .from(monitorGrupos)
-        .where(vertente ? and(eq(monitorGrupos.monitorUserId, monitorId), eq(monitorGrupos.vertente, vertente)) : eq(monitorGrupos.monitorUserId, monitorId))
-        .orderBy(monitorGrupos.createdAt);
-      
-      // Calcular frequência e contar participantes
-      const gruposComFrequencia = await Promise.all(grupos.map(async (grupo) => {
-        try {
-          // Contar participantes vinculados ao grupo
-          const participantesVinculados = await db.select()
-            .from(monitorGrupoAlunos)
-            .where(eq(monitorGrupoAlunos.grupoId, grupo.id));
-          const qtdParticipantes = participantesVinculados.length;
-            console.log(`📊 Turma ${turma.id}: ${qtdParticipantes} alunos encontrados em instanceEnrollments`);
-          
-          // Buscar registros de chamada do grupo
-          const registros = await db.select()
-            .from(registrosAtividades)
-            .where(and(
-              eq(registrosAtividades.monitorUserId, monitorId),
-              like(registrosAtividades.titulo, `Chamada - ${grupo.nome}`)
-            ));
-          
-          if (registros.length === 0) {
-            return { ...grupo, frequencia: null, qtdParticipantes };
-          }
-          
-          // Calcular frequência média
-          let totalPresentes = 0;
-          let totalAlunos = 0;
-          
-          for (const reg of registros) {
-            try {
-              const obs = reg.resultadosObservacoes ? JSON.parse(reg.resultadosObservacoes) : null;
-              if (obs?.presencas && Array.isArray(obs.presencas)) {
-                totalAlunos += obs.presencas.length;
-                totalPresentes += obs.presencas.filter((p: any) => p.presente).length;
+                return {
+                  id: turma.id,
+                  nome: turma.title,
+                  title: turma.title,
+                  codigo: turma.code,
+                  local: turma.location,
+                  location: turma.location,
+                  status: turma.situation || "ativo",
+                  situation: turma.situation || "planejamento",
+                  horarioInicio: turma.start_time,
+                  horarioFim: turma.end_time,
+                  start_time: turma.start_time,
+                  end_time: turma.end_time,
+                  dataInicio: turma.occurrence_start,
+                  dataFim: turma.occurrence_end,
+                  occurrence_start: turma.occurrence_start,
+                  occurrence_end: turma.occurrence_end,
+                  period_label: turma.period_label,
+                  age_min: turma.age_min,
+                  age_max: turma.age_max,
+                  activity_id: turma.activity_id,
+                  intelbras_group_id: turma.intelbras_group_id,
+                  dias_semana: turma.dias_semana || [],
+                  createdAt: turma.created_at,
+                  frequencia,
+                  qtdParticipantes: totalParticipantes,
+                  totalParticipantes,
+                  alunosConcluidos,
+                  alunos: totalParticipantes,
+                  vertente: "pec",
+                  atividade: activityMap.get(turma.activity_id) || "PEC",
+                  diasSemana: turma.dias_semana || [],
+                  control_mode: turma.control_mode
+                };
+              } catch (e) {
+                return {
+                  id: turma.id,
+                  nome: turma.title,
+                  codigo: turma.code,
+                  local: turma.location,
+                  status: turma.situation || "ativo",
+                  frequencia: null,
+                  qtdParticipantes: 0,
+                  totalParticipantes: 0,
+                  alunosConcluidos: 0,
+                  alunos: 0,
+                  vertente: "pec",
+                  atividade: "PEC",
+                  diasSemana: turma.dias_semana || [],
+                  control_mode: null
+                };
               }
-            } catch (e) {
-              // Ignorar erro de parse
-            }
-          }
-          
-          const frequencia = totalAlunos > 0 ? Math.round((totalPresentes / totalAlunos) * 100) : null;
-          return { ...grupo, frequencia, qtdParticipantes };
-        } catch (e) {
-          // Contar participantes mesmo em caso de erro
-          const participantesVinculados = await db.select()
-            .from(monitorGrupoAlunos)
-            .where(eq(monitorGrupoAlunos.grupoId, grupo.id));
-          return { ...grupo, frequencia: null, qtdParticipantes: participantesVinculados.length };
+            })
+          );
+
+          return res.json(turmasComFrequencia);
         }
-      }));
-      
-      res.json(gruposComFrequencia);
-    } catch (error: any) {
-      console.error("Error fetching grupos:", error);
-      res.status(500).json({ error: "Failed to fetch grupos" });
-    }
-  });
 
+        // ===== INCLUSÃO =====
+        if (vertente === "inclusao") {
+          // Monitor de inclusão vê todas as turmas de inclusão (professor_id aponta para professores, não monitores)
+          const turmas = await db
+            .select()
+            .from(turmasInclusao)
+            .orderBy(turmasInclusao.createdAt);
+
+          // Identificar quais turmas têm histórico de presença via catraca
+          const catracaTurmas = await db
+            .select({ turmaId: presencasInclusao.turmaId })
+            .from(presencasInclusao)
+            .where(sql`${presencasInclusao.observacoes} LIKE '%catraca%'`)
+            .groupBy(presencasInclusao.turmaId);
+          const catracaTurmaIds = new Set(catracaTurmas.map((r) => r.turmaId));
+
+          const turmasComFrequencia = await Promise.all(
+            turmas.map(async (turma) => {
+              const temCatraca = catracaTurmaIds.has(turma.id);
+              try {
+                const todosParticipantes = await db
+                  .select()
+                  .from(participantesTurmas)
+                  .where(eq(participantesTurmas.turmaId, turma.id));
+
+                const totalParticipantes = todosParticipantes.length;
+                const alunosConcluidos = todosParticipantes.filter((p) => p.status === "concluido").length;
+
+                const qtdParticipantes =
+                  turma.status === "concluido"
+                    ? totalParticipantes
+                    : todosParticipantes.filter((p) => p.status === "ativo").length;
+
+                const presencas = await db
+                  .select()
+                  .from(presencasInclusao)
+                  .where(eq(presencasInclusao.turmaId, turma.id));
+
+                const totalPresentes = presencas.filter((p) => p.presente).length;
+                const frequencia =
+                  presencas.length > 0 ? Math.round((totalPresentes / presencas.length) * 100) : null;
+
+                return {
+                  id: turma.id,
+                  nome: turma.nome,
+                  codigo: turma.codigo,
+                  local: turma.local,
+                  status: turma.status || "ativo",
+                  horarioInicio: turma.horarioEntrada,
+                  horarioFim: turma.horarioSaida,
+                  dataInicio: turma.dataInicio,
+                  dataFim: turma.dataFim,
+                  createdAt: turma.createdAt,
+                  frequencia,
+                  qtdParticipantes,
+                  totalParticipantes,
+                  alunosConcluidos,
+                  alunos: qtdParticipantes,
+                  vertente: "inclusao",
+                  diasSemana: turma.diasSemana || [],
+                  descricao: turma.descricao,
+                  temCatraca,
+                };
+              } catch (e) {
+                return {
+                  id: turma.id,
+                  nome: turma.nome,
+                  codigo: turma.codigo,
+                  local: turma.local,
+                  status: turma.status || "ativo",
+                  frequencia: null,
+                  qtdParticipantes: 0,
+                  totalParticipantes: 0,
+                  alunosConcluidos: 0,
+                  alunos: 0,
+                  vertente: "inclusao",
+                  diasSemana: turma.diasSemana || [],
+                  descricao: turma.descricao,
+                  temCatraca,
+                };
+              }
+            })
+          );
+
+          return res.json(turmasComFrequencia);
+        }
+
+        // Se não mandou vertente, pode optar por retornar as duas juntas ou exigir query.
+        return res.status(400).json({ error: "Informe ?vertente=pec ou ?vertente=inclusao" });
+      } catch (error: any) {
+        console.error("Error fetching grupos:", error);
+        return res.status(500).json({ error: "Failed to fetch grupos" });
+      }
+    }
+  );
   // POST /api/monitor/:monitorId/grupos - Create new group
-  app.post("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const user = (req as any).user;
-      const role = String((user as any)?.role || "").toLowerCase();
-      
-      // ✅ fallback pelo programa do monitor (garante inclusão mesmo se role vier vazio)
-    const monitorRow = await db
-      .select({ programa: monitores.programa })
+app.post("/api/monitor/:monitorId/grupos", requireAuth, requireMonitor, async (req, res) => {
+ try {
+    const user = (req as any).user;
+    const role = String(user?.role || "").toLowerCase();
+
+    const monitorByLogin = await db
+      .select({ id: monitores.id, programa: monitores.programa })
       .from(monitores)
-      .where(eq(monitores.id, monitorId))
+      .where(eq(monitores.email, user.email))
       .limit(1);
 
-    const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
+    const monitor = monitorByLogin?.[0];
+    if (!monitor) return res.status(403).json({ error: "Monitor não encontrado para este login" });
 
+    const monitorId = Number(monitor.id);
+
+    const programaMonitor = String(monitor.programa || "").toLowerCase();
     const vertente =
       role.includes("inclusao") || programaMonitor.includes("inclusao")
         ? "inclusao"
@@ -17385,14 +18180,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           ? "pec"
           : "legacy";
 
-      const access = ensureSelfAccess(user, monitorId, 'grupos');
+      const access = ensureSelfAccess(user, monitorIdParam, 'grupos');
       if (!access.allowed) {
         return res.status(403).json({ error: 'Acesso negado' });
       }
       
       // Para Inclusão: criar em turmas_inclusao
       if (vertente === 'inclusao') {
-        const { nome, codigo, local, horarioInicio, horarioFim, dataInicio, dataFim, descricao, programaId } = req.body;
+        const { nome, codigo, local, horarioInicio, horarioFim, dataInicio, dataFim, descricao, programaId, diasSemana } = req.body;
         
         // Buscar ou usar o primeiro programa de inclusão como fallback
         let progId = programaId;
@@ -17403,7 +18198,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         
         const [newTurma] = await db.insert(turmasInclusao).values({
           programaId: progId,
-          professorId: monitorId,
+          professorId: null,
           nome: nome,
           codigo: codigo,
           local: local,
@@ -17412,6 +18207,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           dataInicio: dataInicio,
           dataFim: dataFim,
           descricao: descricao,
+          diasSemana: diasSemana || null,
           status: 'emandamento'
         }).returning();
         
@@ -17432,36 +18228,77 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         });
       }
       
-      // Fallback: criar em monitorGrupos (legacy)
-      const validated = insertMonitorGrupoSchema.parse({
-        ...req.body,
-        monitorUserId: monitorId
+      // PEC: criar em activityInstances (mesma tabela que Professor e Coordenador)
+      const { nome, codigo, local, horarioInicio, horarioFim, dataInicio, dataFim, descricao, activityId, diasSemana } = req.body;
+      
+      const [newTurma] = await db.insert(activityInstances).values({
+        activity_id: activityId || 1,
+        title: nome,
+        code: codigo || null,
+        location: local || null,
+        notes: descricao || null,
+        start_time: horarioInicio || null,
+        end_time: horarioFim || null,
+        occurrence_start: dataInicio || null,
+        occurrence_end: dataFim || null,
+        dias_semana: diasSemana || null,
+        situation: 'execucao',
+      }).returning();
+      
+      console.log(`[RBAC MONITOR] Turma PEC criada por monitor ${monitorId}: ${newTurma.title}`);
+      res.json({
+        id: newTurma.id,
+        nome: newTurma.title,
+        codigo: newTurma.code,
+        local: newTurma.location,
+        horarioInicio: newTurma.start_time,
+        horarioFim: newTurma.end_time,
+        dataInicio: newTurma.occurrence_start,
+        dataFim: newTurma.occurrence_end,
+        status: newTurma.situation || 'ativo',
+        vertente: 'pec',
+        descricao: newTurma.notes,
+        createdAt: newTurma.created_at
       });
-      
-      const newGrupo = await db.insert(monitorGrupos)
-        .values(validated)
-        .returning();
-      
-      console.log(`[RBAC MONITOR] Grupo criado por monitor ${monitorId}: ${newGrupo[0].nome}`);
-      res.json(newGrupo[0]);
     } catch (error: any) {
       console.error("Error creating grupo:", error);
-      res.status(500).json({ error: "Failed to create grupo" });
+      const pgErr = formatPostgresError(error, 'grupo');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
   // PATCH /api/monitor/:monitorId/grupos/:grupoId - Update group
   app.patch("/api/monitor/:monitorId/grupos/:grupoId", requireAuth, requireMonitor, async (req, res) => {
     try {
-      const monitorId = parseInt(req.params.monitorId);
-      const vertente = req.query.vertente as string | undefined; // 'pec' ou 'inclusao'
+     const monitorIdParam = parseInt(req.params.monitorId);
+     const vertente = req.query.vertente as string | undefined;
       const grupoId = parseInt(req.params.grupoId);
       const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'grupos');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
+
+      // ✅ resolve monitor real pelo login
+      const monitorRow = await db
+        .select({ id: monitores.id })
+        .from(monitores)
+        .where(eq(monitores.email, user.email))
+        .limit(1);
+
+      const monitor = monitorRow?.[0];
+      if (!monitor) {
+        return res.status(403).json({ error: "Monitor não encontrado para este login" });
       }
+
+      const monitorId = Number(monitor.id);
+      
+      if (monitorIdParam !== monitorId) {
+        console.warn("[SECURITY] monitor tentou usar monitorId diferente", {
+          userId: user.id,
+          monitorIdParam,
+          monitorId,
+          email: user.email,
+        });
+        return res.status(403).json({ error: "Acesso negado" });
+      }
+
       
       const { nome, nivel, atividade, status, horarioInicio, horarioFim, diasSemana, local, descricao, dataInicio, dataFim, codigo } = req.body;
       
@@ -17478,6 +18315,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             occurrence_start: dataInicio || null,
             occurrence_end: dataFim || null,
             situation: status || 'ativo',
+            dias_semana: diasSemana || null,
             updated_at: new Date()
           })
           .where(eq(activityInstances.id, grupoId))
@@ -17498,7 +18336,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           dataInicio: updated[0].occurrence_start,
           dataFim: updated[0].occurrence_end,
           status: updated[0].situation,
-          vertente: 'pec'
+          vertente: 'pec',
+          diasSemana: updated[0].dias_semana || []
         });
       }
 
@@ -17513,6 +18352,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             dataInicio,
             dataFim,
             descricao,
+            diasSemana: diasSemana || null,
             status: status || 'emandamento',
             updatedAt: new Date()
           })
@@ -17542,9 +18382,6 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       // Fallback: atualizar em monitorGrupos (legacy)
       const updated = await db.update(monitorGrupos)
         .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
           nome,
           nivel,
           atividade,
@@ -17612,7 +18449,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       res.json(newRegistro[0]);
     } catch (error: any) {
       console.error("Error creating registro:", error);
-      res.status(500).json({ error: "Failed to create registro" });
+      const pgErr = formatPostgresError(error, 'registro');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -17669,49 +18507,70 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         .where(eq(monitores.id, monitorId))
         .limit(1);
 
-      const programaMonitor = String(monitorRow?.[0]?.programa || "").toLowerCase();
-
-      const vertente =
-        role.includes("inclusao") || programaMonitor.includes("inclusao")
-          ? "inclusao"
-          : role.includes("pec") || programaMonitor.includes("pec")
-            ? "pec"
-            : "legacy";
-
-      // ✅ INCLUSÃO: turma + participantesTurmas
-      if (vertente === "inclusao") {
-        const turma = await db
-          .select({ id: turmasInclusao.id })
-          .from(turmasInclusao)
-          .where(and(eq(turmasInclusao.id, grupoId), eq(turmasInclusao.professorId, monitorId)))
-          .limit(1);
-
-        if (!turma.length) {
-          return res.status(404).json({ error: "Turma não encontrada" });
+      const pecInstance = await db.select({ id: activityInstances.id })
+        .from(activityInstances)
+        .where(eq(activityInstances.id, grupoId))
+        .limit(1);
+      
+      if (pecInstance.length > 0) {
+        // É uma turma PEC - buscar alunos de instanceEnrollments
+        const matriculas = await db.select()
+          .from(instanceEnrollments)
+          .where(and(eq(instanceEnrollments.activity_instance_id, grupoId), eq(instanceEnrollments.active, true)));
+        
+        const cpfs = matriculas.map(m => m.student_cpf).filter(Boolean);
+        
+        if (cpfs.length === 0) {
+          console.log(`[RBAC MONITOR] Monitor ${monitorId} listou 0 alunos do grupo PEC ${grupoId}`);
+          return res.json([]);
         }
+        
+        const students = await db.select({
+          cpf: aluno.cpf,
+          nome: aluno.nome_completo,
+          tipo: sql`'pec'`.as('tipo')
+        })
+        .from(aluno)
+        .where(inArray(aluno.cpf, cpfs as string[]));
+        
+        const result = students.map(s => ({ ...s, id: s.cpf }));
+        console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${result.length} alunos do grupo PEC ${grupoId}`);
+        return res.json(result);
+      }
 
-        const students = await db
-          .select({
-            id: participantesInclusao.id,
-            nome: participantesInclusao.nome,
-            cpf: participantesInclusao.cpf,
-            tipo: sql`'inclusao'`.as("tipo"),
-          })
+      // Tenta buscar como Turma de Inclusão
+      const turmaInclusao = await db.select().from(turmasInclusao)
+        .where(eq(turmasInclusao.id, grupoId))
+        .limit(1);
+      
+      if (turmaInclusao.length > 0) {
+        // É uma turma de Inclusão - buscar participantes de participantesTurmas,
+  alunoTurma,
+  monitorPerfis
+        const matriculas = await db.select({
+          participanteId: participantesTurmas.participanteId,
+          status: participantesTurmas.status
+        })
           .from(participantesTurmas)
-          .innerJoin(
-            participantesInclusao,
-            eq(participantesInclusao.id, participantesTurmas.participanteId)
-          )
-          .where(
-            and(
-              eq(participantesTurmas.turmaId, grupoId),
-              eq(participantesTurmas.status, "ativo")
-            )
-          );
-
-        console.log(
-          `[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} participantes da turma Inclusão ${grupoId}`
-        );
+          .where(and(eq(participantesTurmas.turmaId, grupoId), eq(participantesTurmas.status, 'ativo')));
+        
+        const participanteIds = matriculas.map(m => m.participanteId);
+        
+        if (participanteIds.length === 0) {
+          console.log(`[RBAC MONITOR] Monitor ${monitorId} listou 0 participantes da turma Inclusão ${grupoId}`);
+          return res.json([]);
+        }
+        
+        const students = await db.select({
+          id: participantesInclusao.id,
+          nome: participantesInclusao.nome,
+          cpf: participantesInclusao.cpf,
+          tipo: sql`'inclusao'`.as('tipo')
+        })
+        .from(participantesInclusao)
+        .where(inArray(participantesInclusao.id, participanteIds));
+        
+        console.log(`[RBAC MONITOR] Monitor ${monitorId} listou ${students.length} participantes da turma Inclusão ${grupoId}`);
         return res.json(students);
       }
 
@@ -17789,7 +18648,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const { participanteId, participanteCpf, participanteTipo } = req.body;
       
       // Para Inclusão: usar turmasInclusao e participantesTurmas,
-  monitorPerfis
+          alunoTurma,
+          monitorPerfis
       if (participanteTipo === 'inclusao') {
         if (!participanteId) {
           return res.status(400).json({ error: 'participanteId é obrigatório para Inclusão' });
@@ -17817,14 +18677,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         }
         
         // Inserir na tabela participantesTurmas,
-  monitorPerfis
-        const result = await db.insert(participantesTurmas)
-          .values({
-            turmaId: grupoId,
-            participanteId: participanteId,
-            status: 'ativo'
-          })
-          .returning();
+        alunoTurma,
+        monitorPerfis
+        const result =await db.insert(participantesTurmas).values({
+          turmaId,
+          participanteId,
+          status: "ativo"
+        })
+        .returning();
+        await syncParticipanteInclusaoStatus(participanteId);
         
         console.log(`[RBAC MONITOR] Participante ${participanteId} adicionado à turma inclusão ${grupoId}`);
         return res.json(result[0]);
@@ -17921,9 +18782,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       // Update group alunos count
       await db.update(monitorGrupos)
         .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, alunos: sql`(SELECT COUNT(*) FROM monitor_grupo_alunos WHERE grupo_id = ${grupoId})` })
+          alunos: sql`(SELECT COUNT(*) FROM monitor_grupo_alunos WHERE grupo_id = ${grupoId})` })
         .where(eq(monitorGrupos.id, grupoId));
       
       console.log(`[RBAC MONITOR] Aluno ${participanteIdentifier} (${tipo}) removido do grupo ${grupoId}`);
@@ -17948,7 +18807,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const { grupoId, data, observacoes } = req.body;
       
       if (!grupoId || !data) {
-        return res.status(400).json({ error: 'grupoId e data são obrigatórios' });
+        return res.status(400).json({ error: 'Selecione uma turma e uma data para registrar a chamada.' });
       }
       
       // Get the grupo to extract turmaId
@@ -17960,11 +18819,11 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       });
       
       if (!grupo) {
-        return res.status(404).json({ error: 'Grupo não encontrado' });
+        return res.status(404).json({ error: 'A turma selecionada não foi encontrada. Atualize a página e tente novamente.' });
       }
       
       if (!grupo.turmaId) {
-        return res.status(400).json({ error: 'Grupo não está vinculado a uma turma' });
+        return res.status(400).json({ error: 'Esta turma ainda não está configurada corretamente. Entre em contato com o coordenador.' });
       }
       
       const validated = insertChamadaSchema.parse({
@@ -17982,7 +18841,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       res.json(newChamada[0]);
     } catch (error: any) {
       console.error("Error creating chamada:", error);
-      res.status(500).json({ error: "Failed to create chamada" });
+      const pgErr = formatPostgresError(error, 'chamada');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -18024,7 +18884,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           chamadaId,
           alunoCpf: p.alunoCpf,
           status: p.presente ? 'presente' : 'falta',
-          observacoes: p.observacoes || null
+          observacoes: p.observacoes || null,
+          justificativa: p.justificativa || null,
         });
         
         const inserted = await db.insert(chamadaAluno)
@@ -18039,6 +18900,232 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     } catch (error: any) {
       console.error("Error saving presencas:", error);
       res.status(500).json({ error: "Failed to save presencas" });
+    }
+  });
+
+  // POST /api/chamada/:chamadaId/foto - Upload foto comprovante da chamada
+  app.post("/api/chamada/:chamadaId/foto", memUpload.single("foto"), async (req, res) => {
+    try {
+      const chamadaId = parseInt(req.params.chamadaId);
+      if (!req.file) {
+        return res.status(400).json({ error: "Nenhuma foto enviada" });
+      }
+      const fileName = `chamadas/foto_${chamadaId}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      
+      await db.update(chamada).set({ fotoComprovante: url }).where(eq(chamada.id, chamadaId));
+      
+      res.json({ success: true, url });
+    } catch (error: any) {
+      console.error("Error uploading chamada foto:", error);
+      res.status(500).json({ error: "Erro ao fazer upload da foto" });
+    }
+  });
+
+  app.get("/api/presencas-inclusao/por-turma-data", async (req, res) => {
+    try {
+      const { turmaId, data } = req.query;
+      if (!turmaId || !data) {
+        return res.status(400).json({ error: "turmaId e data são obrigatórios" });
+      }
+      const rows = await db.select({
+        participanteId: presencasInclusao.participanteId,
+        presente: presencasInclusao.presente,
+        observacoes: presencasInclusao.observacoes,
+        justificativa: presencasInclusao.justificativa,
+        nome: participantesInclusao.nome,
+      })
+        .from(presencasInclusao)
+        .innerJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
+        .where(and(
+          eq(presencasInclusao.turmaId, parseInt(turmaId as string)),
+          eq(presencasInclusao.data, data as string),
+        ));
+
+      const result = rows.map(r => ({
+        participanteId: r.participanteId,
+        nome: r.nome,
+        presente: r.presente,
+        justificativa: r.justificativa || undefined,
+        hora: r.observacoes?.match(/às (\d{2}:\d{2})/)?.[1] || undefined,
+        viaCatraca: r.observacoes?.includes('catraca') || false,
+      }));
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[PRESENCAS INCLUSAO POR TURMA/DATA] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar presenças" });
+    }
+  });
+
+  // POST /api/presencas-inclusao/foto - Upload foto comprovante para chamada inclusão
+  app.post("/api/presencas-inclusao/foto", memUpload.single("foto"), async (req, res) => {
+    try {
+      const { turmaId, data } = req.body;
+      if (!req.file || !turmaId || !data) {
+        return res.status(400).json({ error: "Foto, turmaId e data são obrigatórios" });
+      }
+      const fileName = `chamadas/foto_inclusao_${turmaId}_${data}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      
+      await db.update(presencasInclusao)
+        .set({ fotoComprovante: url })
+        .where(and(
+          eq(presencasInclusao.turmaId, parseInt(turmaId)),
+          eq(presencasInclusao.data, data)
+        ));
+      
+      res.json({ success: true, url });
+    } catch (error: any) {
+      console.error("Error uploading inclusao foto:", error);
+      res.status(500).json({ error: "Erro ao fazer upload da foto" });
+    }
+  });
+
+  // GET /api/presencas-inclusao/foto-serve/:turmaId/:data - Serve foto da chamada via signed URL
+  app.get("/api/presencas-inclusao/foto-serve/:turmaId/:data", async (req, res) => {
+    try {
+      const { turmaId, data } = req.params;
+      const row = await db.select({ fotoComprovante: presencasInclusao.fotoComprovante })
+        .from(presencasInclusao)
+        .where(and(
+          eq(presencasInclusao.turmaId, parseInt(turmaId)),
+          eq(presencasInclusao.data, data),
+          sql`${presencasInclusao.fotoComprovante} IS NOT NULL`
+        ))
+        .limit(1);
+      if (!row.length || !row[0].fotoComprovante) {
+        return res.status(404).json({ error: "Foto não encontrada" });
+      }
+      const signedUrl = await getSignedUrl(row[0].fotoComprovante, 30);
+      return res.redirect(signedUrl);
+    } catch (error: any) {
+      console.error("Error serving inclusao foto:", error);
+      res.status(500).json({ error: "Erro ao buscar foto" });
+    }
+  });
+
+  // PUT /api/chamada/:chamadaId/editar - Editar chamada PEC (chamada + chamada_aluno)
+  app.put("/api/chamada/:chamadaId/editar", async (req, res) => {
+    try {
+      const chamadaId = parseInt(req.params.chamadaId);
+      const { observacoes, presencas } = req.body;
+      
+      if (observacoes !== undefined) {
+        await db.update(chamada).set({ observacoes }).where(eq(chamada.id, chamadaId));
+      }
+      
+      if (presencas && Array.isArray(presencas)) {
+        await db.delete(chamadaAluno).where(eq(chamadaAluno.chamadaId, chamadaId));
+        for (const p of presencas) {
+          await db.insert(chamadaAluno).values({
+            chamadaId,
+            alunoCpf: p.alunoCpf || p.cpf,
+            status: p.justificativa && p.justificativa !== 'Sem justificativa' ? 'falta_justificada' : (p.presente ? 'presente' : 'falta'),
+            observacoes: p.observacoes || null,
+            justificativa: p.justificativa || null,
+          });
+        }
+      }
+      
+      res.json({ success: true, message: "Chamada atualizada com sucesso" });
+    } catch (error: any) {
+      console.error("Error updating chamada:", error);
+      res.status(500).json({ error: "Erro ao atualizar chamada" });
+    }
+  });
+
+  // POST /api/pec/sessions/foto - Upload foto comprovante para sessão PEC
+  app.post("/api/pec/sessions/foto", memUpload.single("foto"), async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      if (!req.file || !sessionId) {
+        return res.status(400).json({ error: "Foto e sessionId são obrigatórios" });
+      }
+      const sid = parseInt(sessionId);
+      const fileName = `chamadas/foto_pec_${sid}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      
+      await db.update(sessions).set({ fotoComprovante: url }).where(eq(sessions.id, sid));
+      
+      res.json({ success: true, url });
+    } catch (error: any) {
+      console.error("Error uploading PEC session foto:", error);
+      res.status(500).json({ error: "Erro ao fazer upload da foto" });
+    }
+  });
+
+  // PUT /api/pec/sessions/:sessionId/editar - Editar sessão PEC (sessions table)
+  app.put("/api/pec/sessions/:sessionId/editar", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.sessionId);
+      const { attendance, observacoes, teveAlimentacao } = req.body;
+      
+      const updateData: any = {};
+      if (attendance !== undefined) updateData.attendance = attendance;
+      if (observacoes !== undefined) updateData.description = observacoes;
+      if (teveAlimentacao !== undefined) updateData.teveAlimentacao = teveAlimentacao === true ? true : teveAlimentacao === false ? false : null;
+      
+      await db.update(sessions).set(updateData).where(eq(sessions.id, sessionId));
+      
+      res.json({ success: true, message: "Chamada PEC atualizada com sucesso" });
+    } catch (error: any) {
+      console.error("Error updating PEC session:", error);
+      res.status(500).json({ error: "Erro ao atualizar chamada PEC" });
+    }
+  });
+
+  // PUT /api/presencas-inclusao/editar - Editar presenças de inclusão
+  app.put("/api/presencas-inclusao/editar", async (req, res) => {
+    try {
+      const { turmaId, data, presencas, teveAlimentacao } = req.body;
+      
+      if (!turmaId || !data || !presencas) {
+        return res.status(400).json({ error: "turmaId, data e presencas são obrigatórios" });
+      }
+      
+      // Se teveAlimentacao não foi informado (null/undefined), preservar valor existente no banco
+      let teveAlim: boolean | null = teveAlimentacao === true ? true : teveAlimentacao === false ? false : null;
+      if (teveAlimentacao === null || teveAlimentacao === undefined) {
+        const existing = await db.select({ teveAlimentacao: presencasInclusao.teveAlimentacao })
+          .from(presencasInclusao)
+          .where(and(eq(presencasInclusao.turmaId, turmaId), eq(presencasInclusao.data, data)))
+          .limit(1);
+        if (existing.length > 0 && existing[0].teveAlimentacao !== null && existing[0].teveAlimentacao !== undefined) {
+          teveAlim = existing[0].teveAlimentacao;
+        }
+      }
+      
+      await db.delete(presencasInclusao).where(
+        and(
+          eq(presencasInclusao.turmaId, turmaId),
+          eq(presencasInclusao.data, data)
+        )
+      );
+      const insertedPresencas = [];
+      for (const p of presencas) {
+        const participanteId = p.id || p.participanteId;
+        if (participanteId) {
+          const [presenca] = await db.insert(presencasInclusao).values({
+            participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
+            turmaId,
+            data,
+            presente: p.presente || false,
+            observacoes: p.observacoes || null,
+            justificativa: p.justificativa || null,
+            justificativaMotivo: p.justificativaMotivo || null,
+            justificativaObs: p.justificativaObs || null,
+            contaComoPresenca: p.contaComoPresenca === true,
+            teveAlimentacao: teveAlim,
+          }).returning();
+          insertedPresencas.push(presenca);
+        }
+      }
+      
+      res.json({ success: true, count: insertedPresencas.length, message: "Presenças atualizadas com sucesso" });
+    } catch (error: any) {
+      console.error("Error updating inclusao presencas:", error);
+      res.status(500).json({ error: "Erro ao atualizar presenças" });
     }
   });
   app.get("/api/coordenador/dashboard/:userId", requireAuth, requireAnyCoordenador, async (req, res) => {
@@ -18082,9 +19169,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
             const programasAndamento = await db
               .select({
-                count: sql<number>`count(DISTINCT ${cursosInclusao.id})`,
+                count: sql<number>`count(*)`,
               })
-              .from(cursosInclusao);
+              .from(programasInclusao)
+              .where(inArray(programasInclusao.status, ['ativo', 'em_andamento']));
 
             const alunosFormados = await db
               .select({ count: sql<number>`count(*)` })
@@ -18178,76 +19266,267 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     }
   );
 
-  // GET /api/psico/participantes - Buscar participantes vinculados ao Psicossocial
-  // GET /api/psico/participantes - Buscar participantes vinculados ao Psicossocial
+  // GET /api/psico/participantes - Buscar todos os participantes de Inclusão e PEC para o Psicossocial
   app.get(
     "/api/psico/participantes",
     requireAuth,
-    requireCoordenadorPsico,
+    requireRole(['coordenador_psico', 'coordenador', 'monitor_psico', 'monitor', 'monitor_pec', 'monitor_inclusao']),
     async (req, res) => {
       try {
-        // Buscar vínculos de Inclusão Produtiva
-        const vinculosInclusao = await db
-          .select({
-            vinculo_id: psicoInclusaoVinculo.id,
-            participante_id: participantesInclusao.id,
-            nome: participantesInclusao.nome,
-            cpf: participantesInclusao.cpf,
-            telefone: participantesInclusao.telefone,
-            email: participantesInclusao.email,
-            idade: participantesInclusao.idade,
-            genero: participantesInclusao.genero,
-            status: participantesInclusao.status,
-            programa_origem: sql<string>`'inclusao'`,
-            papel: psicoInclusaoVinculo.papel,
-            familia_id: psicoInclusaoVinculo.psicoFamiliaId,
-            observacoes: psicoInclusaoVinculo.observacoes,
-          })
-          .from(psicoInclusaoVinculo)
-          .innerJoin(
-            participantesInclusao,
-            eq(
-              psicoInclusaoVinculo.participanteInclusaoId,
-              participantesInclusao.id
-            )
-          );
+        const filtro = req.query.filtro as string | undefined;
 
-      // Buscar vínculos de PEC
-      const vinculosPec = await db.select({
-        vinculo_id: psicoPecVinculo.id,
-        participante_id: enrollments.person_id,
-        nome: users.nome,
-        cpf: users.cpf,
-        telefone: users.telefone,
-        email: users.email,
-        idade: sql<number>`EXTRACT(YEAR FROM AGE(${enrollments.birthdate}))`,
-        genero: enrollments.gender,
-        status: sql<string>`CASE WHEN ${enrollments.active} = true THEN 'ativo' ELSE 'inativo' END`,
-        programa_origem: sql<string>`'pec'`,
-        papel: psicoPecVinculo.papel,
-        familia_id: psicoPecVinculo.psicoFamiliaId,
-        observacoes: psicoPecVinculo.observacoes
-      })
-        .from(psicoPecVinculo)
-        .innerJoin(enrollments, eq(psicoPecVinculo.enrollmentId, enrollments.id))
-        .innerJoin(users, eq(enrollments.person_id, users.id))
-        .where(eq(instanceEnrollments.active, true));
+        const participantesResult: any[] = [];
 
-        // Unificar resultados
-        const participantes = [...vinculosInclusao, ...vinculosPec];
+        if (!filtro || filtro === 'todos' || filtro === 'inclusao') {
+          const inclusaoRows = await db
+            .select({
+              participante_id: participantesInclusao.id,
+              nome: participantesInclusao.nome,
+              cpf: participantesInclusao.cpf,
+              telefone: participantesInclusao.telefone,
+              email: participantesInclusao.email,
+              idade: participantesInclusao.idade,
+              genero: participantesInclusao.genero,
+              status: participantesInclusao.status,
+            })
+            .from(participantesInclusao)
+            .where(eq(participantesInclusao.status, 'ativo'));
+
+          for (const row of inclusaoRows) {
+            participantesResult.push({
+              ...row,
+              vinculo_id: row.participante_id,
+              programa_origem: 'inclusao',
+              papel: 'membro',
+              familia_id: null,
+              observacoes: null,
+            });
+          }
+        }
+
+        if (!filtro || filtro === 'todos' || filtro === 'pec') {
+          const pecRows = await db
+            .select({
+              participante_id: aluno.cpf,
+              nome: aluno.nome_completo,
+              cpf: aluno.cpf,
+              telefone: aluno.telefone,
+              email: aluno.email,
+              genero: aluno.genero,
+              data_nascimento: aluno.data_nascimento,
+              situacao: aluno.situacao_atendimento,
+            })
+            .from(aluno)
+            .where(or(
+              isNull(aluno.situacao_atendimento),
+              eq(aluno.situacao_atendimento, 'ativo')
+            ));
+
+          for (const row of pecRows) {
+            let idade: number | null = null;
+            if (row.data_nascimento) {
+              const nasc = new Date(row.data_nascimento);
+              const hoje = new Date();
+              idade = hoje.getFullYear() - nasc.getFullYear();
+              if (hoje.getMonth() < nasc.getMonth() || (hoje.getMonth() === nasc.getMonth() && hoje.getDate() < nasc.getDate())) idade--;
+            }
+            participantesResult.push({
+              participante_id: row.cpf,
+              vinculo_id: row.cpf,
+              nome: row.nome,
+              cpf: row.cpf,
+              telefone: row.telefone,
+              email: row.email,
+              idade,
+              genero: row.genero,
+              status: 'ativo',
+              programa_origem: 'pec',
+              papel: 'membro',
+              familia_id: null,
+              observacoes: null,
+            });
+          }
+        }
+
+        for (const p of participantesResult) {
+          if (p.nome) p.nome = p.nome.replace(/^\s+|\s+$/g, '');
+        }
+        participantesResult.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+
+        const totalInclusao = participantesResult.filter(p => p.programa_origem === 'inclusao').length;
+        const totalPec = participantesResult.filter(p => p.programa_origem === 'pec').length;
 
         res.json({
           success: true,
-          participantes,
-          total: participantes.length,
-          totalInclusao: vinculosInclusao.length,
-          totalPec: vinculosPec.length,
+          participantes: participantesResult,
+          total: participantesResult.length,
+          totalInclusao,
+          totalPec,
         });
       } catch (error: any) {
         console.error("Error fetching psico participantes:", error);
-        res
-          .status(500)
-          .json({ error: "Failed to fetch participantes: " + error.message });
+        res.status(500).json({ error: "Erro ao buscar participantes: " + error.message });
+      }
+    }
+  );
+
+  // GET /api/psico/chamadas - Buscar chamadas de PEC e Inclusão para o Psicossocial (somente leitura)
+  app.get(
+    "/api/psico/chamadas",
+    requireAuth,
+    requireRole(['coordenador_psico', 'coordenador', 'monitor_psico', 'monitor', 'monitor_pec', 'monitor_inclusao']),
+    async (req, res) => {
+      try {
+        const programa = req.query.programa as string | undefined; // 'pec', 'inclusao', or undefined for both
+        const turmaId = req.query.turmaId as string | undefined;
+        const resultado: any[] = [];
+
+        if (!programa || programa === 'pec') {
+          const pecInstances = await storage.getAllActivityInstances();
+          const instanceMap = new Map(pecInstances.map(i => [i.id, i.name || i.title || `Turma ${i.id}`]));
+          const pecInstanceIds = pecInstances.map(i => i.id);
+
+          if (pecInstanceIds.length > 0) {
+            let sessionsQuery = db.select().from(sessions);
+
+            if (turmaId) {
+              sessionsQuery = sessionsQuery.where(
+                and(
+                  inArray(sessions.activity_instance_id, pecInstanceIds),
+                  eq(sessions.activity_instance_id, parseInt(turmaId))
+                )
+              ) as any;
+            } else {
+              sessionsQuery = sessionsQuery.where(inArray(sessions.activity_instance_id, pecInstanceIds)) as any;
+            }
+
+            const pecSessions = await (sessionsQuery as any).orderBy(desc(sessions.date), desc(sessions.id));
+
+            for (const s of pecSessions) {
+              const att = Array.isArray(s.attendance) ? s.attendance : [];
+              const presentes = att.filter((a: any) => a.presente === true || a.status === 'falta_justificada').length;
+              resultado.push({
+                id: `pec_${s.id}`,
+                programa: 'pec',
+                data: s.date,
+                turmaId: s.activity_instance_id,
+                turmaNome: instanceMap.get(s.activity_instance_id) || `Turma ${s.activity_instance_id}`,
+                fotoComprovante: s.fotoComprovante || att.find((a: any) => a.fotoComprovante)?.fotoComprovante || null,
+                presentes,
+                total: att.length,
+                presencas: att.map((a: any) => ({
+                  alunoCpf: a.cpf || a.alunoCpf || '',
+                  nome: (a.nome || a.nomeCompleto || 'Sem nome').replace(/^\s+|\s+$/g, ''),
+                  presente: a.presente === true || a.status === 'falta_justificada',
+                  justificativa: a.justificativa || '',
+                  status: a.status || (a.presente ? 'presente' : 'falta'),
+                })),
+                createdAt: s.createdAt,
+              });
+            }
+          }
+        }
+
+        if (!programa || programa === 'inclusao') {
+          const turmasInc = await db.select({ id: turmasInclusao.id, nome: turmasInclusao.nome }).from(turmasInclusao);
+          const turmaIncMap = new Map(turmasInc.map(t => [t.id, t.nome]));
+
+          let presQuery = db.select({
+            id: presencasInclusao.id,
+            participanteId: presencasInclusao.participanteId,
+            turmaIdInc: presencasInclusao.turmaId,
+            data: presencasInclusao.data,
+            presente: presencasInclusao.presente,
+            observacoes: presencasInclusao.observacoes,
+            justificativa: presencasInclusao.justificativa,
+            fotoComprovante: presencasInclusao.fotoComprovante,
+            createdAt: presencasInclusao.createdAt,
+            nome: participantesInclusao.nome,
+          }).from(presencasInclusao)
+            .leftJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id));
+
+          if (turmaId) {
+            presQuery = presQuery.where(eq(presencasInclusao.turmaId, parseInt(turmaId))) as any;
+          }
+
+          const presencas = await (presQuery as any).orderBy(desc(presencasInclusao.data), desc(presencasInclusao.id));
+
+          const grouped = new Map<string, any>();
+          for (const p of presencas) {
+            const key = `${p.turmaIdInc}_${p.data}`;
+            if (!grouped.has(key)) {
+              grouped.set(key, {
+                id: `inclusao_${p.turmaIdInc}_${p.data}`,
+                programa: 'inclusao',
+                data: p.data,
+                turmaId: p.turmaIdInc,
+                turmaNome: turmaIncMap.get(p.turmaIdInc!) || `Turma ${p.turmaIdInc}`,
+                fotoComprovante: null,
+                presentes: 0,
+                total: 0,
+                presencas: [] as any[],
+                createdAt: p.createdAt,
+              });
+            }
+            const group = grouped.get(key);
+            if (p.fotoComprovante && !group.fotoComprovante) group.fotoComprovante = p.fotoComprovante;
+            group.total++;
+            if (p.presente) group.presentes++;
+            group.presencas.push({
+              alunoCpf: String(p.participanteId),
+              nome: (p.nome || 'Sem nome').replace(/^\s+|\s+$/g, ''),
+              presente: p.presente,
+              justificativa: p.justificativa || '',
+              status: p.presente ? 'presente' : (p.justificativa ? 'falta_justificada' : 'falta'),
+            });
+          }
+          resultado.push(...Array.from(grouped.values()));
+        }
+
+        resultado.sort((a, b) => {
+          if (a.data > b.data) return -1;
+          if (a.data < b.data) return 1;
+          return 0;
+        });
+
+        res.json({ success: true, chamadas: resultado, total: resultado.length });
+      } catch (error: any) {
+        console.error("Error fetching psico chamadas:", error);
+        res.status(500).json({ error: "Erro ao buscar chamadas: " + error.message });
+      }
+    }
+  );
+
+  // POST /api/psico/sync-participantes - Sincronizar participantes existentes
+  app.post(
+    "/api/psico/sync-participantes",
+    requireAuth,
+    requireCoordenadorPsico,
+    async (_req, res) => {
+      try {
+        const inclusaoCount = await db.select({ count: sql<number>`count(*)` })
+          .from(participantesInclusao)
+          .where(eq(participantesInclusao.status, 'ativo'));
+
+        const pecCount = await db.select({ count: sql<number>`count(*)` })
+          .from(aluno)
+          .where(or(isNull(aluno.situacao_atendimento), eq(aluno.situacao_atendimento, 'ativo')));
+
+        const inc = Number(inclusaoCount[0]?.count ?? 0);
+        const pec = Number(pecCount[0]?.count ?? 0);
+
+        res.json({
+          success: true,
+          vinculosCriados: {
+            total: inc + pec,
+            inclusao: inc,
+            pec: pec,
+          },
+          message: `${inc + pec} participantes encontrados (${inc} Inclusão + ${pec} PEC)`,
+        });
+      } catch (error: any) {
+        console.error("Error syncing psico participantes:", error);
+        res.status(500).json({ error: "Erro ao sincronizar participantes: " + error.message });
       }
     }
   );
@@ -18258,58 +19537,47 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireAuth,
     async (req, res) => {
       try {
-        // Buscar último registro dos indicadores de Atenção Social
-        const resultado = await db
-          .select()
-          .from(indicadoresPsicoAtencaoSocial)
-          .orderBy(desc(indicadoresPsicoAtencaoSocial.createdAt))
-          .limit(1);
+        const anoFiltro = req.query.ano ? parseInt(req.query.ano as string) : new Date().getFullYear();
+        const startDate = `${anoFiltro}-01-01`;
+        const endDate = `${anoFiltro + 1}-01-01`;
 
-        if (!resultado || resultado.length === 0) {
-          return res.json({
-            success: true,
-            data: {
-              visitasDomiciliares: { realizadas: 0, meta: 0, percentual: 0 },
-              atendimentosIndividuais: {
-                realizados: 0,
-                meta: 0,
-                percentual: 0,
-              },
-            },
-          });
+        const registros = await db
+          .select({ tipo: registrosConfidenciais.tipo })
+          .from(registrosConfidenciais)
+          .where(and(
+            gte(registrosConfidenciais.data, startDate),
+            lt(registrosConfidenciais.data, endDate)
+          ));
+
+        let visitasRealizadas = 0;
+        let atendimentosRealizados = 0;
+        for (const r of registros) {
+          if (r.tipo === "visita_domiciliar") visitasRealizadas++;
+          if (r.tipo === "atendimento_individual") atendimentosRealizados++;
         }
 
-        const dados = resultado[0];
-        const visitasPercentual =
-          dados.visitasDomiciliaresMeta > 0
-            ? Math.round(
-                (dados.visitasDomiciliaresRealizadas /
-                  dados.visitasDomiciliaresMeta) *
-                  100
-              )
-            : 0;
-        const atendimentosPercentual =
-          dados.atendimentosIndividuaisMeta > 0
-            ? Math.round(
-                (dados.atendimentosIndividuaisRealizados /
-                  dados.atendimentosIndividuaisMeta) *
-                  100
-              )
-            : 0;
+        let metaVisitas = 0;
+        let metaAtendimentos = 0;
+        try {
+          const metaResult = await db
+            .select()
+            .from(indicadoresPsicoAtencaoSocial)
+            .orderBy(desc(indicadoresPsicoAtencaoSocial.createdAt))
+            .limit(1);
+          if (metaResult.length > 0) {
+            metaVisitas = metaResult[0].visitasDomiciliaresMeta;
+            metaAtendimentos = metaResult[0].atendimentosIndividuaisMeta;
+          }
+        } catch (e) {}
+
+        const visitasPercentual = metaVisitas > 0 ? Math.round((visitasRealizadas / metaVisitas) * 100) : 0;
+        const atendimentosPercentual = metaAtendimentos > 0 ? Math.round((atendimentosRealizados / metaAtendimentos) * 100) : 0;
 
         return res.json({
           success: true,
           data: {
-            visitasDomiciliares: {
-              realizadas: dados.visitasDomiciliaresRealizadas,
-              meta: dados.visitasDomiciliaresMeta,
-              percentual: visitasPercentual,
-            },
-            atendimentosIndividuais: {
-              realizados: dados.atendimentosIndividuaisRealizados,
-              meta: dados.atendimentosIndividuaisMeta,
-              percentual: atendimentosPercentual,
-            },
+            visitasDomiciliares: { realizadas: visitasRealizadas, meta: metaVisitas, percentual: visitasPercentual },
+            atendimentosIndividuais: { realizados: atendimentosRealizados, meta: metaAtendimentos, percentual: atendimentosPercentual },
           },
         });
       } catch (error: any) {
@@ -18326,50 +19594,74 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   // 💜 PSICOSSOCIAL - Indicadores do Método O Grito
   app.get(
     "/api/psico/indicadores/metodo-grito",
-    requireAuth,
     async (req, res) => {
       try {
-        // Buscar último registro dos indicadores do Método O Grito
-        const resultado = await db
-          .select()
-          .from(indicadoresPsicoMetodoGrito)
-          .orderBy(desc(indicadoresPsicoMetodoGrito.createdAt))
-          .limit(1);
+        const anoFiltro = req.query.ano ? parseInt(req.query.ano as string) : new Date().getFullYear();
+        const startDate = `${anoFiltro}-01-01`;
+        const endDate = `${anoFiltro + 1}-01-01`;
+        const startDateObj = new Date(anoFiltro, 0, 1);
+        const endDateObj = new Date(anoFiltro + 1, 0, 1);
 
-        if (!resultado || resultado.length === 0) {
-          return res.json({
-            success: true,
-            data: {
-              atendimentosColetivos: { realizados: 0, percentualTurmas: 0 },
-              espacosColetivos: { total: 0, meta: 0, percentual: 0 },
-              caravanasComunitarias: 0,
-              acoesSaudeColaboradores: 0,
-            },
-          });
+        // Atividades coletivas registradas pelo monitor ou coordenador psicossocial
+        const atividadesPsico = await db
+          .select({ id: atividadesMonitor.id })
+          .from(atividadesMonitor)
+          .where(and(
+            eq(atividadesMonitor.contexto, "psicossocial"),
+            gte(atividadesMonitor.data, startDateObj),
+            lt(atividadesMonitor.data, endDateObj)
+          ));
+        const atendimentosColetivos = atividadesPsico.length;
+
+        // Registros filtrados por tipo (espaço e caravana) — registros_confidenciais + psico_registros
+        const registros = await db
+          .select({ tipo: registrosConfidenciais.tipo })
+          .from(registrosConfidenciais)
+          .where(and(
+            gte(registrosConfidenciais.data, startDate),
+            lt(registrosConfidenciais.data, endDate)
+          ));
+
+        const registrosGerais = await pool.query(
+          `SELECT tipo FROM psico_registros WHERE data::date >= $1 AND data::date < $2`,
+          [startDate, endDate]
+        );
+
+        let espacoOGrito = 0;
+        let caravanasComunitarias = 0;
+        let acoesSaude = 0;
+        for (const r of registros) {
+          if (r.tipo === "espaco_o_grito") espacoOGrito++;
+          if (r.tipo === "caravana_comunitaria") caravanasComunitarias++;
+          if (r.tipo === "acoes_saude") acoesSaude++;
+        }
+        for (const r of registrosGerais.rows) {
+          if (r.tipo === "espaco_o_grito") espacoOGrito++;
+          if (r.tipo === "caravana_comunitaria") caravanasComunitarias++;
+          if (r.tipo === "acoes_saude") acoesSaude++;
         }
 
-        const dados = resultado[0];
-        const espacosPercentual =
-          dados.espacosColetivosMeta > 0
-            ? Math.round(
-                (dados.espacosColetivos / dados.espacosColetivosMeta) * 100
-              )
-            : 0;
+        let metaEspacos = 0;
+        try {
+          const metaResult = await db
+            .select()
+            .from(indicadoresPsicoMetodoGrito)
+            .orderBy(desc(indicadoresPsicoMetodoGrito.createdAt))
+            .limit(1);
+          if (metaResult.length > 0) {
+            metaEspacos = metaResult[0].espacosColetivosMeta;
+          }
+        } catch (e) {}
+
+        const espacosPercentual = metaEspacos > 0 ? Math.round((espacoOGrito / metaEspacos) * 100) : 0;
 
         return res.json({
           success: true,
           data: {
-            atendimentosColetivos: {
-              realizados: dados.atendimentosColetivoRealizados,
-              percentualTurmas: dados.turmasAlcancadasPercentual,
-            },
-            espacosColetivos: {
-              total: dados.espacosColetivos,
-              meta: dados.espacosColetivosMeta,
-              percentual: espacosPercentual,
-            },
-            caravanasComunitarias: dados.caravanasComunitarias,
-            acoesSaudeColaboradores: dados.acoesSaudeColaboradores,
+            atendimentosColetivos: { realizados: atendimentosColetivos, percentualTurmas: 0 },
+            espacosColetivos: { total: espacoOGrito, meta: metaEspacos, percentual: espacosPercentual },
+            caravanasComunitarias: caravanasComunitarias,
+            acoesSaudeColaboradores: acoesSaude,
           },
         });
       } catch (error: any) {
@@ -18408,9 +19700,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         });
       } catch (error: any) {
         console.error("❌ [PSICO-FAMILIAS] Erro ao criar família:", error);
-        return res.status(400).json({
+        if (error?.issues) {
+          const messages = error.issues.map((i: any) => i.message).join('; ');
+          return res.status(400).json({
+            success: false,
+            error: "Alguns dados estão incorretos. Verifique os campos e tente novamente.",
+            message: messages,
+          });
+        }
+        const pgErr = formatPostgresError(error, 'família');
+        return res.status(pgErr.status).json({
           success: false,
-          error: "Erro ao criar família",
+          error: pgErr.message,
           message: error.message,
         });
       }
@@ -18576,9 +19877,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         });
       } catch (error: any) {
         console.error("❌ [PSICO-CASOS] Erro ao criar caso:", error);
-        return res.status(400).json({
+        if (error?.issues) {
+          const messages = error.issues.map((i: any) => i.message).join('; ');
+          return res.status(400).json({
+            success: false,
+            error: "Alguns dados estão incorretos. Verifique os campos e tente novamente.",
+            message: messages,
+          });
+        }
+        const pgErr = formatPostgresError(error, 'caso');
+        return res.status(pgErr.status).json({
           success: false,
-          error: "Erro ao criar caso",
+          error: pgErr.message,
           message: error.message,
         });
       }
@@ -19295,6 +20605,1341 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   // ==== DEVELOPER PANEL APIS ====
 
+  // MODULO DE IMPORTAÇÃO 
+  // IMPORTAÇÃO MODO DEV.
+  // -------------------------
+// Helpers: CPF + normalização
+// -------------------------
+
+function normalizeText(v: unknown): string {
+  return String(v ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function validateCPF(cpfDigits: string): boolean {
+  if (!cpfDigits || cpfDigits.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cpfDigits)) return false;
+
+  const calc = (base: string, factor: number) => {
+    let sum = 0;
+    for (let i = 0; i < base.length; i++) sum += Number(base[i]) * (factor - i);
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+
+  const d1 = calc(cpfDigits.slice(0, 9), 10);
+  const d2 = calc(cpfDigits.slice(0, 10), 11);
+  return d1 === Number(cpfDigits[9]) && d2 === Number(cpfDigits[10]);
+}
+
+// Datas: tenta Excel serial, ISO, BR
+function tryParseDate(v: any): Date | null {
+  if (v == null || v === "") return null;
+
+  // Excel serial
+  if (typeof v === "number") {
+    const date = XLSX.SSF.parse_date_code(v);
+    if (date && date.y && date.m && date.d) {
+      return new Date(Date.UTC(date.y, date.m - 1, date.d));
+    }
+  }
+
+  // ISO
+  if (typeof v === "string") {
+    const s = v.trim();
+    // dd/mm/yyyy
+    const mBR = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mBR) {
+      const dd = Number(mBR[1]);
+      const mm = Number(mBR[2]);
+      const yyyy = Number(mBR[3]);
+      const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // yyyy-mm-dd
+    const mISO = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (mISO) {
+      const yyyy = Number(mISO[1]);
+      const mm = Number(mISO[2]);
+      const dd = Number(mISO[3]);
+      const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // fallback Date.parse
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return new Date(t);
+  }
+
+  return null;
+}
+
+function getYearFromProjectName(projectName: string): number | null {
+  const m = projectName.match(/(19|20)\d{2}/);
+  return m ? Number(m[0]) : null;
+}
+
+// -------------------------
+// Classificação PEC vs INCLUSAO
+// Ajuste estes arrays ao seu padrão real.
+// -------------------------
+const PEC_HINTS = ["PEC", "CASA SONHAR", "SCFV", "CONTRATURNO"]; // exemplo
+const INCLUSAO_HINTS = ["QP", "INCLUSAO", "INCLUSÃO", "CURSOS EAD", "EAD"]; // exemplo
+
+function classifyProgram(projectNameRaw: string): "pec" | "inclusao" | null {
+  const p = normalizeText(projectNameRaw).toUpperCase();
+  const isPec = PEC_HINTS.some((h) => p.includes(normalizeText(h).toUpperCase()));
+  const isInc = INCLUSAO_HINTS.some((h) => p.includes(normalizeText(h).toUpperCase()));
+
+  if (isPec && isInc) return null; // ambíguo
+  if (isPec) return "pec";
+  if (isInc) return "inclusao";
+  return null;
+}
+
+// -------------------------
+// Tipos do plano de importação (preview)
+// -------------------------
+type RowErrorCode =
+  | "CPF_MISSING"
+  | "CPF_INVALID"
+  | "PROJECT_MISSING"
+  | "PROJECT_UNCLASSIFIED"
+  | "PROJECT_AMBIGUOUS"
+  | "ACTIVITY_MISSING"
+  | "DATE_INVALID"
+  | "YEAR_MISSING"
+  | "PERSON_NOT_FOUND"
+  | "TURMA_AMBIGUOUS";
+
+type PreviewRowApproved = {
+  rowIndex: number;
+  programType: "pec" | "inclusao";
+  cpf: string;
+  nome?: string;
+  matriculaFromSheet?: string | null;
+
+  projectName: string;
+  courseName: string;
+  turmaTitle: string;
+  turmaKey: string;
+
+  inferredYear: number;
+  inferredOfferKey?: string | null; // ex: mês, turno, código
+
+  actions: {
+    willCreateProject: boolean;
+    willCreateTurma: boolean;
+    willCreateLink: boolean;
+    willFillMatricula: boolean;
+    linkAlreadyExists: boolean;
+  };
+};
+
+type PreviewRowRejected = {
+  rowIndex: number;
+  programType: "pec" | "inclusao" | null;
+  cpfRaw?: any;
+  cpf?: string | null;
+  projectName?: string | null;
+  courseName?: string | null;
+  dateRaw?: any;
+  errorCode: RowErrorCode;
+  errorMessage: string;
+  hint?: string;
+};
+
+type SimulationResult = {
+  stats: {
+    totalRows: number;
+    approvedRows: number;
+    rejectedRows: number;
+
+    personsFound: number;
+    personsNotFound: number;
+
+    projectsToCreate: number;
+    turmasToCreate: number;
+    linksToCreate: number;
+    linksAlreadyExist: number;
+
+    matriculasToFill: number;
+  };
+  approvedRows: PreviewRowApproved[];
+  rejectedRows: PreviewRowRejected[];
+  entitiesPreview: {
+    projects: Array<{ programType: "pec" | "inclusao"; name: string; willCreate: boolean }>;
+    turmas: Array<{ programType: "pec" | "inclusao"; key: string; title: string; willCreate: boolean }>;
+  };
+};
+
+// -------------------------
+// Leitura do Excel (abas)
+// -------------------------
+function readSheetAsJson(
+  workbook: XLSX.WorkBook,
+  sheetName: string,
+  headerRow0?: number
+) {
+  const ws = workbook.Sheets[sheetName];
+  if (!ws) return [];
+
+  const range = typeof headerRow0 === "number" ? headerRow0 : 0;
+
+  return XLSX.utils.sheet_to_json<Record<string, any>>(ws, {
+    defval: "",
+    range,
+  });
+}
+
+function pickSheetName(workbook: XLSX.WorkBook, candidates: string[]) {
+  const names = workbook.SheetNames.map((s) => normalizeText(s).toUpperCase());
+  for (const c of candidates) {
+    const idx = names.indexOf(normalizeText(c).toUpperCase());
+    if (idx >= 0) return workbook.SheetNames[idx];
+  }
+  return null;
+}
+
+function getByHeaderLike(row: Record<string, any>, includes: string[]) {
+  const keys = Object.keys(row ?? {});
+  const wanted = includes.map((s) => normalizeText(s).toUpperCase());
+
+  for (const k of keys) {
+    const kk = normalizeText(k).toUpperCase();
+    if (wanted.some((w) => kk.includes(w))) {
+      return row[k];
+    }
+  }
+  return undefined;
+}
+
+function toCellString(v: any): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number") return String(Math.trunc(v)); // remove .0
+  return String(v).trim();
+}
+
+// Extrai dígitos e garante 11 chars (CPF)
+function extractCPF11(v: any): string {
+  const s0 = toCellString(v);
+
+  // trata notação científica "1.234E+10"
+  let s = s0;
+  if (/e\+?/i.test(s0)) {
+    const n = Number(s0);
+    if (Number.isFinite(n)) s = String(Math.trunc(n));
+  }
+
+  const digits = s.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // Se veio sem zeros à esquerda, pad até 11
+  if (digits.length < 11) return digits.padStart(11, "0");
+
+  // Se veio com lixo junto e passou de 11, pega os últimos 11 (mais seguro que primeiros)
+  if (digits.length > 11) return digits.slice(-11);
+
+  return digits;
+}
+
+function getCPFAny(row: Record<string, any>): any {
+  if (!row) return undefined;
+  const keys = Object.keys(row);
+  for (const k of keys) {
+    const upper = k.toUpperCase().trim();
+    if (upper === "CPF" || upper === "NR_CPF" || upper === "NUM_CPF" || upper === "NUMERO_CPF" || upper === "CPF_ALUNO" || upper === "CPF_PARTICIPANTE") {
+      if (row[k] != null && String(row[k]).trim() !== "") return row[k];
+    }
+  }
+  for (const k of keys) {
+    if (k.toUpperCase().includes("CPF")) {
+      if (row[k] != null && String(row[k]).trim() !== "") return row[k];
+    }
+  }
+  return undefined;
+}
+
+function getColumnAny(row: Record<string, any>, ...patterns: string[]): any {
+  if (!row) return undefined;
+  const keys = Object.keys(row);
+  const pats = patterns.map(p => p.toUpperCase().replace(/[\s_-]+/g, ""));
+  for (const k of keys) {
+    const kNorm = k.toUpperCase().replace(/[\s_-]+/g, "");
+    if (pats.some(p => kNorm === p)) {
+      if (row[k] != null && String(row[k]).trim() !== "") return row[k];
+    }
+  }
+  for (const k of keys) {
+    const kNorm = k.toUpperCase().replace(/[\s_-]+/g, "");
+    if (pats.some(p => kNorm.includes(p) || p.includes(kNorm))) {
+      if (row[k] != null && String(row[k]).trim() !== "") return row[k];
+    }
+  }
+  return undefined;
+}
+
+function getIdAtendido(row: Record<string, any>): string {
+  const val = getColumnAny(row, "ID_ATENDIDO", "IDATENDIDO", "ID ATENDIDO", "ID_ATENDI", "IDATENDI");
+  return val != null ? String(val).trim() : "";
+}
+
+function getMatricula(row: Record<string, any>): string {
+  const val = getColumnAny(row, "MATRICULA", "MATRÍCULA", "NUMERO_MATRICULA", "NR_MATRICULA");
+  return val != null ? normalizeText(String(val)) : "";
+}
+
+function getNome(row: Record<string, any>): string {
+  const val = getColumnAny(row, "NOME", "NOME_CIVIL", "NOMECIVIL", "NOME CIVIL", "NOME_COMPLETO");
+  return val != null ? normalizeText(String(val)) : "";
+}
+
+function findSheetByName(wb: XLSX.WorkBook, candidates: string[]): string | null {
+  const cands = candidates.map(c => normalizeText(c).toUpperCase().replace(/[\s_-]+/g, ""));
+  for (const name of wb.SheetNames) {
+    const norm = normalizeText(name).toUpperCase().replace(/[\s_-]+/g, "");
+    if (cands.some(c => norm === c || norm.includes(c) || c.includes(norm))) return name;
+  }
+  return null;
+}
+
+function findHeaderRowInSheet(wb: XLSX.WorkBook, sheetName: string, mustHave: string[], maxRows = 6): number {
+  for (let r = 0; r < maxRows; r++) {
+    const tokens = rowTokens(wb, sheetName, r);
+    if (!tokens.length) continue;
+    if (tokensContainAll(tokens, mustHave)) return r;
+  }
+  return 0;
+}
+
+function pickParticipantesSheet(wb: XLSX.WorkBook): { sheetName: string; headerRow0: number } {
+  const byName = findSheetByName(wb, ["Atendido", "Atendidos", "Participantes", "Participante", "Alunos", "Aluno", "Cadastro"]);
+  if (byName) {
+    const headerRow = findHeaderRowInSheet(wb, byName, ["cpf"], 6);
+    if (headerRow > 0 || rowTokens(wb, byName, 0).some(t => t.includes("cpf"))) {
+      return { sheetName: byName, headerRow0: headerRow };
+    }
+  }
+  return findSheetAndHeaderRow(wb, ["cpf", "nome"]) ??
+    findSheetAndHeaderRow(wb, ["cpf", "id_atendido"]) ??
+    findSheetAndHeaderRow(wb, ["cpf", "matricula"]) ??
+    findSheetAndHeaderRow(wb, ["cpf"]) ??
+    {
+      sheetName: wb.SheetNames.find(n => !normalizeText(n).toLowerCase().includes("instr")) ?? wb.SheetNames[0],
+      headerRow0: 0
+    };
+}
+
+function pickAtividadesSheet(wb: XLSX.WorkBook): { sheetName: string; headerRow0: number } | null {
+  const byName = findSheetByName(wb, ["Atividade", "Atividades", "Matrículas", "Matriculas", "Inscricoes", "Inscrições"]);
+  if (byName) {
+    const headerRow = findHeaderRowInSheet(wb, byName, ["atividade"], 6);
+    if (headerRow > 0 || rowTokens(wb, byName, 0).some(t => t.includes("atividade") || t.includes("projeto"))) {
+      return { sheetName: byName, headerRow0: headerRow };
+    }
+    const headerRow2 = findHeaderRowInSheet(wb, byName, ["projeto"], 6);
+    if (headerRow2 > 0) return { sheetName: byName, headerRow0: headerRow2 };
+  }
+  return findSheetAndHeaderRow(wb, ["projeto", "atividade"]) ??
+    findSheetAndHeaderRow(wb, ["atividade"]);
+}
+
+function normalizeToken(v: any) {
+  return normalizeText(v).toLowerCase();
+}
+
+function rowTokens(wb: XLSX.WorkBook, sheetName: string, rowIndex0: number): string[] {
+  const ws = wb.Sheets[sheetName];
+  if (!ws) return [];
+  const head = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" }) as any[][];
+  const row = head?.[rowIndex0] ?? [];
+  return row.map(normalizeToken).filter(Boolean);
+}
+
+// aceita "contém", não só igualdade
+function tokensContainAll(tokens: string[], mustHave: string[]) {
+  const must = mustHave.map((x) => normalizeText(x).toLowerCase());
+  return must.every((m) => tokens.some((t) => t.includes(m)));
+}
+
+function findSheetAndHeaderRow(
+  wb: XLSX.WorkBook,
+  mustHave: string[],
+  opts?: { maxRows?: number }
+): { sheetName: string; headerRow0: number } | null {
+  const maxRows = opts?.maxRows ?? 6;
+
+  for (const name of wb.SheetNames) {
+    if (normalizeText(name).toLowerCase().includes("instr")) continue;
+
+    for (let r = 0; r < maxRows; r++) {
+      const tokens = rowTokens(wb, name, r);
+      if (!tokens.length) continue;
+
+      if (tokensContainAll(tokens, mustHave)) {
+        return { sheetName: name, headerRow0: r };
+      }
+    }
+  }
+  return null;
+}
+  /**
+   * POST /api/import/simulate
+   * multipart/form-data: file=<xlsx>
+   */
+ app.post("/api/import/simulate", requireAuth, requireRole(["dev", "admin"]), uploadDocuments.single("file"), async (req, res) => {
+    try {
+        if (!req.file?.path) {
+        return res.status(400).json({ error: "Arquivo não enviado. Envie em form-data com campo 'file'." });
+      }
+
+      const defaultYear = req.body?.defaultYear ? parseInt(req.body.defaultYear) : null;
+
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const wb = XLSX.read(fileBuffer, { type: "buffer" });
+      fs.unlink(req.file.path, () => {});
+
+    const participantesPick = pickParticipantesSheet(wb);
+    const atividadesPick = pickAtividadesSheet(wb);
+
+if (!atividadesPick) {
+  return res.status(400).json({
+    error: "Planilha sem aba de Atividades",
+    details: "Não encontrei colunas parecidas com 'projeto' e 'atividade' nas primeiras linhas."
+  });
+}
+
+const participantesRows = readSheetAsJson(
+  wb,
+  participantesPick.sheetName,
+  participantesPick.headerRow0
+);
+
+const atividadesRows = readSheetAsJson(
+  wb,
+  atividadesPick.sheetName,
+  atividadesPick.headerRow0
+);
+      // ---------
+      // Map de participantes por CPF (para matrícula/nome etc.)
+      // ---------
+   const participanteByCpf = new Map<string, Record<string, any>>();
+    const cpfByAtendidoId = new Map<string, string>();
+    const cpfByMatricula = new Map<string, string>();
+    const cpfByNome = new Map<string, string>();
+
+    let participantesComCpf = 0;
+    let participantesSemCpf = 0;
+
+    for (const p of participantesRows) {
+      const cpf = extractCPF11(getCPFAny(p) ?? getColumnAny(p, "DOCUMENTO", "DOC"));
+
+        if (!cpf) { participantesSemCpf++; continue; }
+        participantesComCpf++;
+        participanteByCpf.set(cpf, p);
+
+        const idAtendido = getIdAtendido(p);
+        if (idAtendido) cpfByAtendidoId.set(idAtendido, cpf);
+
+        const matricula = getMatricula(p);
+        if (matricula) cpfByMatricula.set(matricula, cpf);
+
+        const nome = getNome(p);
+        if (nome) {
+          const nomeKey = nome.toUpperCase().replace(/\s+/g, " ").trim();
+          if (!cpfByNome.has(nomeKey)) cpfByNome.set(nomeKey, cpf);
+        }
+    }
+
+    const debugHeaders = {
+      participantesSheet: participantesPick.sheetName,
+      participantesHeaderRow: participantesPick.headerRow0,
+      atividadesSheet: atividadesPick.sheetName,
+      atividadesHeaderRow: atividadesPick.headerRow0,
+      participantesTotal: participantesRows.length,
+      participantesComCpf,
+      participantesSemCpf,
+      cpfByAtendidoIdSize: cpfByAtendidoId.size,
+      cpfByMatriculaSize: cpfByMatricula.size,
+      cpfByNomeSize: cpfByNome.size,
+      participantesSampleKeys: participantesRows.length > 0 ? Object.keys(participantesRows[0]).slice(0, 15) : [],
+      atividadesSampleKeys: atividadesRows.length > 0 ? Object.keys(atividadesRows[0]).slice(0, 15) : [],
+    };
+
+      const normalized = atividadesRows.map((r, idx) => {
+     const cpfRaw = getCPFAny(r);
+
+    const atividadeIdAtendido = getIdAtendido(r);
+    const atividadeMatricula = getMatricula(r);
+    const nomeAtividade = getNome(r) || normalizeText(getColumnAny(r, "NOME_SOCIAL", "NOMESOCIAL") ?? "");
+
+    const nomeKey = nomeAtividade ? nomeAtividade.toUpperCase().replace(/\s+/g, " ").trim() : "";
+
+    const cpf =
+      extractCPF11(cpfRaw) ||
+      (atividadeIdAtendido ? (cpfByAtendidoId.get(atividadeIdAtendido) ?? "") : "") ||
+      (atividadeMatricula ? (cpfByMatricula.get(atividadeMatricula) ?? "") : "") ||
+      (nomeKey ? (cpfByNome.get(nomeKey) ?? "") : "") ||
+      "";
+
+    const cpfSource = extractCPF11(cpfRaw) ? "direto" :
+      (atividadeIdAtendido && cpfByAtendidoId.has(atividadeIdAtendido)) ? "id_atendido" :
+      (atividadeMatricula && cpfByMatricula.has(atividadeMatricula)) ? "matricula" :
+      (nomeKey && cpfByNome.has(nomeKey)) ? "nome" : "nenhum";
+
+        const projectName = normalizeText(getColumnAny(r, "PROJETO", "PROJECT") ?? "");
+        const courseName = normalizeText(getColumnAny(r, "ATIVIDADE", "CURSO", "COURSE") ?? "");
+
+        const dateRaw = getColumnAny(r, "DATA", "DATE") ?? "";
+        const date = tryParseDate(dateRaw);
+
+        const offerKey = normalizeText(getColumnAny(r, "TURMA", "CODIGO", "CÓDIGO") ?? "") || null;
+
+        const sheetParticipant = participanteByCpf.get(cpf);
+        const matriculaFromSheet = sheetParticipant ? getMatricula(sheetParticipant) : null;
+        const nomeFromSheet = (sheetParticipant ? getNome(sheetParticipant) : "") || nomeAtividade || undefined;
+
+        return { idx: idx + 2, cpfRaw, cpf, cpfSource, projectName, courseName, dateRaw, date, offerKey, matriculaFromSheet, nomeFromSheet, atividadeIdAtendido, atividadeMatricula, nomeAtividade };
+      });
+
+      // ---------
+      // Regras de validação (sem gravar)
+      // ---------
+      const rejectedRows: PreviewRowRejected[] = [];
+      const candidatesApproved: Array<{
+        rowIndex: number;
+        programType: "pec" | "inclusao";
+        cpf: string;
+        projectName: string;
+        courseName: string;
+        year: number;
+        offerKey: string | null;
+        turmaKey: string;
+        turmaTitle: string;
+        nome?: string;
+        matriculaFromSheet?: string | null;
+      }> = [];
+
+      // Primeiro passa validações “baratas”
+      for (const r of normalized) {
+        if (!r.cpf) {
+          const nomeDisplay = r.nomeFromSheet || r.nomeAtividade || "(sem nome)";
+          let errorMsg = "";
+          if (r.atividadeIdAtendido && !cpfByAtendidoId.has(r.atividadeIdAtendido)) {
+            errorMsg = `"${nomeDisplay}" (ID_Atendido: ${r.atividadeIdAtendido}) — Este ID não existe na aba "${participantesPick.sheetName}" ou o participante não tem CPF preenchido.`;
+          } else if (r.atividadeIdAtendido && cpfByAtendidoId.has(r.atividadeIdAtendido)) {
+            errorMsg = `"${nomeDisplay}" — ID_Atendido encontrado mas CPF está vazio na aba "${participantesPick.sheetName}". Preencha o CPF.`;
+          } else if (!r.atividadeIdAtendido && r.nomeAtividade) {
+            errorMsg = `"${nomeDisplay}" — Sem ID_Atendido e sem CPF direto. Nome não encontrado na aba "${participantesPick.sheetName}" para cruzamento.`;
+          } else {
+            errorMsg = `Linha sem CPF, sem ID_Atendido e sem nome para identificação.`;
+          }
+          rejectedRows.push({ rowIndex: r.idx, programType: null, cpfRaw: r.cpfRaw, errorCode: "CPF_MISSING", errorMessage: errorMsg, hint: `Método: ${r.cpfSource}` });
+          continue;
+        }
+        if (!validateCPF(r.cpf)) {
+          const nomeDisplay = r.nomeFromSheet || r.nomeAtividade || "(sem nome)";
+          const cpfFormatted = r.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+          rejectedRows.push({ rowIndex: r.idx, programType: null, cpfRaw: r.cpfRaw, cpf: r.cpf, errorCode: "CPF_INVALID", errorMessage: `CPF inválido para "${nomeDisplay}": ${cpfFormatted} (dígitos verificadores não conferem).` });
+          continue;
+        }
+        if (!r.projectName) {
+          rejectedRows.push({ rowIndex: r.idx, programType: null, cpf: r.cpf, errorCode: "PROJECT_MISSING", errorMessage: "Coluna 'Projeto' vazia nesta linha. Preencha o nome do projeto na planilha." });
+          continue;
+        }
+
+        const programType = classifyProgram(r.projectName);
+        if (!programType) {
+          rejectedRows.push({
+            rowIndex: r.idx,
+            programType: null,
+            cpf: r.cpf,
+            projectName: r.projectName,
+            courseName: r.courseName || null,
+            errorCode: "PROJECT_UNCLASSIFIED",
+            errorMessage: `Projeto "${r.projectName}" não classificado como PEC ou Inclusão. Ajuste o nome para conter palavras-chave: PEC, Casa Sonhar, SCFV, Contraturno (para PEC) ou QP, Inclusão, Cursos EAD (para Inclusão).`,
+            hint: "Ex: incluir 'PEC' ou 'QP/INCLUSÃO' no nome do Projeto.",
+          });
+          continue;
+        }
+
+        if (!r.courseName) {
+          rejectedRows.push({ rowIndex: r.idx, programType, cpf: r.cpf, projectName: r.projectName, errorCode: "ACTIVITY_MISSING", errorMessage: `Coluna 'Atividade' vazia para o projeto "${r.projectName}". Preencha o nome da turma/atividade.` });
+          continue;
+        }
+
+        // Ano: preferir data, senão inferir do projeto
+        let year: number | null = null;
+        if (r.date) year = r.date.getUTCFullYear();
+        if (!year) year = getYearFromProjectName(r.projectName);
+        if (!year && defaultYear) year = defaultYear;
+
+        if (!year) {
+          rejectedRows.push({
+            rowIndex: r.idx,
+            programType,
+            cpf: r.cpf,
+            projectName: r.projectName,
+            courseName: r.courseName,
+            dateRaw: r.dateRaw,
+            errorCode: "YEAR_MISSING",
+            errorMessage: "Não foi possível identificar o ano (data inválida e projeto sem ano). Defina o ano padrão no formulário.",
+            hint: "Corrija a data, inclua o ano no nome do Projeto (ex: 2026), ou selecione o ano padrão.",
+          });
+          continue;
+        }
+
+        // Oferta/turma: se não existe offerKey, usamos fallback: mês se tiver data
+        let offerKey = r.offerKey;
+        if (!offerKey && r.date) {
+          const mm = String(r.date.getUTCMonth() + 1).padStart(2, "0");
+          offerKey = `MES-${mm}`;
+        }
+
+        // Se não tem offerKey e não tem data, fica ambíguo (várias turmas no mesmo ano)
+        if (!offerKey) {
+          rejectedRows.push({
+            rowIndex: r.idx,
+            programType,
+            cpf: r.cpf,
+            projectName: r.projectName,
+            courseName: r.courseName,
+            errorCode: "TURMA_AMBIGUOUS",
+            errorMessage: "Não foi possível distinguir a turma/oferta (sem identificador de turma e sem data para agrupar por mês).",
+            hint: "Inclua uma coluna Turma/Código, ou preencha a Data para agrupamento por mês.",
+          });
+          continue;
+        }
+
+        const turmaKey = `${programType}::${normalizeText(r.projectName).toUpperCase()}::${normalizeText(r.courseName).toUpperCase()}::${year}::${normalizeText(offerKey).toUpperCase()}`;
+        const turmaTitle = `${r.courseName} ${year} | ${offerKey}`;
+
+        candidatesApproved.push({
+          rowIndex: r.idx,
+          programType,
+          cpf: r.cpf,
+          projectName: r.projectName,
+          courseName: r.courseName,
+          year,
+          offerKey,
+          turmaKey,
+          turmaTitle,
+          nome: r.nomeFromSheet,
+          matriculaFromSheet: r.matriculaFromSheet,
+        });
+      }
+
+      // ---------
+      // Agora checar existência no banco (em lote)
+      // - PEC: aluno por CPF
+      // - Inclusão: participantes_inclusao por CPF
+      // ---------
+      const cpfsPec = candidatesApproved.filter((x) => x.programType === "pec").map((x) => x.cpf);
+      const cpfsInc = candidatesApproved.filter((x) => x.programType === "inclusao").map((x) => x.cpf);
+
+    const pecPeople = cpfsPec.length
+      ? await db
+          .select({ cpf: aluno.cpf, numero_matricula: aluno.numero_matricula })
+          .from(aluno)
+          .where(inArray(aluno.cpf, cpfsPec))
+      : [];
+      const incPeople = cpfsInc.length
+        ? await db.select({ id: participantesInclusao.id, cpf: participantesInclusao.cpf, codigoMatricula: participantesInclusao.codigoMatricula }).from(participantesInclusao).where(inArray(participantesInclusao.cpf, cpfsInc))
+        : [];
+
+      const pecByCpf = new Map(pecPeople.map((p) => [p.cpf, p]));
+      const incByCpf = new Map(incPeople.map((p) => [String(p.cpf ?? ""), p]));
+
+      // ---------
+      // Resolver existência de projetos/turmas e links (em lote simplificado)
+      // Para simulação, a gente marca "willCreate" com base em consultas por nome/title.
+      // ---------
+      const uniquePecProjects = Array.from(new Set(candidatesApproved.filter(x => x.programType==="pec").map(x => x.projectName)));
+      const uniqueIncPrograms = Array.from(new Set(candidatesApproved.filter(x => x.programType==="inclusao").map(x => x.projectName)));
+
+      const existingPecProjects = uniquePecProjects.length
+        ? await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.name, uniquePecProjects))
+        : [];
+      const projectIdByName = new Map(existingPecProjects.map((p) => [p.name, p.id]));
+
+      const existingIncPrograms = uniqueIncPrograms.length
+        ? await db.select({ id: programasInclusao.id, nome: programasInclusao.nome }).from(programasInclusao).where(inArray(programasInclusao.nome, uniqueIncPrograms))
+        : [];
+      const programIdByName = new Map(existingIncPrograms.map((p) => [p.nome, p.id]));
+
+      // PEC turmas existentes: activity_instances.title (vamos buscar por titles gerados)
+      const pecTurmaTitles = Array.from(new Set(candidatesApproved.filter(x=>x.programType==="pec").map(x => x.turmaTitle)));
+      const existingPecInstances = pecTurmaTitles.length
+        ? await db.select({ id: activityInstances.id, title: activityInstances.title }).from(activityInstances).where(inArray(activityInstances.title, pecTurmaTitles))
+        : [];
+      const pecInstanceIdByTitle = new Map(existingPecInstances.map((t) => [t.title, t.id]));
+
+      // Inclusão turmas existentes: turmas_inclusao.nome (por nome) + programaId (se já existir)
+      // Para preview inicial: se programa não existe ainda, turma será "nova".
+      const incTurmaPairs = candidatesApproved
+        .filter(x => x.programType==="inclusao")
+        .map(x => ({ programName: x.projectName, turmaName: x.turmaTitle }));
+
+      // ---------
+      // Montar approvedRows final (com ações)
+      // ---------
+      const approvedRows: PreviewRowApproved[] = [];
+      const entitiesProjects: SimulationResult["entitiesPreview"]["projects"] = [];
+      const entitiesTurmas: SimulationResult["entitiesPreview"]["turmas"] = [];
+
+      const seenProjectKey = new Set<string>();
+      const seenTurmaKey = new Set<string>();
+
+      let personsFound = 0;
+      let personsNotFound = 0;
+      let projectsToCreate = 0;
+      let turmasToCreate = 0;
+      let linksToCreate = 0;
+      let linksAlreadyExist = 0;
+      let matriculasToFill = 0;
+
+      // Pré-carregar links existentes (simplificado):
+      // PEC: instanceEnrollments por (instanceId, cpf) — só conseguimos verificar se instance existe.
+      const pecLinkChecks: Array<{ cpf: string; instanceId: number }> = [];
+      for (const r of candidatesApproved.filter(x=>x.programType==="pec")) {
+        const instanceId = pecInstanceIdByTitle.get(r.turmaTitle);
+        if (instanceId) pecLinkChecks.push({ cpf: r.cpf, instanceId });
+      }
+
+      const existingPecLinks = pecLinkChecks.length
+        ? await db
+            .select({ activity_instance_id: instanceEnrollments.activity_instance_id, student_cpf: instanceEnrollments.student_cpf })
+            .from(instanceEnrollments)
+            .where(
+              and(
+                inArray(instanceEnrollments.activity_instance_id, pecLinkChecks.map(x => x.instanceId)),
+                inArray(instanceEnrollments.student_cpf, pecLinkChecks.map(x => x.cpf))
+              )
+            )
+        : [];
+      const pecLinkSet = new Set(existingPecLinks.map(l => `${l.activity_instance_id}::${l.student_cpf}`));
+
+      // Inclusão: participantes_turmas: precisamos de participanteId e turmaId (depende se turma existe).
+      // Aqui vamos marcar linkAlreadyExists apenas quando conseguimos resolver ambos (program+turma existentes).
+      // (No commit endpoint a gente checa de verdade.)
+      // -----
+
+      for (const r of candidatesApproved) {
+        // Pessoa existe?
+        if (r.programType === "pec") {
+          const person = pecByCpf.get(r.cpf);
+          if (!person) {
+            personsNotFound++;
+            rejectedRows.push({
+              rowIndex: r.rowIndex,
+              programType: "pec",
+              cpf: r.cpf,
+              projectName: r.projectName,
+              courseName: r.courseName,
+              errorCode: "PERSON_NOT_FOUND",
+              errorMessage: "CPF não encontrado no sistema (PEC). Importação não cria aluno novo.",
+            });
+            continue;
+          }
+          personsFound++;
+
+          const projectExists = projectIdByName.has(r.projectName);
+          const willCreateProject = !projectExists;
+
+          const turmaExists = pecInstanceIdByTitle.has(r.turmaTitle);
+          const willCreateTurma = !turmaExists;
+
+          // vínculo: só checa duplicado se a instance já existe
+          let linkAlreadyExists = false;
+          if (turmaExists) {
+            const instanceId = pecInstanceIdByTitle.get(r.turmaTitle)!;
+            linkAlreadyExists = pecLinkSet.has(`${instanceId}::${r.cpf}`);
+          }
+
+          const willCreateLink = !linkAlreadyExists; // (mesmo se turma for nova, link será criado no commit)
+
+          // matrícula: preencher apenas se banco vazio e planilha tem
+          const matriculaInDb = person.numero_matricula ?? null;
+          const willFillMatricula = !matriculaInDb && !!r.matriculaFromSheet;
+
+          if (willCreateProject) projectsToCreate++;
+          if (willCreateTurma) turmasToCreate++;
+          if (willCreateLink) linksToCreate++;
+          if (linkAlreadyExists) linksAlreadyExist++;
+          if (willFillMatricula) matriculasToFill++;
+
+          approvedRows.push({
+            rowIndex: r.rowIndex,
+            programType: "pec",
+            cpf: r.cpf,
+            nome: r.nome,
+            matriculaFromSheet: r.matriculaFromSheet,
+
+            projectName: r.projectName,
+            courseName: r.courseName,
+            turmaTitle: r.turmaTitle,
+            turmaKey: r.turmaKey,
+            inferredYear: r.year,
+            inferredOfferKey: r.offerKey,
+
+            actions: {
+              willCreateProject,
+              willCreateTurma,
+              willCreateLink,
+              willFillMatricula,
+              linkAlreadyExists,
+            },
+          });
+
+          // entities preview
+          const pKey = `pec::${r.projectName}`;
+          if (!seenProjectKey.has(pKey)) {
+            seenProjectKey.add(pKey);
+            entitiesProjects.push({ programType: "pec", name: r.projectName, willCreate: willCreateProject });
+          }
+          if (!seenTurmaKey.has(r.turmaKey)) {
+            seenTurmaKey.add(r.turmaKey);
+            entitiesTurmas.push({ programType: "pec", key: r.turmaKey, title: r.turmaTitle, willCreate: willCreateTurma });
+          }
+        }
+
+        if (r.programType === "inclusao") {
+          const person = incByCpf.get(r.cpf);
+          if (!person) {
+            personsNotFound++;
+            rejectedRows.push({
+              rowIndex: r.rowIndex,
+              programType: "inclusao",
+              cpf: r.cpf,
+              projectName: r.projectName,
+              courseName: r.courseName,
+              errorCode: "PERSON_NOT_FOUND",
+              errorMessage: "CPF não encontrado no sistema (Inclusão). Importação não cria participante novo.",
+            });
+            continue;
+          }
+          personsFound++;
+
+          const programExists = programIdByName.has(r.projectName);
+          const willCreateProject = !programExists; // aqui "project" = programa_inclusao (nome)
+
+          // turma: se programa não existe ainda, turma será nova (preview)
+          // se programa existe, ainda assim podemos não ter turma com esse nome (checaremos no commit)
+          const willCreateTurma = true;
+
+          // matrícula: preencher codigo_matricula apenas se vazio
+          const matriculaInDb = person.numero_matricula ?? null;
+          const willFillMatricula = !matriculaInDb && !!r.matriculaFromSheet;
+
+          projectsToCreate += willCreateProject ? 1 : 0;
+          turmasToCreate += 1;
+          linksToCreate += 1;
+          if (willFillMatricula) matriculasToFill++;
+
+          approvedRows.push({
+            rowIndex: r.rowIndex,
+            programType: "inclusao",
+            cpf: r.cpf,
+            nome: r.nome,
+            matriculaFromSheet: r.matriculaFromSheet,
+
+            projectName: r.projectName,
+            courseName: r.courseName,
+            turmaTitle: r.turmaTitle,
+            turmaKey: r.turmaKey,
+            inferredYear: r.year,
+            inferredOfferKey: r.offerKey,
+
+            actions: {
+              willCreateProject,
+              willCreateTurma,
+              willCreateLink: true,
+              willFillMatricula,
+              linkAlreadyExists: false,
+            },
+          });
+
+          const pKey = `inclusao::${r.projectName}`;
+          if (!seenProjectKey.has(pKey)) {
+            seenProjectKey.add(pKey);
+            entitiesProjects.push({ programType: "inclusao", name: r.projectName, willCreate: willCreateProject });
+          }
+          if (!seenTurmaKey.has(r.turmaKey)) {
+            seenTurmaKey.add(r.turmaKey);
+            entitiesTurmas.push({ programType: "inclusao", key: r.turmaKey, title: r.turmaTitle, willCreate: true });
+          }
+        }
+      }
+
+      const result: SimulationResult & { debug?: any } = {
+        stats: {
+          totalRows: atividadesRows.length,
+          approvedRows: approvedRows.length,
+          rejectedRows: rejectedRows.length,
+
+          personsFound,
+          personsNotFound,
+
+          projectsToCreate,
+          turmasToCreate,
+          linksToCreate,
+          linksAlreadyExist,
+
+          matriculasToFill,
+        },
+        approvedRows,
+        rejectedRows,
+        entitiesPreview: {
+          projects: entitiesProjects,
+          turmas: entitiesTurmas,
+        },
+        debug: debugHeaders,
+      };
+
+      return res.json(result);
+    } catch (err: any) {
+      console.error(err);
+      return res.status(500).json({ error: "Erro ao simular importação", details: String(err?.message ?? err) });
+    }
+  });
+
+    app.post("/api/dev/import/commit/dados",requireAuth, requireRole(["dev", "admin"]), uploadDocuments.single("file"), async (req: Request, res: Response) => {
+      try {
+        if (!req.file?.path) {
+          return res.status(400).json({ error: "Arquivo não enviado (form-data com campo 'file')." });
+        }
+
+        const defaultYear = req.body?.defaultYear ? parseInt(req.body.defaultYear) : null;
+
+        const fileBuffer = fs.readFileSync(req.file.path);
+        const wb = XLSX.read(fileBuffer, { type: "buffer" });
+        fs.unlink(req.file.path, () => {});
+
+        const participantesPick = pickParticipantesSheet(wb);
+        const atividadesPick = pickAtividadesSheet(wb);
+
+  if (!atividadesPick) {
+    return res.status(400).json({
+      error: "Planilha sem aba de Atividades",
+      details: "Não encontrei colunas parecidas com 'projeto' e 'atividade' nas primeiras linhas."
+    });
+  }
+
+  const participantesRows = readSheetAsJson(
+    wb,
+    participantesPick.sheetName,
+    participantesPick.headerRow0
+  );
+
+  const atividadesRows = readSheetAsJson(
+    wb,
+    atividadesPick.sheetName,
+    atividadesPick.headerRow0
+  );
+          const participanteByCpf = new Map<string, Record<string, any>>();
+          const cpfByAtendidoId = new Map<string, string>();
+          const cpfByMatricula = new Map<string, string>();
+          const cpfByNome = new Map<string, string>();
+
+     for (const p of participantesRows) {
+      const cpf = extractCPF11(getCPFAny(p) ?? getColumnAny(p, "DOCUMENTO", "DOC"));
+
+        if (!cpf) continue;
+        participanteByCpf.set(cpf, p);
+
+        const idAtendido = getIdAtendido(p);
+        if (idAtendido) cpfByAtendidoId.set(idAtendido, cpf);
+
+        const matricula = getMatricula(p);
+        if (matricula) cpfByMatricula.set(matricula, cpf);
+
+        const nome = getNome(p);
+        if (nome) {
+          const nomeKey = nome.toUpperCase().replace(/\s+/g, " ").trim();
+          if (!cpfByNome.has(nomeKey)) cpfByNome.set(nomeKey, cpf);
+        }
+      }
+
+        const normalized = atividadesRows.map((r, idx) => {
+        const cpfRaw = getCPFAny(r);
+
+        const atividadeIdAtendido = getIdAtendido(r);
+        const atividadeMatricula = getMatricula(r);
+        const nomeAtividade = getNome(r) || normalizeText(getColumnAny(r, "NOME_SOCIAL", "NOMESOCIAL") ?? "");
+        const nomeKey = nomeAtividade ? nomeAtividade.toUpperCase().replace(/\s+/g, " ").trim() : "";
+
+        const cpf =
+          extractCPF11(cpfRaw) ||
+          (atividadeIdAtendido ? (cpfByAtendidoId.get(atividadeIdAtendido) ?? "") : "") ||
+          (atividadeMatricula ? (cpfByMatricula.get(atividadeMatricula) ?? "") : "") ||
+          (nomeKey ? (cpfByNome.get(nomeKey) ?? "") : "") ||
+          "";
+
+          const projectName = normalizeText(getColumnAny(r, "PROJETO", "PROJECT") ?? "");
+          const courseName = normalizeText(getColumnAny(r, "ATIVIDADE", "CURSO", "COURSE") ?? "");
+
+          const dateRaw = getColumnAny(r, "DATA", "DATE") ?? "";
+          const date = tryParseDate(dateRaw);
+
+          const offerKey = normalizeText(getColumnAny(r, "TURMA", "CODIGO", "CÓDIGO") ?? "") || null;
+
+          const sheetParticipant = participanteByCpf.get(cpf);
+          const matriculaFromSheet = sheetParticipant ? getMatricula(sheetParticipant) : null;
+
+          const nomeFromSheet = (sheetParticipant ? getNome(sheetParticipant) : "") || nomeAtividade || undefined;
+
+          const statusFinalRaw = normalizeText(getColumnAny(r, "STATUS", "RESULTADO") ?? "");
+          const statusFinal = statusFinalRaw ? statusFinalRaw.toLowerCase() : null;
+
+          return {
+            rowIndex: idx + 2,
+            cpfRaw,
+            cpf,
+            projectName,
+            courseName,
+            dateRaw,
+            date,
+            offerKey,
+            matriculaFromSheet,
+            nomeFromSheet,
+            nomeAtividade,
+            atividadeIdAtendido,
+            statusFinal,
+          };
+        });
+
+        // ==========================
+        // Validar e montar aprovados
+        // ==========================
+        const rejected: any[] = [];
+        const approved: Array<{
+          rowIndex: number;
+          programType: "pec" | "inclusao";
+          cpf: string;
+          projectName: string;
+          courseName: string;
+          year: number;
+          offerKey: string;
+          turmaTitle: string;
+          matriculaFromSheet: string | null;
+          statusFinal: string | null;
+        }> = [];
+
+        for (const r of normalized) {
+          if (!r.cpf) {
+            const nome = r.nomeFromSheet || r.nomeAtividade || "(sem nome)";
+            let msg = `CPF não encontrado para "${nome}".`;
+            if (r.atividadeIdAtendido) msg = `Pessoa "${nome}" (ID: ${r.atividadeIdAtendido}) sem CPF na aba de participantes.`;
+            rejected.push({ rowIndex: r.rowIndex, cpfRaw: r.cpfRaw, error: "CPF_MISSING", errorMessage: msg, nome });
+            continue;
+          }
+          if (!validateCPF(r.cpf)) {
+            const nome = r.nomeFromSheet || r.nomeAtividade || "(sem nome)";
+            const cpfFmt = r.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, error: "CPF_INVALID", errorMessage: `CPF inválido para "${nome}": ${cpfFmt}`, nome });
+            continue;
+          }
+          if (!r.projectName) {
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, error: "PROJECT_MISSING", errorMessage: "Coluna 'Projeto' vazia." });
+            continue;
+          }
+
+          const programType = classifyProgram(r.projectName);
+          if (!programType) {
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, projectName: r.projectName, error: "PROJECT_UNCLASSIFIED", errorMessage: `Projeto "${r.projectName}" não classificado como PEC ou Inclusão.` });
+            continue;
+          }
+
+          if (!r.courseName) {
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, projectName: r.projectName, error: "ACTIVITY_MISSING", errorMessage: `Coluna 'Atividade' vazia para "${r.projectName}".` });
+            continue;
+          }
+
+          let year: number | null = null;
+          if (r.date) year = r.date.getUTCFullYear();
+          if (!year) year = getYearFromProjectName(r.projectName);
+          if (!year && defaultYear) year = defaultYear;
+
+          if (!year) {
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, projectName: r.projectName, error: "YEAR_MISSING" });
+            continue;
+          }
+
+          let offerKey = r.offerKey;
+          if (!offerKey && r.date) {
+            const mm = String(r.date.getUTCMonth() + 1).padStart(2, "0");
+            offerKey = `MES-${mm}`;
+          }
+          if (!offerKey) {
+            rejected.push({ rowIndex: r.rowIndex, cpf: r.cpf, projectName: r.projectName, courseName: r.courseName, error: "TURMA_AMBIGUOUS" });
+            continue;
+          }
+
+          const turmaTitle = `${r.courseName} ${year} | ${offerKey}`;
+
+          approved.push({
+            rowIndex: r.rowIndex,
+            programType,
+            cpf: r.cpf,
+            projectName: r.projectName,
+            courseName: r.courseName,
+            year,
+            offerKey,
+            turmaTitle,
+            matriculaFromSheet: r.matriculaFromSheet,
+            statusFinal: r.statusFinal,
+          });
+        }
+
+        // ==================================
+        // Validar existência de pessoas no BD
+        // ==================================
+        const cpfsPec = approved.filter(a => a.programType === "pec").map(a => a.cpf);
+        const cpfsInc = approved.filter(a => a.programType === "inclusao").map(a => a.cpf);
+
+      const pecPeople = cpfsPec.length
+      ? await db
+          .select({ cpf: aluno.cpf, numero_matricula: aluno.numero_matricula })
+          .from(aluno)
+          .where(inArray(aluno.cpf, cpfsPec))
+      : [];
+
+        const incPeople = cpfsInc.length
+          ? await db.select({ id: participantesInclusao.id, cpf: participantesInclusao.cpf, codigoMatricula: participantesInclusao.codigoMatricula })
+              .from(participantesInclusao)
+              .where(inArray(participantesInclusao.cpf, cpfsInc))
+          : [];
+
+        const pecByCpf = new Map(pecPeople.map(p => [p.cpf, p]));
+        const incByCpf = new Map(incPeople.map(p => [String(p.cpf ?? ""), p]));
+
+        const approvedFinal: typeof approved = [];
+        for (const a of approved) {
+          const exists = a.programType === "pec" ? pecByCpf.has(a.cpf) : incByCpf.has(a.cpf);
+          if (!exists) {
+            rejected.push({ rowIndex: a.rowIndex, cpf: a.cpf, error: "PERSON_NOT_FOUND", programType: a.programType });
+            continue;
+          }
+          approvedFinal.push(a);
+        }
+
+        // ==========================
+        // COMMIT em transaction
+        // ==========================
+        const summary = await db.transaction(async (tx: any) => {
+          let createdProjects = 0;
+          let createdActivities = 0;
+          let createdTurmas = 0;
+          let createdLinks = 0;
+          let updatedLinks = 0;
+          let filledMatriculas = 0;
+
+          // cache local (pra performance em 10k linhas)
+          const pecProjectIdByName = new Map<string, number>();
+          const pecActivityIdByKey = new Map<string, number>(); // projectId+courseName
+          const pecInstanceIdByTitle = new Map<string, number>();
+
+          const incProgramIdByName = new Map<string, number>();
+          const incTurmaIdByKey = new Map<string, number>(); // programId+turmaTitle
+
+          // Pré-carregar projetos/programas existentes por nome (reduz queries)
+          const pecProjectNames = Array.from(new Set(approvedFinal.filter(a => a.programType==="pec").map(a => a.projectName)));
+          if (pecProjectNames.length) {
+            const rows = await tx.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.name, pecProjectNames));
+            for (const r of rows) pecProjectIdByName.set(r.name, r.id);
+          }
+
+          const incProgramNames = Array.from(new Set(approvedFinal.filter(a => a.programType==="inclusao").map(a => a.projectName)));
+          if (incProgramNames.length) {
+            const rows = await tx
+              .select({ id: programasInclusao.id, nome: programasInclusao.nome })
+              .from(programasInclusao)
+              .where(inArray(programasInclusao.nome, incProgramNames));
+
+            for (const r of rows) incProgramIdByName.set(r.nome, r.id);
+          }
+          // Processar linha a linha (simples e seguro). Depois a gente otimiza com batch se quiser.
+          for (const a of approvedFinal) {
+            if (a.programType === "pec") {
+              // 1) preencher matrícula se vazia
+              const person = pecByCpf.get(a.cpf)!;
+             const matriculaDb = person.numero_matricula ?? null;
+              if (!matriculaDb && a.matriculaFromSheet) {
+                await tx.update(aluno)
+                  .set({ numero_matricula: a.matriculaFromSheet })
+                  .where(eq(aluno.cpf, a.cpf));
+                filledMatriculas++;
+              }
+
+              // 2) projeto
+              let projectId = pecProjectIdByName.get(a.projectName);
+              if (!projectId) {
+                const [created] = await tx.insert(projects).values({ name: a.projectName }).returning({ id: projects.id });
+                projectId = created.id;
+                pecProjectIdByName.set(a.projectName, projectId);
+                createdProjects++;
+              }
+
+              // 3) activity (pec_activities) por (projectId + courseName)
+              const activityKey = `${projectId}::${a.courseName}`;
+              let activityId = pecActivityIdByKey.get(activityKey);
+              if (!activityId) {
+                const existing = await tx
+                  .select({ id: pecActivities.id })
+                  .from(pecActivities)
+                  .where(and(eq(pecActivities.project_id, projectId), eq(pecActivities.name, a.courseName)));
+
+                if (existing.length) {
+                  activityId = existing[0].id;
+                } else {
+                  const [created] = await tx.insert(pecActivities).values({
+                    project_id: projectId,
+                    name: a.courseName,
+                  }).returning({ id: pecActivities.id });
+                  activityId = created.id;
+                  createdActivities++;
+                }
+
+                pecActivityIdByKey.set(activityKey, activityId);
+              }
+
+              // 4) turma/oferta (activity_instances) por title
+              let instanceId = pecInstanceIdByTitle.get(a.turmaTitle);
+              if (!instanceId) {
+                const existing = await tx
+                  .select({ id: activityInstances.id })
+                  .from(activityInstances)
+                  .where(eq(activityInstances.title, a.turmaTitle));
+
+                if (existing.length) {
+                  instanceId = existing[0].id;
+                } else {
+                  const [created] = await tx.insert(activityInstances).values({
+                    activity_id: activityId,
+                    title: a.turmaTitle,
+                    situation: "execucao",
+                    created_on: new Date(),
+                  }).returning({ id: activityInstances.id });
+                  instanceId = created.id;
+                  createdTurmas++;
+                }
+                pecInstanceIdByTitle.set(a.turmaTitle, instanceId);
+              }
+
+              // 5) vínculo (instance_enrollments) — idempotente
+              // Se você não tem unique constraint aqui, vamos checar antes.
+              const existingLink = await tx
+                .select({ id: instanceEnrollments.id })
+                .from(instanceEnrollments)
+                .where(and(eq(instanceEnrollments.activity_instance_id, instanceId), eq(instanceEnrollments.student_cpf, a.cpf)));
+
+              if (!existingLink.length) {
+                await tx.insert(instanceEnrollments).values({
+                  activity_instance_id: instanceId,
+                  student_cpf: a.cpf,
+                  active: true,
+                  evadido: false,
+                });
+                createdLinks++;
+              } else {
+                // se quiser aplicar statusFinal: você pode atualizar aqui (sem sobrescrever campos sensíveis)
+                updatedLinks++;
+              }
+            }
+
+            if (a.programType === "inclusao") {
+              const person = incByCpf.get(a.cpf)!;
+              const matriculaDb = (person as any).codigoMatricula ?? null;
+              if (!matriculaDb && a.matriculaFromSheet) {
+                await tx.update(participantesInclusao)
+                  .set({ codigoMatricula: a.matriculaFromSheet })
+                  .where(eq(participantesInclusao.id, person.id));
+                filledMatriculas++;
+              }
+
+              // programa
+              let programId = incProgramIdByName.get(a.projectName);
+              if (!programId) {
+                const [created] = await tx.insert(programasInclusao).values({
+                  nome: a.projectName,
+                  categoria: "QP", // ⚠️ ajuste padrão
+                  modalidade: a.projectName.toUpperCase().includes("EAD") ? "ead" : "presencial",
+                }).returning({ id: programasInclusao.id });
+                programId = created.id;
+                incProgramIdByName.set(a.projectName, programId);
+                createdProjects++;
+              }
+
+              // turma (turmas_inclusao) por (programId + nome)
+              const turmaKey = `${programId}::${a.turmaTitle}`;
+              let turmaId = incTurmaIdByKey.get(turmaKey);
+              if (!turmaId) {
+                const existing = await tx.select({ id: turmasInclusao.id })
+                  .from(turmasInclusao)
+                  .where(and(eq(turmasInclusao.programaId, programId), eq(turmasInclusao.nome, a.turmaTitle)));
+
+                if (existing.length) {
+                  turmaId = existing[0].id;
+                } else {
+                  const [created] = await tx.insert(turmasInclusao).values({
+                    programaId: programId,
+                    nome: a.turmaTitle,
+                    status: "planejado",
+                  }).returning({ id: turmasInclusao.id });
+                  turmaId = created.id;
+                  createdTurmas++;
+                }
+                incTurmaIdByKey.set(turmaKey, turmaId);
+              }
+
+              // vínculo (participantes_turmas) — já tem unique
+              // Drizzle: se você tem onConflictDoNothing, use. Se não, checa antes como no PEC.
+              const existingLink = await tx.select({ id: participantesTurmas.id })
+                .from(participantesTurmas)
+                .where(and(eq(participantesTurmas.participanteId, person.id), eq(participantesTurmas.turmaId, turmaId)));
+
+              if (!existingLink.length) {
+                await tx.insert(participantesTurmas).values({
+                  participanteId: person.id,
+                  turmaId: turmaId,
+                  status: "ativo",
+                });
+                createdLinks++;
+              } else {
+                updatedLinks++;
+              }
+            }
+          }
+
+          return {
+            approvedRows: approvedFinal.length,
+            rejectedRows: rejected.length,
+            createdProjects,
+            createdActivities,
+            createdTurmas,
+            createdLinks,
+            updatedLinks,
+            filledMatriculas,
+          };
+        });
+
+        return res.json({
+          ok: true,
+          summary,
+          rejectedPreview: rejected.slice(0, 200), // não devolve infinito
+        });
+      } catch (err: any) {
+        console.error(err);
+        return res.status(500).json({ error: "Erro ao confirmar importação (commit)", details: String(err?.message ?? err) });
+      }
+    }
+  );
+
   // Get all users for developer panel with access tracking
   app.get("/api/dev/users", async (req, res) => {
     try {
@@ -19388,9 +22033,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         { id: 43, nome: "professor-inclusao", titulo: "Professor Inclusão", rota: "/professor/inclusao", status: "OK", descricao: "Dashboard do Professor - Inclusão Produtiva", modulo: "Educação", tipo: "Professor", ultimaAtualizacao: "2025-01-21", atualizadoPor: "Sistema RBAC" },
         { id: 26, nome: "monitor-pec", titulo: "Monitor PEC", rota: "/monitor/pec", status: "OK", descricao: "Dashboard do Monitor - Polo Esportivo Cultural", modulo: "Educação", tipo: "Monitor", ultimaAtualizacao: "2025-01-16", atualizadoPor: "Sistema RBAC" },
         { id: 41, nome: "monitor-inclusao", titulo: "Monitor Inclusão", rota: "/monitor/inclusao", status: "OK", descricao: "Dashboard do Monitor - Inclusão Produtiva", modulo: "Educação", tipo: "Monitor", ultimaAtualizacao: "2025-01-16", atualizadoPor: "Sistema RBAC" },
+        { id: 44, nome: "monitor-psico", titulo: "Monitor Psicossocial", rota: "/monitor/psico", status: "OK", descricao: "Dashboard do Monitor - Psicossocial", modulo: "Educação", tipo: "Monitor", ultimaAtualizacao: "2026-02-18", atualizadoPor: "Sistema RBAC" },
         { id: 27, nome: "coordenador-inclusao", titulo: "Coordenador Inclusão", rota: "/coordenador/inclusao-produtiva", status: "OK", descricao: "Dashboard do Coordenador de Inclusão Produtiva", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
         { id: 28, nome: "coordenador-pec", titulo: "Coordenador PEC", rota: "/coordenador/esporte-cultura", status: "OK", descricao: "Dashboard do Coordenador de Polo Esportivo Cultural", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
-        { id: 29, nome: "coordenador-psico", titulo: "Coordenador Psicossocial", rota: "/coordenador/psicossocial", status: "OK", descricao: "Dashboard do Coordenador Psicossocial", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" }
+        { id: 29, nome: "coordenador-psico", titulo: "Coordenador Psicossocial", rota: "/coordenador/psicossocial", status: "OK", descricao: "Dashboard do Coordenador Psicossocial", modulo: "Coordenação", tipo: "Coordenador", ultimaAtualizacao: "2025-09-26", atualizadoPor: "Sistema RBAC" },
+        { id: 45, nome: "vendedor-outlet", titulo: "Vendedor Outlet", rota: "/vendedor/outlet", status: "OK", descricao: "Registro de vendas diárias do Outlet com indicadores mensais", modulo: "Vendas", tipo: "Público", ultimaAtualizacao: "2026-02-19", atualizadoPor: "Sistema" },
+        { id: 46, nome: "gestao-vista", titulo: "Gestão à Vista", rota: "/dashboard/gestao/vista", status: "OK", descricao: "Dashboard de impacto e indicadores estratégicos do Instituto O Grito", modulo: "Gestão", tipo: "Público", ultimaAtualizacao: "2026-03-16", atualizadoPor: "Sistema" }
       ];
 
       res.json(sistemaTelas);
@@ -20373,153 +23021,758 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   // Login para coordenadores (apenas com email)
 
   // ================= AUTH COORDENADOR (INLINE) =================
-function requireCoordinatorAuth(req: any, res: any, next: any) {
-  // 1) tenta via sessão (se existir)
-  const sess = req.session;
+  function requireCoordinatorAuth(req: any, res: any, next: any) {
+    const sess = req.session as any;
 
-  if (sess?.isCoordinator && sess.actorType === "coordenador" && sess.actorId) {
-    req.user = {
-      id: Number(sess.actorId),
-      nome: sess.coordenadorNome,
-      email: sess.coordenadorEmail,
-      role: sess.userPapel,
-      actorType: "coordenador",
-    };
-    return next();
+    // 1) via sessão (normal)
+    if (sess?.coordenadorId && sess?.actorType === "coordenador") {
+      req.user = {
+        id: sess.coordenadorId,
+        role: sess.userPapel,
+        actorType: "coordenador",
+        actorId: sess.coordenadorId,
+        email: sess.coordenadorEmail,
+        name: sess.coordenadorNome,
+        setor: sess.coordenadorSetor,
+      };
+      return next();
+    }
+
+    // 2) fallback via header (se você realmente precisa)
+    const coordId = req.headers["x-coordenador-id"];
+    const role =
+      req.headers["x-user-role"] || req.headers["x-coordenador-role"];
+    const nome = req.headers["x-coordenador-nome"];
+
+    if (coordId && role) {
+      req.user = {
+        id: Number(coordId),
+        role: String(role),
+        name: String(nome || ""),
+        actorType: "coordenador",
+        actorId: Number(coordId),
+      };
+      return next();
+    }
+
+    return res.status(401).json({ error: "Não autenticado como coordenador" });
   }
 
-  // 2) fallback via header (produção sem sessão)
-  // escolha um padrão de header e use sempre o mesmo no front
-  const coordId = req.headers["x-coordenador-id"];
-  const role = req.headers["x-user-role"] || req.headers["x-coordenador-role"];
-  const nome = req.headers["x-coordenador-nome"];
+      app.post("/api/login/coordenador", express.json(), async (req, res) => {
+        try {
+          const { email, senha } = req.body;
 
-  if (coordId && role) {
-    req.user = {
-      id: Number(coordId),
-      nome: String(nome || ""),
-      role: String(role),
-      actorType: "coordenador",
-    };
-    return next();
-  }
+          if (!email || !email.trim()) {
+            return res.status(400).json({ error: "Email é obrigatório" });
+          }
 
-  return res.status(401).json({ error: "Não autenticado como coordenador" });
-}
+          if (!senha || !senha.trim()) {
+            return res.status(400).json({ error: "Senha é obrigatória" });
+          }
 
-    app.post("/api/login/coordenador", express.json(), async (req, res) => {
-      try {
-        const { email, senha } = req.body;
+          console.log(`🔑 [COORD LOGIN] Tentativa de login: ${email}`);
 
-        if (!email || !email.trim()) {
-          return res.status(400).json({ error: "Email é obrigatório" });
-        }
+          const coordenador = await db
+            .select()
+            .from(coordenadores)
+            .where(eq(coordenadores.email, email.toLowerCase().trim()))
+            .limit(1);
 
-        if (!senha || !senha.trim()) {
-          return res.status(400).json({ error: "Senha é obrigatória" });
-        }
+          if (!coordenador || coordenador.length === 0) {
+            console.log(`❌ [COORD LOGIN] Coordenador não encontrado: ${email}`);
+            return res.status(401).json({ error: "Email ou senha incorretos" });
+          }
 
-        console.log(`🔑 [COORD LOGIN] Tentativa de login: ${email}`);
+          const coord = coordenador[0];
 
-        const coordenador = await db
-          .select()
-          .from(coordenadores)
-          .where(eq(coordenadores.email, email.toLowerCase().trim()))
-          .limit(1);
+          const senhaValida = await bcrypt.compare(senha, coord.passwordHash);
+          if (!senhaValida) {
+            console.log(`❌ [COORD LOGIN] Senha incorreta para: ${email}`);
+            return res.status(401).json({ error: "Email ou senha incorretos" });
+          }
 
-        if (!coordenador || coordenador.length === 0) {
-          console.log(`❌ [COORD LOGIN] Coordenador não encontrado: ${email}`);
-          return res.status(401).json({ error: "Email ou senha incorretos" });
-        }
+          if (!coord.ativo) {
+            console.log(`❌ [COORD LOGIN] Coordenador desativado: ${email}`);
+            return res.status(403).json({ error: "Acesso desativado" });
+          }
 
-        const coord = coordenador[0];
+          console.log(`✅ [COORD LOGIN] Login bem-sucedido: ${coord.nome} (${coord.setor})`);
 
-        const senhaValida = await bcrypt.compare(senha, coord.passwordHash);
-        if (!senhaValida) {
-          console.log(`❌ [COORD LOGIN] Senha incorreta para: ${email}`);
-          return res.status(401).json({ error: "Email ou senha incorretos" });
-        }
+          const coordinatorRoleMap: Record<string, string> = {
+            psicossocial: "coordenador_psico",
+            esporte_cultura: "coordenador_pec",
+            inclusao_produtiva: "coordenador_inclusao",
+          };
 
-        if (!coord.ativo) {
-          console.log(`❌ [COORD LOGIN] Coordenador desativado: ${email}`);
-          return res.status(403).json({ error: "Acesso desativado" });
-        }
+          const targetRole = coordinatorRoleMap[coord.setor] ?? "coordenador";
 
-        console.log(`✅ [COORD LOGIN] Login bem-sucedido: ${coord.nome} (${coord.setor})`);
+            const sess = req.session as any; // ✅ é aqui que o express-session injeta
 
-        const coordinatorRoleMap: Record<string, string> = {
-          psicossocial: "coordenador_psico",
-          esporte_cultura: "coordenador_pec",
-          inclusao_produtiva: "coordenador_inclusao",
-        };
+          if (sess) {
+            sess.coordenadorId = coord.id;
+            sess.coordenadorEmail = coord.email;
+            sess.coordenadorNome = coord.nome;
+            sess.coordenadorSetor = coord.setor;
 
-        const targetRole = coordinatorRoleMap[coord.setor] ?? "coordenador";
+            sess.userPapel = targetRole;
+            sess.isCoordinator = true;
 
-        const sess = (req as any).session as any | undefined;
+            // ✅ compatibilidade
+            sess.userEmail = coord.email;
+            sess.userName = coord.nome;
 
-        if (sess) {
-          sess.coordenadorId = coord.id;
-          sess.coordenadorEmail = coord.email;
-          sess.coordenadorNome = coord.nome;
-          sess.coordenadorSetor = coord.setor;
+            sess.actorType = "coordenador";
+            sess.actorId = coord.id;
 
-          sess.userPapel = targetRole;
-          sess.isCoordinator = true;
+            console.log(`🔐 [COORD SESSION] Sessão criada para coordenador ${coord.nome} (coordId=${coord.id})`);
 
-          sess.actorType = "coordenador";
-          sess.actorId = coord.id;
-
-          console.log(`🔐 [COORD SESSION] Sessão criada para coordenador ${coord.nome} (coordId=${coord.id})`);
-
-          // ✅ garante persistência da sessão antes de responder (se suportado)
-          if (typeof sess.save === "function") {
-            await new Promise<void>((resolve, reject) =>
-              sess.save((err: any) => (err ? reject(err) : resolve()))
+            if (typeof sess.save === "function") {
+              await new Promise<void>((resolve, reject) =>
+                sess.save((err: any) => (err ? reject(err) : resolve()))
+              );
+            }
+          } else {
+            // ⚠️ esse else só existirá se express-session NÃO estiver aplicado
+            console.warn(
+              `⚠️ [COORD SESSION] req.session indefinido ao logar coordenador ${coord.email}. Sessões não estão configuradas neste ambiente.`
             );
           }
-        } else {
-          console.warn(
-            `⚠️ [COORD SESSION] req.session indefinido ao logar coordenador ${coord.email}. Sessões não estão configuradas neste ambiente.`
-          );
-        }
 
-        const redirectPath =
-          (coord as any).redirectPath ??
-          (coord as any).redirect_path ??
-          "/rbac/coordenador";
+          const redirectPath =
+            (coord as any).redirectPath ??
+            (coord as any).redirect_path ??
+            "/rbac/coordenador";
 
-        return res.json({
-          success: true,
-          coordenador: {
-            id: coord.id,
-            nome: coord.nome,
-            email: coord.email,
-            setor: coord.setor,
-            redirectPath,
+          return res.json({
+            success: true,
+            coordenador: {
+              id: coord.id,
+              nome: coord.nome,
+              email: coord.email,
+              setor: coord.setor,
+              redirectPath,
+              role: targetRole,
+            },
             role: targetRole,
-          },
-          role: targetRole,
-        });
-      } catch (error: any) {
-        console.error("❌ [COORD LOGIN] Erro:", error);
-        return res.status(500).json({ error: "Erro interno do servidor" });
-      }
-    });
+          });
+        } catch (error: any) {
+          console.error("❌ [COORD LOGIN] Erro:", error);
+          return res.status(500).json({ error: "Erro interno do servidor" });
+        }
+      });
 
-    app.get(
-      "/api/coordenador/dashboard",
-      requireCoordinatorAuth, // vai autenticar de verdade
-      requireRole(["coordenador_inclusao", "coordenador_pec", "coordenador_psico"]),
-      async (req: any, res) => {
-        return res.json({
-          success: true,
-          coordenadorId: req.user.id,
-          role: req.user.role,
-        });
-      }
-    );
+      app.get(
+        "/api/coordenador/dashboard",
+        requireCoordinatorAuth, // vai autenticar de verdade
+        requireRole(["coordenador_inclusao", "coordenador_pec", "coordenador_psico"]),
+        async (req: any, res) => {
+          return res.json({
+            success: true,
+            coordenadorId: req.user.id,
+            role: req.user.role,
+          });
+        }
+      );
 
-  // Alterar senha do coordenador
+  app.get("/api/coordenador/dashboard-demografico", requireAuth, requireRole(['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico', 'leo', 'admin']), async (req, res) => {
+    try {
+      const ano = req.query.ano ? Number(req.query.ano) : new Date().getFullYear();
+      const mes = req.query.mes ? Number(req.query.mes) : 0;
+
+      // Busca alunos via SQL puro (pool.query) para evitar falhas do Drizzle
+      const alunosRes = await pool.query(`
+        SELECT cpf, situacao_atendimento, genero, data_nascimento, cor_raca, created_at
+        FROM aluno
+        WHERE situacao_atendimento NOT IN ('Inativo', 'inativo') OR situacao_atendimento IS NULL
+      `);
+      const allStudents = alunosRes.rows;
+
+      const filteredStudents = allStudents.filter((s: any) => {
+        if (!s.created_at) return true;
+        const d = new Date(s.created_at);
+        if (d.getFullYear() > ano) return false;
+        if (mes > 0 && d.getFullYear() === ano && (d.getMonth() + 1) > mes) return false;
+        return true;
+      });
+
+      const total = filteredStudents.length;
+      const ativos = total;
+      const inativos = 0;
+
+      const generoMap: Record<string, number> = {};
+      const corRacaMap: Record<string, number> = {};
+      const faixaEtariaMap: Record<string, number> = {
+        "0-6": 0, "7-12": 0, "13-17": 0, "18-25": 0, "26-35": 0, "36-59": 0, "60+": 0
+      };
+
+      const now = new Date();
+      for (const s of filteredStudents) {
+        const gRaw = ((s.genero as string) || "").trim().toLowerCase();
+        const g = gRaw === "feminino" ? "Feminino" : gRaw === "masculino" ? "Masculino" : gRaw === "outro" ? "Outro" : gRaw === "nao_informado" || gRaw === "não informado" || !gRaw ? "Não informado" : gRaw.charAt(0).toUpperCase() + gRaw.slice(1);
+        generoMap[g] = (generoMap[g] || 0) + 1;
+
+        const crRaw = ((s.cor_raca as string) || "").trim().toLowerCase();
+        const cr = crRaw === "parda" || crRaw === "pardo" ? "Parda" : crRaw === "preta" || crRaw === "preto" ? "Preta" : crRaw === "branca" || crRaw === "branco" ? "Branca" : crRaw === "indigena" || crRaw === "indígena" ? "Indígena" : crRaw === "amarela" || crRaw === "amarelo" ? "Amarela" : crRaw === "nao_sabe_informar" || crRaw === "não informado" || !crRaw ? "Não informado" : crRaw.charAt(0).toUpperCase() + crRaw.slice(1);
+        corRacaMap[cr] = (corRacaMap[cr] || 0) + 1;
+
+        if (s.data_nascimento) {
+          const birth = new Date(s.data_nascimento);
+          const age = Math.floor((now.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+          if (age <= 6) faixaEtariaMap["0-6"]++;
+          else if (age <= 12) faixaEtariaMap["7-12"]++;
+          else if (age <= 17) faixaEtariaMap["13-17"]++;
+          else if (age <= 25) faixaEtariaMap["18-25"]++;
+          else if (age <= 35) faixaEtariaMap["26-35"]++;
+          else if (age <= 59) faixaEtariaMap["36-59"]++;
+          else faixaEtariaMap["60+"]++;
+        }
+      }
+
+      let horasAula = 0;
+      let atendimentosPEC = 0;
+      let alimentacaoPEC = 0;
+      try {
+        const sessionsResult = await pool.query(`
+          SELECT
+            COALESCE(SUM(
+              (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+              * COALESCE(s.hours, 0)
+            ), 0) as total_hours,
+            COALESCE(SUM(
+              (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+            ), 0) as total_presencas,
+            COALESCE(SUM(
+              CASE 
+                WHEN p.name NOT ILIKE '%SERENATA%' AND (s.teve_alimentacao IS NULL OR s.teve_alimentacao = true) THEN
+                  (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                    WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+                ELSE 0 END
+            ), 0) as total_alimentacao
+          FROM sessions s
+          JOIN activity_instances ai ON ai.id = s.activity_instance_id
+          LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+          LEFT JOIN projects p ON p.id = pa.project_id
+          WHERE p.name IS NOT NULL
+            AND ($1::int = 0 OR EXTRACT(YEAR FROM s.date) = $2)
+            AND ($1::int = 0 OR EXTRACT(MONTH FROM s.date) <= $1::int)
+        `, [mes, ano]);
+        horasAula = Math.round(Number(sessionsResult.rows?.[0]?.total_hours || 0));
+        atendimentosPEC = Number(sessionsResult.rows?.[0]?.total_presencas || 0);
+        alimentacaoPEC = Number(sessionsResult.rows?.[0]?.total_alimentacao || 0);
+      } catch (e) { console.error('horasAula PEC coord error:', e); }
+
+      let formados = 0;
+      try {
+        const fmParams: any[] = [ano];
+        let fmWhere = "AND (created_at IS NULL OR EXTRACT(YEAR FROM created_at) = $1)";
+        if (mes > 0) {
+          fmWhere = "AND EXTRACT(YEAR FROM created_at) = $1 AND EXTRACT(MONTH FROM created_at) = $2";
+          fmParams.push(mes);
+        }
+        const fmRes = await pool.query(
+          `SELECT COUNT(*) as cnt FROM aluno WHERE situacao_atendimento IN ('concluido','formado') ${fmWhere}`,
+          fmParams
+        );
+        formados = Number(fmRes.rows?.[0]?.cnt || 0);
+      } catch (e) {}
+
+      let porPrograma: any[] = [];
+      try {
+        const progRes = await pool.query(`
+          SELECT p.name as programa, COUNT(DISTINCT ie.student_cpf) as cnt
+          FROM instance_enrollments ie
+          JOIN activity_instances ai ON ai.id = ie.activity_instance_id
+          JOIN pec_activities pa ON pa.id = ai.activity_id
+          JOIN projects p ON p.id = pa.project_id
+          GROUP BY p.id, p.name
+          ORDER BY cnt DESC
+        `);
+        porPrograma = progRes.rows
+          .filter((r: any) => Number(r.cnt) > 0)
+          .map((r: any) => ({
+            name: String(r.programa || ""),
+            value: Number(r.cnt || 0),
+          }));
+      } catch (e) { console.error('porPrograma PEC error:', e); }
+      if (porPrograma.length === 0) {
+        porPrograma = [{ name: "PEC", value: total }];
+      }
+
+      // Evasão via instance_enrollments
+      let evasaoCount = 0;
+      let totalMatriculas = 0;
+      try {
+        const totRes = await pool.query(`SELECT COUNT(*) cnt FROM instance_enrollments`);
+        totalMatriculas = Number(totRes.rows?.[0]?.cnt || 0);
+
+        const evParams: any[] = [ano];
+        let evDateCond = "(data_evasao IS NULL OR EXTRACT(YEAR FROM data_evasao) = $1)";
+        if (mes > 0) {
+          evDateCond = "EXTRACT(YEAR FROM data_evasao) = $1 AND EXTRACT(MONTH FROM data_evasao) <= $2";
+          evParams.push(mes);
+        }
+        const evRes = await pool.query(
+          `SELECT COUNT(*) cnt FROM instance_enrollments
+           WHERE evadido = true
+             AND motivo_evasao = 'Desistência da oficina/curso'
+             AND ${evDateCond}`,
+          evParams
+        );
+        evasaoCount = Number(evRes.rows?.[0]?.cnt || 0);
+      } catch (e) {}
+      const evasao = totalMatriculas > 0 ? Math.round((evasaoCount / totalMatriculas) * 100) : 0;
+
+      let frequencia = 0;
+      try {
+        const freqParams: any[] = [ano];
+        let freqDateCond = "(s.created_at IS NULL OR EXTRACT(YEAR FROM s.created_at) = $1)";
+        if (mes > 0) {
+          freqDateCond = "EXTRACT(YEAR FROM s.created_at) = $1 AND EXTRACT(MONTH FROM s.created_at) = $2";
+          freqParams.push(mes);
+        }
+        const freqRes = await pool.query(`
+          SELECT 
+            COUNT(CASE WHEN a->>'presente' = 'true' OR a->>'status' = 'falta_justificada' THEN 1 END) as presentes,
+            COUNT(*) as total_registros
+          FROM sessions s, jsonb_array_elements(s.attendance::jsonb) as a
+          WHERE s.attendance IS NOT NULL AND jsonb_typeof(s.attendance::jsonb) = 'array'
+            AND ${freqDateCond}
+        `, freqParams);
+        const presentes = Number(freqRes.rows?.[0]?.presentes || 0);
+        const totalReg = Number(freqRes.rows?.[0]?.total_registros || 0);
+        frequencia = totalReg > 0 ? Math.round((presentes / totalReg) * 100) : 0;
+      } catch (e) { console.error('freqPEC coordenador error:', e); }
+
+      console.log(`[PEC dashboard] ano=${ano} mes=${mes} total=${total} horasAula=${horasAula} evasao=${evasao} freq=${frequencia}`);
+
+      res.json({
+        totalAlunos: total,
+        alunosAtivos: ativos,
+        alunosInativos: inativos,
+        horasAula,
+        evasao,
+        frequenciaMedia: frequencia,
+        alunosFormados: formados,
+        nps: 0,
+        atendimentos: atendimentosPEC,
+        alimentacao: alimentacaoPEC,
+        porPrograma,
+        porGenero: Object.entries(generoMap).map(([name, value]) => ({ name, value })),
+        porFaixaEtaria: Object.entries(faixaEtariaMap).filter(([_, v]) => v > 0).map(([name, value]) => ({ name, value })),
+        porRacaCor: Object.entries(corRacaMap).map(([name, value]) => ({ name, value })),
+      });
+    } catch (error: any) {
+      console.error("Error in coordenador dashboard demografico:", error);
+      res.status(500).json({ error: "Erro ao carregar dados demográficos" });
+    }
+  });
+
+  app.get("/api/coordenador/dashboard-demografico-inclusao", requireAuth, requireRole(['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico', 'leo', 'admin']), async (req, res) => {
+    try {
+      const ano = req.query.ano ? Number(req.query.ano) : new Date().getFullYear();
+      const mes = req.query.mes ? Number(req.query.mes) : 0;
+
+      const periodoCondition = mes > 0
+        ? sql`ti.data_inicio <= (make_date(${ano}::int, ${mes}::int, 1) + interval '1 month' - interval '1 day')::date AND (ti.data_fim IS NULL OR ti.data_fim >= make_date(${ano}::int, ${mes}::int, 1))`
+        : sql`(EXTRACT(YEAR FROM ti.data_inicio) = ${ano} OR EXTRACT(YEAR FROM ti.data_fim) = ${ano} OR (ti.data_inicio <= make_date(${ano}::int, 12, 31) AND (ti.data_fim IS NULL OR ti.data_fim >= make_date(${ano}::int, 1, 1))) OR EXTRACT(YEAR FROM ti.created_at) = ${ano})`;
+      const activeParticipantIds = await db.execute(sql`
+        SELECT DISTINCT pt.participante_id
+        FROM participantes_turmas pt
+        JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+        WHERE ${periodoCondition}
+      `);
+      const activeIds = new Set((activeParticipantIds.rows || []).map((r: any) => Number(r.participante_id)));
+
+      const allParticipants = await db.select({
+        id: participantesInclusao.id,
+        status: participantesInclusao.status,
+        genero: participantesInclusao.genero,
+        dataNascimento: participantesInclusao.dataNascimento,
+        corRaca: participantesInclusao.corRaca,
+        createdAt: participantesInclusao.createdAt,
+      }).from(participantesInclusao);
+
+      const filteredParticipants = allParticipants.filter(p => activeIds.has(p.id));
+
+      const total = filteredParticipants.length;
+      const ativos = total;
+      const inativos = 0;
+
+      const generoMap: Record<string, number> = {};
+      const corRacaMap: Record<string, number> = {};
+      const faixaEtariaMap: Record<string, number> = {
+        "0-6": 0, "7-12": 0, "13-17": 0, "18-25": 0, "26-35": 0, "36-59": 0, "60+": 0
+      };
+
+      const now = new Date();
+      for (const s of filteredParticipants) {
+        const gRaw = (s.genero || "").trim().toLowerCase();
+        const g = gRaw === "feminino" ? "Feminino" : gRaw === "masculino" ? "Masculino" : gRaw === "outro" ? "Outro" : gRaw === "nao_informado" || gRaw === "não informado" || !gRaw ? "Não informado" : gRaw.charAt(0).toUpperCase() + gRaw.slice(1);
+        generoMap[g] = (generoMap[g] || 0) + 1;
+
+        const crRaw = (s.corRaca || "").trim().toLowerCase();
+        const cr = crRaw === "parda" || crRaw === "pardo" ? "Parda" : crRaw === "preta" || crRaw === "preto" ? "Preta" : crRaw === "branca" || crRaw === "branco" ? "Branca" : crRaw === "indigena" || crRaw === "indígena" ? "Indígena" : crRaw === "amarela" || crRaw === "amarelo" ? "Amarela" : crRaw === "nao_sabe_informar" || crRaw === "não informado" || !crRaw ? "Não informado" : crRaw.charAt(0).toUpperCase() + crRaw.slice(1);
+        corRacaMap[cr] = (corRacaMap[cr] || 0) + 1;
+
+        if (s.dataNascimento) {
+          const birth = new Date(s.dataNascimento);
+          const age = Math.floor((now.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+          if (age <= 6) faixaEtariaMap["0-6"]++;
+          else if (age <= 12) faixaEtariaMap["7-12"]++;
+          else if (age <= 17) faixaEtariaMap["13-17"]++;
+          else if (age <= 25) faixaEtariaMap["18-25"]++;
+          else if (age <= 35) faixaEtariaMap["26-35"]++;
+          else if (age <= 59) faixaEtariaMap["36-59"]++;
+          else faixaEtariaMap["60+"]++;
+        }
+      }
+
+      let porPrograma: any[] = [];
+      try {
+        const progDateFilter = mes > 0
+          ? sql`AND EXTRACT(YEAR FROM pt.created_at) = ${ano} AND EXTRACT(MONTH FROM pt.created_at) = ${mes}`
+          : sql`AND (pt.created_at IS NULL OR EXTRACT(YEAR FROM pt.created_at) = ${ano})`;
+        const programaResult = await db.execute(sql`
+          SELECT pi2.nome as programa, COUNT(DISTINCT pt.participante_id) as cnt
+          FROM programas_inclusao pi2
+          LEFT JOIN turmas_inclusao ti ON ti.programa_id = pi2.id
+          LEFT JOIN participantes_turmas pt ON pt.turma_id = ti.id AND (pt.status = 'ativo' OR pt.status IS NULL)
+          ${progDateFilter}
+          GROUP BY pi2.nome
+          HAVING COUNT(DISTINCT pt.participante_id) > 0
+          ORDER BY cnt DESC
+        `);
+        porPrograma = (programaResult.rows || []).map((r: any) => ({
+          name: String(r.programa || ""),
+          value: Number(r.cnt || 0),
+        }));
+
+        const linkedIds = await db.execute(sql`SELECT DISTINCT participante_id FROM participantes_turmas`);
+        const linkedSet = new Set((linkedIds.rows || []).map((r: any) => Number(r.participante_id)));
+        const semPrograma = filteredParticipants.filter(p => !linkedSet.has(p.id)).length;
+        if (semPrograma > 0) {
+          porPrograma.push({ name: "Sem programa", value: semPrograma });
+        }
+      } catch (e) {
+        console.error("Error fetching programas inclusao:", e);
+      }
+      if (porPrograma.length === 0) {
+        porPrograma = [{ name: "Inclusão Produtiva", value: total }];
+      }
+
+      let frequencia = 0;
+      try {
+        const freqDateFilter = mes > 0
+          ? sql`WHERE EXTRACT(YEAR FROM data) = ${ano} AND EXTRACT(MONTH FROM data) = ${mes}`
+          : sql`WHERE EXTRACT(YEAR FROM data) = ${ano}`;
+        const freqResult = await db.execute(sql`
+          SELECT 
+            COUNT(CASE WHEN presente = true OR (justificativa IS NOT NULL AND justificativa != '' AND justificativa != 'Sem justificativa') THEN 1 END) as presentes,
+            COUNT(*) as total_registros
+          FROM presencas_inclusao
+          ${freqDateFilter}
+        `);
+        const presentes = Number(freqResult.rows?.[0]?.presentes || 0);
+        const totalReg = Number(freqResult.rows?.[0]?.total_registros || 0);
+        frequencia = totalReg > 0 ? Math.round((presentes / totalReg) * 100) : 0;
+      } catch (e) {
+        console.error("Error fetching frequencia inclusao:", e);
+      }
+
+      let formados = 0;
+      let evasaoCount = 0;
+      try {
+        const formadosDateFilter = mes > 0
+          ? sql`AND EXTRACT(YEAR FROM ti.data_fim) = ${ano} AND EXTRACT(MONTH FROM ti.data_fim) = ${mes}`
+          : sql`AND EXTRACT(YEAR FROM ti.data_fim) = ${ano}`;
+        const formadosResult = await db.execute(sql`
+          SELECT 
+            COUNT(CASE WHEN pt.status = 'concluido' OR pt.status = 'formado' THEN 1 END) as formados_cnt
+          FROM participantes_turmas pt
+          JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+          WHERE (ti.status = 'finalizado' OR ti.status = 'concluido')
+          ${formadosDateFilter}
+        `);
+        formados = Number(formadosResult.rows?.[0]?.formados_cnt || 0);
+
+        // Evasão = alunos removidos de turmas com motivo_desligamento = 'Desistência'
+        const evasaoDateFilter = mes > 0
+          ? sql`AND EXTRACT(YEAR FROM pt.data_desligamento) = ${ano} AND EXTRACT(MONTH FROM pt.data_desligamento) = ${mes}`
+          : sql`AND EXTRACT(YEAR FROM pt.data_desligamento) = ${ano}`;
+        const evasaoResult = await db.execute(sql`
+          SELECT COUNT(*) as evasao_cnt
+          FROM participantes_turmas pt
+          WHERE pt.motivo_desligamento = 'Desistência'
+          AND pt.data_desligamento IS NOT NULL
+          ${evasaoDateFilter}
+        `);
+        evasaoCount = Number(evasaoResult.rows?.[0]?.evasao_cnt || 0);
+      } catch (e) {
+        console.error("Error fetching formados inclusao:", e);
+      }
+
+      if (formados === 0) {
+        try {
+          const formadosAlt = await db.execute(sql`SELECT count(*) as cnt FROM participantes_inclusao WHERE status = 'concluido' OR status = 'formado'`);
+          formados = Number(formadosAlt.rows?.[0]?.cnt || 0);
+        } catch (e) {}
+      }
+
+      let horasAula = 0;
+      try {
+        const horasDateFilter = mes > 0
+          ? sql`AND EXTRACT(YEAR FROM pi2.data) = ${ano} AND EXTRACT(MONTH FROM pi2.data) = ${mes}`
+          : sql`AND EXTRACT(YEAR FROM pi2.data) = ${ano}`;
+        const horasResult = await db.execute(sql`
+          SELECT 
+            pi2.turma_id,
+            pi2.data,
+            COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+            ti.horario_entrada,
+            ti.horario_saida
+          FROM presencas_inclusao pi2
+          JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+          WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+          ${horasDateFilter}
+          GROUP BY pi2.turma_id, pi2.data, ti.horario_entrada, ti.horario_saida
+        `);
+        for (const row of (horasResult.rows || [])) {
+          const entrada = row.horario_entrada as string;
+          const saida = row.horario_saida as string;
+          const presentes = Number(row.presentes_count || 0);
+          if (entrada && saida && presentes > 0) {
+            const [hE, mE] = String(entrada).split(':').map(Number);
+            const [hS, mS] = String(saida).split(':').map(Number);
+            const diffMinutes = (hS * 60 + mS) - (hE * 60 + mE);
+            if (diffMinutes > 0) {
+              horasAula += presentes * (diffMinutes / 60);
+            }
+          }
+        }
+        horasAula = Math.round(horasAula);
+      } catch (e) {
+        console.error("Error fetching horas aula inclusao:", e);
+      }
+
+      const evasao = (formados + evasaoCount) > 0
+        ? Math.round((evasaoCount / (formados + evasaoCount)) * 100)
+        : (total > 0 ? Math.round((inativos / total) * 100) : 0);
+
+      // Atendimentos inclusão = total de presenças individuais presentes (cada aluno presente em cada aula = 1 atendimento)
+      let totalPresencasInclusao = 0;
+      try {
+        const presDateFilter = mes > 0
+          ? `AND EXTRACT(YEAR FROM pi.data) = ${ano} AND EXTRACT(MONTH FROM pi.data) = ${mes}`
+          : `AND EXTRACT(YEAR FROM pi.data) = ${ano}`;
+        const presResult = await pool.query(`
+          SELECT COUNT(*) as cnt
+          FROM presencas_inclusao pi
+          WHERE pi.presente = true
+            ${presDateFilter}
+        `);
+        totalPresencasInclusao = Number(presResult.rows?.[0]?.cnt || 0);
+      } catch (e) {
+        console.error("Error fetching totalPresencas inclusao:", e);
+      }
+
+      // Alimentação = total de presentes em chamadas onde teve_alimentacao = true (1 lanche por aluno presente)
+      let alimentacaoInclusao = 0;
+      try {
+        const alimentDateFilter = mes > 0
+          ? `AND EXTRACT(YEAR FROM pi.data) = ${ano} AND EXTRACT(MONTH FROM pi.data) = ${mes}`
+          : `AND EXTRACT(YEAR FROM pi.data) = ${ano}`;
+        const alimentResult = await pool.query(`
+          SELECT COUNT(*) as cnt
+          FROM presencas_inclusao pi
+          WHERE pi.presente = true
+            AND pi.teve_alimentacao = true
+            ${alimentDateFilter}
+        `);
+        alimentacaoInclusao = Number(alimentResult.rows?.[0]?.cnt || 0);
+      } catch (e) {
+        console.error("Error fetching alimentacao inclusao:", e);
+      }
+
+      // Atendidos = CPFs distintos de participantes que fizeram ao menos 1 curso (turma de inclusão)
+      // 1 aluno com 3 cursos = 1 atendido (conta pelo CPF único)
+      let atendimentos = 0;
+      try {
+        const atendResult = await db.execute(sql`
+          SELECT COUNT(DISTINCT pi.cpf) as cnt
+          FROM participantes_inclusao pi
+          JOIN participantes_turmas pt ON pt.participante_id = pi.id
+          JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+          WHERE pi.cpf IS NOT NULL AND pi.cpf != ''
+        `);
+        atendimentos = Number(atendResult.rows?.[0]?.cnt || 0);
+      } catch (e) {
+        console.error("Error fetching atendimentos inclusao:", e);
+      }
+
+      // Geração de Renda: total e breakdown empregabilidade vs empreendedorismo
+      let geracaoRenda = { total: 0, empregabilidade: 0, empreendedorismo: 0 };
+      try {
+        const geracaoResult = await db.execute(sql`
+          SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN tipo = 'empregabilidade' THEN 1 END) as empregabilidade,
+            COUNT(CASE WHEN tipo = 'empreendedorismo' THEN 1 END) as empreendedorismo
+          FROM inclusao_geracao_de_renda
+          WHERE status != 'inativo' OR status IS NULL
+        `);
+        geracaoRenda = {
+          total: Number(geracaoResult.rows?.[0]?.total || 0),
+          empregabilidade: Number(geracaoResult.rows?.[0]?.empregabilidade || 0),
+          empreendedorismo: Number(geracaoResult.rows?.[0]?.empreendedorismo || 0),
+        };
+      } catch (e) {
+        console.error("Error fetching geracaoRenda:", e);
+      }
+
+      // Alunos ativos = participantes com status 'ativo' no sistema
+      let alunosAtivosReal = 0;
+      try {
+        const ativosResult = await db.execute(sql`SELECT COUNT(*) as cnt FROM participantes_inclusao WHERE status = 'ativo'`);
+        alunosAtivosReal = Number(ativosResult.rows?.[0]?.cnt || 0);
+      } catch (e) {}
+
+      res.json({
+        totalAlunos: alunosAtivosReal,
+        alunosAtivos: alunosAtivosReal,
+        alunosInativos: inativos,
+        horasAula,
+        evasao,
+        frequenciaMedia: frequencia,
+        alunosFormados: formados,
+        atendimentos,
+        totalPresencas: totalPresencasInclusao,
+        alimentacao: alimentacaoInclusao,
+        geracaoRenda,
+        nps: 0,
+        porPrograma,
+        porGenero: Object.entries(generoMap).map(([name, value]) => ({ name, value })),
+        porFaixaEtaria: Object.entries(faixaEtariaMap).filter(([_, v]) => v > 0).map(([name, value]) => ({ name, value })),
+        porRacaCor: Object.entries(corRacaMap).map(([name, value]) => ({ name, value })),
+      });
+    } catch (error: any) {
+      console.error("Error in coordenador dashboard demografico inclusao:", error);
+      res.status(500).json({ error: "Erro ao carregar dados demográficos da inclusão" });
+    }
+  });
+
+  // ─── Dashboard Demográfico Psicossocial ────────────────────────────────────
+  app.get("/api/coordenador/dashboard-demografico-psico", requireAuth, requireRole(['coordenador_psico', 'leo', 'admin']), async (req, res) => {
+    try {
+      const ano = req.query.ano ? Number(req.query.ano) : new Date().getFullYear();
+      const mes = req.query.mes ? Number(req.query.mes) : 0;
+
+      const startDate = mes > 0
+        ? `${ano}-${String(mes).padStart(2,'0')}-01`
+        : `${ano}-01-01`;
+      const nextDate = mes > 0
+        ? (mes === 12 ? `${ano+1}-01-01` : `${ano}-${String(mes+1).padStart(2,'0')}-01`)
+        : `${ano+1}-01-01`;
+
+      // Total atendimentos — mesma fonte do monitor: registros_confidenciais por tipo
+      const [rcAtendInd, rcVisitas, rcColetivo, rcEncam, rcSitRisco, deRes] = await Promise.all([
+        pool.query(`SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'atendimento_individual'  AND data::date >= $1 AND data::date < $2`, [startDate, nextDate]),
+        pool.query(`SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'visita_domiciliar'       AND data::date >= $1 AND data::date < $2`, [startDate, nextDate]),
+        pool.query(`SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'atendimento_coletivo'   AND data::date >= $1 AND data::date < $2`, [startDate, nextDate]),
+        pool.query(`SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'encaminhamento'         AND data::date >= $1 AND data::date < $2`, [startDate, nextDate]),
+        pool.query(`SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'situacao_risco'         AND data::date >= $1 AND data::date < $2`, [startDate, nextDate]),
+        pool.query(`SELECT COUNT(*) as total FROM demandas_espontaneas WHERE data_atendimento::date >= $1 AND data_atendimento::date < $2`, [startDate, nextDate]),
+      ]);
+
+      const totalAtendimentosIndividuais = Number(rcAtendInd.rows[0].total || 0);
+      const totalVisitasDomiciliares      = Number(rcVisitas.rows[0].total  || 0);
+      const totalAtendimentosColetivosRC  = Number(rcColetivo.rows[0].total || 0);
+      const totalEncaminhamentos          = Number(rcEncam.rows[0].total    || 0);
+      const totalSituacaoRisco            = Number(rcSitRisco.rows[0].total || 0);
+      const totalDemandasEspontaneas      = Number(deRes.rows[0].total      || 0);
+      // "Atendimentos" do coordenador = atendimentos individuais (mesma lógica do monitor)
+      const totalAtendimentos = totalAtendimentosIndividuais;
+
+      // Pessoas únicas atendidas no período — por CPF quando disponível, ou por nome
+      const pessoasRes = await pool.query(`
+        SELECT COUNT(DISTINCT COALESCE(NULLIF(participante_cpf,''), participante_nome)) as cnt
+        FROM registros_confidenciais
+        WHERE data::date >= $1 AND data::date < $2
+          AND (participante_cpf IS NOT NULL OR participante_nome IS NOT NULL)
+          AND COALESCE(NULLIF(participante_cpf,''), participante_nome) IS NOT NULL
+      `, [startDate, nextDate]);
+      const totalPessoas = Number(pessoasRes.rows[0].cnt || 0);
+
+      // Famílias cadastradas
+      const familiasRes = await pool.query(`SELECT COUNT(*) as total FROM psico_familias`);
+      const totalFamilias = Number(familiasRes.rows[0].total || 0);
+
+      // Visitas domiciliares — já calculado acima via rcVisitas
+      const totalVisitas = totalVisitasDomiciliares;
+
+      // Casos
+      const casosAbertosRes = await pool.query(`SELECT COUNT(*) as total FROM psico_casos WHERE status = 'aberto'`);
+      const casosAbertos = Number(casosAbertosRes.rows[0].total || 0);
+      const casosEncerradosRes = await pool.query(`
+        SELECT COUNT(*) as total FROM psico_casos
+        WHERE status = 'encerrado' AND data_encerramento::date >= $1 AND data_encerramento::date < $2
+      `, [startDate, nextDate]);
+      const casosEncerrados = Number(casosEncerradosRes.rows[0].total || 0);
+      const totalCasosRes = await pool.query(`SELECT COUNT(*) as total FROM psico_casos`);
+      const totalCasos = Number(totalCasosRes.rows[0].total || 0);
+      const taxaResolutividade = totalCasos > 0 ? Math.round((casosEncerrados / totalCasos) * 100) : 0;
+
+      // Breakdown por tipo de registro
+      const tiposRes = await pool.query(`
+        SELECT tipo, COUNT(*) as cnt
+        FROM registros_confidenciais
+        WHERE data::date >= $1 AND data::date < $2
+        GROUP BY tipo ORDER BY cnt DESC
+      `, [startDate, nextDate]);
+      const porPrograma = tiposRes.rows.map((r: any) => ({
+        name: r.tipo.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        value: Number(r.cnt),
+      }));
+
+      // Todas as contagens por tipo já foram feitas via Promise.all acima
+      // Atendimentos Coletivos e Espaço O Grito — apenas registros_confidenciais (mesma fonte do monitor)
+      const espacoOGritoRes = await pool.query(
+        `SELECT COUNT(*) as total FROM registros_confidenciais WHERE tipo = 'espaco_o_grito' AND data::date >= $1 AND data::date < $2`,
+        [startDate, nextDate]
+      );
+      const totalAtendimentosColetivos = totalAtendimentosColetivosRC;
+      const totalEspacoOGrito = Number(espacoOGritoRes.rows[0]?.total || 0);
+
+      res.json({
+        totalAlunos: totalPessoas,
+        alunosAtivos: totalPessoas,
+        alunosInativos: 0,
+        horasAula: totalAtendimentos,
+        frequenciaMedia: taxaResolutividade,
+        evasao: 0,
+        alunosFormados: casosEncerrados,
+        nps: 0,
+        psicoFamilias: totalFamilias,
+        psicoCasos: casosAbertos,
+        visitasDomiciliares: totalVisitas,
+        atendimentos: totalAtendimentos,
+        demandasEspontaneas: totalDemandasEspontaneas,
+        atendimentosColetivos: totalAtendimentosColetivos,
+        espacoOGrito: totalEspacoOGrito,
+        porPrograma,
+        porGenero: [],
+        porFaixaEtaria: [],
+        porRacaCor: [],
+      });
+    } catch (error: any) {
+      console.error("Error in coordenador dashboard demografico psico:", error);
+      res.status(500).json({ error: "Erro ao carregar dados demográficos psicossociais" });
+    }
+  });
+
+
+    // Alterar senha do coordenador
  app.post(
   "/api/coordenador/alterar-senha",
   requireCoordinatorAuth, // ✅ TROCOU AQUI
@@ -20702,6 +23955,309 @@ app.put(
   }
 );
 
+  // ================ COORDENADOR - GERENCIAR PROFESSORES ================
+
+  // Auto-create professor_turmas table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS professor_turmas (
+      id SERIAL PRIMARY KEY,
+      professor_id INTEGER NOT NULL,
+      turma_id INTEGER NOT NULL,
+      turma_tipo TEXT NOT NULL,
+      cor TEXT,
+      icone TEXT,
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(professor_id, turma_id, turma_tipo)
+    )
+  `);
+  // Add cor/icone columns if they don't exist
+  await pool.query(`ALTER TABLE professor_turmas ADD COLUMN IF NOT EXISTS cor TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE professor_turmas ADD COLUMN IF NOT EXISTS icone TEXT`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS psico_atendidos_comunidade (
+    id SERIAL PRIMARY KEY,
+    nome TEXT NOT NULL,
+    cpf TEXT,
+    data_nascimento DATE,
+    telefone TEXT,
+    endereco TEXT,
+    observacoes TEXT,
+    coordenador_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`).catch(() => {});
+
+  // GET /api/coordenador/professores - List professors by programa
+  app.get("/api/coordenador/professores", async (req, res) => {
+    try {
+      const programa = req.query.programa as string;
+      if (!programa) return res.status(400).json({ error: "Programa é obrigatório" });
+
+      const result = await pool.query(
+        `SELECT id, nome, email, programa, ativo, data_admissao, created_at
+         FROM professores
+         WHERE programa = $1
+         ORDER BY nome ASC`,
+        [programa]
+      );
+
+      const profs = result.rows || [];
+
+      const profsComTurmas = await Promise.all(profs.map(async (p: any) => {
+        const turmasResult = await pool.query(
+          `SELECT pt.turma_id, pt.turma_tipo,
+            CASE
+              WHEN pt.turma_tipo = 'inclusao' THEN (SELECT nome FROM turmas_inclusao WHERE id = pt.turma_id)
+              WHEN pt.turma_tipo = 'pec' THEN (SELECT title FROM activity_instances WHERE id = pt.turma_id)
+            END as turma_nome
+           FROM professor_turmas pt
+           WHERE pt.professor_id = $1`,
+          [p.id]
+        );
+        return { ...p, turmas: turmasResult.rows || [] };
+      }));
+
+      res.json(profsComTurmas);
+    } catch (error: any) {
+      console.error("❌ [GET /api/coordenador/professores] Erro:", error);
+      res.status(500).json({ error: "Erro ao listar professores" });
+    }
+  });
+
+  // POST /api/coordenador/professores - Create professor
+  app.post("/api/coordenador/professores", express.json(), async (req, res) => {
+    try {
+      const { nome, email, senha, telefone, programa } = req.body;
+
+      if (!nome?.trim()) return res.status(400).json({ error: "Nome é obrigatório" });
+      if (!email?.trim()) return res.status(400).json({ error: "Email é obrigatório" });
+      if (!senha?.trim()) return res.status(400).json({ error: "Senha é obrigatória" });
+      if (!programa?.trim()) return res.status(400).json({ error: "Programa é obrigatório" });
+
+      if (senha.length < 6) return res.status(400).json({ error: "Senha deve ter pelo menos 6 caracteres" });
+
+      const existing = await pool.query(
+        'SELECT id FROM professores WHERE email = $1 AND programa = $2',
+        [email.toLowerCase().trim(), programa]
+      );
+
+      if (existing.rows.length > 0) {
+        return res.status(400).json({ error: "Já existe um professor com este email neste programa" });
+      }
+
+      const passwordHash = await bcrypt.hash(senha, 10);
+
+      const redirectPath = programa === 'pec' ? '/professor/pec' : '/professor/inclusao';
+
+      const result = await pool.query(
+        `INSERT INTO professores (nome, email, password_hash, programa, redirect_path, ativo)
+         VALUES ($1, $2, $3, $4, $5, true)
+         RETURNING id, nome, email, programa, ativo, created_at`,
+        [nome.trim(), email.toLowerCase().trim(), passwordHash, programa, redirectPath]
+      );
+
+      console.log(`✅ [COORDENADOR] Professor criado: ${nome} (${email}) - ${programa}`);
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("❌ [POST /api/coordenador/professores] Erro:", error);
+      res.status(500).json({ error: "Erro ao criar professor" });
+    }
+  });
+
+  // PATCH /api/coordenador/professores/:id - Update professor (email, nome, telefone)
+  app.patch("/api/coordenador/professores/:id", express.json(), async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.id);
+      const { nome, email, telefone, ativo } = req.body;
+
+      const prof = await pool.query('SELECT * FROM professores WHERE id = $1', [professorId]);
+      if (!prof.rows.length) return res.status(404).json({ error: "Professor não encontrado" });
+
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIdx = 1;
+
+      if (nome !== undefined) { updates.push(`nome = $${paramIdx++}`); values.push(nome.trim()); }
+      if (email !== undefined) {
+        const existing = await pool.query(
+          'SELECT id FROM professores WHERE email = $1 AND programa = $2 AND id != $3',
+          [email.toLowerCase().trim(), prof.rows[0].programa, professorId]
+        );
+        if (existing.rows.length > 0) return res.status(400).json({ error: "Email já em uso por outro professor" });
+        updates.push(`email = $${paramIdx++}`);
+        values.push(email.toLowerCase().trim());
+      }
+      if (ativo !== undefined) { updates.push(`ativo = $${paramIdx++}`); values.push(ativo); }
+
+      updates.push(`updated_at = CURRENT_TIMESTAMP`);
+      values.push(professorId);
+
+      await pool.query(
+        `UPDATE professores SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+        values
+      );
+
+      const updated = await pool.query(
+        'SELECT id, nome, email, programa, ativo, created_at FROM professores WHERE id = $1',
+        [professorId]
+      );
+
+      console.log(`✅ [COORDENADOR] Professor atualizado: id=${professorId}`);
+      res.json(updated.rows[0]);
+    } catch (error: any) {
+      console.error("❌ [PATCH /api/coordenador/professores] Erro:", error);
+      res.status(500).json({ error: "Erro ao atualizar professor" });
+    }
+  });
+
+  // PATCH /api/coordenador/professores/:id/senha - Change professor password
+  app.patch("/api/coordenador/professores/:id/senha", express.json(), async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.id);
+      const { novaSenha } = req.body;
+
+      if (!novaSenha || novaSenha.length < 6) {
+        return res.status(400).json({ error: "Nova senha deve ter pelo menos 6 caracteres" });
+      }
+
+      const prof = await pool.query('SELECT id FROM professores WHERE id = $1', [professorId]);
+      if (!prof.rows.length) return res.status(404).json({ error: "Professor não encontrado" });
+
+      const passwordHash = await bcrypt.hash(novaSenha, 10);
+      await pool.query('UPDATE professores SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [passwordHash, professorId]);
+
+      console.log(`✅ [COORDENADOR] Senha do professor alterada: id=${professorId}`);
+      res.json({ success: true, message: "Senha alterada com sucesso" });
+    } catch (error: any) {
+      console.error("❌ [PATCH /api/coordenador/professores/:id/senha] Erro:", error);
+      res.status(500).json({ error: "Erro ao alterar senha" });
+    }
+  });
+
+  // DELETE /api/coordenador/professores/:id - Deactivate professor
+  app.delete("/api/coordenador/professores/:id", async (req, res) => {
+    try {
+      const professorId = parseInt(req.params.id);
+
+      const prof = await pool.query('SELECT id FROM professores WHERE id = $1', [professorId]);
+      if (!prof.rows.length) return res.status(404).json({ error: "Professor não encontrado" });
+
+      await pool.query('UPDATE professores SET ativo = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [professorId]);
+      await pool.query('DELETE FROM professor_turmas WHERE professor_id = $1', [professorId]);
+
+      console.log(`✅ [COORDENADOR] Professor desativado: id=${professorId}`);
+      res.json({ success: true, message: "Professor desativado com sucesso" });
+    } catch (error: any) {
+      console.error("❌ [DELETE /api/coordenador/professores] Erro:", error);
+      res.status(500).json({ error: "Erro ao desativar professor" });
+    }
+  });
+
+  // POST /api/coordenador/professor-turmas - Link professor to turma
+  app.post("/api/coordenador/professor-turmas", express.json(), async (req, res) => {
+    try {
+      const { professorId, turmaId, turmaTipo, cor, icone } = req.body;
+      if (!professorId || !turmaId || !turmaTipo) {
+        return res.status(400).json({ error: "professorId, turmaId e turmaTipo são obrigatórios" });
+      }
+
+      await pool.query(
+        `INSERT INTO professor_turmas (professor_id, turma_id, turma_tipo, cor, icone)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (professor_id, turma_id, turma_tipo) DO UPDATE SET cor = EXCLUDED.cor, icone = EXCLUDED.icone`,
+        [professorId, turmaId, turmaTipo, cor || null, icone || null]
+      );
+
+      console.log(`✅ [COORDENADOR] Professor ${professorId} vinculado à turma ${turmaId} (${turmaTipo})`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ [POST /api/coordenador/professor-turmas] Erro:", error);
+      res.status(500).json({ error: "Erro ao vincular professor" });
+    }
+  });
+
+  // DELETE /api/coordenador/professor-turmas - Unlink professor from turma
+  app.delete("/api/coordenador/professor-turmas", express.json(), async (req, res) => {
+    try {
+      const { professorId, turmaId, turmaTipo } = req.body;
+      if (!professorId || !turmaId || !turmaTipo) {
+        return res.status(400).json({ error: "professorId, turmaId e turmaTipo são obrigatórios" });
+      }
+
+      await pool.query(
+        'DELETE FROM professor_turmas WHERE professor_id = $1 AND turma_id = $2 AND turma_tipo = $3',
+        [professorId, turmaId, turmaTipo]
+      );
+
+      console.log(`✅ [COORDENADOR] Professor ${professorId} desvinculado da turma ${turmaId} (${turmaTipo})`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ [DELETE /api/coordenador/professor-turmas] Erro:", error);
+      res.status(500).json({ error: "Erro ao desvincular professor" });
+    }
+  });
+
+  // GET /api/coordenador/professor-turmas/:turmaId - Get professors linked to a turma
+  app.get("/api/coordenador/professor-turmas/:turmaId", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const turmaTipo = req.query.tipo as string || 'pec';
+
+      const result = await pool.query(
+        `SELECT pt.professor_id, pt.turma_id, pt.turma_tipo, pt.cor, pt.icone,
+                p.nome, p.email
+         FROM professor_turmas pt
+         JOIN professores p ON p.id = pt.professor_id
+         WHERE pt.turma_id = $1 AND pt.turma_tipo = $2 AND p.ativo = true`,
+        [turmaId, turmaTipo]
+      );
+
+      res.json(result.rows || []);
+    } catch (error: any) {
+      console.error("❌ [GET /api/coordenador/professor-turmas/:turmaId] Erro:", error);
+      res.status(500).json({ error: "Erro ao listar professores da turma" });
+    }
+  });
+
+  // PUT /api/coordenador/professor-turmas/:turmaId - Update all professors for a turma
+  app.put("/api/coordenador/professor-turmas/:turmaId", express.json(), async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const { professorIds, professores, turmaTipo } = req.body;
+      if (!turmaTipo) return res.status(400).json({ error: "turmaTipo é obrigatório" });
+
+      await pool.query(
+        'DELETE FROM professor_turmas WHERE turma_id = $1 AND turma_tipo = $2',
+        [turmaId, turmaTipo]
+      );
+
+      // Support both formats: simple array of IDs or array of objects with cor/icone
+      const profsToInsert: Array<{ id: number; cor?: string; icone?: string }> = [];
+      if (Array.isArray(professores) && professores.length > 0) {
+        professores.forEach((p: any) => profsToInsert.push({ id: p.id || p.professorId, cor: p.cor || null, icone: p.icone || null }));
+      } else if (Array.isArray(professorIds) && professorIds.length > 0) {
+        professorIds.forEach((pid: number) => profsToInsert.push({ id: pid }));
+      }
+
+      if (profsToInsert.length > 0) {
+        const insertValues = profsToInsert.map((_: any, i: number) =>
+          `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5})`
+        ).join(', ');
+        const insertParams = profsToInsert.flatMap((p) => [p.id, turmaId, turmaTipo, p.cor || null, p.icone || null]);
+
+        await pool.query(
+          `INSERT INTO professor_turmas (professor_id, turma_id, turma_tipo, cor, icone) VALUES ${insertValues}
+           ON CONFLICT (professor_id, turma_id, turma_tipo) DO UPDATE SET cor = EXCLUDED.cor, icone = EXCLUDED.icone`,
+          insertParams
+        );
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ [PUT /api/coordenador/professor-turmas/:turmaId] Erro:", error);
+      res.status(500).json({ error: "Erro ao atualizar professores da turma" });
+    }
+  });
+
   // ================ LOGIN DE MONITOR ================
  app.post("/api/login/monitor", express.json(), async (req, res) => {
   try {
@@ -20743,57 +24299,92 @@ app.put(
       return res.status(401).json({ error: "Email ou senha incorretos" });
     }
 
-    let role = "monitor";
-    switch (monitor.programa) {
-      case "pec": role = "monitor_pec"; break;
-      case "inclusao_produtiva": role = "monitor_inclusao"; break;
-      case "psicossocial": role = "monitor_psico"; break;
-    }
+      let role = "monitor";
+      switch (monitor.programa) {
+        case "pec": role = "monitor_pec"; break;
+        case "inclusao_produtiva": role = "monitor_inclusao"; break;
+        case "psicossocial": role = "monitor_psico"; break;
+      }
 
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, normalizedEmail))
-      .limit(1);
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, normalizedEmail))
+        .limit(1);
 
-    let userId: number;
+      let userId: number;
 
-    if (existingUser?.length) {
-      await db
-        .update(users)
-        .set({ nome: monitor.nome, role, ativo: true, tipo: "monitor" })
-        .where(eq(users.id, existingUser[0].id));
+      if (existingUser?.length) {
+        await db
+          .update(users)
+          .set({ nome: monitor.nome, role, ativo: true, tipo: "monitor" })
+          .where(eq(users.id, existingUser[0].id));
 
-      userId = existingUser[0].id;
-    } else {
-      const newUser = await db
-        .insert(users)
-        .values({
-          email: normalizedEmail,
-          nome: monitor.nome,
-          telefone: monitor.telefone || "",
-          role,
-          ativo: true,
-          tipo: "monitor",
-          verificado: true,
-        })
-        .returning();
+        userId = existingUser[0].id;
+      } else {
+        const newUser = await db
+          .insert(users)
+          .values({
+            email: normalizedEmail,
+            nome: monitor.nome,
+            telefone: monitor.telefone || "",
+            role,
+            ativo: true,
+            tipo: "monitor",
+            verificado: true,
+          })
+          .returning();
 
-      userId = newUser[0].id;
-    }
+        userId = newUser[0].id;
+      }
 
-    return res.json({
-      success: true,
-      monitor: {
-        id: monitor.id,
+      /** ✅ CRIA/ATUALIZA SESSÃO DE MONITOR (ISOLA DE COORDENADOR) **/
+      (req.session as any).user = {
+        id: userId,                 // users.id
+        role,                       // monitor_inclusao | monitor_pec | monitor
+        tipo: "monitor",
+        email: normalizedEmail,
         nome: monitor.nome,
-        email: monitor.email,
-        programa: monitor.programa,
-        role,
-        redirectPath: monitor.redirectPath || "/monitor",
-      },
-      userId,
-    });
+        monitorId: monitor.id,      // monitores.id
+        programa: monitor.programa, // pec | inclusao_produtiva | psicossocial
+      };
+
+      // ✅ Se você usa sessão separada pra coordenador em algum lugar, limpa
+      (req.session as any).coordenador = null;
+
+      console.log(
+        `🔐 [MONITOR SESSION] Sessão criada: userId=${userId} role=${role} monitorId=${monitor.id}`
+      );
+
+      // ✅ Garante persistência do cookie de sessão antes de responder
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+
+      let redirectPath = "/monitor";
+
+      if (role === "monitor_pec") redirectPath = "/monitor/pec";
+      if (role === "monitor_inclusao") redirectPath = "/monitor/inclusao";
+      if (role === "monitor_psico") redirectPath = "/monitor/psico";
+
+      // ✅ se você quiser respeitar a coluna do banco quando existir:
+      const dbRedirect =
+        (monitor as any).redirect_path || (monitor as any).redirectPath;
+
+      redirectPath = dbRedirect || redirectPath;
+
+      return res.json({
+        success: true,
+        monitor: {
+          id: monitor.id,
+          nome: monitor.nome,
+          email: monitor.email,
+          programa: monitor.programa,
+          role,
+          redirectPath, // ✅ agora sempre vem preenchido
+        },
+        userId,
+      });
   } catch (error: any) {
     console.error("❌ [MONITOR LOGIN] Erro:", error?.stack || error);
     return res.status(500).json({ error: "Erro interno do servidor" });
@@ -20802,140 +24393,136 @@ app.put(
 
   // ==================== LOGIN DE DESENVOLVEDOR ====================
   // ==================== LOGIN DE PROFESSOR ====================
-  app.post("/api/login/professor", express.json(), async (req, res) => {
-    try {
-      const { email, senha, programa } = req.body;
+ app.post("/api/login/professor", express.json(), async (req, res) => {
+  try {
+    const { email, senha } = req.body;
 
-      if (!email || !email.trim()) {
-        return res.status(400).json({ error: "Email é obrigatório" });
-      }
-
-      if (!senha || !senha.trim()) {
-        return res.status(400).json({ error: "Senha é obrigatória" });
-      }
-
-      const PROGRAMAS_VALIDOS = ["pec", "inclusao_produtiva"];
-      if (!programa || !programa.trim()) {
-        return res.status(400).json({ error: "Selecione uma vertente" });
-      }
-
-      if (!PROGRAMAS_VALIDOS.includes(programa)) {
-        return res.status(400).json({ error: "Vertente inválida" });
-      }
-
-      console.log(`🔑 [PROFESSOR LOGIN] Tentativa de login: ${email} (programa: ${programa})`);
-
-      // Buscar professor na tabela professores por email E programa
-      const professorResult = await pool.query(
-        'SELECT * FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
-        [email.toLowerCase().trim(), programa]
-      );
-
-      if (!professorResult.rows || professorResult.rows.length === 0) {
-        console.log(`❌ [PROFESSOR LOGIN] Professor não encontrado: ${email} (programa: ${programa})`);
-        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
-      }
-
-      const professor = professorResult.rows[0];
-
-      // Verificar se professor está ativo
-      if (!professor.ativo) {
-        console.log(`❌ [PROFESSOR LOGIN] Professor desativado: ${email}`);
-        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
-      }
-
-      // Validar senha com bcrypt.compare
-      const senhaValida = await bcrypt.compare(senha, professor.password_hash);
-
-      if (!senhaValida) {
-        console.log(`❌ [PROFESSOR LOGIN] Senha incorreta para: ${email}`);
-        return res.status(401).json({ error: "Email, senha ou vertente incorretos" });
-      }
-
-      // Mapear programa do professor para role e redirectPath
-      let role: string;
-      let redirectPath: string;
-      switch (professor.programa) {
-        case 'pec':
-          role = 'professor_pec';
-          redirectPath = '/professor/pec';
-          break;
-        case 'inclusao_produtiva':
-          role = 'professor_inclusao';
-          redirectPath = '/professor/inclusao';
-          break;
-        case 'psicossocial':
-          role = 'professor_psico';
-          redirectPath = '/professor/psicossocial';
-          break;
-        default:
-          role = 'professor';
-          redirectPath = '/professor';
-      }
-
-      // Criar ou atualizar usuário na tabela users com email + programa único
-      const existingUser = await db
-        .select()
-        .from(users)
-        .where(and(eq(users.email, professor.email), eq(users.role, role)))
-        .limit(1);
-
-      let userId: number;
-
-      if (existingUser && existingUser.length > 0) {
-        await db
-          .update(users)
-          .set({
-            nome: professor.nome,
-            role: role,
-            ativo: true,
-            tipo: "professor",
-          })
-          .where(eq(users.id, existingUser[0].id));
-
-        userId = existingUser[0].id;
-        console.log(
-          `✅ [PROFESSOR LOGIN] Usuário atualizado: ${professor.nome} (ID: ${userId}, Role: ${role})`
-        );
-      } else {
-        const newUser = await db
-          .insert(users)
-          .values({
-            email: professor.email,
-            nome: professor.nome,
-            telefone: professor.telefone || "",
-            role: role,
-            ativo: true,
-            tipo: "professor",
-            verificado: true,
-          })
-          .returning();
-
-        userId = newUser[0].id;
-        console.log(
-          `✅ [PROFESSOR LOGIN] Novo usuário criado: ${professor.nome} (ID: ${userId}, Role: ${role})`
-        );
-      }
-
-      console.log(`✅ [PROFESSOR LOGIN] Login bem-sucedido: ${professor.nome} (ID: ${userId}, Programa: ${programa})`);
-
-      res.json({
-        success: true,
-        userId: userId,
-        professor: {
-          id: professor.id,
-          nome: professor.nome,
-          email: professor.email,
-          programa: professor.programa,
-          role: role,
-          redirectPath: redirectPath
-        }
-      });
-    } catch (error: any) {
-      console.error("❌ [PROFESSOR LOGIN] Erro:", error);
-      res.status(500).json({ error: "Erro interno no servidor" });
+    if (!email || !email.trim()) {
+      return res.status(400).json({ error: "Email é obrigatório" });
     }
-  });
+    if (!senha || !senha.trim()) {
+      return res.status(400).json({ error: "Senha é obrigatória" });
+    }
+
+    const emailNorm = email.toLowerCase().trim();
+
+    console.log(`🔑 [PROFESSOR LOGIN] Tentativa de login: ${emailNorm}`);
+
+    // Buscar professor por email (SEM programa)
+    const professorResult = await pool.query(
+      "SELECT * FROM professores WHERE lower(email) = $1 LIMIT 2",
+      [emailNorm]
+    );
+
+    if (!professorResult.rows || professorResult.rows.length === 0) {
+      console.log(`❌ [PROFESSOR LOGIN] Professor não encontrado: ${emailNorm}`);
+      return res.status(401).json({ error: "Email ou senha incorretos" });
+    }
+
+    // Proteção contra duplicidade de email
+    if (professorResult.rows.length > 1) {
+      console.log(`❌ [PROFESSOR LOGIN] Email duplicado em professores: ${emailNorm}`);
+      return res.status(409).json({ error: "Cadastro duplicado. Contate o Admin." });
+    }
+
+    const professor = professorResult.rows[0];
+
+    // Verificar se professor está ativo
+    if (!professor.ativo) {
+      console.log(`❌ [PROFESSOR LOGIN] Professor desativado: ${emailNorm}`);
+      return res.status(401).json({ error: "Email ou senha incorretos" });
+    }
+
+    // Validar senha
+    const senhaValida = await bcrypt.compare(senha.trim(), professor.password_hash);
+    if (!senhaValida) {
+      console.log(`❌ [PROFESSOR LOGIN] Senha incorreta: ${emailNorm}`);
+      return res.status(401).json({ error: "Email ou senha incorretos" });
+    }
+
+    // ✅ NOVA REGRA:
+    // role e redirectPath devem vir do CADASTRO (feito pelo coordenador)
+    // Se não tiver role na tabela professores ainda, cai no fallback por programa.
+    const role =
+      professor.role ||
+      (professor.programa === "pec"
+        ? "professor_pec"
+        : professor.programa === "inclusao_produtiva"
+        ? "professor_inclusao"
+        : professor.programa === "psicossocial"
+        ? "professor_psico"
+        : "professor");
+
+    const redirectPath =
+      professor.redirect_path ||
+      (role === "professor_pec"
+        ? "/professor/pec"
+        : role === "professor_inclusao"
+        ? "/professor/inclusao"
+        : role === "professor_psico"
+        ? "/professor/psicossocial"
+        : "/professor");
+
+    // (Opcional) manter user espelho em users — SEM TELEFONE!
+    // Importante: NUNCA inserir "" em telefone se houver unique.
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, professor.email), eq(users.role, role)))
+      .limit(1);
+
+    let userId: number;
+
+    if (existingUser && existingUser.length > 0) {
+      await db
+        .update(users)
+        .set({
+          nome: professor.nome,
+          role,
+          ativo: true,
+          tipo: "professor",
+        })
+        .where(eq(users.id, existingUser[0].id));
+
+      userId = existingUser[0].id;
+      console.log(`✅ [PROFESSOR LOGIN] Usuário atualizado (users): ${professor.nome} (ID: ${userId})`);
+    } else {
+      const newUser = await db
+        .insert(users)
+        .values({
+          email: professor.email,
+          nome: professor.nome,
+          telefone: null, // ✅ CRÍTICO: não usar ""!
+          role,
+          ativo: true,
+          tipo: "professor",
+          verificado: true,
+        })
+        .returning();
+
+      userId = newUser[0].id;
+      console.log(`✅ [PROFESSOR LOGIN] Usuário criado (users): ${professor.nome} (ID: ${userId})`);
+    }
+
+    console.log(`✅ [PROFESSOR LOGIN] Login OK: ${professor.nome} (userId: ${userId})`);
+
+    return res.json({
+      success: true,
+      userId,
+      professor: {
+        id: professor.id,
+        nome: professor.nome,
+        email: professor.email,
+        programa: professor.programa,
+        role,
+        redirectPath,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ [PROFESSOR LOGIN] Erro:", error);
+    return res.status(500).json({ error: "Erro interno no servidor" });
+  }
+});
 
   app.post("/api/login/developer", express.json(), async (req, res) => {
     try {
@@ -21017,9 +24604,6 @@ app.put(
         await db
           .update(users)
           .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
             nome: dev.nome,
             email: devEmail,
             telefone: devTelefone,
@@ -21057,9 +24641,7 @@ app.put(
       await db
         .update(developers)
         .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, ultimoAcesso: new Date() })
+          ultimoAcesso: new Date() })
         .where(eq(developers.id, dev.id));
 
       // Salvar na sessão
@@ -22369,162 +25951,262 @@ app.put(
     }
   );
 
-  // Sincronizar usuário com Stripe (buscar/criar customer e importar cartões)
-  app.post("/api/users/:userId/sync-stripe", async (req, res) => {
-    try {
-      const { userId } = req.params;
+ // Sincronizar usuário com Stripe (buscar/criar customer, importar cartões e sincronizar assinatura)
+app.post("/api/users/:userId/sync-stripe", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userIdNum = parseInt(userId);
 
-      console.log(
-        `🔄 [SYNC STRIPE] Sincronizando usuário ${userId} com Stripe`
+    console.log(`🔄 [SYNC STRIPE] Sincronizando usuário ${userId} com Stripe`);
+
+    // Buscar usuário no banco
+    const user = await storage.getUser(userIdNum);
+    if (!user) {
+      console.log(`❌ [SYNC STRIPE] Usuário ${userId} não encontrado`);
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+
+    // Garantir customerId
+    let customerId = user.stripeCustomerId;
+
+    if (!customerId) {
+      console.log(`🔍 [SYNC STRIPE] Buscando customer no Stripe por email: ${user.email}`);
+
+      const customers = await stripe.customers.list({
+        email: user.email,
+        limit: 10,
+      });
+
+      // Preferir customer com metadata.userId se existir
+      const byMeta = customers.data.find((c: any) =>
+        String(c.metadata?.userId || c.metadata?.user_id || "") === String(userIdNum)
       );
 
-      // Buscar usuário no banco
-      const user = await storage.getUser(parseInt(userId));
-      if (!user) {
-        console.log(`❌ [SYNC STRIPE] Usuário ${userId} não encontrado`);
-        return res.status(404).json({ error: "Usuário não encontrado" });
+      if (byMeta) {
+        customerId = byMeta.id;
+        console.log(`✅ [SYNC STRIPE] Customer encontrado por metadata: ${customerId}`);
+      } else if (customers.data.length > 0) {
+        customerId = customers.data[0].id;
+        console.log(`✅ [SYNC STRIPE] Customer existente encontrado: ${customerId}`);
+      } else {
+        console.log(`➕ [SYNC STRIPE] Criando novo customer no Stripe`);
+        const customer = await stripe.customers.create({
+          email: user.email || undefined,
+          name: user.nome || undefined,
+          phone: user.telefone || undefined,
+          metadata: {
+            userId: userIdNum.toString(),
+            source: "clube_do_grito",
+          },
+        });
+        customerId = customer.id;
+        console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
       }
 
-      // Se usuário não tem customer_id, criar ou buscar no Stripe
-      let customerId = user.stripeCustomerId;
+      await storage.updateUser(userIdNum, { stripeCustomerId: customerId });
+      console.log(`✅ [SYNC STRIPE] stripeCustomerId salvo no banco: ${customerId}`);
+    } else {
+      console.log(`ℹ️ [SYNC STRIPE] Usuário já possui customer_id: ${customerId}`);
 
-      // Se usuário não tem customer_id, criar ou buscar no Stripe
-      if (!customerId) {
-        console.log(
-          `🔍 [SYNC STRIPE] Buscando customer no Stripe por email: ${user.email}`
-        );
+      // Validar customerId
+      try {
+        await stripe.customers.retrieve(customerId);
+      } catch (err: any) {
+        if (err.code === "resource_missing" && err.param === "customer") {
+          console.warn(`⚠️ [SYNC STRIPE] Customer ${customerId} não existe mais. Recriando...`);
 
-        const customers = await stripe.customers.list({
-          email: user.email,
-          limit: 1,
-        });
+          await storage.updateUser(userIdNum, {
+            stripeCustomerId: null,
+            stripeSubscriptionId: null,
+          });
 
-        if (customers.data.length > 0) {
-          customerId = customers.data[0].id;
-          console.log(
-            `✅ [SYNC STRIPE] Customer existente encontrado: ${customerId}`
-          );
-        } else {
-          console.log(`➕ [SYNC STRIPE] Criando novo customer no Stripe`);
-          const customer = await stripe.customers.create({
+          const newCustomer = await stripe.customers.create({
             email: user.email || undefined,
             name: user.nome || undefined,
             phone: user.telefone || undefined,
             metadata: {
-              userId: userId.toString(),
+              userId: userIdNum.toString(),
               source: "clube_do_grito",
             },
           });
-          customerId = customer.id;
-          console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
-        }
 
-        await storage.updateUser(parseInt(userId), {
-          stripeCustomerId: customerId,
-        });
-        console.log(
-          `✅ [SYNC STRIPE] stripeCustomerId salvo no banco: ${customerId}`
-        );
-      } else {
-        console.log(
-          `ℹ️ [SYNC STRIPE] Usuário já possui customer_id: ${customerId}`
-        );
+          customerId = newCustomer.id;
 
-        // ⚠️ Validar se o customer ainda existe no Stripe
-        try {
-          await stripe.customers.retrieve(customerId);
-        } catch (err: any) {
-          if (err.code === "resource_missing" && err.param === "customer") {
-            console.warn(
-              `⚠️ [SYNC STRIPE] Customer ${customerId} não existe mais no Stripe. Recriando...`
-            );
-
-            // zera no banco para não ficar ID podre
-            await storage.updateUser(parseInt(userId), {
-              stripeCustomerId: null,
-              stripeSubscriptionId: null,
-            });
-
-            // cria um novo customer
-            const newCustomer = await stripe.customers.create({
-              email: user.email || undefined,
-              name: user.nome || undefined,
-              phone: user.telefone || undefined,
-              metadata: {
-                userId: userId.toString(),
-                source: "clube_do_grito",
-              },
-            });
-
-            customerId = newCustomer.id;
-            console.log(`✅ [SYNC STRIPE] Novo customer criado: ${customerId}`);
-
-            await storage.updateUser(parseInt(userId), {
-              stripeCustomerId: customerId,
-            });
-            console.log(
-              `✅ [SYNC STRIPE] stripeCustomerId atualizado no banco`
-            );
-          } else {
-            // outro tipo de erro: repassa pra ser tratado no catch geral
-            throw err;
-          }
+          await storage.updateUser(userIdNum, { stripeCustomerId: customerId });
+          console.log(`✅ [SYNC STRIPE] Customer recriado e atualizado no banco: ${customerId}`);
+        } else {
+          throw err;
         }
       }
-
-      // 🔐 A partir daqui, customerId é garantido válido
-      const paymentMethods = await stripe.paymentMethods.list({
-        customer: customerId,
-        type: "card",
-      });
-
-      console.log(
-        `📊 [SYNC STRIPE] ${paymentMethods.data.length} payment methods encontrados`
-      );
-
-      const customer = await stripe.customers.retrieve(customerId);
-      const defaultPaymentMethodId = (customer as any).invoice_settings
-        ?.default_payment_method;
-
-      // Filtrar duplicatas
-      const seenCards = new Map();
-      const sortedPaymentMethods = [...paymentMethods.data].sort((a, b) => {
-        if (a.id === defaultPaymentMethodId) return -1;
-        if (b.id === defaultPaymentMethodId) return 1;
-        return 0;
-      });
-
-      const uniquePaymentMethods = sortedPaymentMethods.filter((pm) => {
-        const visualKey = `${pm.card?.brand}-${pm.card?.last4}-${pm.card?.exp_month}-${pm.card?.exp_year}`;
-        if (seenCards.has(visualKey)) {
-          return false;
-        }
-        seenCards.set(visualKey, pm.id);
-        return true;
-      });
-
-      res.json({
-        success: true,
-        customerId,
-        paymentMethods: uniquePaymentMethods.map((pm) => ({
-          id: pm.id,
-          brand: pm.card?.brand,
-          last4: pm.card?.last4,
-          exp_month: pm.card?.exp_month,
-          exp_year: pm.card?.exp_year,
-          funding: pm.card?.funding,
-          isDefault: pm.id === defaultPaymentMethodId,
-        })),
-        message: `Customer ${customerId} sincronizado com sucesso. ${uniquePaymentMethods.length} cartões encontrados.`,
-      });
-    } catch (error: any) {
-      console.error(`❌ [SYNC STRIPE] Erro:`, error);
-      res.status(500).json({
-        success: false,
-        error: "Erro ao sincronizar com Stripe: " + error.message,
-      });
     }
-  });
+
+    // Buscar melhor subscription do customer e sincronizar dados de assinatura (destrava benefícios)
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      limit: 20,
+      expand: ["data.items.data.price"],
+    });
+
+    const pickBestSubscription = (arr: any[]) => {
+      const order: Record<string, number> = {
+        active: 1,
+        trialing: 2,
+        past_due: 3,
+        unpaid: 4,
+        incomplete: 5,
+        incomplete_expired: 6,
+        canceled: 9,
+      };
+
+      return arr
+        .slice()
+        .sort((a, b) => (order[a.status] ?? 99) - (order[b.status] ?? 99))[0];
+    };
+
+    const subscription = subs.data.length ? pickBestSubscription(subs.data) : null;
+
+    let subscriptionSummary: any = null;
+
+    if (subscription) {
+      const price = subscription.items?.data?.[0]?.price;
+      const priceAmount = price?.unit_amount || 0;
+      const valorNum = priceAmount / 100;
+
+      const interval = price?.recurring?.interval || "month";
+      const intervalCount = price?.recurring?.interval_count || 1;
+
+      let periodicidade = "mensal";
+      if (interval === "year") periodicidade = "anual";
+      else if (interval === "month" && intervalCount === 3) periodicidade = "trimestral";
+      else if (interval === "month" && intervalCount === 6) periodicidade = "semestral";
+      else periodicidade = "mensal";
+
+      let plano =
+        subscription.metadata?.plano ||
+        "eco";
+
+      // fallback por valor (se não tiver metadata)
+      if (!subscription.metadata?.plano) {
+        if (valorNum >= 50) plano = "platinum";
+        else if (valorNum >= 29.9) plano = "grito";
+        else if (valorNum >= 19.9) plano = "voz";
+        else plano = "eco";
+      }
+
+      const isActive = ["active", "trialing"].includes(subscription.status);
+      const isPastDue = subscription.status === "past_due";
+
+      let statusLocal: "paid" | "pending" | "cancelled" = "pending";
+      if (isActive) statusLocal = "paid";
+      else if (isPastDue) statusLocal = "pending";
+      else if (["canceled", "unpaid", "incomplete_expired"].includes(subscription.status)) statusLocal = "cancelled";
+
+      // Atualizar users (via storage, já que você usa storage aqui)
+      await storage.updateUser(userIdNum, {
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscription.id,
+        subscriptionStatus: subscription.status,
+        plano,
+        ativo: isActive,
+      });
+
+      // Upsert doadores pelo userId
+      const existingDoador = await db
+        .select()
+        .from(doadores)
+        .where(eq(doadores.userId, userIdNum))
+        .limit(1);
+
+      if (existingDoador.length > 0) {
+        await db
+          .update(doadores)
+          .set({
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: subscription.id,
+            plano,
+            valor: valorNum.toString(),
+            periodicidade,
+            status: statusLocal,
+            ativo: isActive,
+            ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+            updatedAt: new Date(),
+          })
+          .where(eq(doadores.id, existingDoador[0].id));
+      } else {
+        await db.insert(doadores).values({
+          userId: userIdNum,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id,
+          plano,
+          valor: valorNum.toString(),
+          periodicidade,
+          status: statusLocal,
+          ativo: isActive,
+          dataDoacaoInicial: new Date(subscription.created * 1000),
+          ultimaDoacao: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+          updatedAt: new Date(),
+        });
+      }
+
+      subscriptionSummary = {
+        subscriptionId: subscription.id,
+        statusStripe: subscription.status,
+        statusLocal,
+        plano,
+        periodicidade,
+        valor: valorNum,
+        currentPeriodEnd: subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000).toISOString()
+          : null,
+      };
+    }
+
+    // Puxar cartões (mantém como já estava)
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: "card",
+    });
+
+    const customer = await stripe.customers.retrieve(customerId);
+    const defaultPaymentMethodId = (customer as any).invoice_settings?.default_payment_method;
+
+    const seenCards = new Map();
+    const sortedPaymentMethods = [...paymentMethods.data].sort((a, b) => {
+      if (a.id === defaultPaymentMethodId) return -1;
+      if (b.id === defaultPaymentMethodId) return 1;
+      return 0;
+    });
+
+    const uniquePaymentMethods = sortedPaymentMethods.filter((pm) => {
+      const visualKey = `${pm.card?.brand}-${pm.card?.last4}-${pm.card?.exp_month}-${pm.card?.exp_year}`;
+      if (seenCards.has(visualKey)) return false;
+      seenCards.set(visualKey, pm.id);
+      return true;
+    });
+
+    res.json({
+      success: true,
+      customerId,
+      subscription: subscriptionSummary,
+      paymentMethods: uniquePaymentMethods.map((pm) => ({
+        id: pm.id,
+        brand: pm.card?.brand,
+        last4: pm.card?.last4,
+        exp_month: pm.card?.exp_month,
+        exp_year: pm.card?.exp_year,
+        funding: pm.card?.funding,
+        isDefault: pm.id === defaultPaymentMethodId,
+      })),
+      message: `Sincronização concluída. ${uniquePaymentMethods.length} cartões encontrados.`,
+    });
+  } catch (error: any) {
+    console.error(`❌ [SYNC STRIPE] Erro:`, error);
+    res.status(500).json({
+      success: false,
+      error: "Erro ao sincronizar com Stripe: " + error.message,
+    });
+  }
+});
 
   // Definir cartão como padrão/principal
   app.put("/api/users/:userId/default-payment-method", async (req, res) => {
@@ -22657,9 +26339,6 @@ app.put(
       const [updated] = await db
         .update(impactData)
         .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
           value,
           title,
           description,
@@ -23221,7 +26900,6 @@ app.put(
       const diaAtual = ((newStreak - 1) % 7) + 1;
       const gritosSeFizer = diaAtual === 7 ? 1000 : 100; // 100 por dia, 1000 no 7º dia
 
-    // Evita cache
     res.set({
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
       Pragma: "no-cache",
@@ -24446,70 +28124,70 @@ app.put(
     }
   });
 
-  app.get("/api/beneficios/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      // Rejeitar IDs não numéricos para evitar conflito com outras rotas
-      if (isNaN(parseInt(id))) {
-        return res.status(404).json({ error: "Benefício não encontrado" });
-      }
-      const beneficio = await storage.getBeneficio(parseInt(id));
+    app.get("/api/beneficios/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        // Rejeitar IDs não numéricos para evitar conflito com outras rotas
+        if (isNaN(parseInt(id))) {
+          return res.status(404).json({ error: "Benefício não encontrado" });
+        }
+        const beneficio = await storage.getBeneficio(parseInt(id));
 
-      if (!beneficio) {
-        return res.status(404).json({ error: "Benefício não encontrado" });
-      }
+        if (!beneficio) {
+          return res.status(404).json({ error: "Benefício não encontrado" });
+        }
 
-      // Buscar todas as imagens do benefício
-      const imagens = await storage.getBeneficioImagensByBeneficio(
-        parseInt(id)
-      );
+        // Buscar todas as imagens do benefício
+        const imagens = await storage.getBeneficioImagensByBeneficio(
+          parseInt(id)
+        );
 
-      const imagemCard = imagens.find(
-        (img: any) => (img.tipo ?? "").toLowerCase() === "card"
-      );
-      const imagemDetalhes = imagens.find(
-        (img: any) => (img.tipo ?? "").toLowerCase() === "detalhes"
-      );
-      const primary = imagemCard || imagens[0] || null;
+        const imagemCard = imagens.find(
+          (img: any) => (img.tipo ?? "").toLowerCase() === "card"
+        );
+        const imagemDetalhes = imagens.find(
+          (img: any) => (img.tipo ?? "").toLowerCase() === "detalhes"
+        );
+        const primary = imagemCard || imagens[0] || null;
 
-      const imagemApi = imagemCard
-        ? `/api/beneficios/${beneficio.id}/imagem?tipo=card`
-        : primary
-        ? `/api/beneficios/${beneficio.id}/imagem`
-        : null;
-
-      const ciclosPagamentoNormalizado =
-        (beneficio as any).ciclosPagamento ||
-        (beneficio as any).ciclos_pagamento ||
-        ["mensal"];
-
-     const beneficioComImagens = {
-        ...beneficio,
-        // ✅ NOVO: garante que o front sempre receba isso
-        ciclosPagamento: ciclosPagamentoNormalizado,
-
-        imagem: imagemApi, // 👈 compatibilidade + caminho certo
-        imagemCardUrl: imagemCard
+        const imagemApi = imagemCard
           ? `/api/beneficios/${beneficio.id}/imagem?tipo=card`
-          : null,
-        imagemDetalhesUrl: imagemDetalhes
-          ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes`
-          : null,
-        imagemUrl: primary ? `/api/beneficios/${beneficio.id}/imagem` : null,
-        _imagensInfo: imagens.map((img: any) => ({
-          id: img.id,
-          tipo: img.tipo ?? null,
-          largura: img.largura ?? null,
-          altura: img.altura ?? null,
-          tamanhoBytes: img.tamanhoBytes ?? img.tamanho_bytes ?? null,
-        })),
-      };
-      res.json(beneficioComImagens);
-    } catch (error) {
-      console.error("Error fetching beneficio:", error);
-      res.status(500).json({ error: "Erro interno do servidor" });
-    }
-  });
+          : primary
+          ? `/api/beneficios/${beneficio.id}/imagem`
+          : null;
+
+        const ciclosPagamentoNormalizado =
+          (beneficio as any).ciclosPagamento ||
+          (beneficio as any).ciclos_pagamento ||
+          ["mensal"];
+
+      const beneficioComImagens = {
+          ...beneficio,
+          // ✅ NOVO: garante que o front sempre receba isso
+          ciclosPagamento: ciclosPagamentoNormalizado,
+
+          imagem: imagemApi, // 👈 compatibilidade + caminho certo
+          imagemCardUrl: imagemCard
+            ? `/api/beneficios/${beneficio.id}/imagem?tipo=card`
+            : null,
+          imagemDetalhesUrl: imagemDetalhes
+            ? `/api/beneficios/${beneficio.id}/imagem?tipo=detalhes`
+            : null,
+          imagemUrl: primary ? `/api/beneficios/${beneficio.id}/imagem` : null,
+          _imagensInfo: imagens.map((img: any) => ({
+            id: img.id,
+            tipo: img.tipo ?? null,
+            largura: img.largura ?? null,
+            altura: img.altura ?? null,
+            tamanhoBytes: img.tamanhoBytes ?? img.tamanho_bytes ?? null,
+          })),
+        };
+        res.json(beneficioComImagens);
+      } catch (error) {
+        console.error("Error fetching beneficio:", error);
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    });
 
   // Criar novo benefício (dev-marketing)
   // TRECHO ALTERADO
@@ -27444,130 +31122,6 @@ app.put(
     }
   });
 
-  // ===== SINCRONIZAÇÃO COM STRIPE =====
-  // Buscar todos os pagamentos confirmados no Stripe e recriar registros
-  app.post("/api/admin/sync-stripe-payments", async (req, res) => {
-    try {
-      console.log("🔄 [STRIPE SYNC] Iniciando sincronização com Stripe...");
-
-      // Buscar TODOS os PaymentIntents (sem filtro de data para testar)
-      const paymentIntents = await stripe.paymentIntents.list({
-        limit: 100,
-        expand: ["data.charges"],
-      });
-
-      console.log(
-        `📋 [STRIPE SYNC] Encontrados ${paymentIntents.data.length} PaymentIntents nos últimos 30 dias`
-      );
-
-      let totalSyncronized = 0;
-      let totalConfirmed = 0;
-
-      for (const pi of paymentIntents.data) {
-        console.log(
-          `🔍 [STRIPE SYNC] Analisando PaymentIntent: ${pi.id} - Status: ${
-            pi.status
-          } - Amount: ${pi.amount / 100} - Metadata:`,
-          pi.metadata
-        );
-        console.log(
-          `🔍 [STRIPE SYNC] Status check: '${pi.status}' === 'succeeded' ? ${
-            pi.status === "succeeded"
-          }`
-        );
-
-        // Apenas processar pagamentos que foram confirmados
-        if (pi.status === "succeeded") {
-          totalConfirmed++;
-
-          // Extrair metadados do usuário do payment intent
-          const userId = pi.metadata?.userId;
-          const valor = pi.amount / 100; // Converter de centavos para reais
-
-          console.log(
-            `✅ [STRIPE SYNC] Payment confirmado: ${
-              pi.id
-            } - User: ${userId} - Valor: R$ ${valor.toFixed(2)}`
-          );
-
-          if (userId) {
-            console.log(
-              `🔍 [STRIPE SYNC] Processando userId: ${userId} (type: ${typeof userId})`
-            );
-            try {
-              // Verificar se já existe registro com este payment intent
-              const existingDonation = await db
-                .select()
-                .from(doadores)
-                .where(eq(doadores.stripePaymentIntentId, pi.id))
-                .limit(1);
-
-              console.log(
-                `🔍 [STRIPE SYNC] Existing donations found: ${existingDonation.length}`
-              );
-
-              if (existingDonation.length === 0) {
-                console.log(
-                  `💾 [STRIPE SYNC] Inserindo nova doação: User ${userId} - R$ ${valor.toFixed(
-                    2
-                  )}`
-                );
-
-                // Criar novo registro apenas se não existir
-                const newDonation = await db
-                  .insert(doadores)
-                  .values({
-                    userId: parseInt(userId),
-                    valor: valor,
-                    valorTotal: valorTotal,
-                    intervalCount: intervalCount,
-                    plano: pi.metadata?.plano || "eco", // Pegar plano dos metadados
-                    status: "paid", // ✅ Confirmado pelo Stripe
-                    ativo: true,
-                    stripePaymentIntentId: pi.id,
-                    createdAt: new Date(pi.created * 1000), // Converter timestamp do Stripe
-                  })
-                  .returning();
-
-                console.log(`✅ [STRIPE SYNC] Doação inserida:`, newDonation);
-
-                totalSyncronized++;
-                console.log(
-                  `✅ [STRIPE SYNC] Pagamento sincronizado: User ${userId} - R$ ${valor.toFixed(
-                    2
-                  )} - ${pi.id}`
-                );
-              } else {
-                console.log(`⏭️ [STRIPE SYNC] Pagamento já existe: ${pi.id}`);
-              }
-            } catch (error) {
-              console.error(
-                `❌ [STRIPE SYNC] Erro ao processar payment ${pi.id}:`,
-                error
-              );
-            }
-          } else {
-            console.log(`⚠️ [STRIPE SYNC] Payment sem userId: ${pi.id}`);
-          }
-        }
-      }
-
-      console.log(
-        `🎯 [STRIPE SYNC] Concluído: ${totalSyncronized} pagamentos sincronizados de ${totalConfirmed} confirmados`
-      );
-
-      res.json({
-        success: true,
-        message: `Sincronização concluída: ${totalSyncronized} pagamentos adicionados`,
-        totalConfirmed,
-        totalSyncronized,
-      });
-    } catch (error) {
-      console.error("❌ [STRIPE SYNC] Erro na sincronização:", error);
-      res.status(500).json({ error: "Erro ao sincronizar com Stripe" });
-    }
-  });
-
   // ===== ENDPOINTS DE LEILÕES DE PONTOS =====
 
   // Listar todos os leilões ativos
@@ -27691,9 +31245,6 @@ app.put(
       const [updated] = await db
         .update(users)
         .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
           termoLancesAceito: true,
           termoLancesAceitoEm: new Date(),
         })
@@ -27935,9 +31486,6 @@ app.put(
           await tx
             .update(beneficioLances)
             .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
               pontosOfertados: valorLance,
               updatedAt: sql`NOW() AT TIME ZONE 'UTC'`,
             })
@@ -27948,9 +31496,7 @@ app.put(
           await tx
             .update(users)
             .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, gritosTotal: novosGritos })
+          gritosTotal: novosGritos })
             .where(eq(users.id, userId));
 
           // Registrar no histórico (valor negativo para desconto da diferença)
@@ -28015,9 +31561,7 @@ app.put(
           await tx
             .update(users)
             .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, gritosTotal: novosGritos })
+          gritosTotal: novosGritos })
             .where(eq(users.id, userId));
 
           // Registrar no histórico (valor negativo para desconto)
@@ -28854,9 +32398,6 @@ app.put(
         await db
           .update(referrals)
           .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
             // Não existe campo cliques na tabela atual, mas podemos adicionar log
             updatedAt: sql`NOW()`,
           })
@@ -29382,9 +32923,6 @@ app.put(
         await db
           .update(referrals)
           .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
             referredUserId: parseInt(userId),
             status: "cadastrou",
             cadastrouEm: new Date(),
@@ -30787,7 +34325,8 @@ app.put(
       res.status(201).json(activity);
     } catch (error) {
       console.error("❌ Error creating activity:", error);
-      res.status(500).json({ error: "Erro ao criar atividade" });
+      const pgErr = formatPostgresError(error, 'atividade');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -30857,11 +34396,14 @@ app.put(
       }
 
       const instanceData = { ...req.body, activity_id: activityId };
+      if (instanceData.start_time === '') instanceData.start_time = null;
+      if (instanceData.end_time === '') instanceData.end_time = null;
       const instance = await storage.createActivityInstance(instanceData);
       res.status(201).json(instance);
     } catch (error) {
       console.error("❌ Error creating instance:", error);
-      res.status(500).json({ error: "Erro ao criar turma" });
+      const pgErr = formatPostgresError(error, 'turma');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -30977,8 +34519,11 @@ app.put(
   app.post("/api/instances/:id/enrollments", requireAuth, async (req, res) => {
     try {
       const instanceId = parseInt(req.params.id);
+      console.log(`📝 [ENROLLMENT PEC] Criando inscrição — InstanceId: "${req.params.id}", Aluno: "${req.body?.student_name || req.body?.student_cpf || 'não informado'}"`);
+
       if (isNaN(instanceId)) {
-        return res.status(400).json({ error: "ID da turma inválido" });
+        console.warn(`⚠️ [ENROLLMENT PEC] ID de turma inválido — valor recebido: "${req.params.id}"`);
+        return res.status(400).json({ error: `ID de turma inválido: "${req.params.id}" não é um número válido.` });
       }
 
       const coordenadorId = req.user?.id || req.headers["x-user-id"];
@@ -31036,10 +34581,19 @@ app.put(
           vinculoError
         );
       }
+      console.log(`✅ [ENROLLMENT PEC] Inscrição criada — EnrollmentId: ${enrollment.id}, InstanceId: ${instanceId}`);
       res.status(201).json(enrollment);
-    } catch (error) {
-      console.error("❌ Error creating enrollment:", error);
-      res.status(500).json({ error: "Erro ao criar inscrição" });
+    } catch (error: any) {
+      console.error(`❌ [ENROLLMENT PEC] Erro ao criar inscrição`);
+      console.error(`   → InstanceId : ${req.params.id}`);
+      console.error(`   → Aluno CPF  : ${req.body?.student_cpf || 'não informado'}`);
+      console.error(`   → Aluno Nome : ${req.body?.student_name || 'não informado'}`);
+      console.error(`   → Código PG  : ${error?.code || 'n/a'}`);
+      console.error(`   → Constraint : ${error?.constraint || 'n/a'}`);
+      console.error(`   → Detalhe    : ${error?.detail || 'n/a'}`);
+      console.error(`   → Erro       : ${error?.message || error}`);
+      const pgErr = formatPostgresError(error, 'inscrição PEC');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -31483,9 +35037,6 @@ app.put(
             const updated = await db
               .update(attendance)
               .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
                 status: record.status,
                 entry_time: record.entry_time || null,
                 exit_time: record.exit_time || null,
@@ -32053,31 +35604,6 @@ app.put(
 
   // ===== SINCRONIZAÇÃO DE DOADORES COM STRIPE =====
 
-  // GET /api/sync-donors - Sincronizar doadores da Stripe e salvar no banco
-  app.get("/api/sync-donors", async (req, res) => {
-    try {
-      console.log(
-        "🔄 [SYNC DONORS] Iniciando sincronização de doadores da Stripe..."
-      );
-
-      const donors = await storage.syncDonorsFromStripe();
-
-      console.log(
-        `✅ [SYNC DONORS] ${donors.length} doadores sincronizados com sucesso`
-      );
-      res.json({
-        success: true,
-        message: `${donors.length} doadores sincronizados com sucesso`,
-        donors,
-      });
-    } catch (error) {
-      console.error("❌ [SYNC DONORS] Erro ao sincronizar doadores:", error);
-      res.status(500).json({
-        success: false,
-        error: "Erro ao sincronizar doadores da Stripe",
-      });
-    }
-  });
 
   // GET /api/all-donors - Listar todos os doadores salvos no banco
   app.get("/api/all-donors", async (req, res) => {
@@ -32200,13 +35726,40 @@ app.put(
         return res.status(400).json({ error: "ID inválido" });
       }
 
+      const force = req.query.force === 'true';
+
       // Verificar se há turmas (instances) relacionadas
       const relatedInstances = await storage.getActivityInstancesByActivity(id);
-      if (relatedInstances.length > 0) {
+      const inactiveSituations = ['encerrada', 'inativo', 'inativa'];
+      const turmasAtivas = relatedInstances.filter((i: any) => !inactiveSituations.includes(i.situation));
+      const turmasInativas = relatedInstances.filter((i: any) => inactiveSituations.includes(i.situation));
+
+      // Só bloqueia se tiver turmas ativas e não tiver force=true
+      if (turmasAtivas.length > 0 && !force) {
         return res.status(400).json({
           error: "Não é possível excluir esta oficina",
-          message: `Esta oficina possui ${relatedInstances.length} turma(s) relacionada(s). Exclua as turmas primeiro.`,
+          message: `Esta oficina possui ${turmasAtivas.length} turma(s) ativa(s). Confirme para excluir junto.`,
+          turmasCount: turmasAtivas.length,
         });
+      }
+
+      // Determinar quais instâncias excluir
+      const instanciasParaExcluir = force
+        ? relatedInstances
+        : turmasInativas;
+
+      if (instanciasParaExcluir.length > 0) {
+        for (const inst of instanciasParaExcluir) {
+          const iid = inst.id;
+          await db.execute(sql`DELETE FROM enrollments WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM instance_enrollments WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM photos WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM physical_assessments WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM sessions WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM staff_assignments WHERE activity_instance_id = ${iid}`);
+          await db.execute(sql`DELETE FROM activity_instances WHERE id = ${iid}`);
+        }
+        console.log(`Turmas excluidas: ${instanciasParaExcluir.length}`);
       }
 
       await storage.deleteActivity(id);
@@ -32221,6 +35774,19 @@ app.put(
   // GET /api/pec/instances - Listar todas as turmas/instâncias PEC com filtros opcionais
   app.get("/api/pec/instances", async (req, res) => {
     try {
+      // Auto-encerrar turmas PEC com data de fim vencida
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      await db.update(activityInstances)
+        .set({ situation: "encerrada" as any, updated_at: new Date() })
+        .where(
+          and(
+            sql`${activityInstances.occurrence_end} IS NOT NULL`,
+            sql`${activityInstances.occurrence_end} < ${hoje}`,
+            sql`${activityInstances.situation} NOT IN ('encerrada', 'inativo')`
+          )
+        );
+
       let instances = await storage.getAllActivityInstances();
 
       const { year, projectId, activityId, status } = req.query;
@@ -32263,10 +35829,497 @@ app.put(
         });
       }
 
-      res.json(instances);
+      // Enrich with enrollment counts
+      const instanceIds = instances.map(i => i.id);
+      let enrollmentCounts: Record<number, number> = {};
+      if (instanceIds.length > 0) {
+        try {
+          const counts = await db.select({
+            activity_instance_id: instanceEnrollments.activity_instance_id,
+            count: sql<number>`count(*)`
+          }).from(instanceEnrollments)
+            .where(and(
+              inArray(instanceEnrollments.activity_instance_id, instanceIds),
+              eq(instanceEnrollments.active, true)
+            ))
+            .groupBy(instanceEnrollments.activity_instance_id);
+          for (const c of counts) {
+            enrollmentCounts[c.activity_instance_id] = Number(c.count);
+          }
+        } catch (e) {
+          console.warn('⚠️ Enrichment query failed, skipping enrollment counts:', (e as any)?.message);
+        }
+      }
+
+      const enriched = instances.map(i => ({
+        ...i,
+        alunosCount: enrollmentCounts[i.id] || 0
+      }));
+
+      res.json(enriched);
     } catch (error) {
-      console.error("❌ Error fetching PEC instances:", error);
-      res.status(500).json({ error: "Erro ao buscar turmas PEC" });
+      console.error('❌ Error fetching PEC instances:', error);
+      res.status(500).json({ error: 'Erro ao buscar turmas PEC' });
+    }
+  });
+
+  // GET /api/pec/frequencia-turmas - Frequência % por turma (PEC)
+  app.get('/api/pec/frequencia-turmas', requireAuth, async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          t.id                                              AS turma_id,
+          t.nome                                            AS turma_nome,
+          COUNT(ca.id)                                      AS total_registros,
+          COUNT(CASE WHEN ca.status = 'presente' THEN 1 END) AS presentes
+        FROM turma t
+        LEFT JOIN chamada c  ON c.turma_id  = t.id
+        LEFT JOIN chamada_aluno ca ON ca.chamada_id = c.id
+        GROUP BY t.id, t.nome
+        ORDER BY t.nome
+      `);
+      const turmas = result.rows
+        .map((r: any) => {
+          const total = Number(r.total_registros);
+          const pres  = Number(r.presentes);
+          return {
+            turmaId: r.turma_id,
+            turmaNome: r.turma_nome,
+            totalRegistros: total,
+            presentes: pres,
+            frequencia: total > 0 ? Math.round((pres / total) * 1000) / 10 : 0,
+          };
+        })
+        .filter((t: any) => t.totalRegistros > 0);
+      const totalReg  = turmas.reduce((s: number, t: any) => s + t.totalRegistros, 0);
+      const totalPres = turmas.reduce((s: number, t: any) => s + t.presentes, 0);
+      res.json({
+        turmas,
+        geral: {
+          totalRegistros: totalReg,
+          presentes: totalPres,
+          frequencia: totalReg > 0 ? Math.round((totalPres / totalReg) * 1000) / 10 : 0,
+        },
+      });
+    } catch (err: any) {
+      console.error('Erro frequencia-turmas PEC:', err);
+      res.status(500).json({ error: 'Erro ao calcular frequência' });
+    }
+  });
+
+  // GET /api/pec/sessions - Buscar chamadas (aulas registradas) do PEC - mesma fonte que Professor/Monitor PEC
+  app.get('/api/pec/sessions', async (req, res) => {
+    try {
+      // Buscar todas as turmas PEC primeiro
+      const pecInstances = await storage.getAllActivityInstances();
+      const pecInstanceIds = pecInstances.map(i => i.id);
+      
+      // Se não há turmas, retornar array vazio
+      if (pecInstanceIds.length === 0) {
+        return res.json([]);
+      }
+      
+      // Buscar contagem real de matriculados por instância
+      const enrolledCounts = await db.select({
+        instanceId: instanceEnrollments.activity_instance_id,
+        count: sql<number>`count(*)`
+      })
+        .from(instanceEnrollments)
+        .where(eq(instanceEnrollments.active, true))
+        .groupBy(instanceEnrollments.activity_instance_id);
+      const enrolledMap = new Map(enrolledCounts.map(r => [r.instanceId, Number(r.count)]));
+      
+      // Buscar chamadas usando a tabela sessions com os instance_ids do PEC
+      const pecSessions = await db.select()
+        .from(sessions)
+        .where(inArray(sessions.activity_instance_id, pecInstanceIds))
+        .orderBy(desc(sessions.date));
+      
+      const result = pecSessions.map(s => ({
+        ...s,
+        enrolledCount: enrolledMap.get(s.activity_instance_id) || (Array.isArray(s.attendance) ? s.attendance.length : 0)
+      }));
+      
+      res.json(result);
+    } catch (error) {
+      console.error('❌ Error fetching PEC sessions:', error);
+      res.status(500).json({ error: 'Erro ao buscar chamadas PEC', details: String(error) });
+    }
+  });
+
+  // POST /api/pec/sessions - Criar nova chamada PEC
+  app.post('/api/pec/sessions', async (req, res) => {
+    try {
+      const { activity_instance_id, date, hours, title, status, attendance, teve_alimentacao } = req.body;
+      
+      if (!activity_instance_id || !date) {
+        return res.status(400).json({ error: 'activity_instance_id e date são obrigatórios' });
+      }
+      
+      const [newSession] = await db.insert(sessions).values({
+        activity_instance_id: activity_instance_id,
+        date: date,
+        hours: hours || '2.00',
+        title: title || 'Chamada',
+        status: status || 'realizado',
+        attendance: attendance,
+        teveAlimentacao: teve_alimentacao === true ? true : teve_alimentacao === false ? false : null,
+      }).returning();
+      
+      console.log('✅ Nova chamada PEC criada:', newSession.id);
+      res.status(201).json(newSession);
+    } catch (error) {
+      console.error('❌ Error creating PEC session:', error);
+      res.status(500).json({ error: 'Erro ao criar chamada PEC', details: String(error) });
+    }
+  });
+
+  // GET /api/pec/turma-alunos/:turmaId - Buscar alunos de uma turma PEC (inclui status de evasão)
+  app.get('/api/pec/turma-alunos/:turmaId', async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const includeEvadidos = req.query.includeEvadidos === 'true';
+      
+      // Buscar matrículas de instanceEnrollments
+      let conditions: any[] = [eq(instanceEnrollments.activity_instance_id, turmaId)];
+      if (!includeEvadidos) {
+        conditions.push(eq(instanceEnrollments.active, true));
+      }
+      
+      const matriculas = await db.select()
+        .from(instanceEnrollments)
+        .where(and(...conditions));
+      
+      if (matriculas.length === 0) {
+        return res.json([]);
+      }
+      
+      // Buscar dados dos alunos matriculados por CPF
+      const cpfs = matriculas.map(m => m.student_cpf).filter(Boolean);
+      if (cpfs.length === 0) {
+        return res.json([]);
+      }
+      
+      const alunosMatriculados = await db.select()
+        .from(aluno)
+        .where(inArray(aluno.cpf, cpfs as string[]));
+      
+      // Mesclar dados do aluno com status de matrícula
+      const result = alunosMatriculados.map(a => {
+        const matricula = matriculas.find(m => m.student_cpf === a.cpf);
+        return {
+          ...a,
+          enrollment_id: matricula?.id,
+          enrollment_active: matricula?.active,
+          evadido: (matricula as any)?.evadido || false,
+          motivo_evasao: (matricula as any)?.motivo_evasao || null,
+          data_evasao: (matricula as any)?.data_evasao || null,
+        };
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('❌ Error fetching turma alunos:', error);
+      res.status(500).json({ error: 'Erro ao buscar alunos da turma', details: String(error) });
+    }
+  });
+
+  // POST /api/pec/turma-alunos/:turmaId/evasao - Marcar aluno como evadido ou transição
+  app.post('/api/pec/turma-alunos/:turmaId/evasao', async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const { studentCpf, motivo } = req.body;
+      
+      if (!studentCpf) {
+        return res.status(400).json({ error: 'CPF do aluno é obrigatório' });
+      }
+
+      const isTransicao = motivo === "Transição para Inclusão Produtiva";
+
+      if (isTransicao) {
+        const alunoData = await db.select().from(aluno).where(eq(aluno.cpf, studentCpf)).limit(1);
+        if (alunoData.length === 0) {
+          return res.status(404).json({ error: 'Aluno não encontrado no cadastro PEC. Não é possível realizar a transição.' });
+        }
+        const a = alunoData[0];
+
+        const existing = await db.select().from(participantesInclusao).where(eq(participantesInclusao.cpf, studentCpf)).limit(1);
+        let transicaoResult = true;
+        if (existing.length === 0) {
+          let idade: number | null = null;
+          if (a.data_nascimento) {
+            const nascimento = new Date(a.data_nascimento);
+            const hoje = new Date();
+            idade = hoje.getFullYear() - nascimento.getFullYear();
+            const mesAntes = hoje.getMonth() < nascimento.getMonth() || (hoje.getMonth() === nascimento.getMonth() && hoje.getDate() < nascimento.getDate());
+            if (mesAntes) idade--;
+          }
+          await db.insert(participantesInclusao).values({
+            nome: a.nome_completo,
+            cpf: a.cpf,
+            email: a.email || null,
+            telefone: a.telefone || null,
+            genero: a.genero || 'Não informado',
+            idade,
+            endereco: a.logradouro ? `${a.logradouro}, ${a.numero || 'S/N'} - ${a.bairro || ''}, ${a.cidade || ''} - ${a.estado || ''}` : null,
+            dataNascimento: a.data_nascimento,
+            escolaridade: null,
+            status: 'ativo',
+            observacoes: `Transferido do PEC em ${new Date().toLocaleDateString('pt-BR')}`,
+          });
+          console.log(`✅ [TRANSIÇÃO] Aluno ${a.nome_completo} (${studentCpf}) transferido do PEC para Inclusão Produtiva`);
+        } else {
+          console.log(`ℹ️ [TRANSIÇÃO] Aluno ${studentCpf} já existe na Inclusão Produtiva`);
+        }
+
+        const result = await db
+          .update(instanceEnrollments)
+          .set({ 
+            evadido: false,
+            active: false,
+            motivo_evasao: motivo,
+            data_evasao: new Date()
+          })
+          .where(and(
+            eq(instanceEnrollments.activity_instance_id, turmaId),
+            eq(instanceEnrollments.student_cpf, studentCpf)
+          ))
+          .returning();
+        
+        if (result.length === 0) {
+          return res.status(404).json({ error: 'Matrícula não encontrada' });
+        }
+
+        return res.json({ success: true, data: result[0], transicao: transicaoResult });
+      }
+      
+      const result = await db
+        .update(instanceEnrollments)
+        .set({ 
+          evadido: true, 
+          active: false,
+          motivo_evasao: motivo || null,
+          data_evasao: new Date()
+        })
+        .where(and(
+          eq(instanceEnrollments.activity_instance_id, turmaId),
+          eq(instanceEnrollments.student_cpf, studentCpf)
+        ))
+        .returning();
+      
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Matrícula não encontrada' });
+      }
+      
+      res.json({ success: true, data: result[0] });
+    } catch (error) {
+      console.error('❌ Error marking student as evadido:', error);
+      res.status(500).json({ error: 'Erro ao registrar evasão', details: String(error) });
+    }
+  });
+
+  // POST /api/pec/turma-alunos/:turmaId/reverter-evasao - Reverter evasão
+  app.post('/api/pec/turma-alunos/:turmaId/reverter-evasao', async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const { studentCpf } = req.body;
+      
+      if (!studentCpf) {
+        return res.status(400).json({ error: 'CPF do aluno é obrigatório' });
+      }
+
+      const existing = await db.select().from(instanceEnrollments)
+        .where(and(
+          eq(instanceEnrollments.activity_instance_id, turmaId),
+          eq(instanceEnrollments.student_cpf, studentCpf)
+        ))
+        .limit(1);
+
+      const wasTransicao = existing.length > 0 && existing[0].motivo_evasao === "Transição para Inclusão Produtiva";
+      
+      const result = await db
+        .update(instanceEnrollments)
+        .set({ 
+          evadido: false, 
+          active: true,
+          motivo_evasao: null,
+          data_evasao: null
+        })
+        .where(and(
+          eq(instanceEnrollments.activity_instance_id, turmaId),
+          eq(instanceEnrollments.student_cpf, studentCpf)
+        ))
+        .returning();
+      
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Matrícula não encontrada' });
+      }
+
+      if (wasTransicao) {
+        try {
+          const cleanCpf = String(studentCpf).replace(/\D/g, "");
+          const participante = await db.select().from(participantesInclusao)
+            .where(or(
+              eq(participantesInclusao.cpf, studentCpf),
+              eq(participantesInclusao.cpf, cleanCpf),
+              sql`REPLACE(REPLACE(REPLACE(${participantesInclusao.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`
+            ))
+            .limit(1);
+          if (participante.length > 0 && participante[0].observacoes?.includes('Transferido do PEC')) {
+            await db.update(participantesInclusao)
+              .set({ status: 'inativo' })
+              .where(eq(participantesInclusao.id, participante[0].id));
+            console.log(`✅ [REVERTER TRANSIÇÃO] Participante ${studentCpf} desativado na Inclusão Produtiva`);
+          }
+        } catch (err) {
+          console.error('⚠️ [REVERTER TRANSIÇÃO] Erro ao desativar participante na Inclusão:', err);
+        }
+      }
+      
+      res.json({ success: true, data: result[0] });
+    } catch (error) {
+      console.error('❌ Error reverting evasão:', error);
+      res.status(500).json({ error: 'Erro ao reverter evasão', details: String(error) });
+    }
+  });
+
+  // GET /api/pec/evasao-stats - Estatísticas de evasão PEC
+  app.get('/api/pec/evasao-stats', async (req, res) => {
+    try {
+      const totalEnrollments = await db.select({ count: sql`count(*)` })
+        .from(instanceEnrollments);
+      const evadidos = await db.select({ count: sql`count(*)` })
+        .from(instanceEnrollments)
+        .where(eq(instanceEnrollments.evadido, true));
+      
+      const total = Number(totalEnrollments[0]?.count || 0);
+      const totalEvadidos = Number(evadidos[0]?.count || 0);
+      const percentual = total > 0 ? Math.round((totalEvadidos / total) * 100) : 0;
+      
+      res.json({ total, evadidos: totalEvadidos, percentual });
+    } catch (error) {
+      console.error('❌ Error fetching evasão stats:', error);
+      res.status(500).json({ error: 'Erro ao buscar estatísticas de evasão' });
+    }
+  });
+
+  // GET /api/pec/alunos - Listar todos alunos PEC
+  app.get('/api/pec/alunos', async (req, res) => {
+    try {
+      const status = req.query.status as string;
+      let conditions: any[] = [];
+      if (status === 'ativo') {
+        conditions.push(sql`(situacao_atendimento = 'ativo' OR situacao_atendimento IS NULL)`);
+      }
+      const query = conditions.length > 0
+        ? db.select().from(aluno).where(and(...conditions))
+        : db.select().from(aluno);
+      const result = await query;
+      res.json(result);
+    } catch (error) {
+      console.error('Error fetching PEC alunos:', error);
+      res.status(500).json({ error: 'Erro ao buscar alunos' });
+    }
+  });
+
+  // POST /api/pec/turma-alunos/:turmaId/adicionar - Matricular aluno na turma
+  app.post('/api/pec/turma-alunos/:turmaId/adicionar', async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const { studentCpf } = req.body;
+
+      console.log(`📝 [MATRICULAR ALUNO PEC] TurmaId: ${turmaId}, CPF: "${studentCpf || 'não informado'}"`);
+
+      if (!studentCpf) {
+        console.warn(`⚠️ [MATRICULAR ALUNO PEC] CPF não informado no body — TurmaId: ${turmaId}`);
+        return res.status(400).json({ error: 'CPF do aluno é obrigatório para realizar a matrícula.' });
+      }
+
+      if (isNaN(turmaId)) {
+        console.warn(`⚠️ [MATRICULAR ALUNO PEC] TurmaId inválido: "${req.params.turmaId}"`);
+        return res.status(400).json({ error: 'ID de turma inválido.' });
+      }
+
+      // Verificar se já existe (ativo ou não)
+      const existing = await db.select().from(instanceEnrollments)
+        .where(and(
+          eq(instanceEnrollments.activity_instance_id, turmaId),
+          eq(instanceEnrollments.student_cpf, studentCpf)
+        ));
+
+      if (existing.length > 0) {
+        if (!existing[0].active || existing[0].evadido) {
+          console.log(`🔄 [MATRICULAR ALUNO PEC] Aluno CPF "${studentCpf}" estava inativo/evadido na turma ${turmaId} — reativando`);
+          const updated = await db.update(instanceEnrollments)
+            .set({ active: true, evadido: false, motivo_evasao: null, data_evasao: null })
+            .where(eq(instanceEnrollments.id, existing[0].id))
+            .returning();
+
+          const alunoExist = await db.select().from(aluno).where(eq(aluno.cpf, studentCpf)).limit(1);
+          if (alunoExist.length > 0 && alunoExist[0].situacao_atendimento?.toLowerCase() === 'inativo') {
+            await db.update(aluno).set({ situacao_atendimento: 'ativo' }).where(eq(aluno.cpf, studentCpf));
+            console.log(`✅ [REATIVAÇÃO PEC] Aluno CPF ${studentCpf} reativado ao ser re-matriculado na turma ${turmaId}`);
+          }
+
+          return res.json({ success: true, data: updated[0], reactivated: true });
+        }
+        console.warn(`⚠️ [MATRICULAR ALUNO PEC] Matrícula duplicada — CPF: "${studentCpf}" já está ativo na turma ${turmaId} (enrollment ID: ${existing[0].id})`);
+        return res.status(400).json({ error: `Aluno com CPF ${studentCpf} já está matriculado e ativo nesta turma. Não é possível adicionar novamente.` });
+      }
+
+      const result = await db.insert(instanceEnrollments).values({
+        activity_instance_id: turmaId,
+        student_cpf: studentCpf,
+        active: true,
+        evadido: false,
+      }).returning();
+
+      const alunoRecord = await db.select().from(aluno).where(eq(aluno.cpf, studentCpf)).limit(1);
+      if (alunoRecord.length > 0 && alunoRecord[0].situacao_atendimento?.toLowerCase() === 'inativo') {
+        await db.update(aluno).set({ situacao_atendimento: 'ativo' }).where(eq(aluno.cpf, studentCpf));
+        console.log(`✅ [REATIVAÇÃO PEC] Aluno CPF ${studentCpf} reativado ao ser adicionado à turma ${turmaId}`);
+      }
+
+      console.log(`✅ [MATRICULAR ALUNO PEC] Matrícula criada — CPF: "${studentCpf}", TurmaId: ${turmaId}, EnrollmentId: ${result[0]?.id}`);
+      res.json({ success: true, data: result[0] });
+    } catch (error: any) {
+      console.error(`❌ [MATRICULAR ALUNO PEC] Erro inesperado`);
+      console.error(`   → TurmaId  : ${req.params.turmaId}`);
+      console.error(`   → CPF      : ${req.body?.studentCpf || 'não informado'}`);
+      console.error(`   → Código PG: ${error?.code || 'n/a'}`);
+      console.error(`   → Constraint: ${error?.constraint || 'n/a'}`);
+      console.error(`   → Detalhe  : ${error?.detail || 'n/a'}`);
+      console.error(`   → Erro     : ${error?.message || error}`);
+      const pgErr = formatPostgresError(error, 'matrícula PEC');
+      res.status(pgErr.status).json({ error: pgErr.message });
+    }
+  });
+
+  // POST /api/pec/turma-alunos/:turmaId/remover - Remover aluno da turma
+  app.post('/api/pec/turma-alunos/:turmaId/remover', async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const { studentCpf } = req.body;
+      
+      if (!studentCpf) {
+        return res.status(400).json({ error: 'CPF do aluno é obrigatório' });
+      }
+      
+      const result = await db.delete(instanceEnrollments)
+        .where(and(
+          eq(instanceEnrollments.activity_instance_id, turmaId),
+          eq(instanceEnrollments.student_cpf, studentCpf)
+        ))
+        .returning();
+      
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Matrícula não encontrada' });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error removing student from turma:', error);
+      res.status(500).json({ error: 'Erro ao remover aluno da turma', details: String(error) });
     }
   });
 
@@ -32290,7 +36343,25 @@ app.put(
       const selectedStudents = instanceData.selected_students || [];
       delete instanceData.monitorUserId; // Remover do objeto antes de salvar
       delete instanceData.selected_students; // Remover do objeto antes de salvar
+      // Map camelCase to snake_case for dias_semana
+      if (instanceData.diasSemana) {
+        instanceData.dias_semana = instanceData.diasSemana;
+        delete instanceData.diasSemana;
+      }
+      // Map start_date/end_date to occurrence_start/occurrence_end
+      if (instanceData.start_date && !instanceData.occurrence_start) {
+        instanceData.occurrence_start = instanceData.start_date;
+      }
+      if (instanceData.end_date && !instanceData.occurrence_end) {
+        instanceData.occurrence_end = instanceData.end_date;
+      }
+      delete instanceData.start_date;
+      delete instanceData.end_date;
       
+      if (instanceData.start_time === '') instanceData.start_time = null;
+      if (instanceData.end_time === '') instanceData.end_time = null;
+      if (!instanceData.code || instanceData.code === '') { const year = new Date().getFullYear(); const prefix = (instanceData.title || 'T').substring(0, 3).toUpperCase().replace(/[^A-Z]/g, ''); const randomSuffix = Math.floor(1000 + Math.random() * 9000); instanceData.code = `${prefix || 'TRM'}-${randomSuffix}-${year}`; }
+      if (instanceData.intelbras_group_id === '') instanceData.intelbras_group_id = null;
       console.log('📋 Creating PEC instance:', instanceData);
       console.log('📋 Selected students:', selectedStudents);
 
@@ -32331,9 +36402,8 @@ app.put(
       res.status(201).json(instance);
     } catch (error) {
       console.error("❌ Error creating PEC instance:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao criar turma PEC", details: error.message });
+      const pgErr = formatPostgresError(error, 'turma PEC');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -32359,16 +36429,14 @@ app.put(
       const [updated] = await db
         .update(activityInstances)
         .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
+          dias_semana: instanceData.diasSemana || instanceData.dias_semana || null,
           title: instanceData.title,
           code: instanceData.code,
           location: instanceData.location,
           situation: instanceData.situation,
           period_label: instanceData.period_label,
-          start_time: instanceData.start_time,
-          end_time: instanceData.end_time,
+          start_time: instanceData.start_time || null,
+          end_time: instanceData.end_time || null,
           age_min: instanceData.age_min,
           age_max: instanceData.age_max,
           occurrence_start: instanceData.occurrence_start,
@@ -32390,40 +36458,63 @@ app.put(
       });
     } catch (error: any) {
       console.error("❌ Error updating PEC instance:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao atualizar turma", details: error.message });
+      const pgErr = formatPostgresError(error, 'turma PEC');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
   // DELETE /api/pec/instances/:id - Excluir turma
-  app.delete("/api/pec/instances/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      console.log(`🗑️ Deleting PEC instance ${id}`);
+app.delete("/api/pec/instances/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    console.log(`🟠 Soft delete (inativar) PEC instance ${id}`);
 
-      // Verificar se a turma existe
-      const existing = await db
-        .select()
-        .from(activityInstances)
-        .where(eq(activityInstances.id, id))
-        .limit(1);
-      if (existing.length === 0) {
-        return res.status(404).json({ error: "Turma não encontrada" });
-      }
+    const existing = await db
+      .select()
+      .from(activityInstances)
+      .where(eq(activityInstances.id, id))
+      .limit(1);
 
-      // Excluir turma
-      await db.delete(activityInstances).where(eq(activityInstances.id, id));
-
-      console.log(`✅ PEC instance ${id} deleted successfully`);
-      res.json({ success: true, message: "Turma excluída com sucesso" });
-    } catch (error: any) {
-      console.error("❌ Error deleting PEC instance:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao excluir turma", details: error.message });
+    if (existing.length === 0) {
+      return res.status(404).json({ error: "Turma não encontrada" });
     }
-  });
+
+    await db
+      .update(activityInstances)
+      .set({
+        situation: "inativo" as any,
+        updated_at: new Date(),
+      })
+      .where(eq(activityInstances.id, id));
+
+    return res.json({
+      success: true,
+      message: "Turma inativada com sucesso. Você pode reativá-la a qualquer momento no filtro de Inativas.",
+      mode: "soft",
+      situation: "inativo",
+    });
+  } catch (error: any) {
+    console.error("❌ Error soft-deleting PEC instance:", error);
+    return res.status(500).json({ error: "Erro ao inativar turma", details: error.message });
+  }
+});
+  // PATCH /api/pec/instances/:id/reativar - Reativar turma inativa
+app.patch("/api/pec/instances/:id/reativar", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const existing = await db.select().from(activityInstances).where(eq(activityInstances.id, id)).limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ error: "Turma não encontrada" });
+    }
+    await db.update(activityInstances)
+      .set({ situation: "planejamento" as any, updated_at: new Date() })
+      .where(eq(activityInstances.id, id));
+    return res.json({ success: true, message: "Turma reativada com sucesso!", situation: "planejamento" });
+  } catch (error: any) {
+    console.error("❌ Error reativando PEC instance:", error);
+    return res.status(500).json({ error: "Erro ao reativar turma", details: error.message });
+  }
+});
 
   // ================ ENDPOINTS EDUCADORES ================
 
@@ -32459,21 +36550,21 @@ app.put(
       });
 
       // Validar campos obrigatórios
-      if (
-        !educadorData.cpf ||
-        !educadorData.nome_completo ||
-        !educadorData.telefone
-      ) {
-        return res.status(400).json({
-          error: "Campos obrigatórios: cpf, nome_completo, telefone",
-        });
+      if (!educadorData.cpf) {
+        return res.status(400).json({ error: "O CPF do educador é obrigatório." });
+      }
+      if (!educadorData.nome_completo) {
+        return res.status(400).json({ error: "O nome completo do educador é obrigatório." });
+      }
+      if (!educadorData.telefone) {
+        return res.status(400).json({ error: "O telefone do educador é obrigatório." });
       }
 
       // Verificar se CPF já existe
       const existingEducador = await storage.getEducadorByCpf(educadorData.cpf);
       if (existingEducador) {
-        return res.status(400).json({
-          error: "Educador com este CPF já existe",
+        return res.status(409).json({
+          error: "Já existe um educador cadastrado com este CPF.",
         });
       }
 
@@ -32508,9 +36599,8 @@ app.put(
       }
     } catch (error) {
       console.error("❌ Error creating educador:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao criar educador", details: error.message });
+      const pgErr = formatPostgresError(error, 'educador');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -32525,10 +36615,11 @@ app.put(
       });
 
       // Validar campos obrigatórios
-      if (!educadorData.nome_completo || !educadorData.telefone) {
-        return res.status(400).json({
-          error: "Campos obrigatórios: nome_completo, telefone",
-        });
+      if (!educadorData.nome_completo) {
+        return res.status(400).json({ error: "O nome completo do educador é obrigatório." });
+      }
+      if (!educadorData.telefone) {
+        return res.status(400).json({ error: "O telefone do educador é obrigatório." });
       }
 
       // Verificar se educador existe
@@ -32548,9 +36639,8 @@ app.put(
       });
     } catch (error: any) {
       console.error("❌ Error updating educador:", error);
-      res
-        .status(500)
-        .json({ error: "Erro ao atualizar educador", details: error.message });
+      const pgErr = formatPostgresError(error, 'educador');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
@@ -32656,6 +36746,152 @@ app.put(
     } catch (error) {
       console.error("❌ Error fetching patrocinadores:", error);
       res.status(500).json({ error: "Erro ao buscar patrocinadores" });
+    }
+  });
+
+  // ===== SEED PATROCINADORES =====
+  app.post("/api/seed-patrocinadores", async (req, res) => {
+    try {
+      const { ano } = req.body;
+      if (!ano || ![2024, 2025, 2026].includes(ano)) {
+        return res.status(400).json({ error: "Ano deve ser 2024, 2025 ou 2026" });
+      }
+
+      const existing = await storage.getPatrocinadores(ano);
+      if (existing.length > 0) {
+        return res.json({ message: `Já existem ${existing.length} patrocinadores para ${ano}`, skipped: true });
+      }
+
+      const dados: Record<number, any[]> = {
+        2024: [
+          { nome: "Banco Mercantil", categoria: "oficial", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Construtora Barbosa Mello", categoria: "diamante", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Grupo Boticário", categoria: "diamante", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Patrus Transportes", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "IMAP", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Milplan", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Conserva", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "M.Roscoe", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Via Jap", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Via Natsu", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Inter", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Tracbel", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Helena Teixeira", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Bernoulli", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Fidens", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Divine", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Vetorial", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Eugênio Mattar", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Regina Teixeira", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Eupar", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Patrimar", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Geosol", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Life Petlife DogLife", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Ricardo Sena", categoria: "silver", tipo: "pessoa_fisica", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Beatriz Teixeira", categoria: "silver", tipo: "pessoa_fisica", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "AVB", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Fundimig", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Mason Holdings", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Orizonti", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "OncoMed", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Corretores", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Serenata", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Taluari", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "A-Ponte", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "HFC", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Grupo Aterpa", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Gerson Bartolomeo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "J. Mendes", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Kia", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Lubrificantes Savine", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Seculus", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Anuar Donato", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Botelho Spagnol", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Clara", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Caca Gontijo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Conservasolo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Estação de Turismo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "ItaoPower", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "My Mall", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Sancruza", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Oncoclínicas", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Plena", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Rodcar", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "RobbySon", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "BTS", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Guilherme Noronha", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Adriana Almeida", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Lilian e Mauro Tunes", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+          { nome: "Alícia e Walter Braga", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2024 },
+        ],
+        2025: [
+          { nome: "Conserva de Estradas LTDA", categoria: "oficial", tipo: "empresa", valorPatrocinio: "150000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Patrus/IMAP", categoria: "diamante", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Mercantil", categoria: "diamante", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "FIDENS", categoria: "diamante", tipo: "empresa", valorPatrocinio: "100000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Helena Teixeira", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Rubens Menin (Inter)", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Doador Anônimo", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Milplan", categoria: "master", tipo: "empresa", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "LF P", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Regina Teixeira", categoria: "master", tipo: "pessoa_fisica", valorPatrocinio: "50000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Ricardo Sena", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Eugenio Mattar", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Colégio Bernoulli", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Otávio Euler (Eupar)", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Pedro", categoria: "gold", tipo: "pessoa_fisica", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "IFMG/BMG", categoria: "gold", tipo: "empresa", valorPatrocinio: "30000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Grupo Patrimar", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Beatriz Teixeira Siqueira", categoria: "silver", tipo: "pessoa_fisica", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Guilherme Noronha", categoria: "silver", tipo: "pessoa_fisica", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Ronaro e Luciana Corrêa (Vetorial)", categoria: "silver", tipo: "pessoa_fisica", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "projetoum", categoria: "silver", tipo: "empresa", valorPatrocinio: "20000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "A Ponte BH", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Serenata", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Leonardo Abreu (Itau Power Shopping)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Jacques Rios (PTO Andaimes)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Seculus", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Alicia Fiqueiró", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Porcaro Negócios Imobiliários", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Márcio Ladeira e Vanessa (Luminatti)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Mauro e Lilian Tunes", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Fred Silva (SDS Siderúrgica)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Botelho Spagnol Carvalho Advogados", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Rochedo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "DELP", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "SAVINE", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Rita e Marcelo Corrêa (Auto Rede)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Anônimo", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Atelier Monica Maia", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "FUNDIMIG", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Aterpa", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Evandro Negrão de Lima (My Mall/Sancruza)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Estação de Turismo", categoria: "bronze", tipo: "empresa", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "José Raimundo e Jussara", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Matheus Campara Elias (Nosso Bazzar)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Anônimo (2)", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+          { nome: "Cláudio Calonge", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: "10000", status: "ativo", contratosAtivos: true, ano: 2025 },
+        ],
+        2026: [],
+      };
+
+      const lista = dados[ano] || [];
+      if (lista.length === 0) {
+        return res.json({ success: true, ano, inserted: 0, message: `Tabela ${ano} criada (vazia, pronta para cadastro)` });
+      }
+      
+      await storage.fixPatrocinadorSequence();
+      
+      let inserted = 0;
+      for (const p of lista) {
+        await storage.createPatrocinador(p);
+        inserted++;
+      }
+
+      res.json({ success: true, ano, inserted, message: `${inserted} patrocinadores inseridos para ${ano}` });
+    } catch (error) {
+      console.error("❌ Error seeding patrocinadores:", error);
+      res.status(500).json({ error: "Erro ao inserir patrocinadores" });
     }
   });
 
@@ -34339,28 +38575,115 @@ app.put(
 
   // 📊 GET /api/indicadores-globais - Buscar indicadores globais do banco DO
   app.get("/api/indicadores-globais", async (req, res) => {
-    try {
-      const result = await pool.query(
-        "SELECT * FROM doadores_externos WHERE ativo = true ORDER BY valor_mensal DESC"
-      ); //SELECT chave, valor, descricao, ano FROM indicadores_globais WHERE ano = 2025');
+    // Baselines históricos acumulados até 2025 (antes do sistema digital)
+    const BASELINE_HORAS_AULA = 226359;
+    const BASELINE_ATEND_PSICO = 5024;
+    // Dados históricos acumulados pré-2024: 317.062
+    // 2024: direto 7.412 + indireto 29.648 = 37.060
+    // 2025: total (direto + indireto) = 29.344
+    const BASELINE_IMPACTO = 317062 + 37060 + 29344; // = 383.466
 
-      const indicadores: Record<string, number> = {};
-      result.rows.forEach((row: any) => {
-        indicadores[row.chave] = parseInt(row.valor);
-      });
+    try {
+      // --- PEC: horas-aula de sessions (todas as datas) ---
+      let pecHoras = 0;
+      try {
+        const sessResult = await pool.query(`
+          SELECT COALESCE(SUM(
+            (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+              WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+            * COALESCE(s.hours, 0)
+          ), 0) as total_hours
+          FROM sessions s
+          JOIN activity_instances ai ON ai.id = s.activity_instance_id
+          LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+          LEFT JOIN projects p ON p.id = pa.project_id
+          WHERE p.name IS NOT NULL
+        `);
+        pecHoras = Math.round(Number(sessResult.rows?.[0]?.total_hours || 0));
+      } catch (e) { console.error('[GLOB] PEC horas error:', e); }
+
+      // --- Inclusão: horas-aula via presencas_inclusao + turmas_inclusao ---
+      let inclusaoHoras = 0;
+      try {
+        const inclResult = await pool.query(`
+          SELECT
+            COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+            ti.horario_entrada,
+            ti.horario_saida
+          FROM presencas_inclusao pi2
+          JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+          WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+          GROUP BY ti.horario_entrada, ti.horario_saida
+        `);
+        for (const row of (inclResult.rows || [])) {
+          const presentes = Number(row.presentes_count || 0);
+          const entrada = String(row.horario_entrada || '');
+          const saida = String(row.horario_saida || '');
+          if (entrada && saida && presentes > 0) {
+            const [hE, mE] = entrada.split(':').map(Number);
+            const [hS, mS] = saida.split(':').map(Number);
+            const diff = (hS * 60 + mS) - (hE * 60 + mE);
+            if (diff > 0) inclusaoHoras += presentes * (diff / 60);
+          }
+        }
+        inclusaoHoras = Math.round(inclusaoHoras);
+      } catch (e) { console.error('[GLOB] Inclusão horas error:', e); }
+
+      // --- Psicossocial: contar atendimentos registrados (mesma lógica do dashboard psico) ---
+      // Fonte: registros_confidenciais (tabela canônica) com tipo atendimento_individual
+      let psicoAtend = 0;
+      try {
+        const psicoResult = await pool.query(
+          `SELECT COUNT(*) as cnt FROM registros_confidenciais WHERE tipo = 'atendimento_individual'`
+        );
+        psicoAtend = Number(psicoResult.rows?.[0]?.cnt || 0);
+      } catch (e) { console.error('[GLOB] Psico atend error:', e); }
+
+      const horasAulaTotal = BASELINE_HORAS_AULA + pecHoras + inclusaoHoras;
+      const atendimentosPsicoTotal = BASELINE_ATEND_PSICO + psicoAtend;
+
+      // --- Impacto Direto e Indireto: dinâmico ---
+      let impactoDireto = 0;
+      try {
+        const [pecAtivos, incAtivos] = await Promise.all([
+          pool.query(`SELECT COUNT(*) as cnt FROM aluno WHERE situacao_atendimento = 'ativo'`),
+          pool.query(`
+            SELECT COUNT(DISTINCT pi2.cpf) AS cnt
+            FROM participantes_turmas pt
+            JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+            JOIN participantes_inclusao pi2 ON pi2.id = pt.participante_id
+          `),
+        ]);
+        const pecCount = Number(pecAtivos.rows?.[0]?.cnt || 0);
+        const incCount = Number(incAtivos.rows?.[0]?.cnt || 0);
+        impactoDireto = pecCount + incCount;
+      } catch (e) { console.error('[GLOB] Impacto direto error:', e); }
+
+      const impactoIndireto = impactoDireto * 4;
+      const impactoDinamico = impactoDireto + impactoIndireto; // direto + indireto do período atual
+      const impactoDiretoIndireto = BASELINE_IMPACTO + impactoDinamico;
+
+      console.log('[GLOB] Horas: baseline=' + BASELINE_HORAS_AULA + ' pec=' + pecHoras + ' incl=' + inclusaoHoras + ' total=' + horasAulaTotal);
+      console.log('[GLOB] Psico: baseline=' + BASELINE_ATEND_PSICO + ' live=' + psicoAtend + ' total=' + atendimentosPsicoTotal);
+      console.log('[GLOB] Impacto: baseline=' + BASELINE_IMPACTO + ' direto=' + impactoDireto + ' indireto=' + impactoIndireto + ' total=' + impactoDiretoIndireto);
 
       res.json({
         success: true,
-        indicadores,
-        horasAula: indicadores["horas_aula"] || 226359,
-        impactoDiretoIndireto: indicadores["impacto_direto_indireto"] || 317062,
+        horasAula: horasAulaTotal,
+        impactoDiretoIndireto,
+        impactoDireto,
+        impactoIndireto,
+        atendimentosPsico: atendimentosPsicoTotal,
       });
     } catch (error) {
       console.error("❌ Erro ao buscar indicadores globais:", error);
       res.json({
         success: false,
-        horasAula: 226359,
-        impactoDiretoIndireto: 317062,
+        horasAula: BASELINE_HORAS_AULA,
+        impactoDiretoIndireto: BASELINE_IMPACTO,
+        impactoDireto: 0,
+        impactoIndireto: 0,
+        atendimentosPsico: BASELINE_ATEND_PSICO,
       });
     }
   });
@@ -34428,6 +38751,96 @@ app.put(
         success: false,
         error: "Erro ao buscar dados do patrocinador",
       });
+    }
+  });
+
+
+  // 📊 POST /api/gestao-vista/inicializar-ano - Inicializar estrutura de indicadores para um novo ano
+  app.post('/api/gestao-vista/inicializar-ano', async (req, res) => {
+    try {
+      const { anoOrigem, anoDestino } = req.body;
+      
+      if (!anoOrigem || !anoDestino) {
+        return res.status(400).json({ error: 'anoOrigem e anoDestino são obrigatórios' });
+      }
+      
+      console.log('[GESTAO VISTA] Inicializando ano ' + anoDestino + ' a partir de ' + anoOrigem);
+      
+      // Verificar se já existem registros para o ano destino
+      const existingTargets = await pool.query(
+        'SELECT COUNT(*) as total FROM gv_indicator_targets WHERE period LIKE $1',
+        [anoDestino + '-%']
+      );
+      
+      const existingValues = await pool.query(
+        'SELECT COUNT(*) as total FROM gv_indicator_values WHERE period LIKE $1',
+        [anoDestino + '-%']
+      );
+      
+      if (parseInt(existingTargets.rows[0]?.total) > 0) {
+        return res.json({
+          success: true,
+          message: 'Estrutura de metas ja existe para ' + anoDestino,
+          targetsExistentes: parseInt(existingTargets.rows[0]?.total),
+          valuesExistentes: parseInt(existingValues.rows[0]?.total)
+        });
+      }
+      
+      // Copiar targets (metas) do ano origem para ano destino
+      const insertTargetsResult = await pool.query(`
+        INSERT INTO gv_indicator_targets (assignment_id, scope, period, target_value, created_at, updated_at)
+        SELECT assignment_id, scope, 
+               REPLACE(period, $1, $2) as period,
+               target_value, NOW(), NOW()
+        FROM gv_indicator_targets 
+        WHERE period LIKE $3
+        ON CONFLICT (assignment_id, scope, period) DO NOTHING
+      `, [anoOrigem, anoDestino, anoOrigem + '-%']);
+      
+      // Copiar também o período anual
+      await pool.query(`
+        INSERT INTO gv_indicator_targets (assignment_id, scope, period, target_value, created_at, updated_at)
+        SELECT assignment_id, scope, $2 as period, target_value, NOW(), NOW()
+        FROM gv_indicator_targets 
+        WHERE period = $1
+        ON CONFLICT (assignment_id, scope, period) DO NOTHING
+      `, [anoOrigem, anoDestino]);
+      
+      // Criar values (valores realizados) zerados para cada mês
+      const insertValuesResult = await pool.query(`
+        INSERT INTO gv_indicator_values (assignment_id, scope, period, actual_value, data_source, created_at, updated_at)
+        SELECT DISTINCT assignment_id, scope, 
+               REPLACE(period, $1, $2) as period,
+               0 as actual_value,
+               'Inicialização automática' as data_source,
+               NOW(), NOW()
+        FROM gv_indicator_values 
+        WHERE period LIKE $3
+        ON CONFLICT (assignment_id, scope, period) DO NOTHING
+      `, [anoOrigem, anoDestino, anoOrigem + '-%']);
+      
+      // Contar registros criados
+      const newTargets = await pool.query(
+        'SELECT COUNT(*) as total FROM gv_indicator_targets WHERE period LIKE $1',
+        [anoDestino + '-%']
+      );
+      
+      const newValues = await pool.query(
+        'SELECT COUNT(*) as total FROM gv_indicator_values WHERE period LIKE $1',
+        [anoDestino + '-%']
+      );
+      
+      console.log('[GESTAO VISTA] Ano ' + anoDestino + ' inicializado: ' + newTargets.rows[0]?.total + ' metas, ' + newValues.rows[0]?.total + ' valores');
+      
+      res.json({
+        success: true,
+        message: 'Estrutura de ' + anoDestino + ' criada com sucesso',
+        metasCriadas: parseInt(newTargets.rows[0]?.total),
+        valoresCriados: parseInt(newValues.rows[0]?.total)
+      });
+    } catch (error: any) {
+      console.error('[GESTAO VISTA] Erro ao inicializar ano:', error);
+      res.status(500).json({ error: 'Erro ao inicializar ano: ' + error.message });
     }
   });
 
@@ -35564,10 +39977,22 @@ app.put(
   // 📊 GET /api/marketing/dashboard - Dashboard de Marketing
   app.get("/api/marketing/dashboard", async (req, res) => {
     try {
-      console.log("📊 [MARKETING] Buscando dashboard de Marketing...");
+      const ano = parseInt(req.query.ano as string) || 2025;
+      // Para anos diferentes de 2025, retornar dados zerados (ainda não há dados cadastrados)
+      if (ano !== 2025) {
+        console.log("[MARKETING] Ano " + ano + " - retornando dados zerados");
+        return res.json({
+          success: true,
+          period: ano + "-01",
+          dashboard: { seguidores: { atual: 0, meta: 0 }, crescimentoMensal: 0, performanceGeral: 0, engajamento: 0, posts: 0 },
+          indicadores: [],
+          historico: []
+        });
+      }
+      console.log("[MARKETING] Buscando dashboard de Marketing para ano " + ano + "...");
 
-      const period = (req.query.period as string) || "2025-04"; // Último mês com dados
-      const scopeFilter = "monthly" as const;
+      const period = (req.query.period as string) || ano + "-04"; // Último mês com dados
+      const scopeFilter = 'monthly' as const;
 
       // Buscar projeto de Marketing
       const projeto = await db
@@ -35736,15 +40161,15 @@ app.put(
             novos_doadores_meta: 0,
             materiais_distribuidos: 0,
             materiais_distribuidos_meta: 0,
-            total_seguidores: 11330
+            total_seguidores: 11566
           }
         });
       }
 
       // Corrigir total_seguidores se for valor antigo
       const data = { ...result.rows[0] };
-      if (data.total_seguidores === 11225) {
-        data.total_seguidores = 11330;
+      if (ano >= 2026 && (data.total_seguidores === 11225 || data.total_seguidores === 11351 || data.total_seguidores === 11431 || data.total_seguidores === 11456 || data.total_seguidores === 11497 || data.total_seguidores === 11538)) {
+        data.total_seguidores = 11566;
       }
       res.json({ success: true, data });
     } catch (error) {
@@ -35807,6 +40232,115 @@ app.put(
     }
   });
 
+  // 📊 GET /api/marketing-seguidores-mensal - Dados mensais de seguidores
+  app.get("/api/marketing-seguidores-mensal", async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      console.log(`📊 [SEGUIDORES-MENSAL] Buscando dados para ${ano}...`);
+
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+
+      if (ano === currentYear) {
+        try {
+          const subscriptions = await stripe.subscriptions.list({ status: "active", limit: 100 });
+          const trialingSubscriptions = await stripe.subscriptions.list({ status: "trialing", limit: 100 });
+          const liveDoadores = subscriptions.data.length + trialingSubscriptions.data.length;
+
+          const existsCheck = await db.execute(sql`
+            SELECT id FROM marketing_seguidores_mensal WHERE ano = ${currentYear} AND mes = ${currentMonth} LIMIT 1
+          `);
+
+          if (existsCheck.rows.length > 0) {
+            await db.execute(sql`
+              UPDATE marketing_seguidores_mensal SET doadores_ativos = ${liveDoadores}, updated_at = NOW()
+              WHERE ano = ${currentYear} AND mes = ${currentMonth}
+            `);
+          } else {
+            const prevMonth = await db.execute(sql`
+              SELECT total_seguidores FROM marketing_seguidores_mensal 
+              WHERE ano = ${currentMonth === 1 ? currentYear - 1 : currentYear} AND mes = ${currentMonth === 1 ? 12 : currentMonth - 1}
+              LIMIT 1
+            `);
+            const prevTotal = prevMonth.rows.length > 0 ? Number((prevMonth.rows[0] as any).total_seguidores) : 0;
+
+            await db.execute(sql`
+              INSERT INTO marketing_seguidores_mensal (ano, mes, seguidores_ganhos, seguidores_perdidos, total_seguidores, materiais_distribuidos, doadores_ativos, updated_at)
+              VALUES (${currentYear}, ${currentMonth}, 0, 0, ${prevTotal}, 0, ${liveDoadores}, NOW())
+              ON CONFLICT (ano, mes) DO NOTHING
+            `);
+            console.log(`📊 [SEGUIDORES-MENSAL] Criado registro automático para ${currentMonth}/${currentYear} com ${liveDoadores} doadores ativos`);
+          }
+        } catch (stripeErr) {
+          console.error("⚠️ [SEGUIDORES-MENSAL] Erro ao buscar doadores live:", stripeErr);
+        }
+      }
+
+      const result = await db.execute(sql`
+        SELECT * FROM marketing_seguidores_mensal 
+        WHERE ano = ${ano} 
+        ORDER BY mes ASC
+      `);
+
+      res.json({ success: true, data: result.rows });
+    } catch (error) {
+      console.error("❌ [SEGUIDORES-MENSAL] Erro ao buscar:", error);
+      res.status(500).json({ success: false, error: "Erro ao buscar dados mensais" });
+    }
+  });
+
+  // 📊 POST /api/marketing-seguidores-mensal - Criar/atualizar dados mensais
+  app.post("/api/marketing-seguidores-mensal", async (req, res) => {
+    try {
+      const { ano, mes, seguidores_ganhos, seguidores_perdidos, materiais_distribuidos } = req.body;
+
+      if (!ano || !mes) {
+        return res.status(400).json({ success: false, error: "Ano e mês são obrigatórios" });
+      }
+
+      const ganhos = seguidores_ganhos || 0;
+      const perdidos = seguidores_perdidos || 0;
+
+      console.log(`📊 [SEGUIDORES-MENSAL] Salvando dados para ${ano}/${mes}...`);
+
+      const prevMonth = await db.execute(sql`
+        SELECT total_seguidores FROM marketing_seguidores_mensal 
+        WHERE ano = ${mes === 1 ? ano - 1 : ano} AND mes = ${mes === 1 ? 12 : mes - 1}
+        LIMIT 1
+      `);
+      const prevTotal = prevMonth.rows.length > 0 ? Number(prevMonth.rows[0].total_seguidores) : 0;
+      const computedTotal = prevTotal > 0 ? prevTotal + ganhos - perdidos : (ganhos - perdidos);
+
+      let doadoresAtivos = 0;
+      try {
+        const subscriptions = await stripe.subscriptions.list({ status: "active", limit: 100 });
+        const trialingSubscriptions = await stripe.subscriptions.list({ status: "trialing", limit: 100 });
+        doadoresAtivos = subscriptions.data.length + trialingSubscriptions.data.length;
+        console.log(`📊 [SEGUIDORES-MENSAL] Doadores ativos do Stripe: ${doadoresAtivos}`);
+      } catch (stripeErr) {
+        console.error("⚠️ [SEGUIDORES-MENSAL] Erro ao buscar doadores do Stripe:", stripeErr);
+      }
+
+      await db.execute(sql`
+        INSERT INTO marketing_seguidores_mensal (ano, mes, seguidores_ganhos, seguidores_perdidos, total_seguidores, materiais_distribuidos, doadores_ativos, updated_at)
+        VALUES (${ano}, ${mes}, ${ganhos}, ${perdidos}, ${computedTotal}, ${materiais_distribuidos || 0}, ${doadoresAtivos}, NOW())
+        ON CONFLICT (ano, mes) DO UPDATE SET
+          seguidores_ganhos = EXCLUDED.seguidores_ganhos,
+          seguidores_perdidos = EXCLUDED.seguidores_perdidos,
+          total_seguidores = EXCLUDED.total_seguidores,
+          materiais_distribuidos = EXCLUDED.materiais_distribuidos,
+          doadores_ativos = EXCLUDED.doadores_ativos,
+          updated_at = NOW()
+      `);
+
+      res.json({ success: true, message: `Dados de ${mes}/${ano} salvos com sucesso`, total_seguidores: computedTotal, doadores_ativos: doadoresAtivos });
+    } catch (error) {
+      console.error("❌ [SEGUIDORES-MENSAL] Erro ao salvar:", error);
+      res.status(500).json({ success: false, error: "Erro ao salvar dados mensais" });
+    }
+  });
+
   // 📊 GET /api/gestao-vista/evolucao-mensal - Dados de evolução mensal para gráfico
   // Usa os mesmos dados do módulo gestaoVistaData (mesma fonte da tela do doador)
   app.get("/api/gestao-vista/evolucao-mensal", async (req, res) => {
@@ -35840,6 +40374,29 @@ app.put(
         }));
 
         res.json({ success: true, ano, dados });
+      } else if (ano === '2026') {
+        // Para 2026, buscar dados em tempo real do banco
+        const dadosMensais: Array<{mes: string; visitas: number; atendimentos: number; alunosFormados: number; criancasAtendidas: number; alunosEmFormacao: number; frequencia: number}> = [];
+        
+        for (let i = 0; i < 12; i++) {
+          const mesNum = i + 1;
+          try {
+            const indicadores = await gestaoVistaData.getIndicadores2026(mesNum);
+            dadosMensais.push({
+              mes: meses[i],
+              visitas: indicadores.visitasDomicilio,
+              atendimentos: indicadores.atendimentosPsico,
+              alunosFormados: indicadores.alunosFormados,
+              criancasAtendidas: indicadores.criancasAtendidas,
+              alunosEmFormacao: indicadores.alunosEmFormacao,
+              frequencia: indicadores.frequencia
+            });
+          } catch (err) {
+            dadosMensais.push({ mes: meses[i], visitas: 0, atendimentos: 0, alunosFormados: 0, criancasAtendidas: 0, alunosEmFormacao: 0, frequencia: 0 });
+          }
+        }
+
+        res.json({ success: true, ano, dados: dadosMensais });
       } else {
         // Para outros anos, retornar zeros
         const dados = meses.map((mes) => ({
@@ -35855,6 +40412,33 @@ app.put(
       res.status(500).json({ success: false, error: "Erro ao buscar dados" });
     }
   });
+
+  // 📊 GET /api/gestao-vista/turmas-ativas-pec - Turmas ativas PEC por projeto
+  app.get('/api/gestao-vista/turmas-ativas-pec', async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT p.name as projeto, COUNT(ai.id)::int as total
+        FROM activity_instances ai
+        JOIN pec_activities pa ON ai.activity_id = pa.id
+        JOIN projects p ON pa.project_id = p.id
+        WHERE ai.situation = 'execucao'
+        GROUP BY p.id, p.name
+        ORDER BY total DESC
+      `);
+
+      const porProjeto = result.rows.map((r: any) => ({
+        projeto: r.projeto,
+        total: r.total,
+      }));
+      const totalAtivas = porProjeto.reduce((s: number, r: any) => s + r.total, 0);
+
+      res.json({ success: true, totalAtivas, porProjeto });
+    } catch (error) {
+      console.error('[TURMAS-ATIVAS-PEC]', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar turmas ativas' });
+    }
+  });
+
   // =========  POST /api/user-causas  =========
   // Endpoint para salvar a escolha de "Grito" do usuário
   app.post("/api/user-causas", async (req, res) => {
@@ -36640,9 +41224,6 @@ app.put(
                     await db
                       .update(doadores)
                       .set({
-          horarioInicio,
-          horarioFim,
-          diasSemana,
                         plano: planName,
                         valor: planValue,
                         periodicidade,
@@ -37003,6 +41584,13 @@ app.put(
         error: error.message,
       });
     }
+  });
+
+  app.get("/api/debug/session", (req, res) => {
+    res.json({
+      user: (req.session as any).user || null,
+      coordenador: (req.session as any).coordenador || null
+    });
   });
 
   // ========= GOOGLE SLIDES EXPORT =========
@@ -37482,7 +42070,85 @@ app.put(
     }
   });
 
-  // ==================== ROTAS DE PROGRAMAS DE INCLUSÃO PRODUTIVA ====================
+
+  // Endpoint para verificar status de programas/turmas (somente leitura, sem auto-conclusão)
+  app.post("/api/inclusao/verificar-status", async (_req, res) => {
+    try {
+      res.json({ programasAtualizados: 0, turmasAtualizadas: 0 });
+    } catch (error: any) {
+      console.error("Erro ao verificar status:", error);
+      res.status(500).json({ error: "Erro ao verificar status" });
+    }
+  });
+
+  // Atendimentos de Inclusão Produtiva por ano/mês
+  // GET /api/inclusao/frequencia-turmas - Frequência % por turma (Inclusão)
+  app.get('/api/inclusao/frequencia-turmas', requireAuth, async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          ti.id                                               AS turma_id,
+          ti.nome                                             AS turma_nome,
+          COUNT(pi.id)                                        AS total_registros,
+          COUNT(CASE WHEN pi.presente = true THEN 1 END)      AS presentes
+        FROM turmas_inclusao ti
+        LEFT JOIN presencas_inclusao pi ON pi.turma_id = ti.id
+        GROUP BY ti.id, ti.nome
+        ORDER BY ti.nome
+      `);
+      const turmas = result.rows
+        .map((r: any) => {
+          const total = Number(r.total_registros);
+          const pres  = Number(r.presentes);
+          return {
+            turmaId: r.turma_id,
+            turmaNome: r.turma_nome,
+            totalRegistros: total,
+            presentes: pres,
+            frequencia: total > 0 ? Math.round((pres / total) * 1000) / 10 : 0,
+          };
+        })
+        .filter((t: any) => t.totalRegistros > 0);
+      const totalReg  = turmas.reduce((s: number, t: any) => s + t.totalRegistros, 0);
+      const totalPres = turmas.reduce((s: number, t: any) => s + t.presentes, 0);
+      res.json({
+        turmas,
+        geral: {
+          totalRegistros: totalReg,
+          presentes: totalPres,
+          frequencia: totalReg > 0 ? Math.round((totalPres / totalReg) * 1000) / 10 : 0,
+        },
+      });
+    } catch (err: any) {
+      console.error('Erro frequencia-turmas Inclusão:', err);
+      res.status(500).json({ error: 'Erro ao calcular frequência' });
+    }
+  });
+
+  app.get("/api/inclusao/atendimentos", requireAuth, async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || 2026;
+      const mes = req.query.mes ? parseInt(req.query.mes as string) : null;
+
+      const total = await gestaoVistaData.getAtendimentosInclusao2026(mes);
+
+      const mensalResult = await pool.query(`
+        SELECT
+          EXTRACT(MONTH FROM COALESCE(ti.data_inicio, ti.created_at))::int AS mes,
+          COUNT(pt.id)::int AS total
+        FROM participantes_turmas pt
+        JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+        WHERE EXTRACT(YEAR FROM COALESCE(ti.data_inicio, ti.created_at)) = $1
+        GROUP BY 1
+        ORDER BY 1
+      `, [ano]);
+
+      res.json({ total, ano, mes, mensal: mensalResult.rows });
+    } catch (error: any) {
+      console.error("Erro ao buscar atendimentos:", error);
+      res.status(500).json({ error: "Erro ao buscar atendimentos" });
+    }
+  });
 
   // Listar todos os programas
   app.get("/api/programas-inclusao", async (req, res) => {
@@ -37533,6 +42199,18 @@ app.put(
         vagasOcupadas: 0,
         taxaOcupacao: 0,
       };
+      
+      // Se tem data de conclusão no passado, força status para concluído
+      if (programaData.dataFim) {
+        const dataFim = new Date(programaData.dataFim);
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        
+        if (dataFim < hoje) {
+          programaData.status = 'concluido';
+          console.log(`📅 [PROGRAMAS] Data de conclusão (${programaData.dataFim}) já passou, criando com status concluído`);
+        }
+      }
 
       const programa = await storage.createPrograma(programaData);
       res.status(201).json(programa);
@@ -37546,7 +42224,21 @@ app.put(
   app.patch("/api/programas-inclusao/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const programa = await storage.updatePrograma(id, req.body);
+      const updateData = { ...req.body };
+      
+      // Se tem data de conclusão no passado, força status para concluído
+      if (updateData.dataFim) {
+        const dataFim = new Date(updateData.dataFim);
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        
+        if (dataFim < hoje) {
+          updateData.status = 'concluido';
+          console.log(`📅 [PROGRAMAS] Data de conclusão (${updateData.dataFim}) já passou, status alterado para concluído`);
+        }
+      }
+      
+      const programa = await storage.updatePrograma(id, updateData);
       res.json(programa);
     } catch (error: any) {
       console.error("Erro ao atualizar programa:", error);
@@ -37570,12 +42262,55 @@ app.put(
   });
 
   // ==================== ROTAS DE TURMAS DE INCLUSÃO PRODUTIVA ====================
+  // Preview do próximo código (não salva, apenas mostra o próximo número disponível)
+  app.get("/api/turmas-inclusao/proximo-codigo", async (req, res) => {
+    try {
+      const ano = new Date().getFullYear();
+      const countResult = await pool.query(
+        "SELECT COUNT(*) as total FROM turmas_inclusao WHERE EXTRACT(YEAR FROM created_at) = $1",
+        [ano]
+      );
+      const sequencial = (parseInt(countResult.rows[0]?.total || 0) + 1).toString().padStart(4, "0");
+      const codigo = `TI-${ano}-${sequencial}`;
+      res.json({ codigo });
+    } catch (error: any) {
+      console.error("Erro ao gerar próximo código:", error);
+      res.status(500).json({ error: "Erro ao gerar código" });
+    }
+  });
+
 
   // Listar todas as turmas
   app.get("/api/turmas-inclusao", async (req, res) => {
     try {
       const turmas = await storage.getAllTurmasInclusao();
-      res.json(turmas);
+
+      // Turmas com histórico de catraca (qualquer presença registrada via catraca)
+      const catracaRows = await db
+        .select({ turmaId: presencasInclusao.turmaId })
+        .from(presencasInclusao)
+        .where(sql`${presencasInclusao.observacoes} LIKE '%catraca%'`)
+        .groupBy(presencasInclusao.turmaId);
+      const catracaIdSet = new Set(catracaRows.map((r) => r.turmaId));
+
+      // Para turmas finalizadas, adicionar contagem de participantes concluídos
+      const turmasComContagem = await Promise.all(turmas.map(async (turma) => {
+        const temCatraca = catracaIdSet.has(turma.id);
+        if (turma.status === 'concluido') {
+          try {
+            const participantes = await db.select().from(participantesTurmas)
+              .where(eq(participantesTurmas.turmaId, turma.id));
+            const totalParticipantes = participantes.length;
+            const alunosConcluidos = participantes.filter(p => p.status === 'concluido').length;
+            return { ...turma, totalParticipantes, alunosConcluidos, temCatraca };
+          } catch (err) {
+            return { ...turma, totalParticipantes: 0, alunosConcluidos: 0, temCatraca };
+          }
+        }
+        return { ...turma, temCatraca };
+      }));
+      
+      res.json(turmasComContagem);
     } catch (error: any) {
       console.error("Erro ao listar turmas:", error);
       return res.status(500).json({ error: "Erro ao listar turmas" });
@@ -37613,15 +42348,25 @@ app.put(
   app.post("/api/turmas-inclusao", async (req, res) => {
     try {
       const professorId = req.user?.id;
+      
+      // Gerar código automaticamente: TI-AAAA-XXXX (Turma Inclusão - Ano - Sequencial)
+      const ano = new Date().getFullYear();
+      const countResult = await pool.query("SELECT COUNT(*) as total FROM turmas_inclusao WHERE EXTRACT(YEAR FROM created_at) = $1", [ano]);
+      const sequencial = (parseInt(countResult.rows[0]?.total || 0) + 1).toString().padStart(4, "0");
+      const codigoGerado = `TI-${ano}-${sequencial}`;
+      
       const turmaData = {
         ...req.body,
         professorId,
+        codigo: codigoGerado,
         numeroVagas: parseInt(req.body.numeroVagas || req.body.vagas) || 20,
         vagasOcupadas: 0,
       };
-
-      const turma = await storage.createTurmaInclusao(turmaData);
-      res.status(201).json(turma);
+      
+      // Salvar a turma no banco de dados
+      const novaTurma = await storage.createTurmaInclusao(turmaData);
+      console.log("Turma inclusao criada:", novaTurma.id);
+      res.status(201).json(novaTurma);
     } catch (error: any) {
       console.error("Erro ao criar turma inclusao:", error);
       res.status(500).json({ error: "Erro ao criar turma" });
@@ -37631,7 +42376,11 @@ app.put(
   app.patch("/api/turmas-inclusao/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const turma = await storage.updateTurma(id, req.body);
+      const updateData = { ...req.body };
+      console.log(`📝 [TURMAS] Atualizando turma ${id} com diasSemana:`, updateData.diasSemana);
+      
+      
+      const turma = await storage.updateTurmaInclusao(id, updateData);
       res.json(turma);
     } catch (error: any) {
       console.error("Erro ao atualizar turma:", error);
@@ -37643,11 +42392,8 @@ app.put(
   app.delete("/api/turmas-inclusao/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteTurma(id);
-      res.json({
-        message:
-          "Turma deletada com sucesso (cursos filhos também foram removidos)",
-      });
+      await storage.deleteTurmaInclusao(id);
+      res.json({ message: "Turma deletada com sucesso (cursos filhos também foram removidos)" });
     } catch (error: any) {
       console.error("Erro ao deletar turma:", error);
       res.status(500).json({ error: "Erro ao deletar turma" });
@@ -37655,75 +42401,280 @@ app.put(
   });
 
 
+  // Finalizar turma e marcar alunos como concluídos
+  app.post("/api/turmas-inclusao/:id/finalizar", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.id);
+      const { participantesConcluidosIds } = req.body;
+      
+      if (!Array.isArray(participantesConcluidosIds)) {
+        return res.status(400).json({ error: "participantesConcluidosIds deve ser um array" });
+      }
+      
+      // Atualizar status da turma para concluido
+      await db.update(turmasInclusao)
+        .set({ status: "concluido", dataFim: new Date().toISOString().split("T")[0], updatedAt: new Date() })
+        .where(eq(turmasInclusao.id, turmaId));
+      
+      // Atualizar status dos participantes selecionados para concluido
+      if (participantesConcluidosIds.length > 0) {
+        await db.update(participantesTurmas)
+          .set({ status: "concluido" })
+          .where(
+            and(
+              eq(participantesTurmas.turmaId, turmaId),
+              inArray(participantesTurmas.participanteId, participantesConcluidosIds)
+            )
+          );
+      }
+      
+      // Marcar os demais como evadido (nao concluiram)
+      await db.update(participantesTurmas)
+        .set({ status: "evadido" })
+        .where(
+          and(
+            eq(participantesTurmas.turmaId, turmaId),
+            eq(participantesTurmas.status, "ativo")
+          )
+        );
+
+      // ✅ Auto-inativação: sincronizar status de TODOS os participantes da turma
+      const todosParticipantesIds = await db
+        .select({ participanteId: participantesTurmas.participanteId })
+        .from(participantesTurmas)
+        .where(eq(participantesTurmas.turmaId, turmaId));
+
+      let inativados = 0;
+      for (const { participanteId } of todosParticipantesIds) {
+        const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+        if (novoStatus === 'inativo') inativados++;
+      }
+      console.log(`✅ [FINALIZAR TURMA] Turma ${turmaId} concluída. Participantes sincronizados: ${todosParticipantesIds.length}, inativados: ${inativados}`);
+
+      res.json({ 
+        success: true, 
+        message: "Turma finalizada com sucesso",
+        alunosConcluidos: participantesConcluidosIds.length,
+        alunosInativados: inativados
+      });
+    } catch (error: any) {
+      console.error("Erro ao finalizar turma:", error);
+      res.status(500).json({ error: "Erro ao finalizar turma" });
+    }
+  });
+  // Helper para normalizar vertente
+  function normalizeVertente(v: string | undefined): string {
+    if (!v) return "pec";
+    const lower = v.toLowerCase().trim();
+    if (lower === "inclusao" || lower === "inclusao_produtiva" || lower === "inclusão" || lower === "inclusão produtiva") return "inclusao";
+    if (lower === "psicossocial" || lower === "psico") return "psicossocial";
+    return "pec";
+  }
+
   // ==================== ROTAS DE TURMAS DO PROFESSOR ====================
   
   // Listar turmas do professor
-  app.get("/api/professor/:userId/turmas", async (req, res) => {
-    try {
-      const vertente = req.query.vertente as string || 'inclusao';
-      
-      let turmas: any[] = [];
-      
-      if (vertente === 'inclusao') {
-        // Buscar TODAS as turmas de inclusão (compartilhadas com coordenador e monitor)
+ app.get("/api/professor/:userId/turmas", async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    // Find the professor record to check assigned turmas
+    const userRecord = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    let assignedTurmaIds: number[] = [];
+    let hasAssignments = false;
+    let professorDbId: number | null = null;
+
+    if (userRecord.rows.length > 0) {
+      const programa = vertente === 'inclusao' ? 'inclusao_produtiva' : 'pec';
+      const profRecord = await pool.query(
+        'SELECT id FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
+        [userRecord.rows[0].email, programa]
+      );
+
+      if (profRecord.rows.length > 0) {
+        professorDbId = profRecord.rows[0].id;
+        const turmaTipo = vertente === 'inclusao' ? 'inclusao' : 'pec';
+        const assignments = await pool.query(
+          'SELECT turma_id, cor, icone FROM professor_turmas WHERE professor_id = $1 AND turma_tipo = $2',
+          [profRecord.rows[0].id, turmaTipo]
+        );
+        assignedTurmaIds = assignments.rows.map((r: any) => r.turma_id);
+        hasAssignments = assignments.rows.length > 0;
+        // Store cor/icone mapping for later enrichment
+        var turmaCorIconeMap: Record<number, { cor: string | null; icone: string | null }> = {};
+        assignments.rows.forEach((r: any) => {
+          turmaCorIconeMap[r.turma_id] = { cor: r.cor, icone: r.icone };
+        });
+      }
+    }
+
+    if (vertente === "inclusao") {
+      let turmas;
+      if (hasAssignments) {
         turmas = await db
           .select()
           .from(turmasInclusao)
+          .where(inArray(turmasInclusao.id, assignedTurmaIds))
           .orderBy(desc(turmasInclusao.createdAt));
-      } else {
-        // PEC: buscar TODAS as turmas de activityInstances (compartilhadas com coordenador e monitor)
+      } else if (professorDbId !== null) {
+        // No explicit professor_turmas assignments — check direct professorId on turmas
         turmas = await db
           .select()
-          .from(activityInstances)
-          .orderBy(desc(activityInstances.created_at));
+          .from(turmasInclusao)
+          .where(eq(turmasInclusao.professorId, professorDbId))
+          .orderBy(desc(turmasInclusao.createdAt));
+      } else {
+        turmas = [];
       }
-      
-      // Buscar contagem de alunos por turma
+
+      // Turmas com histórico de catraca
+      const catracaTurmasPrf = await db
+        .select({ turmaId: presencasInclusao.turmaId })
+        .from(presencasInclusao)
+        .where(sql`${presencasInclusao.observacoes} LIKE '%catraca%'`)
+        .groupBy(presencasInclusao.turmaId);
+      const catracaTurmaIdsPrf = new Set(catracaTurmasPrf.map((r) => r.turmaId));
+
       const turmasComContagem = await Promise.all(
         turmas.map(async (t) => {
-          let alunosCount = 0;
-          if (vertente === 'inclusao') {
-            const alunos = await db
-              .select({ count: count() })
-              .from(participantesTurmas)
-              .where(eq(participantesTurmas.turmaId, t.id));
-            alunosCount = alunos[0]?.count || 0;
-          } else {
-            // PEC: contar de instanceEnrollments
-            const alunos = await db
-              .select({ count: count() })
-              .from(instanceEnrollments)
-              .where(eq(instanceEnrollments.activity_instance_id, t.id));
-            alunosCount = alunos[0]?.count || 0;
-          }
+          const alunos = await db
+            .select()
+            .from(participantesTurmas)
+            .where(eq(participantesTurmas.turmaId, t.id));
+
+          const totalParticipantes = alunos.length;
+          const alunosConcluidos =
+            t.status === "concluido"
+              ? alunos.filter((a) => a.status === "concluido").length
+              : 0;
+
+          const corIcone = typeof turmaCorIconeMap !== 'undefined' ? turmaCorIconeMap[t.id] : null;
           return {
             ...t,
-            alunosCount
+            alunosCount: totalParticipantes,
+            totalParticipantes,
+            alunosConcluidos,
+            marcadorCor: corIcone?.cor || null,
+            marcadorIcone: corIcone?.icone || null,
+            temCatraca: catracaTurmaIdsPrf.has(t.id),
           };
         })
       );
-      
-      res.json(turmasComContagem);
-    } catch (error: any) {
-      console.error("Erro ao listar turmas do professor:", error);
-      res.status(500).json({ error: "Erro ao listar turmas do professor" });
-    }
-  });
 
+      return res.json(turmasComContagem);
+    }
+
+    // PEC
+    let turmas;
+    if (hasAssignments) {
+      turmas = await db
+        .select()
+        .from(activityInstances)
+        .where(inArray(activityInstances.id, assignedTurmaIds))
+        .orderBy(desc(activityInstances.created_at));
+    } else {
+      turmas = await db
+        .select()
+        .from(activityInstances)
+        .orderBy(desc(activityInstances.created_at));
+    }
+
+    const activityIds = [
+      ...new Set(turmas.map((t) => t.activity_id).filter(Boolean)),
+    ];
+
+    const activities =
+      activityIds.length > 0
+        ? await db
+            .select()
+            .from(pecActivities)
+            .where(inArray(pecActivities.id, activityIds))
+        : [];
+
+    const activityMap = new Map(
+      activities.map((a) => [a.id, a.name || a.title])
+    );
+
+    const turmasComContagem = await Promise.all(
+      turmas.map(async (turma) => {
+        const participantes = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(instanceEnrollments)
+          .where(
+            and(
+              eq(instanceEnrollments.activity_instance_id, turma.id),
+              eq(instanceEnrollments.active, true)
+            )
+          );
+
+        const corIconePec = typeof turmaCorIconeMap !== 'undefined' ? turmaCorIconeMap[turma.id] : null;
+        return {
+          id: turma.id,
+          nome: turma.title,
+          title: turma.title,
+          codigo: turma.code,
+          local: turma.location,
+          location: turma.location,
+          status: turma.situation || "ativo",
+          situation: turma.situation || "planejamento",
+          horarioInicio: turma.start_time,
+          horarioFim: turma.end_time,
+          start_time: turma.start_time,
+          end_time: turma.end_time,
+          dataInicio: turma.occurrence_start,
+          dataFim: turma.occurrence_end,
+          occurrence_start: turma.occurrence_start,
+          occurrence_end: turma.occurrence_end,
+          period_label: turma.period_label,
+          age_min: turma.age_min,
+          age_max: turma.age_max,
+          activity_id: turma.activity_id,
+          intelbras_group_id: turma.intelbras_group_id,
+          dias_semana: turma.dias_semana || [],
+          createdAt: turma.created_at,
+          alunosCount: participantes[0]?.count || 0,
+          atividadeNome: activityMap.get(turma.activity_id!) || "Oficina PEC",
+          marcadorCor: corIconePec?.cor || null,
+          marcadorIcone: corIconePec?.icone || null,
+          control_mode: turma.control_mode || null,
+        };
+      })
+    );
+
+    return res.json(turmasComContagem);
+  } catch (error: any) {
+    console.error("Erro ao listar turmas do professor:", error);
+    return res.status(500).json({ error: "Erro ao listar turmas do professor" });
+  }
+});
   // Criar turma do professor
-  app.post("/api/professor/:userId/turmas", async (req, res) => {
-    try {
-      const professorId = parseInt(req.params.userId);
-      const vertente = req.query.vertente as string || 'inclusao';
-      const { nome, descricao, horarioEntrada, horarioSaida, local, programaId, activityId } = req.body;
-      
-      let novaTurma: any;
-      
-      if (vertente === 'inclusao') {
-        // Criar turma em turmasInclusao
-        const programaIdFinal = programaId || 43; // Inclusão Produtiva 2026
-        
-        const [turma] = await db.insert(turmasInclusao).values({
+ app.post("/api/professor/:userId/turmas", async (req, res) => {
+  try {
+    const professorId = parseInt(req.params.userId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    const {
+      nome,
+      descricao,
+      horarioEntrada,
+      horarioSaida,
+      local,
+      programaId,
+      activityId,
+      diasSemana,
+    } = req.body;
+
+    if (!nome) {
+      return res.status(400).json({ error: "Nome da turma é obrigatório" });
+    }
+
+    if (vertente === "inclusao") {
+      const programaIdFinal = programaId || 43; // Inclusão Produtiva 2026
+
+      const [turma] = await db
+        .insert(turmasInclusao)
+        .values({
           nome,
           descricao,
           horarioEntrada,
@@ -37731,241 +42682,554 @@ app.put(
           local,
           professorId,
           programaId: programaIdFinal,
-          status: 'emandamento',
+          diasSemana: diasSemana || null,
+          status: "emandamento",
           numeroVagas: 30,
-          vagasOcupadas: 0
-        }).returning();
-        novaTurma = turma;
-      } else {
-        // PEC: criar turma em activityInstances
-        const [turma] = await db.insert(activityInstances).values({
-          activity_id: activityId || 1,
+          vagasOcupadas: 0,
+        })
+        .returning();
+
+      return res.status(201).json(turma);
+    }
+
+    // PEC
+    const [turma] = await db
+      .insert(activityInstances)
+      .values({
+        activity_id: activityId || 1,
+        title: nome,
+        location: local,
+        notes: descricao,
+        start_time: horarioEntrada,
+        end_time: horarioSaida,
+        situation: "execucao",
+      })
+      .returning();
+
+    return res.status(201).json(turma);
+  } catch (error: any) {
+    console.error("Erro ao criar turma do professor:", error);
+    return res.status(500).json({ error: "Erro ao criar turma" });
+  }
+});
+
+  // Atualizar turma do professor
+ app.patch("/api/professor/:userId/turmas/:turmaId", async (req, res) => {
+  try {
+    const turmaId = parseInt(req.params.turmaId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    const { nome, descricao, horarioEntrada, horarioSaida, local, status } =
+      req.body;
+
+    if (vertente === "pec") {
+      const [turma] = await db
+        .update(activityInstances)
+        .set({
           title: nome,
-          location: local,
           notes: descricao,
           start_time: horarioEntrada,
           end_time: horarioSaida,
-          situation: 'execucao'
-        }).returning();
-        novaTurma = turma;
-      }
-      
-      res.status(201).json(novaTurma);
-    } catch (error: any) {
-      console.error("Erro ao criar turma do professor:", error);
-      res.status(500).json({ error: "Erro ao criar turma" });
-    }
-  });
-
-  // Atualizar turma do professor
-  app.patch("/api/professor/:userId/turmas/:turmaId", async (req, res) => {
-    try {
-      const turmaId = parseInt(req.params.turmaId);
-      const { nome, descricao, horarioEntrada, horarioSaida, local, status } = req.body;
-      
-      const [turma] = await db.update(turmasInclusao)
-        .set({
-          nome,
-          descricao,
-          horarioEntrada,
-          horarioSaida,
-          local,
-          status,
-          updatedAt: new Date()
+          location: local,
+          situation: status === "inativo" ? "encerrada" : (status || "execucao"),
+          // se sua tabela tiver updated_at:
+          // updated_at: new Date(),
         })
-        .where(eq(turmasInclusao.id, turmaId))
+        .where(eq(activityInstances.id, turmaId))
         .returning();
-      
-      res.json(turma);
-    } catch (error: any) {
-      console.error("Erro ao atualizar turma:", error);
-      res.status(500).json({ error: "Erro ao atualizar turma" });
-    }
-  });
 
-  // Deletar turma do professor
-  app.delete("/api/professor/:userId/turmas/:turmaId", async (req, res) => {
+      return res.json(turma);
+    }
+
+    // inclusao
+    const [turma] = await db
+      .update(turmasInclusao)
+      .set({
+        nome,
+        descricao,
+        horarioEntrada,
+        horarioSaida,
+        local,
+        status,
+        updatedAt: new Date(),
+      })
+      .where(eq(turmasInclusao.id, turmaId))
+      .returning();
+
+    return res.json(turma);
+  } catch (error: any) {
+    console.error("Erro ao atualizar turma:", error);
+    return res.status(500).json({ error: "Erro ao atualizar turma" });
+  }
+});
+
+    app.delete("/api/professor/:userId/turmas/:turmaId", async (req, res) => {
     try {
       const turmaId = parseInt(req.params.turmaId);
+      const vertente = normalizeVertente(req.query.vertente as string);
+
+      if (vertente === "pec") {
+        await db.delete(activityInstances).where(eq(activityInstances.id, turmaId));
+        return res.json({ message: "Turma PEC deletada com sucesso" });
+      }
+
       await db.delete(turmasInclusao).where(eq(turmasInclusao.id, turmaId));
-      res.json({ message: "Turma deletada com sucesso" });
+      return res.json({ message: "Turma Inclusão deletada com sucesso" });
     } catch (error: any) {
       console.error("Erro ao deletar turma:", error);
-      res.status(500).json({ error: "Erro ao deletar turma" });
+      return res.status(500).json({ error: "Erro ao deletar turma" });
     }
   });
+
 
   // Buscar alunos de uma turma do professor
-  app.get("/api/professor/:userId/turmas/:turmaId/alunos", async (req, res) => {
-    try {
-      const turmaId = parseInt(req.params.turmaId);
-      const alunos = await db
+app.get("/api/professor/:userId/turmas/:turmaId/alunos", async (req, res) => {
+  try {
+    const turmaId = parseInt(req.params.turmaId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    if (vertente === "pec") {
+      const enrollments = await db
         .select({
-          participante: participantesInclusao,
-          inscricao: participantesTurmas,
+          id: instanceEnrollments.id,
+          personId: instanceEnrollments.person_id,
+          active: instanceEnrollments.active,
+          enrolledAt: instanceEnrollments.enrolled_at,
         })
-        .from(participantesTurmas)
-        .innerJoin(participantesInclusao, eq(participantesTurmas.participanteId, participantesInclusao.id))
-        .where(eq(participantesTurmas.turmaId, turmaId));
-      
-      res.json(alunos.map(a => ({
-        ...a.participante,
-        inscricaoStatus: a.inscricao.status,
-        dataInscricao: a.inscricao.dataInscricao
-      })));
-    } catch (error: any) {
-      console.error("Erro ao buscar alunos da turma:", error);
-      res.status(500).json({ error: "Erro ao buscar alunos" });
+        .from(instanceEnrollments)
+        .where(
+          and(
+            eq(instanceEnrollments.activity_instance_id, turmaId),
+            eq(instanceEnrollments.active, true)
+          )
+        );
+
+      const personIds = enrollments
+        .map((e) => e.personId)
+        .filter(Boolean) as number[];
+
+      const participantes =
+        personIds.length > 0
+          ? await db
+              .select()
+              .from(monitorParticipantes)
+              .where(inArray(monitorParticipantes.id, personIds))
+          : [];
+
+      const participanteMap = new Map(participantes.map((p) => [p.id, p]));
+
+      const alunos = enrollments.map((e) => {
+        const p = participanteMap.get(e.personId!) || ({} as any);
+        return {
+          id: e.personId,
+          nome: p.nome || "Participante",
+          cpf: p.cpf || p.pecCpf,
+          email: p.email,
+          telefone: p.telefone,
+          inscricaoStatus: e.active ? "ativo" : "inativo",
+          dataInscricao: e.enrolledAt,
+        };
+      });
+
+      return res.json(alunos);
     }
-  });
+
+    // Inclusao - usar SQL direto para evitar erro de colunas undefined no Drizzle
+    const result = await pool.query(`
+      SELECT
+        pi.id, pi.nome, pi.cpf, pi.email, pi.telefone, pi.genero,
+        pi.data_nascimento AS "dataNascimento",
+        pt.status AS "inscricaoStatus",
+        pt.data_inscricao AS "dataInscricao"
+      FROM participantes_turmas pt
+      INNER JOIN participantes_inclusao pi ON pt.participante_id = pi.id
+      WHERE pt.turma_id = $1
+      ORDER BY pi.nome
+    `, [turmaId]);
+
+    return res.json(result.rows);
+  } catch (error: any) {
+    console.error("Erro ao buscar alunos da turma:", error);
+    return res.status(500).json({ error: "Erro ao buscar alunos" });
+  }
+});
 
   // Adicionar aluno à turma do professor
-  app.post("/api/professor/:userId/turmas/:turmaId/alunos", async (req, res) => {
-    try {
-      const turmaId = parseInt(req.params.turmaId);
-      const { participanteId } = req.body;
-      
-      const [inscricao] = await db.insert(participantesTurmas).values({
+ app.post("/api/professor/:userId/turmas/:turmaId/alunos", async (req, res) => {
+  try {
+    const turmaId = parseInt(req.params.turmaId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    if (vertente === "pec") {
+      const { personId } = req.body;
+
+      if (!personId) {
+        return res.status(400).json({ error: "personId é obrigatório para PEC" });
+      }
+
+      const [inscricao] = await db
+        .insert(instanceEnrollments)
+        .values({
+          activity_instance_id: turmaId,
+          person_id: typeof personId === "string" ? parseInt(personId) : personId,
+          active: true,
+          enrolled_at: new Date(),
+        })
+        .returning();
+
+      return res.status(201).json(inscricao);
+    }
+
+    // Inclusao
+    const { participanteId } = req.body;
+
+    if (!participanteId) {
+      return res
+        .status(400)
+        .json({ error: "participanteId é obrigatório para Inclusão" });
+    }
+
+    const [inscricao] = await db
+      .insert(participantesTurmas)
+      .values({
         turmaId,
         participanteId,
-        status: 'ativo'
-      }).returning();
-      
-      res.status(201).json(inscricao);
-    } catch (error: any) {
-      console.error("Erro ao adicionar aluno à turma:", error);
-      res.status(500).json({ error: "Erro ao adicionar aluno" });
-    }
-  });
+        status: "ativo",
+      })
+      .returning();
+
+    return res.status(201).json(inscricao);
+  } catch (error: any) {
+    console.error("Erro ao adicionar aluno à turma:", error);
+    return res.status(500).json({ error: "Erro ao adicionar aluno" });
+  }
+});
 
   // Remover aluno da turma do professor
-  app.delete("/api/professor/:userId/turmas/:turmaId/alunos/:alunoId", async (req, res) => {
-    try {
-      const turmaId = parseInt(req.params.turmaId);
-      const alunoId = parseInt(req.params.alunoId);
-      
-      await db.delete(participantesTurmas)
-        .where(and(
-          eq(participantesTurmas.turmaId, turmaId),
-          eq(participantesTurmas.participanteId, alunoId)
-        ));
-      
-      res.json({ message: "Aluno removido da turma" });
-    } catch (error: any) {
-      console.error("Erro ao remover aluno da turma:", error);
-      res.status(500).json({ error: "Erro ao remover aluno" });
-    }
-  });
+  app.delete(
+    "/api/professor/:userId/turmas/:turmaId/alunos/:alunoId",
+    async (req, res) => {
+      try {
+        const turmaId = parseInt(req.params.turmaId);
+        const alunoId = parseInt(req.params.alunoId);
+        const vertente = normalizeVertente(req.query.vertente as string);
 
-  // Registrar presença/chamada do professor
-  app.post("/api/professor/:userId/registro-presenca", async (req, res) => {
-    try {
-      const professorId = parseInt(req.params.userId);
-      const { turmaId, data, presencas } = req.body;
-      
-      // Buscar nome da turma
-      const turmaResult = await db.select().from(turmasInclusao).where(eq(turmasInclusao.id, turmaId)).limit(1);
-      const turmaNome = turmaResult[0]?.nome || 'Turma';
-      
-      // Inserir cada presença na tabela presencas_inclusao (mesma tabela que monitor e coordenador)
-      const insertedPresencas = [];
-      for (const p of (presencas || [])) {
-        const participanteId = p.id || p.participanteId;
-        if (participanteId) {
-          const [presenca] = await db.insert(presencasInclusao).values({
-            participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
-            turmaId: turmaId,
-            data: data,
-            presente: p.presente || false,
-            observacoes: p.observacoes || null
-          }).returning();
-          insertedPresencas.push(presenca);
+        if (vertente === "pec") {
+          await db
+            .update(instanceEnrollments)
+            .set({ active: false })
+            .where(
+              and(
+                eq(instanceEnrollments.activity_instance_id, turmaId),
+                eq(instanceEnrollments.person_id, alunoId)
+              )
+            );
+
+          return res.json({ message: "Aluno removido (PEC) da turma" });
         }
-      }
-      
-      console.log(`[PROFESSOR] Registro de ${insertedPresencas.length} presenças criado por professor ${professorId} para turma ${turmaId}`);
-      res.status(201).json({ success: true, count: insertedPresencas.length, turma: turmaNome });
-    } catch (error: any) {
-      console.error("Erro ao registrar presença:", error);
-      res.status(500).json({ error: "Erro ao registrar presença" });
-    }
-  });
 
-  // Buscar histórico de chamadas do professor
-  app.get("/api/professor/:userId/historico-chamadas", async (req, res) => {
-    try {
-      const professorId = parseInt(req.params.userId);
-      
-      // Buscar todas as turmas de inclusão para o mapeamento de nomes
-      const turmas = await db.select({
-        id: turmasInclusao.id,
-        nome: turmasInclusao.nome
-      }).from(turmasInclusao);
-      
-      const turmaMap = new Map(turmas.map(t => [t.id, t.nome]));
-      
-      // Buscar todas as presenças de inclusão (de todos - professor, monitor, coordenador)
-      const presencas = await db.select({
+        await db
+          .delete(participantesTurmas)
+          .where(
+            and(
+              eq(participantesTurmas.turmaId, turmaId),
+              eq(participantesTurmas.participanteId, alunoId)
+            )
+          );
+
+        return res.json({ message: "Aluno removido (Inclusão) da turma" });
+      } catch (error: any) {
+        console.error("Erro ao remover aluno da turma:", error);
+        return res.status(500).json({ error: "Erro ao remover aluno" });
+      }
+    }
+  );
+  // Registrar presença/chamada do professor
+ app.post("/api/professor/:userId/registro-presenca", async (req, res) => {
+  try {
+    const professorId = parseInt(req.params.userId);
+    const { turmaId, data, presencas, teveAlimentacao } = req.body;
+    const vertente = normalizeVertente(req.body.vertente);
+
+    if (vertente === "pec") {
+      const turmaResult = await db
+        .select()
+        .from(activityInstances)
+        .where(eq(activityInstances.id, turmaId))
+        .limit(1);
+
+      const turmaNome = turmaResult[0]?.title || "Turma PEC";
+
+      const attendanceData = (presencas || []).map((p: any) => ({
+        alunoNome: p.nome || p.alunoNome || "Aluno",
+        alunoCpf: p.cpf || p.alunoCpf || "",
+        presente: p.presente || false,
+        justificativa: p.justificativa || "",
+        status: !p.presente && p.justificativa && p.justificativa !== 'Sem justificativa' ? 'falta_justificada' : (p.presente ? 'presente' : 'falta'),
+      }));
+
+      const existingSessions = await db
+        .select()
+        .from(sessions)
+        .where(and(
+          eq(sessions.activity_instance_id, turmaId),
+          eq(sessions.date, data)
+        ))
+        .limit(1);
+
+      let sessionRecord;
+      if (existingSessions.length > 0) {
+        const [updated] = await db
+          .update(sessions)
+          .set({ attendance: attendanceData, teveAlimentacao: teveAlimentacao === true })
+          .where(eq(sessions.id, existingSessions[0].id))
+          .returning();
+        sessionRecord = updated;
+        console.log(
+          `[PROFESSOR PEC] Chamada ${sessionRecord.id} ATUALIZADA por professor ${professorId} para turma ${turmaId}`
+        );
+      } else {
+        const [newSession] = await db
+          .insert(sessions)
+          .values({
+            activity_instance_id: turmaId,
+            date: data,
+            hours: "2.00",
+            title: `Chamada - ${turmaNome}`,
+            status: "realizado",
+            attendance: attendanceData,
+            teveAlimentacao: teveAlimentacao === true,
+          })
+          .returning();
+        sessionRecord = newSession;
+        console.log(
+          `[PROFESSOR PEC] Chamada ${sessionRecord.id} criada por professor ${professorId} para turma ${turmaId}`
+        );
+      }
+
+      return res
+        .status(201)
+        .json({ success: true, sessionId: sessionRecord.id, turma: turmaNome });
+    }
+
+    // Inclusao
+    const turmaResult = await db
+      .select()
+      .from(turmasInclusao)
+      .where(eq(turmasInclusao.id, turmaId))
+      .limit(1);
+
+    const turmaNome = turmaResult[0]?.nome || "Turma";
+
+    const existingPresencas = await db
+      .select()
+      .from(presencasInclusao)
+      .where(and(
+        eq(presencasInclusao.turmaId, turmaId),
+        eq(presencasInclusao.data, data)
+      ));
+
+    if (existingPresencas.length > 0) {
+      await db.delete(presencasInclusao).where(and(
+        eq(presencasInclusao.turmaId, turmaId),
+        eq(presencasInclusao.data, data)
+      ));
+    }
+
+    const insertedPresencas = [];
+    for (const p of presencas || []) {
+      const participanteId = p.id || p.participanteId;
+      if (participanteId) {
+        const [presenca] = await db
+          .insert(presencasInclusao)
+          .values({
+            participanteId:
+              typeof participanteId === "string"
+                ? parseInt(participanteId)
+                : participanteId,
+            turmaId,
+            data,
+            presente: p.presente || false,
+            observacoes: p.observacoes || null,
+            justificativa: p.justificativa || null,
+            teveAlimentacao: teveAlimentacao === true ? true : false,
+          })
+          .returning();
+
+        insertedPresencas.push(presenca);
+      }
+    }
+
+    console.log(
+      `[PROFESSOR INCLUSAO] Registro de ${insertedPresencas.length} presenças ${existingPresencas.length > 0 ? 'ATUALIZADO' : 'criado'} por professor ${professorId} para turma ${turmaId}`
+    );
+
+    return res
+      .status(201)
+      .json({ success: true, count: insertedPresencas.length, turma: turmaNome });
+  } catch (error: any) {
+    console.error("Erro ao registrar presença:", error);
+    return res.status(500).json({ error: "Erro ao registrar presença" });
+  }
+});
+
+
+  // Buscar histórico de chamadas do professor (filtrado por vertente)
+ app.get("/api/professor/:userId/historico-chamadas", async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const vertente = normalizeVertente(req.query.vertente as string);
+
+    // Resolve professor's assigned turma IDs
+    const userRow = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    const email = userRow.rows?.[0]?.email;
+    let assignedTurmaIds: number[] = [];
+    if (email) {
+      const programa = vertente === 'inclusao' ? 'inclusao_produtiva' : 'pec';
+      const profRow = await pool.query('SELECT id FROM professores WHERE email = $1 AND programa = $2 LIMIT 1', [email, programa]);
+      const profId = profRow.rows?.[0]?.id;
+      if (profId) {
+        const turmaTipo = vertente === 'inclusao' ? 'inclusao' : 'pec';
+        const turmaRows = await pool.query('SELECT turma_id FROM professor_turmas WHERE professor_id = $1 AND turma_tipo = $2', [profId, turmaTipo]);
+        assignedTurmaIds = turmaRows.rows.map((r: any) => Number(r.turma_id));
+      }
+    }
+
+    if (vertente === "pec") {
+      const turmasPec = await db
+        .select({ id: activityInstances.id, nome: activityInstances.title })
+        .from(activityInstances);
+
+      const turmaMap = new Map(turmasPec.map((t) => [t.id, t.nome]));
+
+      let pecSessionsQuery = db
+        .select()
+        .from(sessions)
+        .orderBy(desc(sessions.date), desc(sessions.id)) as any;
+
+      if (assignedTurmaIds.length > 0) {
+        pecSessionsQuery = db
+          .select()
+          .from(sessions)
+          .where(sql`${sessions.activity_instance_id} = ANY(${sql.raw(`ARRAY[${assignedTurmaIds.join(',')}]::int[]`)})`)
+          .orderBy(desc(sessions.date), desc(sessions.id));
+      }
+
+      const pecSessions = await pecSessionsQuery;
+
+      const historico = pecSessions.map((sess) => {
+        const attendanceList = Array.isArray(sess.attendance) ? sess.attendance : [];
+        return {
+          id: `pec_${sess.id}`,
+          data: sess.date,
+          grupo: `turma_${sess.activity_instance_id}`,
+          turmaNome:
+            turmaMap.get(sess.activity_instance_id) ||
+            sess.title ||
+            `Turma ${sess.activity_instance_id}`,
+          titulo:
+            sess.title ||
+            `Chamada - ${turmaMap.get(sess.activity_instance_id) || "Turma"}`,
+          totalPresentes: attendanceList.filter((p: any) => p.presente === true || p.status === "presente").length,
+          totalAlunos: attendanceList.length,
+          presencas: attendanceList,
+          grupoId: sess.activity_instance_id,
+          createdAt: (sess as any).createdAt,
+          fotoComprovante: (sess as any).fotoComprovante || null,
+          tipo: "pec",
+        };
+      });
+
+      return res.json(historico);
+    }
+
+    // Inclusao
+    const turmas = await db
+      .select({ id: turmasInclusao.id, nome: turmasInclusao.nome })
+      .from(turmasInclusao);
+
+    const turmaMap = new Map(turmas.map((t) => [t.id, t.nome]));
+
+    let presencasQuery = db
+      .select({
         id: presencasInclusao.id,
         participanteId: presencasInclusao.participanteId,
         turmaId: presencasInclusao.turmaId,
         data: presencasInclusao.data,
         presente: presencasInclusao.presente,
         observacoes: presencasInclusao.observacoes,
+        justificativa: presencasInclusao.justificativa,
+        fotoComprovante: presencasInclusao.fotoComprovante,
         createdAt: presencasInclusao.createdAt,
-        nome: participantesInclusao.nome
+        nome: participantesInclusao.nome,
       })
-        .from(presencasInclusao)
-        .leftJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
-        .orderBy(desc(presencasInclusao.data), desc(presencasInclusao.id));
-      
-      // Agrupar por turma e data
-      const grouped = new Map<string, any>();
-      for (const p of presencas) {
-        const key = `${p.turmaId}_${p.data}`;
-        if (!grouped.has(key)) {
-          grouped.set(key, {
-            id: `inclusao_${p.turmaId}_${p.data}`,
-            data: p.data,
-            grupo: `turma_${p.turmaId}`,
-            turmaNome: turmaMap.get(p.turmaId!) || `Turma ${p.turmaId}`,
-            titulo: `Chamada - ${turmaMap.get(p.turmaId!) || 'Turma'}`,
-            totalPresentes: 0,
-            totalAlunos: 0,
-            presencas: [],
-            grupoId: p.turmaId,
-            createdAt: p.createdAt,
-            tipo: 'inclusao'
-          });
-        }
-        const group = grouped.get(key);
-        group.presencas.push({
-          id: p.participanteId,
-          nome: p.nome,
-          presente: p.presente,
-          observacoes: p.observacoes
-        });
-        group.totalAlunos++;
-        if (p.presente) {
-          group.totalPresentes++;
-        }
-      }
-      
-      // Converter para array e ordenar por data
-      const historico = Array.from(grouped.values());
-      historico.sort((a, b) => {
-        const dateA = new Date(a.data || 0).getTime();
-        const dateB = new Date(b.data || 0).getTime();
-        return dateB - dateA;
-      });
-      
-      res.json(historico);
-    } catch (error: any) {
-      console.error("Erro ao buscar histórico:", error);
-      res.status(500).json({ error: "Erro ao buscar histórico" });
-    }
-  });
+      .from(presencasInclusao)
+      .leftJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id)) as any;
 
+    if (assignedTurmaIds.length > 0) {
+      presencasQuery = presencasQuery.where(sql`${presencasInclusao.turmaId} = ANY(${sql.raw(`ARRAY[${assignedTurmaIds.join(',')}]::int[]`)})`);
+    }
+
+    const presencas = await presencasQuery.orderBy(desc(presencasInclusao.data), desc(presencasInclusao.id));
+
+    // Item 5: Buscar total de matriculados por turma para usar como denominador correto
+    const matriculadosPorTurma = await db
+      .select({
+        turmaId: participantesTurmas.turmaId,
+        total: sql<number>`COUNT(*)`.as("total"),
+      })
+      .from(participantesTurmas)
+      .where(sql`${participantesTurmas.status} NOT IN ('desligado', 'evadido')`)
+      .groupBy(participantesTurmas.turmaId);
+    const matriculadosMap = new Map(matriculadosPorTurma.map(r => [r.turmaId, Number(r.total)]));
+
+    const grouped = new Map<string, any>();
+
+    for (const p of presencas) {
+      const key = `${p.turmaId}_${p.data}`;
+      if (!grouped.has(key)) {
+        const totalMatriculados = matriculadosMap.get(p.turmaId!) || 0;
+        grouped.set(key, {
+          id: `inclusao_${p.turmaId}_${p.data}`,
+          data: p.data,
+          grupo: `turma_${p.turmaId}`,
+          turmaNome: turmaMap.get(p.turmaId!) || `Turma ${p.turmaId}`,
+          titulo: `Chamada - ${turmaMap.get(p.turmaId!) || "Turma"}`,
+          totalPresentes: 0,
+          totalAlunos: totalMatriculados,
+          presencas: [],
+          grupoId: p.turmaId,
+          createdAt: p.createdAt,
+          tipo: "inclusao",
+        });
+      }
+
+      const group = grouped.get(key);
+      group.presencas.push({
+        id: p.participanteId,
+        nome: p.nome,
+        presente: p.presente,
+        observacoes: p.observacoes,
+        justificativa: p.justificativa,
+        fotoComprovante: p.fotoComprovante,
+      });
+
+      group.totalAlunos++;
+      if (p.presente === true) group.totalPresentes++;
+    }
+
+    const historico = Array.from(grouped.values()).sort((a, b) => {
+      const dateA = new Date(a.data || 0).getTime();
+      const dateB = new Date(b.data || 0).getTime();
+      return dateB - dateA;
+    });
+
+    return res.json(historico);
+  } catch (error: any) {
+    console.error("Erro ao buscar histórico:", error);
+    return res.status(500).json({ error: "Erro ao buscar histórico" });
+  }
+});
   // ==================== ROTAS DE CURSOS DE INCLUSÃO PRODUTIVA ====================
 
   // ==================== ROTAS DE PLANOS DE AULA DO PROFESSOR ====================
@@ -38079,207 +43343,244 @@ app.put(
   });
 
 
-  // Listar todos os cursos
-  app.get("/api/cursos-inclusao", async (req, res) => {
+  // ==================== PLANOS E RELATÓRIOS DE AULAS PARA COORDENADORES ====================
+
+  // Coordenador Inclusão: todos os planos de aula dos professores de Inclusão
+  app.get("/api/coordenador/inclusao/planos-aula", async (req, res) => {
     try {
-      const cursos = await storage.getAllCursos();
-      res.json(cursos);
+      // Busca professores vinculados a turmas de inclusão
+      const professoresInclusao = await db
+        .selectDistinct({ professorId: professorTurmas.professorId })
+        .from(professorTurmas)
+        .where(eq(professorTurmas.turmaTipo, 'inclusao'));
+
+      if (professoresInclusao.length === 0) {
+        return res.json([]);
+      }
+
+      const profIds = professoresInclusao.map(p => p.professorId);
+
+      const planos = await db
+        .select({
+          id: planoAula.id,
+          turmaId: planoAula.turmaId,
+          professorId: planoAula.professorId,
+          data: planoAula.data,
+          titulo: planoAula.titulo,
+          objetivos: planoAula.objetivos,
+          conteudo: planoAula.conteudo,
+          metodologia: planoAula.metodologia,
+          recursos: planoAula.recursos,
+          avaliacao: planoAula.avaliacao,
+          competencias: planoAula.competencias,
+          duracaoMinutos: planoAula.duracaoMinutos,
+          status: planoAula.status,
+          createdAt: planoAula.createdAt,
+          professorNome: users.name,
+          professorEmail: users.email,
+        })
+        .from(planoAula)
+        .leftJoin(users, eq(planoAula.professorId, users.id))
+        .where(inArray(planoAula.professorId, profIds))
+        .orderBy(desc(planoAula.createdAt));
+
+      // Enriquecer com nome da turma
+      const turmaIds = [...new Set(planos.map(p => p.turmaId).filter(Boolean))];
+      const turmasMap: Record<number, string> = {};
+      if (turmaIds.length > 0) {
+        const turmasResult = await db
+          .select({ id: turmasInclusao.id, nome: turmasInclusao.nome })
+          .from(turmasInclusao)
+          .where(inArray(turmasInclusao.id, turmaIds as number[]));
+        turmasResult.forEach(t => { turmasMap[t.id] = t.nome; });
+      }
+
+      const result = planos.map(p => ({
+        ...p,
+        turmaNome: p.turmaId ? (turmasMap[p.turmaId] || 'Turma não encontrada') : 'N/A'
+      }));
+
+      res.json(result);
     } catch (error: any) {
-      console.error("Erro ao listar cursos:", error);
-      res.status(500).json({ error: "Erro ao listar cursos" });
+      console.error("Erro ao buscar planos de aula de inclusão:", error);
+      res.status(500).json({ error: "Erro ao buscar planos de aula" });
     }
   });
 
-  // Buscar curso por ID
-  app.get("/api/cursos-inclusao/:id", async (req, res) => {
+  // Coordenador Inclusão: todas as aulas registradas (relatórios) dos professores de Inclusão
+  app.get("/api/coordenador/inclusao/aulas-registradas", async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" });
+      const professoresInclusao = await db
+        .selectDistinct({ professorId: professorTurmas.professorId })
+        .from(professorTurmas)
+        .where(eq(professorTurmas.turmaTipo, 'inclusao'));
+
+      if (professoresInclusao.length === 0) {
+        return res.json([]);
       }
-      const curso = await storage.getCursoById(id);
-      if (!curso) {
-        return res.status(404).json({ error: "Curso não encontrado" });
+
+      const profIds = professoresInclusao.map(p => p.professorId);
+
+      const aulas = await db
+        .select({
+          id: aulaRegistrada.id,
+          turmaId: aulaRegistrada.turmaId,
+          professorId: aulaRegistrada.professorId,
+          data: aulaRegistrada.data,
+          titulo: aulaRegistrada.titulo,
+          conteudoMinistrado: aulaRegistrada.conteudoMinistrado,
+          competenciasTrabalhas: aulaRegistrada.competenciasTrabalhas,
+          observacoes: aulaRegistrada.observacoes,
+          duracaoMinutos: aulaRegistrada.duracaoMinutos,
+          statusAula: aulaRegistrada.statusAula,
+          fotoComprovante: aulaRegistrada.fotoComprovante,
+          createdAt: aulaRegistrada.createdAt,
+          professorNome: users.name,
+          professorEmail: users.email,
+        })
+        .from(aulaRegistrada)
+        .leftJoin(users, eq(aulaRegistrada.professorId, users.id))
+        .where(inArray(aulaRegistrada.professorId, profIds))
+        .orderBy(desc(aulaRegistrada.createdAt));
+
+      const turmaIds = [...new Set(aulas.map(a => a.turmaId).filter(Boolean))];
+      const turmasMap: Record<number, string> = {};
+      if (turmaIds.length > 0) {
+        const turmasResult = await db
+          .select({ id: turmasInclusao.id, nome: turmasInclusao.nome })
+          .from(turmasInclusao)
+          .where(inArray(turmasInclusao.id, turmaIds as number[]));
+        turmasResult.forEach(t => { turmasMap[t.id] = t.nome; });
       }
-      res.json(curso);
+
+      const result = aulas.map(a => ({
+        ...a,
+        turmaNome: a.turmaId ? (turmasMap[a.turmaId] || 'Turma não encontrada') : 'N/A'
+      }));
+
+      res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar curso:", error);
-      res.status(500).json({ error: "Erro ao buscar curso" });
+      console.error("Erro ao buscar aulas registradas de inclusão:", error);
+      res.status(500).json({ error: "Erro ao buscar aulas registradas" });
     }
   });
 
-  // Listar cursos por turma
-  app.get("/api/turmas-inclusao/:turmaId/cursos", async (req, res) => {
+  // Coordenador PEC: todos os planos de aula dos professores de PEC
+  app.get("/api/coordenador/pec/planos-aula", async (req, res) => {
     try {
-      const turmaId = parseInt(req.params.turmaId);
-      if (isNaN(turmaId)) {
-        return res.status(400).json({ error: "ID da turma inválido" });
+      const professoresPEC = await db
+        .selectDistinct({ professorId: professorTurmas.professorId })
+        .from(professorTurmas)
+        .where(eq(professorTurmas.turmaTipo, 'pec'));
+
+      if (professoresPEC.length === 0) {
+        return res.json([]);
       }
-      const cursos = await storage.getCursosByTurma(turmaId);
-      res.json(cursos);
+
+      const profIds = professoresPEC.map(p => p.professorId);
+
+      const planos = await db
+        .select({
+          id: planoAula.id,
+          turmaId: planoAula.turmaId,
+          professorId: planoAula.professorId,
+          data: planoAula.data,
+          titulo: planoAula.titulo,
+          objetivos: planoAula.objetivos,
+          conteudo: planoAula.conteudo,
+          metodologia: planoAula.metodologia,
+          recursos: planoAula.recursos,
+          avaliacao: planoAula.avaliacao,
+          competencias: planoAula.competencias,
+          duracaoMinutos: planoAula.duracaoMinutos,
+          status: planoAula.status,
+          createdAt: planoAula.createdAt,
+          professorNome: users.name,
+          professorEmail: users.email,
+        })
+        .from(planoAula)
+        .leftJoin(users, eq(planoAula.professorId, users.id))
+        .where(inArray(planoAula.professorId, profIds))
+        .orderBy(desc(planoAula.createdAt));
+
+      // Enriquecer com nome da turma PEC
+      const turmaIds = [...new Set(planos.map(p => p.turmaId).filter(Boolean))];
+      const turmasMap: Record<number, string> = {};
+      if (turmaIds.length > 0) {
+        const turmasResult = await db
+          .select({ id: turma.id, nome: turma.nome })
+          .from(turma)
+          .where(inArray(turma.id, turmaIds as number[]));
+        turmasResult.forEach(t => { turmasMap[t.id] = t.nome; });
+      }
+
+      const result = planos.map(p => ({
+        ...p,
+        turmaNome: p.turmaId ? (turmasMap[p.turmaId] || 'Turma não encontrada') : 'N/A'
+      }));
+
+      res.json(result);
     } catch (error: any) {
-      console.error("Erro ao listar cursos da turma:", error);
-      res.status(500).json({ error: "Erro ao listar cursos da turma" });
+      console.error("Erro ao buscar planos de aula PEC:", error);
+      res.status(500).json({ error: "Erro ao buscar planos de aula PEC" });
     }
   });
 
-  // Listar cursos por programa
-  app.get(
-    "/api/programas-inclusao/:programaId/cursos",
-    requireAuth,
-    async (req, res) => {
-      try {
-        const programaId = parseInt(req.params.programaId);
-        if (isNaN(programaId)) {
-          return res.status(400).json({ error: "ID do programa inválido" });
-        }
-        const cursos = await storage.getCursosByPrograma(programaId);
-        res.json(cursos);
-      } catch (error: any) {
-        console.error("Erro ao listar cursos do programa:", error);
-        res.status(500).json({ error: "Erro ao listar cursos do programa" });
-      }
-    }
-  );
-
-  // Criar novo curso
-  app.post("/api/cursos-inclusao", async (req, res) => {
+  // Coordenador PEC: todas as aulas registradas (relatórios) dos professores de PEC
+  app.get("/api/coordenador/pec/aulas-registradas", async (req, res) => {
     try {
-      const coordenadorId = req.user?.id || null;
-      const { turmaIds, ...cursoBodyData } = req.body;
+      const professoresPEC = await db
+        .selectDistinct({ professorId: professorTurmas.professorId })
+        .from(professorTurmas)
+        .where(eq(professorTurmas.turmaTipo, 'pec'));
 
-      // Validar programaId
-      const programaId = parseInt(cursoBodyData.programaId);
-      if (isNaN(programaId) || programaId <= 0) {
-        return res.status(400).json({ error: "programaId inválido" });
+      if (professoresPEC.length === 0) {
+        return res.json([]);
       }
 
-      // Validar cargaHoraria
-      const cargaHoraria = parseInt(
-        cursoBodyData.cargaHoraria || cursoBodyData.duracao
-      );
-      if (isNaN(cargaHoraria) || cargaHoraria <= 0) {
-        return res
-          .status(400)
-          .json({ error: "cargaHoraria deve ser maior que zero" });
+      const profIds = professoresPEC.map(p => p.professorId);
+
+      const aulas = await db
+        .select({
+          id: aulaRegistrada.id,
+          turmaId: aulaRegistrada.turmaId,
+          professorId: aulaRegistrada.professorId,
+          data: aulaRegistrada.data,
+          titulo: aulaRegistrada.titulo,
+          conteudoMinistrado: aulaRegistrada.conteudoMinistrado,
+          competenciasTrabalhas: aulaRegistrada.competenciasTrabalhas,
+          observacoes: aulaRegistrada.observacoes,
+          duracaoMinutos: aulaRegistrada.duracaoMinutos,
+          statusAula: aulaRegistrada.statusAula,
+          fotoComprovante: aulaRegistrada.fotoComprovante,
+          createdAt: aulaRegistrada.createdAt,
+          professorNome: users.name,
+          professorEmail: users.email,
+        })
+        .from(aulaRegistrada)
+        .leftJoin(users, eq(aulaRegistrada.professorId, users.id))
+        .where(inArray(aulaRegistrada.professorId, profIds))
+        .orderBy(desc(aulaRegistrada.createdAt));
+
+      const turmaIds = [...new Set(aulas.map(a => a.turmaId).filter(Boolean))];
+      const turmasMap: Record<number, string> = {};
+      if (turmaIds.length > 0) {
+        const turmasResult = await db
+          .select({ id: turma.id, nome: turma.nome })
+          .from(turma)
+          .where(inArray(turma.id, turmaIds as number[]));
+        turmasResult.forEach(t => { turmasMap[t.id] = t.nome; });
       }
 
-      // Validar turmaIds se fornecido
-      let validatedTurmaIds: number[] | undefined = undefined;
-      if (turmaIds) {
-        if (!Array.isArray(turmaIds)) {
-          return res.status(400).json({ error: "turmaIds deve ser um array" });
-        }
-        validatedTurmaIds = turmaIds
-          .map((id: any) => parseInt(id))
-          .filter((id: number) => !isNaN(id) && id > 0);
-        if (validatedTurmaIds.length !== turmaIds.length) {
-          return res
-            .status(400)
-            .json({ error: "turmaIds deve conter apenas números válidos" });
-        }
-      }
+      const result = aulas.map(a => ({
+        ...a,
+        turmaNome: a.turmaId ? (turmasMap[a.turmaId] || 'Turma não encontrada') : 'N/A'
+      }));
 
-      const cursoData = {
-        ...cursoBodyData,
-        coordenadorId,
-        programaId,
-        cargaHoraria,
-        numeroVagas:
-          parseInt(cursoBodyData.numeroVagas || cursoBodyData.vagas) || 20,
-        vagasOcupadas: 0,
-      };
-
-      const curso = await storage.createCurso(cursoData, validatedTurmaIds);
-      res.status(201).json(curso);
+      res.json(result);
     } catch (error: any) {
-      console.error("Erro ao criar curso:", error);
-      res.status(500).json({ error: "Erro ao criar curso" });
-    }
-  });
-
-  // Atualizar curso
-  app.patch("/api/cursos-inclusao/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" });
-      }
-      const curso = await storage.updateCurso(id, req.body);
-      res.json(curso);
-    } catch (error: any) {
-      console.error("Erro ao atualizar curso:", error);
-      res.status(500).json({ error: "Erro ao atualizar curso" });
-    }
-  });
-
-  // Deletar curso
-  app.delete("/api/cursos-inclusao/:id", requireAuth, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ error: "ID inválido" });
-      }
-      await storage.deleteCurso(id);
-      res.json({ message: "Curso deletado com sucesso" });
-    } catch (error: any) {
-      console.error("Erro ao deletar curso:", error);
-      res.status(500).json({ error: "Erro ao deletar curso" });
-    }
-  });
-
-  // Adicionar curso a uma turma
-  app.post(
-    "/api/cursos-inclusao/:cursoId/turmas/:turmaId",
-    requireAuth,
-    async (req, res) => {
-      try {
-        const cursoId = parseInt(req.params.cursoId);
-        const turmaId = parseInt(req.params.turmaId);
-        if (isNaN(cursoId) || isNaN(turmaId)) {
-          return res.status(400).json({ error: "IDs inválidos" });
-        }
-        const relacao = await storage.addCursoToTurma(cursoId, turmaId);
-        res.status(201).json(relacao);
-      } catch (error: any) {
-        console.error("Erro ao vincular curso à turma:", error);
-        res.status(500).json({ error: "Erro ao vincular curso à turma" });
-      }
-    }
-  );
-
-  // Remover curso de uma turma
-  app.delete(
-    "/api/cursos-inclusao/:cursoId/turmas/:turmaId",
-    requireAuth,
-    async (req, res) => {
-      try {
-        const cursoId = parseInt(req.params.cursoId);
-        const turmaId = parseInt(req.params.turmaId);
-        if (isNaN(cursoId) || isNaN(turmaId)) {
-          return res.status(400).json({ error: "IDs inválidos" });
-        }
-        await storage.removeCursoFromTurma(cursoId, turmaId);
-        res.json({ message: "Curso removido da turma com sucesso" });
-      } catch (error: any) {
-        console.error("Erro ao remover curso da turma:", error);
-        res.status(500).json({ error: "Erro ao remover curso da turma" });
-      }
-    }
-  );
-
-  // Listar turmas de um curso
-  app.get("/api/cursos-inclusao/:cursoId/turmas", requireAuth, async (req, res) => {
-    try {
-      const cursoId = parseInt(req.params.cursoId);
-      if (isNaN(cursoId)) {
-        return res.status(400).json({ error: "ID do curso inválido" });
-      }
-      const turmas = await storage.getTurmasByCurso(cursoId);
-      res.json(turmas);
-    } catch (error: any) {
-      console.error("Erro ao listar turmas do curso:", error);
-      res.status(500).json({ error: "Erro ao listar turmas do curso" });
+      console.error("Erro ao buscar aulas registradas PEC:", error);
+      res.status(500).json({ error: "Erro ao buscar aulas registradas PEC" });
     }
   });
 
@@ -38311,40 +43612,193 @@ app.put(
     return isNaN(d.getTime()) ? undefined : d;
   };
 
-  app.post(
-    "/api/inclusao/import/preview",
-    requireAuth,
-    requireRole("coordenador_inclusao"),
-    uploadExcel.single("file"),
-    async (req, res) => {
-      if (!req.file?.buffer) {
-        return res.status(400).json({ error: "Arquivo não enviado" });
-      }
+// helper: resumo do que invalidou
+function summarizeInvalidReasons(rows: any[]) {
+  let cpf = 0,
+    email = 0,
+    other = 0;
 
-      try {
-        const preview = buildInclusaoPreviewFromExcel(req.file.buffer);
-        const importId = putCache(preview);
+  for (const r of rows) {
+    if (r?.isValid) continue;
 
-        return res.json({
-          importId,
-          preview: {
-            programas: preview.programas,
-            turmas: preview.turmas,
-            cursos: preview.cursos,
-            participantes: preview.participantes,
-          },
-          stats: preview.stats,
-        });
-      } catch (err: any) {
-        console.error("❌ Erro no preview do Excel:", err);
+    const paths = new Set((r.errors ?? []).map((e: any) => String(e.path)));
+    const hasCpf = paths.has("cpf");
+    const hasEmail = paths.has("email");
+
+    if (hasCpf) cpf++;
+    if (hasEmail) email++;
+    if (!hasCpf && !hasEmail) other++;
+  }
+
+  const totalInvalid = rows.filter((r) => !r?.isValid).length;
+
+  const message =
+    totalInvalid === 0
+      ? ""
+      : cpf > 0 || email > 0
+      ? `${totalInvalid} usuários não validados por CPF e/ou e-mail inválidos.`
+      : `${totalInvalid} usuários não validados por dados inválidos.`;
+
+  return { totalInvalid, cpf, email, other, message };
+}
+
+ app.post(
+  "/api/inclusao/import/preview",
+  requireAuth,
+  requireRole(["coordenador_inclusao"]),
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    uploadExcel.single("file")(req, res, (multerErr: any) => {
+      if (multerErr) {
+        console.error("❌ [IMPORT PREVIEW] Erro multer:", multerErr?.message || multerErr);
         return res.status(400).json({
-          error:
-            "Falha ao ler planilha. Verifique datas e formato das colunas.",
-          details: err?.message || String(err),
+          error: multerErr?.message || "Erro ao receber o arquivo. Verifique o tamanho (máx 20MB) e o formato (.xlsx/.xls).",
         });
       }
+      next();
+    });
+  },
+  async (req: express.Request, res: express.Response) => {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ error: "Arquivo não enviado. Use multipart/form-data com o campo 'file'." });
     }
-  );
+
+    const summarizeInvalidReasons = (rows: any[]) => {
+      let cpf = 0, email = 0, other = 0;
+
+      for (const r of rows) {
+        if (r?.isValid) continue;
+        const paths = new Set((r.errors ?? []).map((e: any) => String(e.path)));
+        const hasCpf = paths.has("cpf");
+        const hasEmail = paths.has("email");
+        if (hasCpf) cpf++;
+        if (hasEmail) email++;
+        if (!hasCpf && !hasEmail) other++;
+      }
+
+      const totalInvalid = rows.filter((r) => !r?.isValid).length;
+
+      const message =
+        totalInvalid === 0
+          ? ""
+          : (cpf > 0 || email > 0)
+            ? `${totalInvalid} usuários não validados por CPF e/ou e-mail inválidos.`
+            : `${totalInvalid} usuários não validados por dados inválidos.`;
+
+      return { totalInvalid, cpf, email, other, message };
+    };
+
+    try {
+      console.log("📦 [IMPORT PREVIEW] Iniciando processamento:", {
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        bufferLength: req.file.buffer?.length ?? 0,
+      });
+
+      console.log("🔄 [IMPORT PREVIEW] Chamando buildInclusaoPreviewFromExcelAsync...");
+      const preview = await buildInclusaoPreviewFromExcelAsync(req.file.buffer);
+      console.log("✅ [IMPORT PREVIEW] buildInclusaoPreviewFromExcelAsync concluído.");
+
+      console.log("👀 [IMPORT PREVIEW] counts:", {
+        programas: preview?.programas?.length ?? 0,
+        turmas: preview?.turmas?.length ?? 0,
+        cursos: preview?.cursos?.length ?? 0,
+        participantes: preview?.participantes?.length ?? 0,
+        stats: preview?.stats,
+      });
+
+      console.log("🧪 [IMPORT PREVIEW] first participante:", preview?.participantes?.[0]);
+      console.log("🧪 [IMPORT PREVIEW] first participante errors:", preview?.participantes?.[0]?.errors);
+
+      const invalidSummary = summarizeInvalidReasons(preview.participantes ?? []);
+
+      const valid = (preview?.participantes ?? []).filter((r: any) => r?.isValid).length;
+      const invalid = (preview?.participantes ?? []).filter((r: any) => !r?.isValid).length;
+
+      // Check existing CPFs in database with single batch query
+      const validCpfs = (preview.participantes ?? [])
+        .filter((r: any) => r.isValid)
+        .map((r: any) => String(r.data?.cpf ?? "").replace(/\D/g, ""))
+        .filter((c: string) => c.length === 11);
+
+      const existingCpfs = new Set<string>();
+      if (validCpfs.length > 0) {
+        try {
+          const { pool } = await import("./db");
+          const placeholders = validCpfs.map((_: string, i: number) => `$${i + 1}`).join(",");
+          const result = await pool.query(
+            `SELECT cpf FROM participantes_inclusao WHERE cpf IN (${placeholders})`,
+            validCpfs
+          );
+          for (const row of result.rows) {
+            existingCpfs.add(row.cpf);
+          }
+          console.log(`📋 [IMPORT] ${existingCpfs.size} CPFs já existem no banco de ${validCpfs.length} verificados`);
+        } catch (err) {
+          console.error("⚠️ [IMPORT] Erro ao verificar CPFs existentes:", err);
+        }
+      }
+
+      // Mark existing CPFs as warnings
+      for (const row of preview.participantes) {
+        if (!row.isValid) continue;
+        const cpf = String(row.data?.cpf ?? "").replace(/\D/g, "");
+        if (existingCpfs.has(cpf)) {
+          row.isValid = false;
+          row.errors = [{
+            path: "cpf",
+            message: `CPF já cadastrado no sistema. Este participante não será importado novamente.`
+          }];
+        }
+      }
+
+      // Recalculate stats after marking existing CPFs
+      const finalValid = (preview.participantes ?? []).filter((r: any) => r.isValid).length;
+      const finalInvalid = (preview.participantes ?? []).filter((r: any) => !r.isValid).length;
+      const finalInvalidSummary = summarizeInvalidReasons(preview.participantes ?? []);
+
+      const importId = putCache(preview);
+
+      // Send lightweight preview (only essential fields per row)
+      const lightParticipantes = (preview.participantes ?? []).map((r: any) => ({
+        index: r.index,
+        isValid: r.isValid,
+        errors: r.errors,
+        data: {
+          nome: r.data?.nome || r.data?.nomecompleto || "",
+          cpf: r.data?.cpf || "",
+          genero: r.data?.genero || "",
+          email: r.data?.email || "",
+          telefone: r.data?.telefone || "",
+        },
+      }));
+
+      return res.json({
+        importId,
+        preview: {
+          programas: preview.programas ?? [],
+          turmas: preview.turmas ?? [],
+          cursos: preview.cursos ?? [],
+          participantes: lightParticipantes,
+        },
+        stats: {
+          ...(preview.stats ?? {}),
+          participantes: {
+            valid: finalValid,
+            invalid: finalInvalid,
+            invalidSummary: finalInvalidSummary,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error("❌ Erro no preview do Excel:", err);
+      return res.status(400).json({
+        error: "Falha ao ler planilha. Verifique datas e formato das colunas.",
+        details: err?.message || String(err),
+      });
+    }
+  }
+);
 
   app.post(
     "/api/inclusao/import/commit",
@@ -38455,59 +43909,7 @@ app.put(
           }
         }
 
-        // ✅ 3) CURSOS: importa TODOS válidos
-        for (const row of (preview.cursos || []).filter(
-          (r: any) => r.isValid
-        )) {
-          try {
-            const programaId = programaIdByNome.get(key(row.data.programaNome));
-            if (!programaId) {
-              errors.push({
-                entity: "cursos",
-                index: row.index,
-                message: `programaNome "${row.data.programaNome}" não encontrado no import`,
-              });
-              continue;
-            }
-
-            const turmaIds = row.data.turmasCodigos
-              ? row.data.turmasCodigos
-                  .split(";")
-                  .map((s: string) => s.trim())
-                  .filter(Boolean)
-                  .map((codigo: string) =>
-                    turmaIdByCodigo.get(turmaKey(codigo))
-                  )
-                  .filter((id: any) => typeof id === "number")
-              : [];
-
-            const cursoPayload: any = {
-              programaId,
-              nome: row.data.nome,
-              categoria: row.data.categoria ?? "Geral", // ✅ fallback se vier vazio
-              cargaHorariaHoras: row.data.cargaHorariaHoras, // preferido
-              cargaHoraria: row.data.cargaHorariaHoras, // fallback se o insert usa esse nome
-              horarioEntrada: row.data.horarioEntrada,
-              horarioSaida: row.data.horarioSaida,
-              status: row.data.status,
-              descricao: row.data.descricao,
-            };
-
-            await storage.createCurso(
-              cursoPayload,
-              turmaIds.length ? turmaIds : undefined
-            );
-            imported.cursos++;
-          } catch (e: any) {
-            errors.push({
-              entity: "cursos",
-              index: row.index,
-              message: e.message || String(e),
-            });
-          }
-        }
-
-        // ✅ 4) PARTICIPANTES: AQUI sim usa selectedIndexes (porque seu modal seleciona isso)
+        // ✅ 3) PARTICIPANTES: AQUI sim usa selectedIndexes (porque seu modal seleciona isso)
         const set = new Set(selectedIndexes || []);
         const participantesSelecionados = (preview.participantes || [])
           .filter((r: any) => r.isValid)
@@ -38526,23 +43928,36 @@ app.put(
                   .filter((id: any) => typeof id === "number")
               : [];
 
-            const participantePayload: any = {
+           const participantePayload: any = {
               nome: row.data.nome,
               cpf: row.data.cpf,
+              email: row.data.email,
+              telefone: row.data.telefone,
               genero: row.data.genero,
               idade: row.data.idade,
               codigoMatricula: row.data.codigoMatricula,
+
+              // ✅ novos (se vierem)
+              dataNascimento: row.data.dataNascimento ? new Date(row.data.dataNascimento) : undefined,
+              dataEntrada: row.data.dataEntrada ? new Date(row.data.dataEntrada) : undefined,
+              formaAcesso: row.data.formaAcesso,
+
+              estadoCivil: row.data.estadoCivil,
+              religiao: row.data.religiao,
+              naturalidade: row.data.naturalidade,
+              nacionalidade: row.data.nacionalidade,
+              podeSairSozinho: row.data.podeSairSozinho,
+              corRaca: row.data.corRaca,
+
+              // manter se seu modelo antigo mandar isso
               identificador: row.data.identificador,
-              dataIngresso: row.data.dataIngresso
-                ? new Date(row.data.dataIngresso) // ✅ agora é Date de verdade
-                : undefined,
-              email: row.data.email,
-              telefone: row.data.telefone,
+              dataIngresso: row.data.dataIngresso ? new Date(row.data.dataIngresso) : undefined,
               endereco: row.data.endereco,
               escolaridade: row.data.escolaridade,
               experienciaProfissional: row.data.experienciaProfissional,
               objetivosProfissionais: row.data.objetivosProfissionais,
             };
+
             const cpf = String(row.data.cpf ?? "").trim();
 
             if (cpf) {
@@ -38602,14 +44017,14 @@ app.put(
 
   // Listar todos os participantes
   app.get("/api/participantes-inclusao", async (req, res) => {
-    try {
-      const participantes = await storage.getAllParticipantes();
-      res.json(participantes);
-    } catch (error: any) {
-      console.error("Erro ao listar participantes:", error);
-      res.status(500).json({ error: "Erro ao listar participantes" });
-    }
-  });
+      try {
+        const participantes = await storage.getAllParticipantes();
+        res.json(participantes);
+      } catch (error: any) {
+        console.error("Erro ao listar participantes:", error);
+        res.status(500).json({ error: "Erro ao listar participantes" });
+      }
+    });
 
   // Buscar participante por ID
   app.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
@@ -38687,8 +44102,8 @@ function pick(obj: Record<string, any>, keys: readonly string[]) {
 
 app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
   try {
-    const coordenadorId = req.user?.id ?? null;
     const { turmaIds, ...rawBody } = req.body;
+    console.log(`📝 [CRIAR PARTICIPANTE INCLUSÃO] Iniciando cadastro — Nome: "${rawBody.nome || 'não informado'}", CPF: "${rawBody.cpf || 'não informado'}", TurmaIds: ${JSON.stringify(turmaIds || [])}`);
 
     // ✅ só deixa passar o que é permitido
     const allowedData = pick(rawBody, participanteAllowedKeys);
@@ -38709,18 +44124,69 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
       allowedData.dataEntrada = new Date(allowedData.dataEntrada);
     }
 
+    console.log(`🔍 [CRIAR PARTICIPANTE INCLUSÃO] Dados normalizados:`, Object.fromEntries(
+      Object.entries(allowedData).map(([k, v]) => [k, { type: typeof v, value: v }])
+    ));
+
+    // ✅✅✅ FIX: normalizar campos ARRAY que podem vir stringificados do front
+    const arrayFields = [
+      // TROQUE pelos nomes reais do seu schema que são array (text[])
+      "documentosEntregues",
+      "documentosApresentados",
+      "documentosPendentes",
+      "documentos",
+    ];
+
+    for (const field of arrayFields) {
+      const v = allowedData[field];
+
+      // se vier como string JSON: '["Certidão de Nascimento"]'
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (s.startsWith("[") && s.endsWith("]")) {
+          try {
+            allowedData[field] = JSON.parse(s);
+          } catch {
+            // deixa o Zod acusar "inválido" depois
+          }
+        }
+      }
+
+      // opcional: string vazia vira null
+      if (allowedData[field] === "") allowedData[field] = null;
+    }
+
     const validationResult = insertParticipanteInclusaoSchema.safeParse({
       ...allowedData,
-      coordenadorId,
+
     });
 
     if (!validationResult.success) {
+      const fieldNames: Record<string, string> = {
+        nome: 'Nome', cpf: 'CPF', email: 'E-mail', telefone: 'Telefone',
+        genero: 'Gênero', idade: 'Idade', dataIngresso: 'Data de ingresso',
+        programaAtual: 'Programa atual', status: 'Status'
+      };
+      const allIssues = validationResult.error.issues;
+      const firstIssue = allIssues[0];
+      const fieldKey = firstIssue?.path?.[0]?.toString() || '';
+      const fieldLabel = fieldNames[fieldKey] || fieldKey;
+      const errorMsg = fieldLabel
+        ? `Campo inválido: "${fieldLabel}" — ${firstIssue?.message || 'valor inválido'}.`
+        : "Alguns dados estão incorretos. Verifique os campos e tente novamente.";
+
+      console.warn(`⚠️ [CRIAR PARTICIPANTE INCLUSÃO] Validação falhou — ${allIssues.length} problema(s) encontrado(s)`);
+      allIssues.forEach((issue, i) => {
+        console.warn(`   → [${i + 1}] Campo: "${issue.path.join('.')}" | Código: "${issue.code}" | Mensagem: "${issue.message}" | Valor recebido: "${(allowedData as any)[issue.path?.[0]?.toString() || ''] ?? 'n/a'}"`);
+      });
+
       return res.status(400).json({
-        error: "Dados inválidos",
-        details: validationResult.error.issues,
+        error: errorMsg,
+        details: allIssues,
       });
     }
 
+    console.log(`🔄 [CRIAR PARTICIPANTE INCLUSÃO] Validação OK — chamando storage.createParticipante para "${(validationResult.data as any).nome}"`);
     const participante = await storage.createParticipante(
       validationResult.data,
       turmaIds
@@ -38775,11 +44241,665 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
 
       return res.status(201).json(participante);
     } catch (error: any) {
-      console.error("Erro ao criar participante:", error);
-      return res.status(500).json({ error: "Erro ao criar participante" });
+      console.error(`❌ [CRIAR PARTICIPANTE INCLUSÃO] Erro inesperado ao criar participante`);
+      console.error(`   → Nome      : ${req.body?.nome || 'não informado'}`);
+      console.error(`   → CPF       : ${req.body?.cpf || 'não informado'}`);
+      console.error(`   → Código PG : ${error?.code || 'n/a'}`);
+      console.error(`   → Constraint: ${error?.constraint || 'n/a'}`);
+      console.error(`   → Detalhe   : ${error?.detail || 'n/a'}`);
+      console.error(`   → Erro      : ${error?.message || error}`);
+      console.error(`   → Stack     :`, error?.stack);
+
+      const pgErr = formatPostgresError(error, 'participante Inclusão');
+      res.status(pgErr.status).json({ error: pgErr.message });
     }
   });
 
+
+  // ============================================================
+  // GRADE HORÁRIA FIXA + AUTO-CRIAÇÃO DE AULAS
+  // ============================================================
+
+  // GET /api/grade-horaria - Lista horários fixos (filtros: modulo, turma_id)
+  app.get("/api/grade-horaria", requireAuth, async (req, res) => {
+    try {
+      const { modulo, turma_id } = req.query;
+      const rows = await db.execute(sql`
+        SELECT g.*, ti.nome as turma_nome
+        FROM grade_horaria g
+        LEFT JOIN turmas_inclusao ti ON ti.id = g.turma_id
+        WHERE g.ativo = TRUE
+        AND (${modulo ? sql`g.modulo = ${String(modulo)}` : sql`1=1`})
+        AND (${turma_id ? sql`g.turma_id = ${Number(turma_id)}` : sql`1=1`})
+        ORDER BY g.dia_semana, g.start_time
+      `);
+      res.json(rows.rows);
+    } catch (e) {
+      console.error("GET /api/grade-horaria error:", e);
+      res.status(500).json({ error: "Erro ao buscar grade horária" });
+    }
+  });
+
+  // POST /api/grade-horaria - Criar horário fixo
+  app.post("/api/grade-horaria", requireAuth, async (req, res) => {
+    try {
+      const { turma_id, modulo, nome, dia_semana, start_time, end_time, unidade } = req.body;
+      if (!turma_id || !modulo || !nome || dia_semana === undefined || !start_time || !end_time) {
+        return res.status(400).json({ error: "turma_id, modulo, nome, dia_semana, start_time e end_time são obrigatórios" });
+      }
+      const result = await db.execute(sql`
+        INSERT INTO grade_horaria (turma_id, modulo, nome, dia_semana, start_time, end_time, unidade)
+        VALUES (${Number(turma_id)}, ${String(modulo)}, ${String(nome)}, ${Number(dia_semana)}, ${String(start_time)}, ${String(end_time)}, ${unidade || null})
+        RETURNING *
+      `);
+      res.status(201).json(result.rows[0]);
+    } catch (e) {
+      console.error("POST /api/grade-horaria error:", e);
+      res.status(500).json({ error: "Erro ao criar horário fixo" });
+    }
+  });
+
+  // PATCH /api/grade-horaria/:id - Atualizar
+  app.patch("/api/grade-horaria/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { nome, start_time, end_time, unidade, ativo } = req.body;
+      const result = await db.execute(sql`
+        UPDATE grade_horaria SET
+          nome = COALESCE(${nome || null}, nome),
+          start_time = COALESCE(${start_time || null}, start_time),
+          end_time = COALESCE(${end_time || null}, end_time),
+          unidade = COALESCE(${unidade || null}, unidade),
+          ativo = COALESCE(${ativo !== undefined ? Boolean(ativo) : null}, ativo)
+        WHERE id = ${id} RETURNING *
+      `);
+      if (!result.rows?.length) return res.status(404).json({ error: "Não encontrado" });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao atualizar" });
+    }
+  });
+
+  // DELETE /api/grade-horaria/:id - Desativar (soft delete)
+  app.delete("/api/grade-horaria/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.execute(sql`UPDATE grade_horaria SET ativo = FALSE WHERE id = ${id}`);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao remover" });
+    }
+  });
+
+  // GET /api/aulas/hoje - Busca ou cria aulas de hoje a partir da grade horária
+  app.get("/api/aulas/hoje", requireAuth, async (req, res) => {
+    try {
+      const { modulo, turma_id } = req.query;
+      const hoje = new Date();
+      const dataHoje = hoje.toISOString().slice(0, 10);
+      const diaSemana = hoje.getDay(); // 0=Dom ... 6=Sab
+
+      // Busca aulas já criadas para hoje
+      const aulasHoje = await db.execute(sql`
+        SELECT a.*,
+          (SELECT COUNT(*) FROM presencas_aula p WHERE p.aula_id = a.id AND p.status = 'presente') as total_presentes,
+          (SELECT json_agg(json_build_object(
+            'cpf', p.cpf, 'check_in_at', p.check_in_at, 'check_out_at', p.check_out_at,
+            'fonte', p.fonte, 'status', p.status,
+            'nome', COALESCE(pi.nome, al.nome_completo, p.cpf)
+          )) FROM presencas_aula p
+          LEFT JOIN participantes_inclusao pi ON pi.cpf = p.cpf
+          LEFT JOIN aluno al ON al.cpf = p.cpf
+          WHERE p.aula_id = a.id) as presencas
+        FROM aulas a
+        WHERE a.data = ${dataHoje}::date
+        AND (${modulo ? sql`a.modulo = ${String(modulo)}` : sql`1=1`})
+        AND (${turma_id ? sql`a.turma_id = ${Number(turma_id)}` : sql`1=1`})
+        ORDER BY a.start_time ASC
+      `);
+
+      // Auto-cria aulas da grade para hoje que ainda não existem
+      const grade = await db.execute(sql`
+        SELECT * FROM grade_horaria
+        WHERE dia_semana = ${diaSemana} AND ativo = TRUE
+        AND (${modulo ? sql`modulo = ${String(modulo)}` : sql`1=1`})
+        AND (${turma_id ? sql`turma_id = ${Number(turma_id)}` : sql`1=1`})
+      `);
+
+      const aulasExistentesKey = new Set(
+        (aulasHoje.rows as any[]).map(a => `${a.turma_id}-${a.start_time}`)
+      );
+
+      const novasAulas: any[] = [];
+      for (const g of grade.rows as any[]) {
+        const key = `${g.turma_id}-${g.start_time}`;
+        if (!aulasExistentesKey.has(key)) {
+          const nova = await db.execute(sql`
+            INSERT INTO aulas (modulo, turma_id, nome, data, start_time, end_time, status, unidade)
+            VALUES (${g.modulo}, ${g.turma_id}, ${g.nome}, ${dataHoje}::date, ${g.start_time}::time, ${g.end_time}::time, 'aberta', ${g.unidade || null})
+            ON CONFLICT DO NOTHING
+            RETURNING *
+          `);
+          if (nova.rows?.length) novasAulas.push({ ...nova.rows[0], presencas: [], total_presentes: 0 });
+        }
+      }
+
+      const todasAulas = [...(aulasHoje.rows as any[]).map(a => ({ ...a, presencas: a.presencas || [] })), ...novasAulas];
+      todasAulas.sort((a, b) => a.start_time?.localeCompare(b.start_time));
+      res.json(todasAulas);
+    } catch (e) {
+      console.error("GET /api/aulas/hoje error:", e);
+      res.status(500).json({ error: "Erro ao buscar aulas de hoje" });
+    }
+  });
+
+    // ============================================================
+  // NOVA ESTRUTURA: Aulas + Presenças + Webhook Catraca
+  // ============================================================
+
+  // GET /api/aulas - Listar aulas (filtradas por modulo, turma_id, data)
+  app.get("/api/aulas", requireAuth, async (req, res) => {
+    try {
+      const { modulo, turma_id, data } = req.query;
+      const rows = await db.execute(sql`
+        SELECT a.*,
+          (SELECT COUNT(*) FROM presencas_aula p WHERE p.aula_id = a.id AND p.status = 'presente') as total_presentes
+        FROM aulas a
+        WHERE (${modulo ? sql`a.modulo = ${String(modulo)}` : sql`1=1`})
+        AND (${turma_id ? sql`a.turma_id = ${Number(turma_id)}` : sql`1=1`})
+        AND (${data ? sql`a.data = ${String(data)}` : sql`1=1`})
+        ORDER BY a.data DESC, a.start_time ASC
+      `);
+      res.json(rows.rows);
+    } catch (e) {
+      console.error("GET /api/aulas error:", e);
+      res.status(500).json({ error: "Erro ao buscar aulas" });
+    }
+  });
+
+  // POST /api/aulas - Criar nova aula
+  app.post("/api/aulas", requireAuth, async (req, res) => {
+    try {
+      const { modulo, turma_id, nome, data, start_time, end_time, unidade } = req.body;
+      if (!modulo || !data || !start_time || !end_time) {
+        return res.status(400).json({ error: "modulo, data, start_time e end_time são obrigatórios" });
+      }
+      if (!["pec", "inclusao", "psico"].includes(modulo)) {
+        return res.status(400).json({ error: "modulo deve ser pec, inclusao ou psico" });
+      }
+      const userId = (req as any).user?.id ?? null;
+      const result = await db.execute(sql`
+        INSERT INTO aulas (modulo, turma_id, nome, data, start_time, end_time, status, unidade, criado_por)
+        VALUES (
+          ${modulo}, ${turma_id || null}, ${nome || null}, ${data}::date,
+          ${start_time}::time, ${end_time}::time, 'aberta', ${unidade || null}, ${userId}
+        )
+        RETURNING *
+      `);
+      res.status(201).json(result.rows[0]);
+    } catch (e) {
+      console.error("POST /api/aulas error:", e);
+      res.status(500).json({ error: "Erro ao criar aula" });
+    }
+  });
+
+  // PATCH /api/aulas/:id/status - Atualizar status da aula
+  app.patch("/api/aulas/:id/status", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      if (!["aberta", "em_andamento", "finalizada"].includes(status)) {
+        return res.status(400).json({ error: "status inválido" });
+      }
+      const result = await db.execute(sql`
+        UPDATE aulas SET status = ${status} WHERE id = ${id} RETURNING *
+      `);
+      if (!result.rows?.length) return res.status(404).json({ error: "Aula não encontrada" });
+      res.json(result.rows[0]);
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao atualizar status" });
+    }
+  });
+
+  // GET /api/aulas/:id/presencas - Listar presenças de uma aula
+  app.get("/api/aulas/:id/presencas", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const result = await db.execute(sql`
+        SELECT pa.*, 
+          COALESCE(pi.nome, a.nome_completo, pa.cpf) as nome_participante
+        FROM presencas_aula pa
+        LEFT JOIN participantes_inclusao pi ON pi.cpf = pa.cpf
+        LEFT JOIN aluno a ON a.cpf = pa.cpf
+        WHERE pa.aula_id = ${id}
+        ORDER BY pa.check_in_at ASC NULLS LAST
+      `);
+      res.json(result.rows);
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao buscar presenças" });
+    }
+  });
+
+  // POST /api/aulas/:id/presencas - Registrar presença manual
+  app.post("/api/aulas/:id/presencas", requireAuth, async (req, res) => {
+    try {
+      const aulaId = parseInt(req.params.id);
+      const { cpf, participante_id, status = "presente", observacoes } = req.body;
+      if (!cpf) return res.status(400).json({ error: "cpf é obrigatório" });
+      const cpfDigits = String(cpf).replace(/\D/g, "");
+      
+      const result = await db.execute(sql`
+        INSERT INTO presencas_aula (aula_id, cpf, participante_id, fonte, status, observacoes, check_in_at)
+        VALUES (${aulaId}, ${cpfDigits}, ${participante_id || null}, 'manual', ${status}, ${observacoes || null}, NOW())
+        ON CONFLICT (aula_id, cpf) DO UPDATE SET
+          status = EXCLUDED.status,
+          observacoes = COALESCE(EXCLUDED.observacoes, presencas_aula.observacoes)
+        RETURNING *
+      `);
+      res.status(201).json(result.rows[0]);
+    } catch (e) {
+      console.error("POST presenca manual error:", e);
+      res.status(500).json({ error: "Erro ao registrar presença" });
+    }
+  });
+
+  // GET /api/dashboard/:modulo/resumo - Indicadores de atendimentos e horas-aula
+  app.get("/api/dashboard/:modulo/resumo", async (req, res) => {
+    try {
+      const modulo = req.params.modulo;
+      const { start, end } = req.query;
+      if (!["pec", "inclusao", "psico"].includes(modulo)) {
+        return res.status(400).json({ error: "modulo inválido" });
+      }
+      const startDate = start ? String(start) : new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const endDate = end ? String(end) : new Date().toISOString().slice(0, 10);
+
+      let atendimentos = 0;
+      let horasAula = 0;
+      let alimentacao = 0;
+
+      if (modulo === 'pec') {
+        // PEC usa sessions + attendance JSON (sistemas legados)
+        const pecResult = await pool.query(`
+          SELECT
+            COALESCE(SUM(
+              (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+               WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+            ), 0) AS atendimentos,
+            COALESCE(SUM(
+              (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+               WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+              * COALESCE(s.hours, 0)
+            ), 0) AS horas_aula,
+            COALESCE(SUM(
+              CASE
+                WHEN p.name NOT ILIKE '%SERENATA%' AND (s.teve_alimentacao IS NULL OR s.teve_alimentacao = true) THEN
+                  (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+                   WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+                ELSE 0
+              END
+            ), 0) AS alimentacao
+          FROM sessions s
+          JOIN activity_instances ai ON ai.id = s.activity_instance_id
+          LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+          LEFT JOIN projects p ON p.id = pa.project_id
+          WHERE s.date BETWEEN $1::date AND $2::date
+        `, [startDate, endDate]);
+        const pecRow = pecResult.rows[0];
+        atendimentos = Number(pecRow?.atendimentos || 0);
+        horasAula = parseFloat(Number(pecRow?.horas_aula || 0).toFixed(1));
+        alimentacao = Number(pecRow?.alimentacao || 0);
+      } else if (modulo === 'inclusao') {
+        // Inclusão usa presencas_inclusao + turmas_inclusao
+        // Definições alinhadas com o coordenador:
+        //   atendimentos = total de registros de presença (não distinct)
+        //   horasAula    = soma de horas por sessão (presentes × duração)
+        //   alimentacao  = total de refeições servidas (não distinct)
+        const [presResult, alimentResult] = await Promise.all([
+          pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true AND pi.data BETWEEN $1 AND $2`, [startDate, endDate]),
+          pool.query(`SELECT COUNT(*) as cnt FROM presencas_inclusao pi WHERE pi.presente = true AND pi.teve_alimentacao = true AND pi.data BETWEEN $1 AND $2`, [startDate, endDate]),
+        ]);
+        const horasResult = await pool.query(`
+          SELECT COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+                 ti.horario_entrada, ti.horario_saida
+          FROM presencas_inclusao pi2
+          JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+          WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+            AND pi2.data BETWEEN $1 AND $2
+          GROUP BY pi2.turma_id, pi2.data, ti.horario_entrada, ti.horario_saida
+        `, [startDate, endDate]);
+        let horasAulaCalc = 0;
+        for (const row of horasResult.rows) {
+          const entrada = row.horario_entrada as string;
+          const saida   = row.horario_saida   as string;
+          const presentes = Number(row.presentes_count || 0);
+          if (entrada && saida && presentes > 0) {
+            const [hE, mE] = String(entrada).split(':').map(Number);
+            const [hS, mS] = String(saida).split(':').map(Number);
+            const diffMinutes = (hS * 60 + mS) - (hE * 60 + mE);
+            if (diffMinutes > 0) horasAulaCalc += presentes * (diffMinutes / 60);
+          }
+        }
+        atendimentos = Number(presResult.rows?.[0]?.cnt || 0);
+        horasAula    = Math.round(horasAulaCalc);
+        alimentacao  = Number(alimentResult.rows?.[0]?.cnt || 0);
+      } else {
+        // Psico usa presencas_aula (sistema catraca)
+        const result = await db.execute(sql`
+          SELECT
+            COUNT(DISTINCT pa.cpf) as atendimentos,
+            COALESCE(SUM(
+              CASE
+                WHEN pa.check_in_at IS NOT NULL AND pa.check_out_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (pa.check_out_at - pa.check_in_at)) / 3600.0
+                ELSE EXTRACT(EPOCH FROM (a.end_time::time - a.start_time::time)) / 3600.0
+              END
+            ), 0) as horas_aula
+          FROM presencas_aula pa
+          JOIN aulas a ON a.id = pa.aula_id
+          WHERE a.modulo = ${modulo}
+            AND a.status = 'finalizada'
+            AND a.data BETWEEN ${startDate}::date AND ${endDate}::date
+            AND pa.status = 'presente'
+        `);
+        const row = result.rows[0] as any;
+        atendimentos = Number(row?.atendimentos || 0);
+        horasAula = parseFloat(Number(row?.horas_aula || 0).toFixed(1));
+      }
+
+      res.json({ atendimentos, horasAula, alimentacao });
+    } catch (e) {
+      console.error("GET /api/dashboard/:modulo/resumo error:", e);
+      res.status(500).json({ error: "Erro ao calcular resumo" });
+    }
+  });
+
+  // GET /api/dashboard/inclusao/evolucao-mensal - Presenças e faltas mensais de Inclusão Produtiva
+  app.get("/api/dashboard/inclusao/evolucao-mensal", async (req, res) => {
+    try {
+      const ano = parseInt(String(req.query.ano || new Date().getFullYear()));
+      const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+      const rows = await db.execute(sql`
+        SELECT
+          EXTRACT(MONTH FROM data)::int AS mes_num,
+          COUNT(*) FILTER (WHERE presente = true)::int  AS presencas,
+          COUNT(*) FILTER (WHERE presente = false)::int AS faltas,
+          COUNT(*)::int                                  AS total
+        FROM presencas_inclusao
+        WHERE EXTRACT(YEAR FROM data) = ${ano}
+        GROUP BY mes_num
+        ORDER BY mes_num
+      `);
+
+      const byMonth: Record<number, { presencas: number; faltas: number; total: number }> = {};
+      for (const r of rows.rows as any[]) {
+        byMonth[Number(r.mes_num)] = {
+          presencas: Number(r.presencas || 0),
+          faltas:    Number(r.faltas   || 0),
+          total:     Number(r.total    || 0),
+        };
+      }
+
+      const dados = MESES.map((mes, i) => {
+        const d = byMonth[i + 1] || { presencas: 0, faltas: 0, total: 0 };
+        const frequencia = d.total > 0 ? Math.round((d.presencas / d.total) * 100) : 0;
+        return { mes, presencas: d.presencas, faltas: d.faltas, frequencia };
+      });
+
+      res.json({ dados });
+    } catch (e: any) {
+      console.error("GET /api/dashboard/inclusao/evolucao-mensal error:", e);
+      res.status(500).json({ error: "Erro ao buscar evolução mensal" });
+    }
+  });
+
+  // GET /api/dashboard/pec/evolucao-mensal - Presenças e faltas mensais do PEC
+  app.get("/api/dashboard/pec/evolucao-mensal", async (req, res) => {
+    try {
+      const ano = parseInt(String(req.query.ano || new Date().getFullYear()));
+      const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+      const rows = await pool.query(`
+        SELECT
+          EXTRACT(MONTH FROM s.date)::int AS mes_num,
+          COUNT(CASE WHEN a->>'presente' = 'true' OR a->>'status' = 'falta_justificada' THEN 1 END)::int AS presencas,
+          COUNT(CASE WHEN a->>'presente' = 'false' AND a->>'status' != 'falta_justificada' THEN 1 END)::int AS faltas
+        FROM sessions s, jsonb_array_elements(s.attendance::jsonb) AS a
+        WHERE s.attendance IS NOT NULL
+          AND jsonb_typeof(s.attendance::jsonb) = 'array'
+          AND EXTRACT(YEAR FROM s.date) = $1
+        GROUP BY mes_num
+        ORDER BY mes_num
+      `, [ano]);
+
+      const byMonth: Record<number, { presencas: number; faltas: number }> = {};
+      for (const r of rows.rows as any[]) {
+        byMonth[Number(r.mes_num)] = {
+          presencas: Number(r.presencas || 0),
+          faltas:    Number(r.faltas    || 0),
+        };
+      }
+
+      const dados = MESES.map((mes, i) => {
+        const d = byMonth[i + 1] || { presencas: 0, faltas: 0 };
+        return { mes, presencas: d.presencas, faltas: d.faltas };
+      });
+
+      res.json({ dados });
+    } catch (e: any) {
+      console.error("GET /api/dashboard/pec/evolucao-mensal error:", e);
+      res.status(500).json({ error: "Erro ao buscar evolução mensal PEC" });
+    }
+  });
+
+  // POST /api/webhook/catraca - Recebe giros da Intelbras (main.py envia: cpf, timestamp, sentido, unidade)
+  app.post(["/api/webhook/catraca", "/webhook"], async (req, res) => {
+    try {
+      // Aceita tanto "cpf" quanto "aluno_id" no payload
+      const rawId = req.body.cpf || req.body.aluno_id;
+      const { timestamp, sentido, unidade, nome } = req.body;
+
+      if (!rawId || !timestamp) {
+        return res.status(400).json({ error: "cpf (ou aluno_id) e timestamp são obrigatórios" });
+      }
+
+      const cpfDigits = String(rawId).replace(/\D/g, "");
+      if (cpfDigits.length !== 11) {
+        return res.status(400).json({ error: "CPF inválido — deve ter 11 dígitos" });
+      }
+
+      // Converte timestamp: aceita Unix seconds, Unix ms ou string ISO
+      const tsNum = typeof timestamp === 'number' ? timestamp : Number(timestamp);
+      const eventTime = !isNaN(tsNum)
+        ? new Date(tsNum < 1e12 ? tsNum * 1000 : tsNum)
+        : new Date(String(timestamp));
+
+      if (isNaN(eventTime.getTime())) {
+        return res.status(400).json({ error: "timestamp inválido" });
+      }
+
+      const eventDate = eventTime.toISOString().slice(0, 10); // YYYY-MM-DD
+      const eventHour = eventTime.getHours().toString().padStart(2, '0');
+      const eventMin = eventTime.getMinutes().toString().padStart(2, '0');
+      const eventTimeStr = `${eventHour}:${eventMin}:00`;
+
+      // isSaida precisa ser determinado antes do match de horário
+      const isSaida = String(sentido || "entrada").toLowerCase().includes("saí") ||
+                      String(sentido || "").toLowerCase().includes("sai") ||
+                      String(sentido) === "2";
+
+      // Entrada: janela -20min antes até +45min após o start_time (baseado no script Flask)
+      // Saída: janela -20min antes do start_time até o end_time da aula (cobertura total)
+      const aulaResult = await db.execute(
+        unidade
+          ? sql`SELECT a.* FROM aulas a
+              WHERE a.data = ${eventDate}::date
+                AND a.status != 'finalizada'
+                AND ${eventTimeStr}::time >= (a.start_time::time - INTERVAL '20 minutes')
+                AND ${eventTimeStr}::time <= (a.end_time::time + INTERVAL '2 hours')
+                AND a.unidade = ${String(unidade)}
+              ORDER BY ABS(EXTRACT(EPOCH FROM (a.start_time::time - ${eventTimeStr}::time))) ASC
+              LIMIT 1`
+          : sql`SELECT a.* FROM aulas a
+              WHERE a.data = ${eventDate}::date
+                AND a.status != 'finalizada'
+                AND ${eventTimeStr}::time >= (a.start_time::time - INTERVAL '20 minutes')
+                AND ${eventTimeStr}::time <= (a.end_time::time + INTERVAL '2 hours')
+              ORDER BY ABS(EXTRACT(EPOCH FROM (a.start_time::time - ${eventTimeStr}::time))) ASC
+              LIMIT 1`
+      );
+
+      if (!aulaResult.rows?.length) {
+        // Tenta auto-criar aula a partir da grade horária
+        const diaSemana = eventTime.getDay();
+        const gradeResult = await db.execute(
+          unidade
+            ? sql`SELECT * FROM grade_horaria WHERE dia_semana = ${diaSemana} AND ativo = TRUE
+                AND ${eventTimeStr}::time >= (start_time::time - INTERVAL '20 minutes')
+                AND ${eventTimeStr}::time <= (start_time::time + INTERVAL '45 minutes')
+                AND unidade = ${String(unidade)} LIMIT 1`
+            : sql`SELECT * FROM grade_horaria WHERE dia_semana = ${diaSemana} AND ativo = TRUE
+                AND ${eventTimeStr}::time >= (start_time::time - INTERVAL '20 minutes')
+                AND ${eventTimeStr}::time <= (start_time::time + INTERVAL '45 minutes') LIMIT 1`
+        );
+
+        if (gradeResult.rows?.length) {
+          const g = gradeResult.rows[0] as any;
+          const novaAula = await db.execute(sql`
+            INSERT INTO aulas (modulo, turma_id, nome, data, start_time, end_time, status, unidade)
+            VALUES (${g.modulo}, ${g.turma_id}, ${g.nome}, ${eventDate}::date, ${g.start_time}::time, ${g.end_time}::time, 'aberta', ${g.unidade || null})
+            ON CONFLICT DO NOTHING RETURNING *
+          `);
+          if (novaAula.rows?.length) {
+            aulaResult.rows.push(novaAula.rows[0]);
+            console.log(`[CATRACA] 🗓️ Aula auto-criada da grade: "${g.nome}" id=${(novaAula.rows[0] as any).id}`);
+          }
+        }
+
+        if (!aulaResult.rows?.length) {
+          const msg = `Sem aula no horário (${eventTimeStr} em ${eventDate})`;
+          console.warn(`[CATRACA] ⚠️ CPF ${cpfDigits} passou — ${msg}`);
+          return res.json({ status: "ignorado", message: msg, cpf: cpfDigits });
+        }
+      }
+
+      const matchedAula = aulaResult.rows[0] as any;
+      const aulaId = matchedAula.id;
+
+      try {
+        if (!isSaida) {
+          // ENTRADA: tenta inserir. Se duplicado (UNIQUE), barra silenciosamente.
+          const insertResult = await db.execute(sql`
+            INSERT INTO presencas_aula (aula_id, cpf, check_in_at, fonte, status)
+            VALUES (${aulaId}, ${cpfDigits}, ${eventTime.toISOString()}, 'catraca', 'presente')
+            ON CONFLICT (aula_id, cpf) DO NOTHING
+          `);
+          if ((insertResult as any).rowCount === 0) {
+            console.log(`[CATRACA] 🚫 Duplicidade barrada: CPF ${cpfDigits} já tem presença na aula ${aulaId}`);
+            return res.json({ status: "duplicado", message: "Já registrado", cpf: cpfDigits, aula_id: aulaId, aula_nome: matchedAula.nome });
+          }
+          console.log(`[CATRACA] ✅ ENTRADA: CPF ${cpfDigits} → "${matchedAula.nome || 'Aula'}" às ${eventTimeStr}`);
+        } else {
+          // SAÍDA: atualiza check_out_at (sempre pega o mais tardio)
+          await db.execute(sql`
+            INSERT INTO presencas_aula (aula_id, cpf, check_out_at, fonte, status)
+            VALUES (${aulaId}, ${cpfDigits}, ${eventTime.toISOString()}, 'catraca', 'presente')
+            ON CONFLICT (aula_id, cpf) DO UPDATE SET
+              check_out_at = GREATEST(presencas_aula.check_out_at, EXCLUDED.check_out_at)
+          `);
+          console.log(`[CATRACA] ✅ SAÍDA: CPF ${cpfDigits} → "${matchedAula.nome || 'Aula'}" às ${eventTimeStr}`);
+        }
+      } catch (conflictErr: any) {
+        if (conflictErr?.code === '23505') {
+          console.log(`[CATRACA] 🚫 Duplicidade barrada: CPF ${cpfDigits} já tem presença na aula ${aulaId}`);
+          return res.json({ status: "duplicado", message: "Já registrado", cpf: cpfDigits, aula_id: aulaId });
+        }
+        throw conflictErr;
+      }
+
+      // Bridge: também escreve em presencas_inclusao para a tela de chamada funcionar
+      if (!isSaida && matchedAula.turma_id) {
+        try {
+          const partRow = await db.execute(sql`
+            SELECT id FROM participantes_inclusao WHERE cpf = ${cpfDigits} LIMIT 1
+          `);
+          if (partRow.rows?.length) {
+            const participanteId = (partRow.rows[0] as any).id;
+            const brHora = eventTime.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+            await db.execute(sql`
+              INSERT INTO presencas_inclusao (participante_id, turma_id, data, presente, observacoes)
+              SELECT ${participanteId}, ${matchedAula.turma_id}, ${eventDate}::date, true, ${'catraca às ' + brHora}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM presencas_inclusao
+                WHERE participante_id = ${participanteId}
+                  AND turma_id = ${matchedAula.turma_id}
+                  AND data = ${eventDate}::date
+              )
+            `);
+            broadcastPresencaEvent({ tipo: "presenca", vertente: "inclusao", cpf: cpfDigits, nome: nome || null, turma_id: matchedAula.turma_id, data: eventDate });
+            console.log(`[CATRACA] 🔗 Bridge presencas_inclusao: participante ${participanteId} turma ${matchedAula.turma_id}`);
+          }
+        } catch (bridgeErr) {
+          console.warn("[CATRACA] ⚠️ Bridge presencas_inclusao falhou (não crítico):", bridgeErr);
+        }
+      }
+
+      res.json({
+        status: "sucesso",
+        cpf: cpfDigits,
+        aula_id: aulaId,
+        aula_nome: matchedAula.nome,
+        sentido: isSaida ? "saida" : "entrada",
+        eventTime: eventTime.toISOString(),
+      });
+    } catch (e) {
+      console.error("[CATRACA] Webhook error:", e);
+      res.status(500).json({ error: "Erro interno no processamento do giro" });
+    }
+  });
+
+    app.get("/api/cpf-lookup", async (req, res) => {
+  try {
+    const area = String(req.query.area || "");
+    const cpf = String(req.query.cpf || "").replace(/\D/g, "");
+
+    if (!["pec", "inclusao"].includes(area)) {
+      return res.status(400).json({ error: "area inválida" });
+    }
+    if (cpf.length !== 11) {
+      return res.status(400).json({ error: "cpf inválido" });
+    }
+
+    if (area === "pec") {
+      const rows = await db.execute(sql`
+        SELECT cpf, nome_completo FROM aluno WHERE cpf = ${cpf} LIMIT 1
+      `);
+      if (!rows.rows?.length) return res.json({ exists: false });
+      const aluno = rows.rows[0] as any;
+      return res.json({
+        exists: true,
+        nome: aluno.nome_completo ?? "Sem nome",
+        id: aluno.cpf ?? null,
+      });
+    }
+
+    // inclusao
+    const rows = await db.execute(sql`
+      SELECT id, nome FROM participantes_inclusao WHERE cpf = ${cpf} LIMIT 1
+    `);
+    if (!rows.rows?.length) return res.json({ exists: false });
+    const part = rows.rows[0] as any;
+    return res.json({
+      exists: true,
+      nome: part.nome ?? "Sem nome",
+      id: part.id ?? null,
+    });
+  } catch (e) {
+    console.error("cpf-lookup error", e);
+    res.status(500).json({ error: "erro ao consultar cpf" });
+  }
+});
   // Atualizar participante
   app.patch("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
     try {
@@ -38854,26 +44974,47 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
   );
 
   // Adicionar participante a uma turma
-  app.post(
-    "/api/participantes-inclusao/:participanteId/turmas/:turmaId",
-    requireAuth,
-    async (req, res) => {
-      try {
-        const participanteId = parseInt(req.params.participanteId);
-        const turmaId = parseInt(req.params.turmaId);
-        const relacao = await storage.addParticipanteToTurma(
-          participanteId,
-          turmaId
-        );
-        res.status(201).json(relacao);
-      } catch (error: any) {
-        console.error("Erro ao adicionar participante à turma:", error);
-        res
-          .status(500)
-          .json({ error: "Erro ao adicionar participante à turma" });
-      }
+  // Obter participantes de uma turma específica
+  app.get("/api/turmas-inclusao/:turmaId/participantes", async (req, res) => {
+    try {
+      const turmaId = parseInt(req.params.turmaId);
+      const participantes = await db
+        .select({
+          id: participantesInclusao.id,
+          nome: participantesInclusao.nome,
+          cpf: participantesInclusao.cpf,
+          status: participantesTurmas.status
+        })
+        .from(participantesTurmas)
+        .innerJoin(participantesInclusao, eq(participantesTurmas.participanteId, participantesInclusao.id))
+        .where(eq(participantesTurmas.turmaId, turmaId));
+      res.json(participantes);
+    } catch (error: any) {
+      console.error("Erro ao buscar participantes da turma:", error);
+      res.status(500).json({ error: "Erro ao buscar participantes da turma" });
     }
-  );
+  });
+
+  app.post("/api/participantes-inclusao/:participanteId/turmas/:turmaId", requireAuth, async (req, res) => {
+    try {
+      const participanteId = parseInt(req.params.participanteId);
+      const turmaId = parseInt(req.params.turmaId);
+      const relacao = await storage.addParticipanteToTurma(participanteId, turmaId);
+
+      const participante = await storage.getParticipanteById(participanteId);
+      if (participante && participante.status?.toLowerCase() === 'inativo') {
+        await db.update(participantesInclusao)
+          .set({ status: 'ativo' })
+          .where(eq(participantesInclusao.id, participanteId));
+        console.log(`✅ [REATIVAÇÃO] Participante ${participanteId} reativado ao ser adicionado à turma ${turmaId}`);
+      }
+
+      res.status(201).json(relacao);
+    } catch (error: any) {
+      console.error("Erro ao adicionar participante à turma:", error);
+      res.status(500).json({ error: "Erro ao adicionar participante à turma" });
+    }
+  });
 
   // ========================================
   // 📄 DOCUMENTOS DE PARTICIPANTES/ALUNOS
@@ -39031,15 +45172,33 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
   });
 
 
-  // Remover participante de uma turma
+  // Remover participante de uma turma (DELETE real — pode ser readicionado depois)
   app.delete("/api/participantes-inclusao/:participanteId/turmas/:turmaId", requireAuth, async (req, res) => {
     try {
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
+      const { motivo } = req.body || {};
+
+      const motivosValidos = ["Cadastro errado", "Empregabilidade", "Desistência", "Mudança de localidade", "Mudança de oficina/curso"];
+      if (!motivo || !motivosValidos.includes(motivo)) {
+        return res.status(400).json({ error: `Motivo de desligamento obrigatório. Opções: ${motivosValidos.join(", ")}.` });
+      }
+
+      // DELETE real — remove o registro para permitir readição futura
       await storage.removeParticipanteFromTurma(participanteId, turmaId);
-      res.json({ message: "Participante removido da turma com sucesso" });
+      console.log(`🗑️ [REMOVER PARTICIPANTE] ParticipanteId: ${participanteId}, TurmaId: ${turmaId}, Motivo: "${motivo}"`);
+
+      // Sincronizar status do participante (pode virar inativo se não tem mais turmas)
+      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      console.log(`✅ [REMOVER PARTICIPANTE] Participante ${participanteId} sincronizado → status: ${novoStatus}`);
+
+      res.json({ 
+        message: "Participante removido da turma com sucesso",
+        motivo,
+        novoStatus
+      });
     } catch (error: any) {
-      console.error("Erro ao remover participante da turma:", error);
+      console.error("❌ [REMOVER PARTICIPANTE] Erro:", error);
       res.status(500).json({ error: "Erro ao remover participante da turma" });
     }
   });
@@ -39086,13 +45245,10 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
       const participantes = await storage.getAllParticipantes();
       const programas = await storage.getAllProgramas();
       const turmas = await storage.getAllTurmas();
-      const cursos = await storage.getAllCursos();
-
       console.log("📊 [EXPORT-SLIDES] Dados carregados:", {
         participantes: participantes.length,
         programas: programas.length,
         turmas: turmas.length,
-        cursos: cursos.length,
       });
 
       // 1. Copiar o template
@@ -39254,7 +45410,10 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
         data: presencasInclusao.data,
         presente: presencasInclusao.presente,
         observacoes: presencasInclusao.observacoes,
+        justificativa: presencasInclusao.justificativa,
+        fotoComprovante: presencasInclusao.fotoComprovante,
         createdAt: presencasInclusao.createdAt,
+        teveAlimentacao: presencasInclusao.teveAlimentacao,
         nome: participantesInclusao.nome
       })
         .from(presencasInclusao)
@@ -39274,17 +45433,27 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
             totalPresentes: 0,
             totalAusentes: 0,
             presencas: [],
-            criadoEm: p.createdAt
+            criadoEm: p.createdAt,
+            fotoComprovante: null,
+            teveAlimentacao: null
           });
         }
         const group = grouped.get(key);
+        if (p.fotoComprovante && !group.fotoComprovante) {
+          group.fotoComprovante = p.fotoComprovante;
+        }
+        if (group.teveAlimentacao === null && p.teveAlimentacao !== null && p.teveAlimentacao !== undefined) {
+          group.teveAlimentacao = p.teveAlimentacao;
+        }
         group.presencas.push({
           id: p.participanteId,
           nome: p.nome,
           presente: p.presente,
-          observacoes: p.observacoes
+          observacoes: p.observacoes,
+          justificativa: p.justificativa,
+          fotoComprovante: p.fotoComprovante
         });
-        if (p.presente) {
+        if (p.presente === true) {
           group.totalPresentes++;
         } else {
           group.totalAusentes++;
@@ -39304,6 +45473,230 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
     }
   });
 
+  // GET /api/coordenador/:coordenadorId/historico-chamadas - Histórico de chamadas para coordenador (compatível com frontend unificado)
+  app.get("/api/coordenador/:coordenadorId/historico-chamadas", async (req, res) => {
+    try {
+      const turmas = await db.select({
+        id: turmasInclusao.id,
+        nome: turmasInclusao.nome
+      }).from(turmasInclusao);
+      
+      const turmaMap = new Map(turmas.map(t => [t.id, t.nome]));
+
+      // Buscar total real de participantes por turma (para o contador correto)
+      const participanteCounts = await db.select({
+        turmaId: participantesTurmas.turmaId,
+        count: sql<number>`count(*)`
+      })
+        .from(participantesTurmas)
+        .groupBy(participantesTurmas.turmaId);
+      const totalParticipantesMap = new Map(participanteCounts.map(r => [r.turmaId, Number(r.count)]));
+      
+      const presencas = await db.select({
+        id: presencasInclusao.id,
+        participanteId: presencasInclusao.participanteId,
+        turmaId: presencasInclusao.turmaId,
+        data: presencasInclusao.data,
+        presente: presencasInclusao.presente,
+        observacoes: presencasInclusao.observacoes,
+        justificativa: presencasInclusao.justificativa,
+        justificativaMotivo: presencasInclusao.justificativaMotivo,
+        justificativaObs: presencasInclusao.justificativaObs,
+        fotoComprovante: presencasInclusao.fotoComprovante,
+        createdAt: presencasInclusao.createdAt,
+        teveAlimentacao: presencasInclusao.teveAlimentacao,
+        nome: participantesInclusao.nome
+      })
+        .from(presencasInclusao)
+        .leftJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
+        .orderBy(desc(presencasInclusao.data), desc(presencasInclusao.id));
+      
+      const grouped = new Map<string, any>();
+      for (const p of presencas) {
+        const key = `${p.turmaId}_${p.data}`;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            id: `inclusao_${p.turmaId}_${p.data}`,
+            data: p.data,
+            grupo: `turma_${p.turmaId}`,
+            turmaNome: turmaMap.get(p.turmaId!) || `Turma ${p.turmaId}`,
+            titulo: `Chamada - ${turmaMap.get(p.turmaId!) || 'Turma'}`,
+            totalPresentes: 0,
+            totalAlunos: totalParticipantesMap.get(p.turmaId!) || 0,
+            presencas: [],
+            grupoId: p.turmaId,
+            createdAt: p.createdAt,
+            fotoComprovante: null,
+            teveAlimentacao: null,
+            tipo: 'inclusao'
+          });
+        }
+        const group = grouped.get(key);
+        if (p.fotoComprovante && !group.fotoComprovante) {
+          group.fotoComprovante = p.fotoComprovante;
+        }
+        if (group.teveAlimentacao === null && p.teveAlimentacao !== null && p.teveAlimentacao !== undefined) {
+          group.teveAlimentacao = p.teveAlimentacao;
+        }
+        group.presencas.push({
+          participanteId: p.participanteId,
+          nome: p.nome,
+          presente: p.presente,
+          observacoes: p.observacoes,
+          justificativa: p.justificativaMotivo || p.justificativa,
+          justificativaObs: p.justificativaObs,
+          fotoComprovante: p.fotoComprovante
+        });
+        if (p.presente === true) group.totalPresentes++;
+      }
+      
+      const historico = Array.from(grouped.values()).sort((a, b) => {
+        return new Date(b.data || 0).getTime() - new Date(a.data || 0).getTime();
+      });
+      
+      res.json(historico);
+    } catch (error: any) {
+      console.error("Error fetching historico chamadas coordenador:", error);
+      res.status(500).json({ error: "Failed to fetch historico" });
+    }
+  });
+
+  // POST /api/coordenador/:coordenadorId/registro-presenca-inclusao - Registrar presença para coordenador
+  app.post("/api/coordenador/:coordenadorId/registro-presenca-inclusao", async (req, res) => {
+    try {
+      const coordenadorId = parseInt(req.params.coordenadorId);
+      const { turmaId, data, presencas, teveAlimentacao } = req.body;
+      
+      const turmaResult = await db.select().from(turmasInclusao).where(eq(turmasInclusao.id, turmaId)).limit(1);
+      const turmaNome = turmaResult[0]?.nome || 'Turma';
+      
+      // Apaga registros existentes (inclusive os da catraca) e reinserção completa
+      await db.delete(presencasInclusao).where(
+        and(eq(presencasInclusao.turmaId, turmaId), eq(presencasInclusao.data, data))
+      );
+
+      const insertedPresencas = [];
+      for (const p of (presencas || [])) {
+        const participanteId = p.id || p.participanteId;
+        if (participanteId) {
+          const [presenca] = await db.insert(presencasInclusao).values({
+            participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
+            turmaId: turmaId,
+            data: data,
+            presente: p.presente || false,
+            observacoes: p.presente ? (p.viaCatraca ? `Presença via catraca às ${p.hora || ''}` : null) : null,
+            justificativa: p.justificativa || null,
+            justificativaMotivo: p.justificativaMotivo || null,
+            justificativaObs: p.justificativaObs || null,
+            contaComoPresenca: p.contaComoPresenca === true,
+            teveAlimentacao: teveAlimentacao === true ? true : false,
+          }).returning();
+          insertedPresencas.push(presenca);
+        }
+      }
+      
+      console.log(`[COORDENADOR INCLUSAO] Registro de ${insertedPresencas.length} presenças criado por coordenador ${coordenadorId} para turma ${turmaId}`);
+      res.status(201).json({ success: true, count: insertedPresencas.length, turma: turmaNome });
+    } catch (error: any) {
+      console.error("Erro ao registrar presença coordenador:", error);
+      res.status(500).json({ error: "Erro ao registrar presença" });
+    }
+  });
+
+
+
+  // POST /api/presenca/validar-pin-manual - Valida PIN para ativação do modo manual
+  app.post("/api/presenca/validar-pin-manual", requireAuth, async (req, res) => {
+    const { pin } = req.body;
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ valido: false, error: 'PIN inválido' });
+    }
+    const correctPin = process.env.PRESENCA_MANUAL_PIN || '1234';
+    if (pin.trim() === correctPin) {
+      return res.json({ valido: true });
+    }
+    return res.status(401).json({ valido: false, error: 'PIN incorreto' });
+  });
+
+  // POST /api/chamada-manual-log - Registra motivo de ativação do modo manual
+  app.post("/api/chamada-manual-log", requireAuth, async (req, res) => {
+    try {
+      const { turmaId, data, motivo } = req.body;
+      if (!data || !motivo || motivo.trim().length < 5) {
+        return res.status(400).json({ error: "data e motivo (mínimo 5 caracteres) são obrigatórios" });
+      }
+      const userId = (req as any).user?.id ? parseInt((req as any).user.id) : null;
+      await db.execute(sql`
+        INSERT INTO chamada_manual_logs (turma_id, data, user_id, motivo)
+        VALUES (${turmaId || null}, ${data}::date, ${userId}, ${motivo.trim()})
+      `);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("POST /api/chamada-manual-log error:", e);
+      res.status(500).json({ error: "Erro ao salvar log" });
+    }
+  });
+
+  // GET /api/presencas-inclusao/pendentes-aprovacao - Faltas que contam como presença, aguardando aprovação
+  app.get("/api/presencas-inclusao/pendentes-aprovacao", requireAuth, async (req, res) => {
+    try {
+      const { semanaInicio, semanaFim } = req.query;
+      const hoje = new Date();
+      const diaSemana = hoje.getDay();
+      const seg = new Date(hoje); seg.setDate(hoje.getDate() - (diaSemana === 0 ? 6 : diaSemana - 1));
+      const dom = new Date(seg); dom.setDate(seg.getDate() + 6);
+      const inicio = semanaInicio ? String(semanaInicio) : seg.toISOString().slice(0, 10);
+      const fim = semanaFim ? String(semanaFim) : dom.toISOString().slice(0, 10);
+
+      const result = await db.execute(sql`
+        SELECT
+          pi.id,
+          pi.data,
+          pi.justificativa_motivo as motivo,
+          pi.justificativa_obs as obs,
+          pi.conta_como_presenca,
+          p.nome,
+          p.cpf,
+          t.nome as turma_nome
+        FROM presencas_inclusao pi
+        JOIN participantes_inclusao p ON p.id = pi.participante_id
+        LEFT JOIN turmas_inclusao t ON t.id = pi.turma_id
+        WHERE pi.presente = false
+          AND pi.conta_como_presenca = true
+          AND pi.aprovado_coordenador = false
+          AND pi.data BETWEEN ${inicio}::date AND ${fim}::date
+        ORDER BY pi.data DESC, p.nome ASC
+      `);
+      res.json({ pendentes: result.rows, semana: { inicio, fim } });
+    } catch (e: any) {
+      console.error("GET /api/presencas-inclusao/pendentes-aprovacao error:", e);
+      res.status(500).json({ error: "Erro ao buscar pendentes" });
+    }
+  });
+
+  // PATCH /api/presencas-inclusao/aprovar - Aprovação de faltas justificadas pelo coordenador
+  app.patch("/api/presencas-inclusao/aprovar", requireAuth, async (req, res) => {
+    try {
+      const { ids } = req.body; // array de IDs de presencas_inclusao
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "ids é obrigatório e deve ser array" });
+      }
+      const userName = (req as any).user?.nome || (req as any).user?.name || 'Coordenador';
+      await db.execute(sql`
+        UPDATE presencas_inclusao
+        SET aprovado_coordenador = true,
+            aprovado_por = ${userName},
+            aprovado_em = NOW()
+        WHERE id = ANY(${ids}::int[])
+          AND conta_como_presenca = true
+          AND aprovado_coordenador = false
+      `);
+      res.json({ success: true, aprovadas: ids.length });
+    } catch (e: any) {
+      console.error("PATCH /api/presencas-inclusao/aprovar error:", e);
+      res.status(500).json({ error: "Erro ao aprovar faltas" });
+    }
+  });
 
   // ENDPOINTS DE PRESENÇAS (INCLUSÃO PRODUTIVA)
   // =============================================================================
@@ -40044,60 +46437,93 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
     }
   });
 
-  // Endpoint Negócios Sociais - Outlet e Griffte
+  // Endpoint Negócios Sociais - IOG Outlet e IOG Confecção
   app.get("/api/negocios-sociais", async (req, res) => {
     try {
-      console.log(
-        "📊 [NEGÓCIOS-SOCIAIS] Buscando dados de Outlet e Griffte..."
-      );
+      const ano = parseInt(req.query.ano as string) || 2025;
+      const mes = req.query.mes ? parseInt(req.query.mes as string) : null;
+      console.log(`[NEGÓCIOS-SOCIAIS] Buscando dados para ano=${ano}, mes=${mes || 'todos'}...`);
 
-      const result = await db.execute(sql`
-        SELECT 
-          outlet_doacoes_recebidas,
-          outlet_vendas_pessoas_impactadas,
-          outlet_pecas_vendidas,
-          griffte_pecas_confeccionadas,
-          griffte_clientes_atendidos
-        FROM negocios_sociais_dados
-        WHERE ano = 2025 AND mes IS NULL
-        LIMIT 1
-      `);
+      const emptyResponse = {
+        success: true,
+        data: {
+          outlet: { doacoesRecebidas: 0, vendasPessoasImpactadas: 0, pecasVendidas: 0 },
+          griffte: { pecasConfeccionadas: 0, clientesAtendidos: 0 },
+        },
+      };
 
-      const dados = result.rows[0];
+      if (ano >= 2026) {
+        if (mes && mes >= 1 && mes <= 12) {
+          const result = await pool.query(`
+            SELECT outlet_doacoes_recebidas, outlet_vendas_pessoas_impactadas, outlet_pecas_vendidas,
+                   griffte_pecas_confeccionadas, griffte_clientes_atendidos, cacambas_do_bem
+            FROM negocios_sociais_dados WHERE ano = $1 AND mes = $2 LIMIT 1
+          `, [ano, mes]);
+          
+          if (!result.rows[0]) return res.json(emptyResponse);
+          const d = result.rows[0];
+          return res.json({
+            success: true,
+            data: {
+              outlet: { doacoesRecebidas: Number(d.outlet_doacoes_recebidas) || 0, vendasPessoasImpactadas: Number(d.outlet_vendas_pessoas_impactadas) || 0, pecasVendidas: Number(d.outlet_pecas_vendidas) || 0, cacambasDoBem: Number(d.cacambas_do_bem) || 0 },
+              griffte: { pecasConfeccionadas: Number(d.griffte_pecas_confeccionadas) || 0, clientesAtendidos: Number(d.griffte_clientes_atendidos) || 0 },
+            },
+          });
+        } else {
+          const result = await pool.query(`
+            SELECT COALESCE(SUM(outlet_doacoes_recebidas), 0) as outlet_doacoes_recebidas,
+                   COALESCE(SUM(outlet_vendas_pessoas_impactadas), 0) as outlet_vendas_pessoas_impactadas,
+                   COALESCE(SUM(outlet_pecas_vendidas), 0) as outlet_pecas_vendidas,
+                   COALESCE(SUM(griffte_pecas_confeccionadas), 0) as griffte_pecas_confeccionadas,
+                   COALESCE(SUM(griffte_clientes_atendidos), 0) as griffte_clientes_atendidos,
+                   COALESCE(SUM(cacambas_do_bem), 0) as cacambas_do_bem
+            FROM negocios_sociais_dados WHERE ano = $1 AND mes IS NOT NULL
+          `, [ano]);
 
-      if (!dados) {
-        console.log("⚠️ [NEGÓCIOS-SOCIAIS] Nenhum dado encontrado");
+          const annual = await pool.query(`
+            SELECT outlet_doacoes_recebidas, outlet_vendas_pessoas_impactadas, outlet_pecas_vendidas,
+                   griffte_pecas_confeccionadas, griffte_clientes_atendidos, cacambas_do_bem
+            FROM negocios_sociais_dados WHERE ano = $1 AND mes IS NULL LIMIT 1
+          `, [ano]);
+          
+          const d = result.rows[0];
+          const a = annual.rows[0] || {};
+          const pick = (monthly: number, fallback: number) => monthly > 0 ? monthly : (fallback || 0);
+          console.log("✅ [NEGÓCIOS-SOCIAIS] Dados mensais somados (com fallback anual) para " + ano);
+          return res.json({
+            success: true,
+            data: {
+              outlet: {
+                doacoesRecebidas: pick(Number(d.outlet_doacoes_recebidas), Number(a.outlet_doacoes_recebidas)),
+                vendasPessoasImpactadas: pick(Number(d.outlet_vendas_pessoas_impactadas), Number(a.outlet_vendas_pessoas_impactadas)),
+                pecasVendidas: pick(Number(d.outlet_pecas_vendidas), Number(a.outlet_pecas_vendidas)),
+                cacambasDoBem: pick(Number(d.cacambas_do_bem), Number(a.cacambas_do_bem)),
+              },
+              griffte: {
+                pecasConfeccionadas: pick(Number(d.griffte_pecas_confeccionadas), Number(a.griffte_pecas_confeccionadas)),
+                clientesAtendidos: pick(Number(d.griffte_clientes_atendidos), Number(a.griffte_clientes_atendidos)),
+              },
+            },
+          });
+        }
+      } else {
+        const result = await pool.query(`
+          SELECT outlet_doacoes_recebidas, outlet_vendas_pessoas_impactadas, outlet_pecas_vendidas,
+                 griffte_pecas_confeccionadas, griffte_clientes_atendidos, cacambas_do_bem
+          FROM negocios_sociais_dados WHERE ano = $1 AND mes IS NULL LIMIT 1
+        `, [ano]);
+        
+        if (!result.rows[0]) return res.json(emptyResponse);
+        const d = result.rows[0];
+        console.log("✅ [NEGÓCIOS-SOCIAIS] Dados anuais carregados para " + ano);
         return res.json({
           success: true,
           data: {
-            outlet: {
-              doacoesRecebidas: 0,
-              vendasPessoasImpactadas: 0,
-              pecasVendidas: 0,
-            },
-            griffte: { pecasConfeccionadas: 0, clientesAtendidos: 0 },
+            outlet: { doacoesRecebidas: Number(d.outlet_doacoes_recebidas) || 0, vendasPessoasImpactadas: Number(d.outlet_vendas_pessoas_impactadas) || 0, pecasVendidas: Number(d.outlet_pecas_vendidas) || 0, cacambasDoBem: Number(d.cacambas_do_bem) || 0 },
+            griffte: { pecasConfeccionadas: Number(d.griffte_pecas_confeccionadas) || 0, clientesAtendidos: Number(d.griffte_clientes_atendidos) || 0 },
           },
         });
       }
-
-      console.log("✅ [NEGÓCIOS-SOCIAIS] Dados carregados com sucesso");
-
-      res.json({
-        success: true,
-        data: {
-          outlet: {
-            doacoesRecebidas: Number(dados.outlet_doacoes_recebidas) || 0,
-            vendasPessoasImpactadas:
-              Number(dados.outlet_vendas_pessoas_impactadas) || 0,
-            pecasVendidas: Number(dados.outlet_pecas_vendidas) || 0,
-          },
-          griffte: {
-            pecasConfeccionadas:
-              Number(dados.griffte_pecas_confeccionadas) || 0,
-            clientesAtendidos: Number(dados.griffte_clientes_atendidos) || 0,
-          },
-        },
-      });
     } catch (error: any) {
       console.error("❌ [NEGÓCIOS-SOCIAIS] Erro ao buscar dados:", error);
       res.status(500).json({
@@ -40110,104 +46536,194 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
   // Endpoint PEC - Casa Sonhar, Programa de Esporte e Cultura, Serenata
   app.get("/api/pec/dados-programas", async (req, res) => {
     try {
-      console.log("🏀 [PEC] Buscando dados dos 3 programas...");
-      // Garantir que as colunas de evasao existam no banco DO
-      try {
-        await pool.query(
-          `ALTER TABLE pec_dados ADD COLUMN IF NOT EXISTS casa_sonhar_evasao INTEGER DEFAULT 0, ADD COLUMN IF NOT EXISTS programa_esporte_cultura_evasao INTEGER DEFAULT 0`
-        );
-        // Definir valores iniciais de evasao se forem 0
-        await pool.query(
-          `UPDATE pec_dados SET casa_sonhar_evasao = 25, programa_esporte_cultura_evasao = 40 WHERE ano = 2025 AND mes IS NULL AND (casa_sonhar_evasao = 0 OR casa_sonhar_evasao IS NULL)`
-        );
-      } catch (alterErr: any) {
-        console.log("⚠️ [PEC] ALTER TABLE (pode ignorar):", alterErr.message);
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      console.log(`🏀 [PEC] Buscando dados automáticos para ano ${ano}...`);
+
+      // Categoriza projeto pelo nome
+      function categorizaProjeto(projectName: string): string {
+        const n = projectName.toUpperCase();
+        if (n.includes('CASA') || n.includes('SONHAR')) return 'casaSonhar';
+        if (n.includes('ESPORT') || n.includes('POLO') || n.includes('CULTUR')) return 'programaEsporteCultura';
+        if (n.includes('SERENATA')) return 'serenata';
+        return 'outro';
       }
 
-      const result = await db.execute(sql`
-        SELECT 
-          casa_sonhar_atendidos,
-          casa_sonhar_atendimentos,
-          casa_sonhar_frequencia,
-          casa_sonhar_alimentacao,
-          casa_sonhar_hora_aula,
-          programa_esporte_cultura_atendidos,
-          programa_esporte_cultura_hora_aula,
-          programa_esporte_cultura_atendimentos,
-          programa_esporte_cultura_alimentacao,
-          programa_esporte_cultura_frequencia,
-          serenata_atendidos,
-          serenata_atendimentos,
-          serenata_hora_aula,
-          casa_sonhar_evasao,
-          programa_esporte_cultura_evasao,
-          serenata_frequencia
-        FROM pec_dados
-        WHERE ano = 2025 AND mes IS NULL
-        LIMIT 1
-      `);
+      // Buscar hora-aula por categoria: presentes_na_sessao × duração (sessions.hours)
+      const horaAulaResult = await pool.query(`
+        SELECT
+          p.name as project_name,
+          COALESCE(SUM(
+            (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+              WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+            * COALESCE(s.hours, 0)
+          ), 0) as hora_aula
+        FROM sessions s
+        JOIN activity_instances ai ON ai.id = s.activity_instance_id
+        LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+        LEFT JOIN projects p ON p.id = pa.project_id
+        WHERE EXTRACT(YEAR FROM s.date) = $1
+        GROUP BY p.name
+      `, [ano]);
 
-      const dados = result.rows[0];
+      // Buscar instâncias, participantes e presenças em paralelo
+      const [enrollResult, attendResult] = await Promise.all([
+        pool.query(`
+          WITH inst AS (
+            SELECT ai.id, p.name as project_name
+            FROM activity_instances ai
+            LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+            LEFT JOIN projects p ON p.id = pa.project_id
+            WHERE p.name ILIKE $1
+              OR ai.occurrence_start IS NULL
+              OR EXTRACT(YEAR FROM ai.occurrence_start) = $2
+              OR EXTRACT(YEAR FROM ai.occurrence_end) = $2
+          )
+          SELECT
+            inst.project_name,
+            COUNT(DISTINCT ie.student_cpf)                                                                    AS atendidos,
+            COUNT(DISTINCT CASE WHEN ie.motivo_evasao = 'Desistência da oficina/curso' THEN ie.student_cpf END)  AS evasao
+          FROM inst
+          LEFT JOIN instance_enrollments ie ON ie.activity_instance_id = inst.id
+          GROUP BY inst.project_name
+        `, ['%' + ano + '%', ano]),
+        pool.query(`
+          WITH inst AS (
+            SELECT ai.id, p.name as project_name
+            FROM activity_instances ai
+            LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+            LEFT JOIN projects p ON p.id = pa.project_id
+            WHERE p.name ILIKE $1
+              OR ai.occurrence_start IS NULL
+              OR EXTRACT(YEAR FROM ai.occurrence_start) = $2
+              OR EXTRACT(YEAR FROM ai.occurrence_end) = $2
+          ),
+          sess AS (
+            SELECT s.id, s.attendance AS att_json, inst.project_name
+            FROM sessions s
+            JOIN inst ON inst.id = s.activity_instance_id
+            WHERE EXTRACT(YEAR FROM s.date) = $2
+          ),
+          aluno_presencas AS (
+            SELECT
+              sess.project_name,
+              a->>'presente'  AS presente_str,
+              a->>'present'   AS present_str
+            FROM sess
+            LEFT JOIN LATERAL jsonb_array_elements(
+              CASE WHEN sess.att_json IS NOT NULL AND jsonb_array_length(sess.att_json) > 0
+                   THEN sess.att_json ELSE '[]'::jsonb END
+            ) AS a ON TRUE
+          )
+          SELECT
+            project_name,
+            COUNT(CASE WHEN presente_str = 'true' OR present_str = 'true' THEN 1 END) AS atendimentos,
+            ROUND(
+              CASE WHEN COUNT(presente_str) > 0
+                THEN COUNT(CASE WHEN presente_str = 'true' OR present_str = 'true' THEN 1 END)::numeric
+                     / COUNT(NULLIF(presente_str, '') ) * 100
+                ELSE 0
+              END, 1
+            ) AS frequencia
+          FROM aluno_presencas
+          GROUP BY project_name
+        `, ['%' + ano + '%', ano])
+      ]);
 
-      if (!dados) {
-        console.log("⚠️ [PEC] Nenhum dado encontrado");
-        return res.json({
-          success: true,
-          data: {
-            casaSonhar: {
-              atendidos: 0,
-              atendimentos: 0,
-              frequencia: 0,
-              alimentacao: 0,
-              horaAula: 0,
-              evasao: 0,
-            },
-            programaEsporteCultura: {
-              atendidos: 0,
-              atendimentos: 0,
-              frequencia: 0,
-              alimentacao: 0,
-              horaAula: 0,
-              evasao: 0,
-            },
-            serenata: {
-              atendidos: 0,
-              atendimentos: 0,
-              frequencia: 0,
-              horaAula: 0,
-            },
-          },
-        });
+      // Alimentação real por categoria (sessions com teve_alimentacao = true)
+      const alimentacaoResult = await pool.query(`
+        SELECT
+          p.name as project_name,
+          COALESCE(SUM(
+            (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
+              WHERE a->>'presente' = 'true' OR a->>'present' = 'true')
+          ), 0) as alimentacao
+        FROM sessions s
+        JOIN activity_instances ai ON ai.id = s.activity_instance_id
+        LEFT JOIN pec_activities pa ON pa.id = ai.activity_id
+        LEFT JOIN projects p ON p.id = pa.project_id
+        WHERE EXTRACT(YEAR FROM s.date) = $1
+          AND s.teve_alimentacao = true
+        GROUP BY p.name
+      `, [ano]);
+
+      const alimentacaoMap: {[k: string]: number} = {};
+      for (const row of alimentacaoResult.rows) {
+        if (!row.project_name) continue;
+        const cat = categorizaProjeto(row.project_name);
+        if (!alimentacaoMap[cat]) alimentacaoMap[cat] = 0;
+        alimentacaoMap[cat] += parseInt(row.alimentacao) || 0;
       }
 
-      console.log("✅ [PEC] Dados carregados com sucesso");
+      // Calcular hora_aula por categoria a partir de sessões reais (presentes × duração)
+      const horaAulaMap: {[k: string]: number} = {};
+      for (const row of horaAulaResult.rows) {
+        if (!row.project_name) continue;
+        const cat = categorizaProjeto(row.project_name);
+        if (!horaAulaMap[cat]) horaAulaMap[cat] = 0;
+        horaAulaMap[cat] = parseFloat((horaAulaMap[cat] + parseFloat(row.hora_aula || '0')).toFixed(1));
+      }
+
+      // Agregar participantes por categoria
+      const enrollMap: {[k: string]: any} = {};
+      for (const row of enrollResult.rows) {
+        if (!row.project_name) continue;
+        const cat = categorizaProjeto(row.project_name);
+        if (!enrollMap[cat]) enrollMap[cat] = { atendidos: 0, evasao: 0 };
+        enrollMap[cat].atendidos += parseInt(row.atendidos) || 0;
+        enrollMap[cat].evasao   += parseInt(row.evasao)    || 0;
+      }
+
+      // Agregar presenças por categoria
+      const attendMap: {[k: string]: any} = {};
+      for (const row of attendResult.rows) {
+        if (!row.project_name) continue;
+        const cat = categorizaProjeto(row.project_name);
+        if (!attendMap[cat]) attendMap[cat] = { atendimentos: 0, frequencia: 0, _count: 0 };
+        attendMap[cat].atendimentos += parseInt(row.atendimentos) || 0;
+        // Média ponderada de frequência
+        attendMap[cat].frequencia = parseFloat(row.frequencia) || 0;
+      }
+
+      const get = (cat: string) => ({
+        atendidos:    enrollMap[cat]?.atendidos    || 0,
+        evasao:       enrollMap[cat]?.evasao       || 0,
+        atendimentos: attendMap[cat]?.atendimentos || 0,
+        frequencia:   attendMap[cat]?.frequencia   || 0,
+        horaAula:     horaAulaMap[cat]             || 0,
+        alimentacao:  alimentacaoMap[cat]          || 0,
+      });
+
+      const cs  = get('casaSonhar');
+      const pec = get('programaEsporteCultura');
+      const ser = get('serenata');
+
+      console.log(`✅ [PEC] Casa Sonhar: ${cs.atendidos} atendidos | Esporte/Cultura: ${pec.atendidos} | Serenata: ${ser.atendidos}`);
 
       res.json({
         success: true,
         data: {
           casaSonhar: {
-            atendidos: Number(dados.casa_sonhar_atendidos) || 0,
-            atendimentos: Number(dados.casa_sonhar_atendimentos) || 0,
-            frequencia: Number(dados.casa_sonhar_frequencia) || 0,
-            alimentacao: Number(dados.casa_sonhar_alimentacao) || 0,
-            horaAula: Number(dados.casa_sonhar_hora_aula) || 0,
-            evasao: Number(dados.casa_sonhar_evasao) || 0,
+            atendidos:    cs.atendidos,
+            atendimentos: cs.atendimentos,
+            frequencia:   cs.frequencia,
+            alimentacao:  cs.alimentacao,
+            horaAula:     cs.horaAula,
+            evasao:       cs.evasao,
           },
           programaEsporteCultura: {
-            atendidos: Number(dados.programa_esporte_cultura_atendidos) || 0,
-            atendimentos:
-              Number(dados.programa_esporte_cultura_atendimentos) || 0,
-            frequencia: Number(dados.programa_esporte_cultura_frequencia) || 0,
-            alimentacao:
-              Number(dados.programa_esporte_cultura_alimentacao) || 0,
-            horaAula: Number(dados.programa_esporte_cultura_hora_aula) || 0,
-            evasao: Number(dados.programa_esporte_cultura_evasao) || 0,
+            atendidos:    pec.atendidos,
+            atendimentos: pec.atendimentos,
+            frequencia:   pec.frequencia,
+            alimentacao:  pec.alimentacao,
+            horaAula:     pec.horaAula,
+            evasao:       pec.evasao,
           },
           serenata: {
-            atendidos: Number(dados.serenata_atendidos) || 0,
-            atendimentos: Number(dados.serenata_atendimentos) || 0,
-            frequencia: Number(dados.serenata_frequencia) || 0,
-            horaAula: Number(dados.serenata_hora_aula) || 0,
+            atendidos:    ser.atendidos,
+            atendimentos: ser.atendimentos,
+            frequencia:   ser.frequencia,
+            horaAula:     ser.horaAula,
+            evasao:       ser.evasao,
           },
         },
       });
@@ -40318,121 +46834,603 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
       );
       res.json(dados);
     } catch (error: any) {
-      console.error(
-        "❌ [INCLUSÃO PRODUTIVA] Erro ao buscar dados mensais:",
-        error
+      console.error('❌ [INCLUSÃO PRODUTIVA] Erro ao buscar dados mensais:', error);
+      res.status(500).json({ error: 'Erro ao buscar dados mensais', message: error.message });
+    }
+  });
+
+
+  // Inclusão Produtiva - Inicializar ano
+  app.post("/api/inclusao-produtiva/inicializar-ano", async (req, res) => {
+    try {
+      const { ano } = req.body;
+      if (!ano) {
+        return res.status(400).json({ error: "ano é obrigatório" });
+      }
+      
+      // Validação de segurança - apenas anos permitidos
+      const anosPermitidos = [2025, 2026, 2027];
+      if (!anosPermitidos.includes(parseInt(ano))) {
+        return res.status(400).json({ error: "ano deve ser 2025, 2026 ou 2027" });
+      }
+      
+      console.log('[INCLUSAO PRODUTIVA] Inicializando ano ' + ano + '...');
+      
+      // Verificar se já existe
+      const existing = await pool.query(
+        'SELECT id FROM inclusao_produtiva_dados WHERE ano = $1 AND mes IS NULL',
+        [ano]
       );
-      res.status(500).json({
-        error: "Erro ao buscar dados mensais",
-        message: error.message,
-      });
+      
+      if (existing.rows.length > 0) {
+        return res.json({ success: true, message: 'Ano ' + ano + ' já existe', id: existing.rows[0].id });
+      }
+      
+      // Inserir registro zerado
+      const result = await pool.query(`
+        INSERT INTO inclusao_produtiva_dados (
+          ano, mes,
+          lab_hora_aula, lab_atendimentos, lab_lanche, lab_frequencia, lab_empregados, lab_empreendedores, lab_atendidos, lab_evasao,
+          presencial_hora_aula, presencial_atendimentos, presencial_lanche, presencial_frequencia, presencial_empregados, presencial_empreendedores, presencial_atendidos, presencial_evasao,
+          ead_hora_aula, ead_atendimentos, ead_lanche, ead_frequencia, ead_empregados, ead_empreendedores, ead_atendidos, ead_evasao
+        ) VALUES (
+          $1, NULL,
+          0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0
+        ) RETURNING id
+      `, [ano]);
+      
+      console.log('[INCLUSAO PRODUTIVA] Ano ' + ano + ' inicializado com id ' + result.rows[0].id);
+      res.json({ success: true, message: 'Ano ' + ano + ' criado', id: result.rows[0].id });
+    } catch (error: any) {
+      console.error('[INCLUSAO PRODUTIVA] Erro ao inicializar ano:', error);
+      res.status(500).json({ error: 'Erro ao inicializar ano', message: error.message });
     }
   });
 
   // Inclusão Produtiva - Indicadores (busca do banco Digital Ocean)
   app.get("/api/inclusao-produtiva/indicadores", async (req, res) => {
     try {
-      console.log(
-        "📊 [INCLUSÃO PRODUTIVA] Buscando indicadores do banco DO..."
-      );
+      const ano = parseInt(req.query.ano as string) || 2025;
+      console.log('[INCLUSAO PRODUTIVA] Buscando indicadores para ano ' + ano + '...');
 
-      // Buscar dados do banco Digital Ocean
-      const result = await pool.query(`
-        SELECT * FROM inclusao_produtiva_dados 
-        WHERE ano = 2025 AND mes IS NULL 
-        ORDER BY id DESC LIMIT 1
-      `);
-
-      if (result.rows.length === 0) {
-        console.log(
-          "⚠️ [INCLUSÃO PRODUTIVA] Nenhum dado encontrado, retornando padrão"
-        );
-        return res.json({ projetos: [] });
+      // Helper: normaliza dias_semana para set canônico (sem duplicatas, sem diferença de case)
+      function normalizeDias(dias: string[]): Set<string> {
+        const map: {[k: string]: string} = {
+          'segunda': 'mon', 'segunda-feira': 'mon',
+          'terca': 'tue', 'terça': 'tue', 'terça-feira': 'tue', 'terca-feira': 'tue',
+          'quarta': 'wed', 'quarta-feira': 'wed',
+          'quinta': 'thu', 'quinta-feira': 'thu',
+          'sexta': 'fri', 'sexta-feira': 'fri',
+          'sabado': 'sat', 'sábado': 'sat',
+          'domingo': 'sun'
+        };
+        const normalized = new Set<string>();
+        for (const d of dias) {
+          const key = d.toLowerCase().trim();
+          if (map[key]) normalized.add(map[key]);
+        }
+        return normalized;
       }
 
-      const row = result.rows[0];
+      // Helper: conta quantos dias no intervalo batem com os dias da semana da turma
+      function countDaysInRange(start: Date, end: Date, weekdays: Set<string>): number {
+        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        let count = 0;
+        const current = new Date(start);
+        while (current <= end) {
+          if (weekdays.has(dayNames[current.getDay()])) count++;
+          current.setDate(current.getDate() + 1);
+        }
+        return count;
+      }
+
+      // Helper: calcula hora_aula de uma turma com base no horário e dias
+      function calcHoraAula(turma: any): number {
+        if (!turma.horario_entrada || !turma.horario_saida || !turma.data_inicio || !turma.data_fim) return 0;
+        const [hIn, mIn] = turma.horario_entrada.split(':').map(Number);
+        const [hOut, mOut] = turma.horario_saida.split(':').map(Number);
+        const durationHours = (hOut * 60 + mOut - (hIn * 60 + mIn)) / 60;
+        if (durationHours <= 0) return 0;
+        const diasNorm = normalizeDias(turma.dias_semana || []);
+        const days = countDaysInRange(new Date(turma.data_inicio), new Date(turma.data_fim), diasNorm);
+        return parseFloat((days * durationHours).toFixed(1));
+      }
+
+      // Buscar turmas, indicadores automáticos e dados manuais em paralelo
+      const [turmasResult, autoResult, dadosResult, geracaoRendaResult, atendidosCatResult] = await Promise.all([
+        pool.query(`
+          SELECT ti.id, ti.nome, ti.programa_id, ti.dias_semana,
+                 ti.horario_entrada::text, ti.horario_saida::text,
+                 ti.data_inicio, ti.data_fim, ti.status,
+                 pi.nome as programa_nome
+          FROM turmas_inclusao ti
+          LEFT JOIN programas_inclusao pi ON pi.id = ti.programa_id
+          WHERE ti.status IN ('ativo', 'emandamento', 'concluido')
+            AND (EXTRACT(YEAR FROM ti.data_inicio) = $1 OR EXTRACT(YEAR FROM ti.data_fim) = $1)
+        `, [ano]),
+        pool.query(`
+          WITH categorias AS (
+            SELECT ti.id AS turma_id,
+              CASE
+                WHEN pi.nome ILIKE '%LAB%'        THEN 'lab'
+                WHEN pi.nome ILIKE '%EAD%'        THEN 'ead'
+                WHEN pi.nome ILIKE '%PRESENCIAL%' THEN 'presencial'
+                ELSE 'outro'
+              END AS categoria
+            FROM turmas_inclusao ti
+            LEFT JOIN programas_inclusao pi ON pi.id = ti.programa_id
+            WHERE ti.status IN ('ativo', 'emandamento', 'concluido')
+              AND (EXTRACT(YEAR FROM ti.data_inicio) = $1 OR EXTRACT(YEAR FROM ti.data_fim) = $1)
+          ),
+          participantes_agg AS (
+            SELECT c.categoria,
+              COUNT(DISTINCT pt.id)                                           AS atendidos,
+              COUNT(DISTINCT CASE WHEN pt.motivo_desligamento = 'Desistência' THEN pt.id END) AS evasao
+            FROM categorias c
+            LEFT JOIN participantes_turmas pt ON pt.turma_id = c.turma_id
+            GROUP BY c.categoria
+          ),
+          presencas_agg AS (
+            SELECT c.categoria,
+              COUNT(CASE WHEN pr.presente = true THEN 1 END) AS atendimentos,
+              ROUND(
+                CASE WHEN COUNT(pr.id) > 0
+                  THEN COUNT(CASE WHEN pr.presente = true THEN 1 END)::numeric / COUNT(pr.id) * 100
+                  ELSE 0
+                END, 1
+              ) AS frequencia
+            FROM categorias c
+            LEFT JOIN presencas_inclusao pr ON pr.turma_id = c.turma_id
+            GROUP BY c.categoria
+          )
+          SELECT pa.categoria, pa.atendidos, pa.evasao, pra.atendimentos, pra.frequencia
+          FROM participantes_agg pa
+          LEFT JOIN presencas_agg pra ON pra.categoria = pa.categoria
+        `, [ano]),
+        pool.query(`
+          SELECT * FROM inclusao_produtiva_dados
+          WHERE ano = $1 AND mes IS NULL
+          ORDER BY id DESC LIMIT 1
+        `, [ano]),
+        pool.query(`
+          SELECT g.tipo,
+            CASE
+              WHEN pi.nome ILIKE '%LAB%'        THEN 'lab'
+              WHEN pi.nome ILIKE '%EAD%'        THEN 'ead'
+              WHEN pi.nome ILIKE '%PRESENCIAL%' THEN 'presencial'
+              ELSE 'geral'
+            END AS categoria,
+            COUNT(*) AS total
+          FROM inclusao_geracao_de_renda g
+          LEFT JOIN programas_inclusao pi ON pi.id = g.programa_id
+          WHERE EXTRACT(YEAR FROM COALESCE(g.data_contratacao, g.data_inicio_atividade, g.criado_em)) = $1
+          GROUP BY g.tipo, 2
+        `, [ano]),
+        pool.query(`
+          SELECT
+            CASE
+              WHEN pi.nome ILIKE '%LAB%'        THEN 'lab'
+              WHEN pi.nome ILIKE '%EAD%'        THEN 'ead'
+              WHEN pi.nome ILIKE '%PRESENCIAL%' THEN 'presencial'
+              ELSE 'outro'
+            END AS categoria,
+            COUNT(DISTINCT pi2.cpf) AS atendidos
+          FROM participantes_turmas pt
+          JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+          LEFT JOIN programas_inclusao pi ON pi.id = ti.programa_id
+          JOIN participantes_inclusao pi2 ON pi2.id = pt.participante_id
+          WHERE EXTRACT(YEAR FROM COALESCE(ti.data_inicio, ti.created_at)) = $1
+          GROUP BY 1
+        `, [ano])
+      ]);
+
+      // Categorizar turmas pelo nome do programa (dinâmico, funciona para qualquer ano)
+      const turmasLAB        = turmasResult.rows.filter((t: any) => t.programa_nome && t.programa_nome.toUpperCase().includes('LAB'));
+      const turmasPresencial = turmasResult.rows.filter((t: any) => t.programa_nome && t.programa_nome.toUpperCase().includes('PRESENCIAL'));
+      const turmasEAD        = turmasResult.rows.filter((t: any) => t.programa_nome && t.programa_nome.toUpperCase().includes('EAD'));
+
+      const horaAulaLAB        = parseFloat(turmasLAB.reduce((s: number, t: any) => s + calcHoraAula(t), 0).toFixed(1));
+      const horaAulaPresencial = parseFloat(turmasPresencial.reduce((s: number, t: any) => s + calcHoraAula(t), 0).toFixed(1));
+      const horaAulaEAD        = parseFloat(turmasEAD.reduce((s: number, t: any) => s + calcHoraAula(t), 0).toFixed(1));
+
+      // Extrair indicadores automáticos por categoria
+      const autoLAB        = autoResult.rows.find((r: any) => r.categoria === 'lab')        || {};
+      const autoPresencial = autoResult.rows.find((r: any) => r.categoria === 'presencial') || {};
+      const autoEAD        = autoResult.rows.find((r: any) => r.categoria === 'ead')        || {};
+
+      // Dados manuais (legado)
+      const row = dadosResult.rows[0] || {};
+
+      // Geração de renda: empregados e empreendedores por categoria de programa
+      const getGR = (tipo: string, cat: string) => {
+        const row = geracaoRendaResult.rows.find((r: any) => r.tipo === tipo && r.categoria === cat);
+        const rowGeral = geracaoRendaResult.rows.find((r: any) => r.tipo === tipo && r.categoria === 'geral');
+        return parseInt(row?.total || '0') + (cat === 'lab' ? parseInt(rowGeral?.total || '0') : 0);
+      };
+      const empregadosLAB        = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empregabilidade' && r.categoria === 'lab').reduce((s: number, r: any) => s + parseInt(r.total), 0) + geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empregabilidade' && r.categoria === 'geral').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empregadosPresencial = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empregabilidade' && r.categoria === 'presencial').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empregadosEAD        = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empregabilidade' && r.categoria === 'ead').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empreendedoresLAB        = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empreendedorismo' && r.categoria === 'lab').reduce((s: number, r: any) => s + parseInt(r.total), 0) + geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empreendedorismo' && r.categoria === 'geral').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empreendedoresPresencial = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empreendedorismo' && r.categoria === 'presencial').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empreendedoresEAD        = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empreendedorismo' && r.categoria === 'ead').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+
+      // Total geral de geração de renda (independente de programa)
+      const empregadosTotal      = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empregabilidade').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+      const empreendedoresTotal  = geracaoRendaResult.rows.filter((r: any) => r.tipo === 'empreendedorismo').reduce((s: number, r: any) => s + parseInt(r.total), 0);
+
+      // Atendidos por categoria (nova lógica: COUNT de vínculos, todos os status)
+      const atendidosLAB        = parseInt(atendidosCatResult.rows.find((r: any) => r.categoria === 'lab')?.atendidos        || '0');
+      const atendidosPresencial = parseInt(atendidosCatResult.rows.find((r: any) => r.categoria === 'presencial')?.atendidos || '0');
+      const atendidosEAD        = parseInt(atendidosCatResult.rows.find((r: any) => r.categoria === 'ead')?.atendidos        || '0');
+
+      // Atendimentos: SUM de presenças (presente=true) por turma agrupado por programa
+      const labAtendimentos        = parseInt(autoLAB.atendimentos        || '0');
+      const presencialAtendimentos = parseInt(autoPresencial.atendimentos  || '0');
+      const eadAtendimentos        = parseInt(autoEAD.atendimentos         || '0');
+
+      // Hora Aula real: presentes × duração por aula (agrupado por turma_id, data)
+      const horaAulaPresResult = await pool.query(
+        `SELECT
+          CASE
+            WHEN pi.nome ILIKE '%LAB%'        THEN 'lab'
+            WHEN pi.nome ILIKE '%EAD%'        THEN 'ead'
+            WHEN pi.nome ILIKE '%PRESENCIAL%' THEN 'presencial'
+            ELSE 'outro'
+          END AS categoria,
+          SUM(
+            aulas_agg.presentes_por_aula *
+            EXTRACT(EPOCH FROM (ti.horario_saida - ti.horario_entrada)) / 3600.0
+          ) AS hora_aula
+        FROM (
+          SELECT
+            pr.turma_id,
+            pr.data,
+            COUNT(*) FILTER (WHERE pr.presente = true) AS presentes_por_aula
+          FROM presencas_inclusao pr
+          WHERE EXTRACT(YEAR FROM pr.data) = $1
+          GROUP BY pr.turma_id, pr.data
+        ) aulas_agg
+        JOIN turmas_inclusao ti ON ti.id = aulas_agg.turma_id
+        LEFT JOIN programas_inclusao pi ON pi.id = ti.programa_id
+        WHERE ti.horario_entrada IS NOT NULL AND ti.horario_saida IS NOT NULL
+        GROUP BY 1`,
+        [ano]
+      );
+
+      // Lanches LAB: soma de presentes com teve_alimentacao = true
+      const lanchesLABResult = await pool.query(
+        `SELECT COALESCE(SUM(sub.presentes), 0) AS lanches
+        FROM (
+          SELECT COUNT(*) FILTER (WHERE pr.presente = true AND pr.teve_alimentacao = true) AS presentes
+          FROM presencas_inclusao pr
+          JOIN turmas_inclusao ti ON ti.id = pr.turma_id
+          LEFT JOIN programas_inclusao pi ON pi.id = ti.programa_id
+          WHERE pi.nome ILIKE '%LAB%'
+            AND ti.status IN ('ativo', 'emandamento', 'concluido')
+            AND (EXTRACT(YEAR FROM ti.data_inicio) = $1 OR EXTRACT(YEAR FROM ti.data_fim) = $1)
+          GROUP BY pr.turma_id, pr.data
+        ) sub`,
+        [ano]
+      );
+
+      const getHoraAulaReal = (cat: string): number => {
+        const row = horaAulaPresResult.rows.find((r: any) => r.categoria === cat);
+        return parseFloat(Number(row?.hora_aula || 0).toFixed(1));
+      };
+
+      const lanchesLAB = parseInt(lanchesLABResult.rows[0]?.lanches || '0');
 
       const dados = {
+        ano,
         projetos: [
           {
             nome: "LAB. VOZES DO FUTURO",
             indicadores: [
-              { nome: "Hora Aula", valor: parseFloat(row.lab_hora_aula) || 0 },
-              { nome: "Atendimentos", valor: row.lab_atendimentos || 0 },
-              { nome: "Lanche", valor: row.lab_lanche || 0 },
-              {
-                nome: "Frequência",
-                valor: parseFloat(row.lab_frequencia) || 0,
-                unidade: "%",
-              },
-              { nome: "Empregados", valor: row.lab_empregados || 0 },
-              { nome: "Empreendedores", valor: row.lab_empreendedores || 0 },
-              { nome: "Atendidos", valor: row.lab_atendidos || 0 },
-              { nome: "Evasão", valor: row.lab_evasao || 0 },
+              { nome: "Hora Aula",      valor: getHoraAulaReal('lab') },
+              { nome: "Atendimentos",   valor: labAtendimentos },
+              { nome: "Lanche",         valor: lanchesLAB },
+              { nome: "Frequência",     valor: parseFloat(autoLAB.frequencia)        || 0, unidade: "%" },
+              { nome: "Atendidos",      valor: atendidosLAB },
+              { nome: "Evasão",         valor: parseInt(autoLAB.evasao)           || 0 },
             ],
           },
           {
             nome: "CURSOS PRESENCIAIS",
             indicadores: [
-              {
-                nome: "Hora Aula",
-                valor: parseFloat(row.presencial_hora_aula) || 0,
-              },
-              { nome: "Atendimentos", valor: row.presencial_atendimentos || 0 },
-              { nome: "Lanche", valor: row.presencial_lanche || 0 },
-              {
-                nome: "Frequência",
-                valor: parseFloat(row.presencial_frequencia) || 0,
-                unidade: "%",
-              },
-              { nome: "Empregados", valor: row.presencial_empregados || 0 },
-              {
-                nome: "Empreendedores",
-                valor: row.presencial_empreendedores || 0,
-              },
-              { nome: "Atendidos", valor: row.presencial_atendidos || 0 },
-              { nome: "Evasão", valor: row.presencial_evasao || 0 },
+              { nome: "Hora Aula",      valor: getHoraAulaReal('presencial') },
+              { nome: "Atendimentos",   valor: presencialAtendimentos },
+              { nome: "Frequência",     valor: parseFloat(autoPresencial.frequencia)  || 0, unidade: "%" },
+              { nome: "Atendidos",      valor: atendidosPresencial },
+              { nome: "Evasão",         valor: parseInt(autoPresencial.evasao)     || 0 },
             ],
           },
           {
             nome: "CURSOS EAD CGD",
             indicadores: [
-              { nome: "Hora Aula", valor: parseFloat(row.ead_hora_aula) || 0 },
-              { nome: "Atendimentos", valor: row.ead_atendimentos || 0 },
-              { nome: "Lanche", valor: row.ead_lanche || 0 },
-              {
-                nome: "Frequência",
-                valor: parseFloat(row.ead_frequencia) || 0,
-                unidade: "%",
-              },
-              { nome: "Empregados", valor: row.ead_empregados || 0 },
-              { nome: "Empreendedores", valor: row.ead_empreendedores || 0 },
-              { nome: "Atendidos", valor: row.ead_atendidos || 0 },
-              { nome: "Evasão", valor: row.ead_evasao || 0 },
+              { nome: "Hora Aula",      valor: getHoraAulaReal('ead') },
+              { nome: "Atendimentos",   valor: eadAtendimentos },
+              { nome: "Frequência",     valor: parseFloat(autoEAD.frequencia)        || 0, unidade: "%" },
+              { nome: "Atendidos",      valor: atendidosEAD },
+              { nome: "Evasão",         valor: parseInt(autoEAD.evasao)           || 0 },
             ],
           },
         ],
+        geracaoRenda: {
+          empregados:     empregadosTotal,
+          empreendedores: empreendedoresTotal,
+        },
       };
 
-      console.log("✅ [INCLUSÃO PRODUTIVA] Indicadores retornados do banco DO");
+      console.log(`✅ [INCLUSÃO PRODUTIVA] hora_aula → LAB:${horaAulaLAB}h | PRESENCIAL:${horaAulaPresencial}h | EAD:${horaAulaEAD}h`);
       res.json(dados);
     } catch (error: any) {
-      console.error(
-        "❌ [INCLUSÃO PRODUTIVA] Erro ao buscar indicadores:",
-        error
-      );
-      res
-        .status(500)
-        .json({ error: "Erro ao buscar indicadores", message: error.message });
+      console.error("❌ [INCLUSÃO PRODUTIVA] Erro ao buscar indicadores:", error);
+      res.status(500).json({ error: "Erro ao buscar indicadores", message: error.message });
     }
   });
 
   // Psicossocial - Dados Mensais (Dados reais do banco)
+
+  // 📊 GET /api/psicossocial/indicadores - Indicadores completos por tipo com filtro de mês/ano
+  app.get("/api/psicossocial/indicadores", async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      const mes = req.query.mes ? parseInt(req.query.mes as string) : null;
+
+      console.log(`[PSICO INDICADORES] Buscando indicadores ano=${ano}, mes=${mes || 'anual'}...`);
+
+      const [registrosResult, atividadesResult] = await Promise.all([
+        pool.query(`
+          SELECT tipo, EXTRACT(MONTH FROM data::date) as mes, COUNT(*) as total
+          FROM psico_registros_confidenciais
+          WHERE EXTRACT(YEAR FROM data::date) = $1 AND status = 'ativo'
+          GROUP BY tipo, EXTRACT(MONTH FROM data::date)
+          ORDER BY tipo, mes
+        `, [ano]),
+        pool.query(`
+          SELECT tipo, EXTRACT(MONTH FROM data) as mes, COUNT(*) as total
+          FROM atividades_monitor
+          WHERE contexto = 'psicossocial'
+            AND EXTRACT(YEAR FROM data) = $1
+            AND status != 'cancelada'
+          GROUP BY tipo, EXTRACT(MONTH FROM data)
+          ORDER BY tipo, mes
+        `, [ano])
+      ]);
+
+      const registrosLabels: Record<string, string> = {
+        'atendimento_individual': 'Atendimento Individual',
+        'visita_domiciliar': 'Visita Domiciliar',
+        'atendimento_coletivo': 'Atendimento Coletivo',
+        'espaco_o_grito': 'Espaço O Grito',
+        'acoes_saude': 'Ações para a Saúde',
+        'encaminhamento': 'Encaminhamento',
+        'situacao_risco': 'Situação de Risco',
+        'contato_familiar': 'Contato Familiar',
+        'relato_espontaneo': 'Relato Espontâneo',
+        'observacao_comportamental': 'Observação Comportamental',
+        'outro': 'Outro',
+      };
+
+      const atividadesLabels: Record<string, string> = {
+        'roda_de_conversa': 'Roda de Conversa',
+        'atendimento_grupo': 'Atendimento em Grupo',
+        'oficina': 'Oficina',
+        'acao_socioemocional': 'Ação Socioemocional',
+        'palestra': 'Palestra',
+        'visita_domiciliar': 'Visita Domiciliar',
+        'encaminhamento': 'Encaminhamento',
+        'reforco': 'Reforço',
+        'recreativa': 'Recreativa',
+        'outro': 'Outro',
+      };
+
+      const processRows = (rows: any[], labels: Record<string, string>) => {
+        const data: Record<string, { label: string; total: number; mensal: number[] }> = {};
+        for (const [key, label] of Object.entries(labels)) {
+          data[key] = { label, total: 0, mensal: Array(12).fill(0) };
+        }
+        for (const row of rows) {
+          const tipo = row.tipo as string;
+          const mesIdx = parseInt(row.mes) - 1;
+          const count = parseInt(row.total);
+          if (!data[tipo]) {
+            data[tipo] = { label: labels[tipo] || tipo, total: 0, mensal: Array(12).fill(0) };
+          }
+          data[tipo].mensal[mesIdx] += count;
+          data[tipo].total += count;
+        }
+        return data;
+      };
+
+      const registros = processRows(registrosResult.rows, registrosLabels);
+      const atividades = processRows(atividadesResult.rows, atividadesLabels);
+
+      const applyMesFilter = (data: Record<string, { label: string; total: number; mensal: number[] }>) => {
+        let total = 0;
+        const filtrado: Record<string, { label: string; total: number; mensal: number[] }> = {};
+        for (const [key, d] of Object.entries(data)) {
+          if (mes !== null) {
+            const valorMes = d.mensal[mes - 1] || 0;
+            filtrado[key] = { ...d, total: valorMes };
+            total += valorMes;
+          } else {
+            filtrado[key] = d;
+            total += d.total;
+          }
+        }
+        return { filtrado, total };
+      };
+
+      const regFiltrado = applyMesFilter(registros);
+      const ativFiltrado = applyMesFilter(atividades);
+      const totalGeral = regFiltrado.total + ativFiltrado.total;
+
+      console.log(`[PSICO INDICADORES] Registros: ${regFiltrado.total}, Atividades: ${ativFiltrado.total}, Total: ${totalGeral}`);
+
+      res.json({
+        ano,
+        mes: mes || null,
+        totalGeral,
+        registrosConfidenciais: { total: regFiltrado.total, indicadores: regFiltrado.filtrado },
+        relatosAtividades: { total: ativFiltrado.total, indicadores: ativFiltrado.filtrado },
+      });
+    } catch (error: any) {
+      console.error("[PSICO INDICADORES] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar indicadores psicossociais" });
+    }
+  });
   app.get("/api/psicossocial/dados-mensais", async (req, res) => {
     try {
-      console.log("📅 [PSICOSSOCIAL] Buscando dados mensais 2025 do banco...");
+      const ano = parseInt(req.query.ano as string) || 2025;
+      console.log("[PSICOSSOCIAL] Buscando dados mensais para ano " + ano + "...");
+      
+      // Para anos diferentes de 2025, retornar dados zerados (tabelas não têm coluna de ano)
+      if (ano !== 2025) {
+        console.log("[PSICOSSOCIAL] Ano " + ano + " - buscando dados dos registros confidenciais e atividades...");
+        try {
+          const [registrosResult, ativMonitorResult, psicoAtendResult] = await Promise.all([
+            db.execute(sql`
+              SELECT tipo, EXTRACT(MONTH FROM data::date) as mes, COUNT(*) as total
+              FROM psico_registros_confidenciais
+              WHERE EXTRACT(YEAR FROM data::date) = ${ano} AND status = 'ativo'
+              GROUP BY tipo, EXTRACT(MONTH FROM data::date)
+              ORDER BY mes
+            `),
+            db.execute(sql`
+              SELECT tipo, EXTRACT(MONTH FROM data) as mes, COUNT(*) as total
+              FROM atividades_monitor
+              WHERE contexto = 'psicossocial'
+                AND EXTRACT(YEAR FROM data) = ${ano}
+                AND status != 'cancelada'
+              GROUP BY tipo, EXTRACT(MONTH FROM data)
+              ORDER BY mes
+            `),
+            db.execute(sql`
+              SELECT tipo, EXTRACT(MONTH FROM data_atendimento) as mes, COUNT(*) as total
+              FROM psico_atendimentos
+              WHERE EXTRACT(YEAR FROM data_atendimento) = ${ano}
+              GROUP BY tipo, EXTRACT(MONTH FROM data_atendimento)
+              ORDER BY mes
+            `)
+          ]);
+          
+          const registrosConfig: Record<string, { nome: string; meta: number | null }> = {
+            'atendimento_individual': { nome: 'Atendimento Individual', meta: 420 },
+            'visita_domiciliar': { nome: 'Visita Domiciliar', meta: 3460 },
+            'atendimento_coletivo': { nome: 'Atendimento Coletivo', meta: null },
+            'espaco_o_grito': { nome: 'Espaço O Grito', meta: null },
+            'acoes_saude': { nome: 'Ações para a Saúde', meta: null },
+            'encaminhamento': { nome: 'Encaminhamento', meta: null },
+            'situacao_risco': { nome: 'Situação de Risco', meta: null },
+            'contato_familiar': { nome: 'Contato Familiar', meta: null },
+            'relato_espontaneo': { nome: 'Relato Espontâneo', meta: null },
+            'observacao_comportamental': { nome: 'Observação Comportamental', meta: null },
+            'outro': { nome: 'Outro', meta: null },
+          };
 
-      // Buscar dados reais das tabelas de indicadores psicossocial
+          const atividadesConfig: Record<string, { nome: string; meta: number | null }> = {
+            'roda_de_conversa': { nome: 'Roda de Conversa', meta: null },
+            'atendimento_grupo': { nome: 'Atendimento em Grupo', meta: null },
+            'oficina': { nome: 'Oficina', meta: null },
+            'acao_socioemocional': { nome: 'Ação Socioemocional', meta: null },
+            'palestra': { nome: 'Palestra', meta: null },
+            'visita_domiciliar': { nome: 'Visita Domiciliar', meta: null },
+            'encaminhamento': { nome: 'Encaminhamento', meta: null },
+            'reforco': { nome: 'Reforço', meta: null },
+            'recreativa': { nome: 'Recreativa', meta: null },
+            'outro': { nome: 'Outro', meta: null },
+          };
+
+          const processRowsDM = (rows: any[], config: Record<string, { nome: string; meta: number | null }>) => {
+            const dadosPorTipo: Record<string, { mensal: (number | null)[]; total: number }> = {};
+            for (const key of Object.keys(config)) {
+              dadosPorTipo[key] = { mensal: Array(12).fill(null), total: 0 };
+            }
+            for (const row of rows) {
+              const tipo = row.tipo as string;
+              const mesIdx = parseInt(row.mes) - 1;
+              const count = parseInt(row.total);
+              if (!dadosPorTipo[tipo]) {
+                dadosPorTipo[tipo] = { mensal: Array(12).fill(null), total: 0 };
+              }
+              dadosPorTipo[tipo].mensal[mesIdx] = (dadosPorTipo[tipo].mensal[mesIdx] || 0) + count;
+              dadosPorTipo[tipo].total += count;
+            }
+            return dadosPorTipo;
+          };
+
+          const registrosDados = processRowsDM(registrosResult.rows as any[], registrosConfig);
+          const atividadesDados = processRowsDM(ativMonitorResult.rows as any[], atividadesConfig);
+
+          // psico_atendimentos — mesmos tipos usados no gestão à vista
+          const psicoAtendConfig: Record<string, { nome: string; meta: number | null }> = {
+            'visita_domiciliar': { nome: 'Visita Domiciliar', meta: null },
+            'individual': { nome: 'Atendimento Individual', meta: null },
+            'coletivo': { nome: 'Atendimento Coletivo', meta: null },
+            'familiar': { nome: 'Atendimento Familiar', meta: null },
+          };
+          const psicoAtendDados = processRowsDM(psicoAtendResult.rows as any[], psicoAtendConfig);
+
+          let totalRegistros = 0;
+          let totalAtividades = 0;
+          let totalPsicoAtend = 0;
+          for (const d of Object.values(registrosDados)) totalRegistros += d.total;
+          for (const d of Object.values(atividadesDados)) totalAtividades += d.total;
+          for (const d of Object.values(psicoAtendDados)) totalPsicoAtend += d.total;
+
+          const totalVisitas = (registrosDados['visita_domiciliar']?.total || 0)
+            + (atividadesDados['visita_domiciliar']?.total || 0)
+            + (psicoAtendDados['visita_domiciliar']?.total || 0);
+          const totalAtend = (registrosDados['atendimento_individual']?.total || 0)
+            + (registrosDados['atendimento_coletivo']?.total || 0)
+            + (psicoAtendDados['individual']?.total || 0)
+            + (psicoAtendDados['coletivo']?.total || 0)
+            + (psicoAtendDados['familiar']?.total || 0);
+          const totalGeral = totalRegistros + totalAtividades + totalPsicoAtend;
+
+          const buildList = (config: Record<string, { nome: string; meta: number | null }>, dados: Record<string, { mensal: (number | null)[]; total: number }>) => {
+            return Object.entries(config).map(([key, cfg]) => ({
+              nome: cfg.nome,
+              tipo: key,
+              valor: dados[key]?.total || 0,
+              meta: cfg.meta,
+              percentual: cfg.meta ? Math.round(((dados[key]?.total || 0) / cfg.meta) * 100) : null,
+              mensal: dados[key]?.mensal || Array(12).fill(null),
+            }));
+          };
+
+          const registrosList = buildList(registrosConfig, registrosDados);
+          const atividadesList = buildList(atividadesConfig, atividadesDados);
+
+          console.log(`[PSICOSSOCIAL] Ano ${ano} - Total geral: ${totalGeral}, Registros: ${totalRegistros}, Atividades: ${totalAtividades}, Visitas: ${totalVisitas}`);
+
+          return res.json({
+            meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+            indicadores: registrosList,
+            relatosAtividades: atividadesList,
+            resumo: { totalGeral, totalRegistros, totalAtividades, totalAtendimentos: totalAtend, totalVisitas, totalEspacos: 0, turmasPercentual: 0 }
+          });
+        } catch (err) {
+          console.error("[PSICOSSOCIAL] Erro ao buscar registros confidenciais:", err);
+          return res.json({
+            meses: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+            indicadores: [
+              { nome: "Visitas Domiciliares", valor: 0, meta: 0, percentual: 0, mensal: Array(12).fill(null) },
+              { nome: "Atendimentos Individuais", valor: 0, meta: 0, percentual: 0, mensal: Array(12).fill(null) },
+              { nome: "Atendimentos Coletivos", valor: 0, meta: null, percentual: 0, mensal: Array(12).fill(null) },
+              { nome: "Espaços de Convivência", valor: 0, meta: 0, percentual: 0, mensal: Array(12).fill(null) },
+              { nome: "Caravanas Comunitárias", valor: 0, meta: null, percentual: null, mensal: Array(12).fill(null) },
+              { nome: "Ações com Colaboradores", valor: 0, meta: null, percentual: null, mensal: Array(12).fill(null) }
+            ],
+            resumo: { totalAtendimentos: 0, totalVisitas: 0, totalEspacos: 0, turmasPercentual: 0 }
+          });
+        }
+      }
+      
+      // Buscar dados reais das tabelas de indicadores psicossocial (apenas 2025)
       const [atencaoSocial, metodoGrito] = await Promise.all([
         db
           .select()
@@ -40445,7 +47443,6 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
           .orderBy(desc(indicadoresPsicoMetodoGrito.createdAt))
           .limit(1),
       ]);
-
       const atencao = atencaoSocial[0];
       const metodo = metodoGrito[0];
 
@@ -41600,11 +48597,11 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
       const passwordHash = await bcrypt.hash(senha, 10);
       const result = await pool.query(
         `
-        INSERT INTO professores (nome, email, password_hash, telefone, programa, redirect_path, ativo)
-        VALUES ($1, $2, $3, $4, $5, '/professor', true)
-        RETURNING id, nome, email, telefone, programa, ativo
+        INSERT INTO professores (nome, email, password_hash, programa, redirect_path, ativo)
+        VALUES ($1, $2, $3, $4, '/professor', true)
+        RETURNING id, nome, email, programa, ativo
       `,
-        [nome, email, passwordHash, telefone || null, programa]
+        [nome, email, passwordHash, programa]
       );
       res.json(result.rows[0]);
     } catch (error: any) {
@@ -42380,9 +49377,7 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
 
         await db.update(beneficioGanhadores)
           .set({
-          horarioInicio,
-          horarioFim,
-          dias_semana, fotoUrl, updatedAt: new Date() })
+          fotoUrl, updatedAt: new Date() })
           .where(eq(beneficioGanhadores.id, ganhadorId));
 
         console.log("📸 [DEV GANHADORES] Foto atualizada para ganhador " + ganhadorId + ": " + fotoUrl);
@@ -42622,6 +49617,8 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
           data: presencasInclusao.data,
           presente: presencasInclusao.presente,
           observacoes: presencasInclusao.observacoes,
+          justificativa: presencasInclusao.justificativa,
+          fotoComprovante: presencasInclusao.fotoComprovante,
           createdAt: presencasInclusao.createdAt,
           nome: participantesInclusao.nome
         })
@@ -42643,17 +49640,23 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
               presencas: [],
               grupoId: p.turmaId,
               criadoEm: p.createdAt,
+              fotoComprovante: null,
               tipo: 'inclusao'
             });
           }
           const group = grouped.get(key);
+          if (p.fotoComprovante && !group.fotoComprovante) {
+            group.fotoComprovante = p.fotoComprovante;
+          }
           group.presencas.push({
             id: p.participanteId,
             nome: p.nome,
             presente: p.presente,
-            observacoes: p.observacoes
+            observacoes: p.observacoes,
+            justificativa: p.justificativa,
+            fotoComprovante: p.fotoComprovante
           });
-          if (p.presente) {
+          if (p.presente === true) {
             group.totalPresentes++;
           }
         }
@@ -42687,10 +49690,11 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
             data: sess.date,
             grupo: instance?.instanceTitle || sess.title,
             titulo: sess.title,
-            totalPresentes: Array.isArray(sess.attendance) ? sess.attendance.filter((p: any) => p.presente).length : 0,
+            totalPresentes: Array.isArray(sess.attendance) ? sess.attendance.filter((p: any) => p.presente === true || p.status === "presente").length : 0,
             presencas: sess.attendance || [],
             grupoId: sess.activity_instance_id,
             criadoEm: sess.createdAt,
+            fotoComprovante: (sess as any).fotoComprovante || null,
             tipo: 'pec'
           };
         });
@@ -42712,107 +49716,2012 @@ app.post("/api/participantes-inclusao", requireAuth, async (req, res) => {
     }
   });
 
-  // POST /api/monitor/:monitorId/registro-presenca - Nova rota para chamada sem turma
-  app.post("/api/monitor/:monitorId/registro-presenca", requireAuth, requireMonitor, async (req, res) => {
-    try {
-      const monitorId = parseInt(req.params.monitorId);
-      const vertente = req.query.vertente as string | undefined;
-      const user = (req as any).user;
-      
-      const access = ensureSelfAccess(user, monitorId, 'chamada');
-      if (!access.allowed) {
-        return res.status(403).json({ error: 'Acesso negado' });
-      }
-      
-      const { grupoId, data, observacoes, presencas } = req.body;
-      
-      if (!grupoId || !data) {
-        return res.status(400).json({ error: 'grupoId e data são obrigatórios' });
-      }
-      
-      // Primeiro tenta buscar como PEC (activityInstances)
-      const pecInstance = await db.select().from(activityInstances)
-        .where(eq(activityInstances.id, grupoId))
-        .limit(1);
-      
-      if (pecInstance.length > 0) {
-        // É uma turma PEC - salvar chamada
-        const instance = pecInstance[0];
+    // POST /api/monitor/:monitorId/registro-presenca - Nova rota para chamada sem turma
+    app.post("/api/monitor/:monitorId/registro-presenca", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const vertente = req.query.vertente as string | undefined;
+        const user = (req as any).user;
         
-        // Criar sessão na tabela sessions
-        const [session] = await db.insert(sessions).values({
-          activity_instance_id: grupoId,
-          date: data,
-          hours: "2.00",
-          title: 'Chamada - ' + (instance.title || 'Sem grupo'),
-          description: observacoes || '',
-          observations: '',
-          status: 'realizado',
-          attendance: presencas
-        }).returning();
-        
-        console.log(`[RBAC MONITOR] Registro de presença PEC criado por monitor ${monitorId} para turma ${grupoId}`);
-        return res.json({ success: true, id: session.id, message: 'Presença registrada com sucesso' });
-      }
-      
-      // Tenta buscar como Turma de Inclusão
-      const turmaInclusao = await db.select().from(turmasInclusao)
-        .where(eq(turmasInclusao.id, grupoId))
-        .limit(1);
-      
-      if (turmaInclusao.length > 0) {
-        // É uma turma de Inclusão - salvar presenças na tabela presencas_inclusao
-        const turma = turmaInclusao[0];
-        
-        // Inserir cada presença individualmente
-        const insertedPresencas = [];
-        for (const p of (presencas || [])) {
-          const participanteId = p.id || p.participanteId || p.alunoCpf;
-          if (participanteId) {
-            const [presenca] = await db.insert(presencasInclusao).values({
-              participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
-              turmaId: grupoId,
-              data: data,
-              presente: p.presente || p.present || false,
-              observacoes: observacoes || null,
-              
-            }).returning();
-            insertedPresencas.push(presenca);
-          }
+        const access = ensureSelfAccess(user, monitorId, 'chamada');
+        if (!access.allowed) {
+          return res.status(403).json({ error: 'Acesso negado' });
         }
         
-        console.log(`[RBAC MONITOR] Registro de ${insertedPresencas.length} presenças Inclusão criado por monitor ${monitorId} para turma ${grupoId}`);
-        return res.json({ success: true, count: insertedPresencas.length, message: 'Presenças registradas com sucesso' });
+        const { grupoId, data, observacoes, presencas } = req.body;
+        
+        if (!grupoId || !data) {
+          return res.status(400).json({ error: 'grupoId e data são obrigatórios' });
+        }
+        
+        // Primeiro tenta buscar como PEC (activityInstances)
+        const pecInstance = await db.select().from(activityInstances)
+          .where(eq(activityInstances.id, grupoId))
+          .limit(1);
+        
+        if (pecInstance.length > 0) {
+          // É uma turma PEC - salvar chamada
+          const instance = pecInstance[0];
+          
+          // Criar sessão na tabela sessions
+          const [session] = await db.insert(sessions).values({
+            activity_instance_id: grupoId,
+            date: data,
+            hours: "2.00",
+            title: 'Chamada - ' + (instance.title || 'Sem grupo'),
+            description: observacoes || '',
+            observations: '',
+            status: 'realizado',
+            attendance: presencas,
+            teveAlimentacao: req.body.teve_alimentacao === true ? true : req.body.teve_alimentacao === false ? false : null,
+          }).returning();
+          
+          console.log(`[RBAC MONITOR] Registro de presença PEC criado por monitor ${monitorId} para turma ${grupoId}`);
+          return res.json({ success: true, id: session.id, message: 'Presença registrada com sucesso' });
+        }
+        
+        // Tenta buscar como Turma de Inclusão
+        const turmaInclusao = await db.select().from(turmasInclusao)
+          .where(eq(turmasInclusao.id, grupoId))
+          .limit(1);
+        
+        if (turmaInclusao.length > 0) {
+          // É uma turma de Inclusão - salvar presenças na tabela presencas_inclusao
+          const turma = turmaInclusao[0];
+          
+          // Apaga registros existentes (inclusive os da catraca) e reinserção completa
+          await db.delete(presencasInclusao).where(
+            and(eq(presencasInclusao.turmaId, grupoId), eq(presencasInclusao.data, data))
+          );
+
+          const insertedPresencas = [];
+          for (const p of (presencas || [])) {
+            const participanteId = p.id || p.participanteId || p.alunoCpf;
+            if (participanteId) {
+              const teveAlim = req.body.teve_alimentacao === true ? true : req.body.teve_alimentacao === false ? false : null;
+              const [presenca] = await db.insert(presencasInclusao).values({
+                participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
+                turmaId: grupoId,
+                data: data,
+                presente: p.presente || p.present || false,
+                observacoes: p.presente ? (p.viaCatraca ? `Presença via catraca às ${p.hora || ''}` : null) : null,
+                justificativa: p.justificativa || null,
+                justificativaMotivo: p.justificativaMotivo || null,
+                justificativaObs: p.justificativaObs || null,
+                contaComoPresenca: p.contaComoPresenca === true,
+                teveAlimentacao: teveAlim,
+              }).returning();
+              insertedPresencas.push(presenca);
+            }
+          }
+          
+          console.log(`[RBAC MONITOR] Registro de ${insertedPresencas.length} presenças Inclusão criado por monitor ${monitorId} para turma ${grupoId}`);
+          return res.json({ success: true, count: insertedPresencas.length, message: 'Presenças registradas com sucesso' });
+        }
+        
+        // Fallback: tenta como monitorGrupos (legacy)
+        const grupo = await db.query.monitorGrupos.findFirst({
+          where: and(
+            eq(monitorGrupos.id, grupoId),
+            eq(monitorGrupos.monitorUserId, monitorId)
+          )
+        });
+        
+        if (!grupo) {
+          return res.status(404).json({ error: 'Grupo não encontrado' });
+        }
+        
+        // Salvar na tabela registros_atividades
+        const registro = await db.insert(registrosAtividades).values({
+          monitorUserId: monitorId,
+          dataAtividade: data,
+          grupo: grupo.nome,
+          titulo: `Chamada - ${grupo.nome}`,
+          descricao: observacoes || '',
+          participantes: presencas?.filter((p: any) => p.presente).length || 0,
+          resultadosObservacoes: JSON.stringify({ presencas, grupoId })
+        }).returning();
+        
+        console.log(`[RBAC MONITOR] Registro de presença criado por monitor ${monitorId} para grupo ${grupoId}`);
+        res.json({ success: true, id: registro[0].id, message: 'Presença registrada com sucesso' });
+      } catch (error: any) {
+        console.error("Error creating registro presenca:", error);
+        res.status(500).json({ error: "Failed to create registro" });
       }
-      
-      // Fallback: tenta como monitorGrupos (legacy)
-      const grupo = await db.query.monitorGrupos.findFirst({
-        where: and(
-          eq(monitorGrupos.id, grupoId),
-          eq(monitorGrupos.monitorUserId, monitorId)
-        )
-      });
-      
-      if (!grupo) {
-        return res.status(404).json({ error: 'Grupo não encontrado' });
+    });
+
+    // GET /api/monitor/:monitorId/registros-confidenciais
+    app.get("/api/monitor/:monitorId/registros-confidenciais", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-confidenciais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const vertente = req.query.vertente as string | undefined;
+
+        const registros = (vertente && vertente !== 'todos')
+          ? await db.select().from(registrosConfidenciais)
+              .where(or(eq(registrosConfidenciais.vertente, vertente), eq(registrosConfidenciais.vertente, 'todos')))
+              .orderBy(desc(registrosConfidenciais.createdAt))
+          : await db.select().from(registrosConfidenciais)
+              .orderBy(desc(registrosConfidenciais.createdAt));
+
+        res.json(registros);
+      } catch (error: any) {
+        console.error("Error fetching registros confidenciais:", error);
+        res.status(500).json({ error: "Failed to fetch registros confidenciais" });
       }
-      
-      // Salvar na tabela registros_atividades
-      const registro = await db.insert(registrosAtividades).values({
-        monitorUserId: monitorId,
-        dataAtividade: data,
-        grupo: grupo.nome,
-        titulo: `Chamada - ${grupo.nome}`,
-        descricao: observacoes || '',
-        participantes: presencas?.filter((p: any) => p.presente).length || 0,
-        resultadosObservacoes: JSON.stringify({ presencas, grupoId })
-      }).returning();
-      
-      console.log(`[RBAC MONITOR] Registro de presença criado por monitor ${monitorId} para grupo ${grupoId}`);
-      res.json({ success: true, id: registro[0].id, message: 'Presença registrada com sucesso' });
+    });
+
+    // POST /api/monitor/:monitorId/registros-confidenciais
+    app.post("/api/monitor/:monitorId/registros-confidenciais", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-confidenciais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const { vertente, tipo, titulo, conteudo, participanteNome, participanteId, participanteCpf, participanteDataNascimento, data } = req.body;
+
+        if (!tipo || !conteudo || !data) {
+          return res.status(400).json({ error: "Campos obrigatórios: tipo, conteudo, data" });
+        }
+
+        const [registro] = await db.insert(registrosConfidenciais).values({
+          monitorUserId: monitorId,
+          vertente: vertente || 'todos',
+          tipo,
+          titulo: titulo || null,
+          conteudo,
+          participanteNome: participanteNome || null,
+          participanteId: participanteId || null,
+          participanteCpf: participanteCpf || null,
+          participanteDataNascimento: participanteDataNascimento || null,
+          data,
+        }).returning();
+
+        res.json(registro);
+      } catch (error: any) {
+        console.error("Error creating registro confidencial:", error);
+        const pgErr = formatPostgresError(error, 'registro confidencial');
+        res.status(pgErr.status).json({ error: pgErr.message });
+      }
+    });
+
+    // PUT /api/monitor/:monitorId/registros-confidenciais/:registroId
+    app.put("/api/monitor/:monitorId/registros-confidenciais/:registroId", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const registroId = parseInt(req.params.registroId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-confidenciais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const existing = await db.select().from(registrosConfidenciais)
+          .where(and(eq(registrosConfidenciais.id, registroId), eq(registrosConfidenciais.monitorUserId, monitorId)))
+          .limit(1);
+
+        if (existing.length === 0) return res.status(404).json({ error: "Registro não encontrado" });
+
+        const { tipo, titulo, conteudo, participanteNome, participanteCpf, data } = req.body;
+
+        await db.update(registrosConfidenciais)
+          .set({ tipo, titulo: titulo || null, conteudo, participanteNome: participanteNome || null, participanteCpf: participanteCpf || null, data })
+          .where(and(eq(registrosConfidenciais.id, registroId), eq(registrosConfidenciais.monitorUserId, monitorId)));
+
+        res.json({ success: true, id: registroId });
+      } catch (error: any) {
+        console.error("Erro ao atualizar registro confidencial:", error);
+        const pgErr = formatPostgresError(error, 'registro confidencial');
+        res.status(pgErr.status).json({ error: pgErr.message });
+      }
+    });
+
+    // DELETE /api/monitor/:monitorId/registros-confidenciais/:registroId
+    app.delete("/api/monitor/:monitorId/registros-confidenciais/:registroId", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const registroId = parseInt(req.params.registroId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-confidenciais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        await db.delete(registrosConfidenciais)
+          .where(and(eq(registrosConfidenciais.id, registroId), eq(registrosConfidenciais.monitorUserId, monitorId)));
+
+        res.json({ success: true });
+      } catch (error: any) {
+        console.error("Error deleting registro confidencial:", error);
+        res.status(500).json({ error: "Failed to delete registro confidencial" });
+      }
+    });
+
+    // GET /api/monitor/:monitorId/registros-gerais
+    app.get("/api/monitor/:monitorId/registros-gerais", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-gerais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const registros = await db.select().from(psicoRegistros)
+          .orderBy(desc(psicoRegistros.createdAt));
+
+        res.json(registros);
+      } catch (error: any) {
+        console.error("Error fetching registros gerais:", error);
+        res.status(500).json({ error: "Failed to fetch registros gerais" });
+      }
+    });
+
+    // POST /api/monitor/:monitorId/registros-gerais
+    app.post("/api/monitor/:monitorId/registros-gerais", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-gerais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const { vertente, tipo, conteudo, participanteNome, participanteCpf, participantes, colaboradoresIds, data } = req.body;
+
+        if (!tipo || !conteudo || !data) {
+          return res.status(400).json({ error: "Campos obrigatorios: tipo, conteudo, data" });
+        }
+
+        const participanteNomeValor = participantes && Array.isArray(participantes) && participantes.length > 0
+          ? JSON.stringify(participantes)
+          : (participanteNome || null);
+
+        const [registro] = await db.insert(psicoRegistros).values({
+          criadoPorUserId: monitorId,
+          criadoPorRole: 'monitor',
+          vertente: vertente || 'todos',
+          tipo,
+          conteudo,
+          participanteNome: participanteNomeValor,
+          participanteCpf: participanteCpf || null,
+          colaboradoresIds: colaboradoresIds ? JSON.stringify(colaboradoresIds) : null,
+          data,
+        }).returning();
+
+        res.json(registro);
+      } catch (error: any) {
+        console.error("Error creating registro geral:", error);
+        const pgErr = formatPostgresError(error, 'registro geral');
+        res.status(pgErr.status).json({ error: pgErr.message });
+      }
+    });
+
+    // PUT /api/monitor/:monitorId/registros-gerais/:registroId
+    app.put("/api/monitor/:monitorId/registros-gerais/:registroId", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const registroId = parseInt(req.params.registroId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-gerais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        const { tipo, conteudo, participanteNome, participanteCpf, participantes, colaboradoresIds, data } = req.body;
+
+        const participanteNomeValor = participantes && Array.isArray(participantes) && participantes.length > 0
+          ? JSON.stringify(participantes)
+          : (participanteNome || null);
+
+        await db.update(psicoRegistros)
+          .set({ tipo, conteudo, participanteNome: participanteNomeValor, participanteCpf: participanteCpf || null, colaboradoresIds: colaboradoresIds ? JSON.stringify(colaboradoresIds) : null, data })
+          .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, monitorId)));
+
+        res.json({ success: true, id: registroId });
+      } catch (error: any) {
+        console.error("Erro ao atualizar registro geral:", error);
+        res.status(500).json({ error: "Failed to update registro geral" });
+      }
+    });
+
+    // DELETE /api/monitor/:monitorId/registros-gerais/:registroId
+    app.delete("/api/monitor/:monitorId/registros-gerais/:registroId", requireAuth, requireMonitor, async (req, res) => {
+      try {
+        const monitorId = parseInt(req.params.monitorId);
+        const registroId = parseInt(req.params.registroId);
+        const user = (req as any).user;
+        const access = ensureSelfAccess(user, monitorId, 'registros-gerais');
+        if (!access.allowed) return res.status(access.error!.status).json({ error: access.error!.message });
+
+        await db.delete(psicoRegistros)
+          .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, monitorId)));
+
+        res.json({ success: true });
+      } catch (error: any) {
+        console.error("Error deleting registro geral:", error);
+        res.status(500).json({ error: "Failed to delete registro geral" });
+      }
+    });
+
+  // GET /api/psico/atendido-perfil?cpf= - Perfil completo do atendido para monitor psico
+  app.get("/api/psico/atendido-perfil", requireAuth, async (req, res) => {
+    try {
+      const { cpf } = req.query as { cpf: string };
+      if (!cpf) return res.status(400).json({ error: "cpf é obrigatório" });
+
+      // Buscar na tabela aluno (PEC)
+      const alunoResult = await pool.query(
+        `SELECT cpf, nome_completo, data_nascimento, genero, email, telefone, whatsapp,
+                cep, logradouro, numero, bairro, cidade, estado, complemento,
+                escolaridade, renda_familiar_mensal, situacao_atendimento,
+                composicao_familiar, com_quem_mora, quantas_pessoas_moram,
+                cor_raca, naturalidade, estado_civil, religiao,
+                possui_deficiencia, qual_deficiencia,
+                possui_alergia, qual_alergia,
+                faz_uso_medicamento, qual_medicamento,
+                possui_problema_saude, qual_problema_saude,
+                recebe_bolsa_familia, bpc, cadunico,
+                estuda_atualmente, serie, nome_escola, turno,
+                nis_pis_pasep, created_at
+         FROM aluno WHERE cpf = $1`,
+        [cpf.replace(/\D/g, '')]
+      );
+
+      // Buscar em participantes_inclusao
+      let participanteInclusao: any = null;
+      if (alunoResult.rows.length === 0) {
+        const incResult = await pool.query(
+          `SELECT cpf, nome, data_nascimento, genero, email, telefone,
+                  cep, logradouro, numero, bairro, cidade, estado,
+                  escolaridade, estado_civil, cor_raca, naturalidade,
+                  possui_deficiencia, detalhes_deficiencia,
+                  possui_alergia, detalhes_alergia,
+                  faz_uso_medicamento, detalhes_medicamento,
+                  bolsa_familia, bpc, cadunico, status, created_at
+           FROM participantes_inclusao WHERE cpf = $1`,
+          [cpf.replace(/\D/g, '')]
+        );
+        if (incResult.rows.length > 0) participanteInclusao = incResult.rows[0];
+      }
+
+      const perfil = alunoResult.rows.length > 0
+        ? { fonte: 'pec', ...alunoResult.rows[0] }
+        : participanteInclusao
+          ? { fonte: 'inclusao', ...participanteInclusao }
+          : null;
+
+      return res.json({ success: true, perfil });
+    } catch (error) {
+      console.error("❌ [PSICO PERFIL] Erro:", error);
+      return res.status(500).json({ error: "Erro ao buscar perfil" });
+    }
+  });
+
+  // GET /api/psico/atendidos-registrados - Get people who have atendimentos registered
+    app.get("/api/psico/atendidos-registrados", requireAuth, async (req, res) => {
+      try {
+        const monitorUserId = req.query.monitorUserId ? parseInt(req.query.monitorUserId as string) : null;
+        if (!monitorUserId) return res.status(400).json({ error: "monitorUserId is required" });
+
+        const registros = await db
+          .select()
+          .from(registrosConfidenciais)
+          .where(eq(registrosConfidenciais.monitorUserId, monitorUserId))
+          .orderBy(desc(registrosConfidenciais.createdAt));
+
+        const participanteMap: Record<string, { nome: string; cpf: string | null; dataNascimento: string | null; atendimentos: any[] }> = {};
+
+        for (const r of registros) {
+          const key = r.participanteNome || `registro_${r.id}`;
+          if (!key || key === `registro_${r.id}` && !r.participanteNome) continue;
+          if (!participanteMap[key]) {
+            participanteMap[key] = {
+              nome: r.participanteNome || "",
+              cpf: r.participanteCpf || null,
+              dataNascimento: r.participanteDataNascimento || null,
+              atendimentos: [],
+            };
+          }
+          if (r.participanteCpf && !participanteMap[key].cpf) {
+            participanteMap[key].cpf = r.participanteCpf;
+          }
+          if (r.participanteDataNascimento && !participanteMap[key].dataNascimento) {
+            participanteMap[key].dataNascimento = r.participanteDataNascimento;
+          }
+          participanteMap[key].atendimentos.push({
+            id: r.id,
+            tipo: r.tipo,
+            titulo: r.titulo,
+            data: r.data,
+            vertente: r.vertente,
+          });
+        }
+
+        // Também incluir pessoas de demandas espontâneas
+        const demandasResult = await pool.query(
+          `SELECT nome_atendido, cpf_atendido, data_atendimento, tipo_atendimento, id
+           FROM demandas_espontaneas
+           WHERE criado_por_user_id = $1
+           ORDER BY data_atendimento DESC`,
+          [monitorUserId]
+        );
+        for (const d of demandasResult.rows) {
+          const key = d.nome_atendido || `demanda_${d.id}`;
+          if (!key || !d.nome_atendido) continue;
+          if (!participanteMap[key]) {
+            participanteMap[key] = {
+              nome: d.nome_atendido,
+              cpf: d.cpf_atendido || null,
+              dataNascimento: null,
+              atendimentos: [],
+            };
+          }
+          if (d.cpf_atendido && !participanteMap[key].cpf) {
+            participanteMap[key].cpf = d.cpf_atendido;
+          }
+          const tipoMapped = d.tipo_atendimento === 'Visita domiciliar' ? 'visita_domiciliar' : 'atendimento_individual';
+          participanteMap[key].atendimentos.push({
+            id: `de_${d.id}`,
+            tipo: tipoMapped,
+            titulo: 'Demanda Espontânea',
+            data: d.data_atendimento,
+            vertente: 'demanda_espontanea',
+          });
+        }
+
+        const atendidos = Object.values(participanteMap).map((p, i) => ({
+          id: i + 1,
+          nome: p.nome,
+          cpf: p.cpf,
+          dataNascimento: p.dataNascimento,
+          totalAtendimentos: p.atendimentos.length,
+          atendimentos: p.atendimentos,
+        }));
+
+        res.json({ atendidos });
+      } catch (error: any) {
+        console.error("Error fetching atendidos registrados:", error);
+        res.status(500).json({ error: "Failed to fetch atendidos registrados" });
+      }
+    });
+
+    // GET /api/psico/dashboard-stats - Get psico dashboard stats from registros_confidenciais
+    app.get("/api/psico/dashboard-stats", requireAuth, async (req, res) => {
+      try {
+        const monitorUserId = req.query.monitorUserId ? parseInt(req.query.monitorUserId as string) : null;
+        const ano = req.query.ano ? parseInt(req.query.ano as string) : new Date().getFullYear();
+
+        const startDate = `${ano}-01-01`;
+        const endDate = `${ano + 1}-01-01`;
+
+        // Usar raw SQL para garantir compatibilidade com tipos de data
+        let rcWhere = `data >= $1 AND data < $2`;
+        const rcParams: any[] = [startDate, endDate];
+        if (monitorUserId) { rcWhere += ` AND monitor_user_id = $3`; rcParams.push(monitorUserId); }
+        const registrosRaw = await pool.query(`SELECT tipo FROM registros_confidenciais WHERE ${rcWhere}`, rcParams);
+        const registros = registrosRaw.rows;
+
+        // Contar CPFs distintos (atendidos) para o monitor no ano
+        let atendidosCpf = 0;
+        {
+          let cpfWhere = `EXTRACT(YEAR FROM data::date) = $1 AND COALESCE(NULLIF(participante_cpf,''), participante_nome) IS NOT NULL`;
+          const cpfParams: any[] = [ano];
+          if (monitorUserId) { cpfWhere += ` AND monitor_user_id = $2`; cpfParams.push(monitorUserId); }
+          const cpfRes = await pool.query(
+            `SELECT COUNT(DISTINCT COALESCE(NULLIF(participante_cpf,''), participante_nome)) AS cnt FROM registros_confidenciais WHERE ${cpfWhere}`,
+            cpfParams
+          );
+          atendidosCpf = Number(cpfRes.rows?.[0]?.cnt || 0);
+        }
+
+        const stats = {
+          atendidosCpf,
+          atendimentoIndividual: 0,
+          visitaDomiciliar: 0,
+          atendimentoColetivo: 0,
+          espacoOGrito: 0,
+          acoesSaude: 0,
+          encaminhamento: 0,
+          situacaoRisco: 0,
+          contatoFamiliar: 0,
+          relatoEspontaneo: 0,
+          observacaoComportamental: 0,
+          outro: 0,
+          demandasEspontaneas: 0,
+          total: registros.length,
+        };
+
+        for (const r of registros) {
+          switch (r.tipo) {
+            case "atendimento_individual": stats.atendimentoIndividual++; break;
+            case "visita_domiciliar": stats.visitaDomiciliar++; break;
+            case "atendimento_coletivo": stats.atendimentoColetivo++; break;
+            case "espaco_o_grito": stats.espacoOGrito++; break;
+            case "acoes_saude": stats.acoesSaude++; break;
+            case "encaminhamento": stats.encaminhamento++; break;
+            case "situacao_risco": stats.situacaoRisco++; break;
+            case "contato_familiar": stats.contatoFamiliar++; break;
+            case "relato_espontaneo": stats.relatoEspontaneo++; break;
+            case "observacao_comportamental": stats.observacaoComportamental++; break;
+            case "outro": stats.outro++; break;
+          }
+        }
+
+        // --- Registros não-confidenciais (psico_registros) ---
+        {
+          let rqWhere = `EXTRACT(YEAR FROM data::date) = $1`;
+          const rqParams: any[] = [ano];
+          if (monitorUserId) { rqWhere += ` AND criado_por_user_id = $2`; rqParams.push(monitorUserId); }
+          const rqRes = await pool.query(`SELECT tipo FROM psico_registros WHERE ${rqWhere}`, rqParams);
+          for (const r of rqRes.rows) {
+            switch (r.tipo) {
+              case "atendimento_individual": stats.atendimentoIndividual++; break;
+              case "visita_domiciliar": stats.visitaDomiciliar++; break;
+              case "atendimento_coletivo": stats.atendimentoColetivo++; break;
+              case "espaco_o_grito": stats.espacoOGrito++; break;
+              case "acoes_saude": stats.acoesSaude++; break;
+              case "encaminhamento": stats.encaminhamento++; break;
+              case "contato_familiar": stats.contatoFamiliar++; break;
+              default: stats.outro++; break;
+            }
+            stats.total++;
+          }
+        }
+
+        // --- Relatos de Atividades psicossociais (atividades_monitor, contexto=psicossocial) ---
+        {
+          let aqWhere = `contexto = 'psicossocial' AND EXTRACT(YEAR FROM data::date) = $1`;
+          const aqParams: any[] = [ano];
+          if (monitorUserId) { aqWhere += ` AND monitor_user_id = $2`; aqParams.push(monitorUserId); }
+          const aqRes = await pool.query(`SELECT tipo FROM atividades_monitor WHERE ${aqWhere}`, aqParams);
+          for (const a of aqRes.rows) {
+            switch (a.tipo) {
+              case "visita_domiciliar": stats.visitaDomiciliar++; break;
+              case "encaminhamento": stats.encaminhamento++; break;
+              case "atendimento_grupo": stats.atendimentoColetivo++; break;
+              default: stats.outro++; break;
+            }
+            stats.total++;
+          }
+        }
+
+        // --- Demandas Espontâneas ---
+        {
+          let dqWhere = `EXTRACT(YEAR FROM data_atendimento::date) = $1`;
+          const dqParams: any[] = [ano];
+          if (monitorUserId) { dqWhere += ` AND criado_por_user_id = $2`; dqParams.push(monitorUserId); }
+          const dqRes = await pool.query(`SELECT tipo_atendimento FROM demandas_espontaneas WHERE ${dqWhere}`, dqParams);
+          for (const d of dqRes.rows) {
+            if (d.tipo_atendimento === 'Visita domiciliar') {
+              stats.visitaDomiciliar++;
+            } else {
+              stats.atendimentoIndividual++;
+            }
+            stats.demandasEspontaneas++;
+            stats.total++;
+          }
+        }
+
+        res.json({ success: true, data: stats });
+      } catch (error: any) {
+        console.error("Error fetching psico dashboard stats:", error);
+        res.status(500).json({ error: "Failed to fetch psico dashboard stats" });
+      }
+    });
+
+  // ================ PSICO ATENDIDOS COMUNIDADE ROUTES ================
+
+  app.get("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM psico_atendidos_comunidade ORDER BY nome ASC');
+      res.json(result.rows);
     } catch (error: any) {
-      console.error("Error creating registro presenca:", error);
-      res.status(500).json({ error: "Failed to create registro" });
+      console.error("Error fetching atendidos comunidade:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
+    try {
+      const { nome, cpf, data_nascimento, telefone, endereco, observacoes, coordenador_id } = req.body;
+      if (!nome) return res.status(400).json({ error: "Nome é obrigatório" });
+      const result = await pool.query(
+        `INSERT INTO psico_atendidos_comunidade (nome, cpf, data_nascimento, telefone, endereco, observacoes, coordenador_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [nome, cpf || null, data_nascimento || null, telefone || null, endereco || null, observacoes || null, coordenador_id || null]
+      );
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Error creating atendido comunidade:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { nome, cpf, data_nascimento, telefone, endereco, observacoes } = req.body;
+      const result = await pool.query(
+        `UPDATE psico_atendidos_comunidade SET nome=$1, cpf=$2, data_nascimento=$3, telefone=$4, endereco=$5, observacoes=$6, updated_at=NOW() WHERE id=$7 RETURNING *`,
+        [nome, cpf || null, data_nascimento || null, telefone || null, endereco || null, observacoes || null, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: "Atendido não encontrado" });
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Error updating atendido comunidade:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await pool.query('DELETE FROM psico_atendidos_comunidade WHERE id=$1', [id]);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting atendido comunidade:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/psico/coordenador/atendidos-registrados - Coordenador vê TODOS os atendidos (todos os monitores)
+  app.get("/api/psico/coordenador/atendidos-registrados", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registros = await pool.query(
+        `SELECT id, participante_nome, participante_cpf, participante_data_nascimento, tipo, titulo, data, vertente, monitor_user_id
+         FROM registros_confidenciais
+         WHERE participante_nome IS NOT NULL AND participante_nome != ''
+         ORDER BY created_at DESC`
+      );
+
+      const participanteMap: Record<string, any> = {};
+      for (const r of registros.rows) {
+        const key = r.participante_cpf || r.participante_nome;
+        if (!key) continue;
+        if (!participanteMap[key]) {
+          participanteMap[key] = {
+            nome: r.participante_nome || "",
+            cpf: r.participante_cpf || null,
+            dataNascimento: r.participante_data_nascimento || null,
+            atendimentos: [],
+          };
+        }
+        if (r.participante_cpf && !participanteMap[key].cpf) participanteMap[key].cpf = r.participante_cpf;
+        if (r.participante_data_nascimento && !participanteMap[key].dataNascimento) participanteMap[key].dataNascimento = r.participante_data_nascimento;
+        participanteMap[key].atendimentos.push({ id: r.id, tipo: r.tipo, titulo: r.titulo, data: r.data, vertente: r.vertente, monitorUserId: r.monitor_user_id });
+      }
+
+      // Também incluir demandas espontâneas
+      const demandasResult = await pool.query(
+        `SELECT nome_atendido, cpf_atendido, data_atendimento, tipo_atendimento, id
+         FROM demandas_espontaneas
+         WHERE nome_atendido IS NOT NULL AND nome_atendido != ''
+         ORDER BY data_atendimento DESC`
+      );
+      for (const d of demandasResult.rows) {
+        const key = d.cpf_atendido || d.nome_atendido;
+        if (!key) continue;
+        if (!participanteMap[key]) {
+          participanteMap[key] = { nome: d.nome_atendido, cpf: d.cpf_atendido || null, dataNascimento: null, atendimentos: [] };
+        }
+        participanteMap[key].atendimentos.push({ id: `de_${d.id}`, tipo: d.tipo_atendimento || "demanda_espontanea", titulo: "Demanda Espontânea", data: d.data_atendimento });
+      }
+
+      const atendidos = Object.values(participanteMap).map((p: any, i: number) => ({
+        id: i + 1,
+        nome: p.nome,
+        cpf: p.cpf,
+        dataNascimento: p.dataNascimento,
+        totalAtendimentos: p.atendimentos.length,
+        atendimentos: p.atendimentos,
+      }));
+      return res.json({ atendidos });
+    } catch (error: any) {
+      console.error("Erro ao buscar atendidos do coordenador:", error);
+      return res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/psico/coordenador/registros-confidenciais - Coordenador vê TODOS os registros
+  app.get("/api/psico/coordenador/registros-confidenciais", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const vertente = req.query.vertente as string | undefined;
+      const registros = (vertente && vertente !== 'todos')
+        ? await db.select().from(registrosConfidenciais)
+            .where(or(eq(registrosConfidenciais.vertente, vertente), eq(registrosConfidenciais.vertente, 'todos')))
+            .orderBy(desc(registrosConfidenciais.createdAt))
+        : await db.select().from(registrosConfidenciais).orderBy(desc(registrosConfidenciais.createdAt));
+      res.json(registros);
+    } catch (error: any) {
+      console.error("Error fetching registros confidenciais (coordenador):", error);
+      res.status(500).json({ error: "Failed to fetch registros confidenciais" });
+    }
+  });
+
+  // POST /api/psico/coordenador/registros-confidenciais - Coordenador cria registro
+  app.post("/api/psico/coordenador/registros-confidenciais", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { vertente, tipo, titulo, conteudo, participanteNome, participanteId, participanteCpf, participanteDataNascimento, data } = req.body;
+      if (!tipo || !titulo || !conteudo || !data) {
+        return res.status(400).json({ error: "Campos obrigatórios: tipo, titulo, conteudo, data" });
+      }
+      const [registro] = await db.insert(registrosConfidenciais).values({
+        monitorUserId: user.id,
+        vertente: vertente || 'psicossocial',
+        tipo,
+        titulo: titulo || null,
+        conteudo,
+        participanteNome: participanteNome || null,
+        participanteId: participanteId || null,
+        participanteCpf: participanteCpf || null,
+        participanteDataNascimento: participanteDataNascimento || null,
+        data,
+      }).returning();
+      res.json(registro);
+    } catch (error: any) {
+      console.error("Error creating registro confidencial (coordenador):", error);
+      const pgErr = formatPostgresError(error, 'registro confidencial');
+      res.status(pgErr.status).json({ error: pgErr.message });
+    }
+  });
+
+  // PUT /api/psico/coordenador/registros-confidenciais/:registroId - Coordenador edita registro
+  app.put("/api/psico/coordenador/registros-confidenciais/:registroId", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registroId = parseInt(req.params.registroId);
+      const existing = await db.select().from(registrosConfidenciais).where(eq(registrosConfidenciais.id, registroId)).limit(1);
+      if (existing.length === 0) {
+        return res.status(404).json({ error: "Registro não encontrado" });
+      }
+      const { tipo, titulo, conteudo, participanteNome, data } = req.body;
+      if (!tipo || !titulo || !conteudo || !data) {
+        return res.status(400).json({ error: "Campos obrigatórios: tipo, titulo, conteudo, data" });
+      }
+      await db.update(registrosConfidenciais)
+        .set({ tipo, titulo, conteudo, participanteNome: participanteNome || null, data })
+        .where(eq(registrosConfidenciais.id, registroId));
+      res.json({ success: true, id: registroId });
+    } catch (error: any) {
+      console.error("Erro ao atualizar registro confidencial (coordenador):", error);
+      const pgErr = formatPostgresError(error, 'registro confidencial');
+      res.status(pgErr.status).json({ error: pgErr.message });
+    }
+  });
+
+  // DELETE /api/psico/coordenador/registros-confidenciais/:registroId - Coordenador exclui registro
+  app.delete("/api/psico/coordenador/registros-confidenciais/:registroId", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registroId = parseInt(req.params.registroId);
+      const existing = await db.select().from(registrosConfidenciais).where(eq(registrosConfidenciais.id, registroId)).limit(1);
+      if (existing.length === 0) {
+        return res.status(404).json({ error: "Registro não encontrado" });
+      }
+      await db.delete(registrosConfidenciais).where(eq(registrosConfidenciais.id, registroId));
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting registro confidencial (coordenador):", error);
+      res.status(500).json({ error: "Failed to delete registro confidencial" });
+    }
+  });
+
+  // GET /api/psico/coordenador/registros-gerais
+  app.get("/api/psico/coordenador/registros-gerais", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registros = await db.select().from(psicoRegistros)
+        .orderBy(desc(psicoRegistros.createdAt));
+      res.json(registros);
+    } catch (error: any) {
+      console.error("Error fetching registros gerais (coordenador):", error);
+      res.status(500).json({ error: "Failed to fetch registros gerais" });
+    }
+  });
+
+  // POST /api/psico/coordenador/registros-gerais
+  app.post("/api/psico/coordenador/registros-gerais", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { vertente, tipo, conteudo, participanteNome, participanteCpf, colaboradoresIds, data } = req.body;
+      if (!tipo || !conteudo || !data) {
+        return res.status(400).json({ error: "Campos obrigatórios: tipo, conteudo, data" });
+      }
+      const [registro] = await db.insert(psicoRegistros).values({
+        criadoPorUserId: user.id,
+        criadoPorRole: 'coordenador',
+        vertente: vertente || 'psicossocial',
+        tipo,
+        conteudo,
+        participanteNome: participanteNome || null,
+        participanteCpf: participanteCpf || null,
+        colaboradoresIds: colaboradoresIds ? JSON.stringify(colaboradoresIds) : null,
+        data,
+      }).returning();
+      res.json(registro);
+    } catch (error: any) {
+      console.error("Error creating registro geral (coordenador):", error);
+      const pgErr = formatPostgresError(error, 'registro geral');
+      res.status(pgErr.status).json({ error: pgErr.message });
+    }
+  });
+
+  // PUT /api/psico/coordenador/registros-gerais/:registroId
+  app.put("/api/psico/coordenador/registros-gerais/:registroId", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registroId = parseInt(req.params.registroId);
+      const user = (req as any).user;
+      const existing = await db.select().from(psicoRegistros)
+        .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, user.id)))
+        .limit(1);
+      if (existing.length === 0) return res.status(404).json({ error: "Registro não encontrado ou sem permissão" });
+      const { tipo, conteudo, participanteNome, participanteCpf, colaboradoresIds, data } = req.body;
+      await db.update(psicoRegistros)
+        .set({ tipo, conteudo, participanteNome: participanteNome || null, participanteCpf: participanteCpf || null, colaboradoresIds: colaboradoresIds ? JSON.stringify(colaboradoresIds) : null, data })
+        .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, user.id)));
+      res.json({ success: true, id: registroId });
+    } catch (error: any) {
+      console.error("Erro ao atualizar registro geral (coordenador):", error);
+      res.status(500).json({ error: "Failed to update registro geral" });
+    }
+  });
+
+  // DELETE /api/psico/coordenador/registros-gerais/:registroId
+  app.delete("/api/psico/coordenador/registros-gerais/:registroId", requireAuth, requireCoordenadorPsico, async (req, res) => {
+    try {
+      const registroId = parseInt(req.params.registroId);
+      const user = (req as any).user;
+      const existing = await db.select().from(psicoRegistros)
+        .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, user.id)))
+        .limit(1);
+      if (existing.length === 0) return res.status(404).json({ error: "Registro não encontrado ou sem permissão" });
+      await db.delete(psicoRegistros)
+        .where(and(eq(psicoRegistros.id, registroId), eq(psicoRegistros.criadoPorUserId, user.id)));
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting registro geral (coordenador):", error);
+      res.status(500).json({ error: "Failed to delete registro geral" });
+    }
+  });
+
+  app.get("/api/psico/todos-atendidos-para-atendimento", requireAuth, async (req, res) => {
+    try {
+      const inclusao = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'inclusao' as origem FROM participantes_inclusao ORDER BY nome`);
+      const pec = await pool.query(`SELECT DISTINCT ON (a.cpf) a.cpf as id, a.nome_completo as nome, a.cpf, a.data_nascimento, NULL as telefone, 'pec' as origem FROM instance_enrollments ie JOIN aluno a ON ie.student_cpf = a.cpf WHERE ie.active = true ORDER BY a.cpf, a.nome_completo`);
+      const comunidade = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'comunidade' as origem FROM psico_atendidos_comunidade ORDER BY nome`);
+      
+      const todos = [
+        ...inclusao.rows.map((r: any) => ({ ...r, origem: 'inclusao', label: `${r.nome} (Inclusão)` })),
+        ...pec.rows.map((r: any) => ({ ...r, origem: 'pec', label: `${r.nome} (PEC)` })),
+        ...comunidade.rows.map((r: any) => ({ ...r, origem: 'comunidade', label: `${r.nome} (Comunidade)` })),
+      ];
+      res.json(todos);
+    } catch (error: any) {
+      console.error("Error fetching todos atendidos:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ================ VENDEDOR OUTLET ROUTES ================
+
+  app.get("/api/outlet/vendas", async (req, res) => {
+    try {
+      const { vendedor_nome, mes, ano } = req.query;
+      let query = `SELECT * FROM vendas_outlet WHERE 1=1`;
+      const params: any[] = [];
+      if (vendedor_nome) {
+        params.push(vendedor_nome);
+        query += ` AND vendedor_nome = $${params.length}`;
+      }
+      if (mes && ano) {
+        params.push(parseInt(ano as string), parseInt(mes as string));
+        query += ` AND EXTRACT(YEAR FROM data) = $${params.length - 1} AND EXTRACT(MONTH FROM data) = $${params.length}`;
+      }
+      query += ` ORDER BY data DESC`;
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("Erro ao buscar vendas outlet:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/outlet/vendas", async (req, res) => {
+    try {
+      const { vendedorNome, data, fluxoPessoas, itensVendidos, valorTotal, observacao } = req.body;
+      if (!vendedorNome || !data) {
+        return res.status(400).json({ error: "Nome do vendedor e data são obrigatórios" });
+      }
+      const result = await pool.query(
+        `INSERT INTO vendas_outlet (vendedor_nome, data, fluxo_pessoas, itens_vendidos, valor_total, observacao)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [vendedorNome, data, fluxoPessoas || 0, itensVendidos || 0, valorTotal || 0, observacao || null]
+      );
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao criar venda outlet:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/outlet/vendas/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { fluxoPessoas, itensVendidos, valorTotal, observacao } = req.body;
+      const result = await pool.query(
+        `UPDATE vendas_outlet SET fluxo_pessoas = $1, itens_vendidos = $2, valor_total = $3, observacao = $4 WHERE id = $5 RETURNING *`,
+        [fluxoPessoas || 0, itensVendidos || 0, valorTotal || 0, observacao || null, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: "Registro não encontrado" });
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      console.error("Erro ao atualizar venda outlet:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/outlet/vendas/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`DELETE FROM vendas_outlet WHERE id = $1 RETURNING *`, [id]);
+      if (result.rows.length === 0) return res.status(404).json({ error: "Registro não encontrado" });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Erro ao deletar venda outlet:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/outlet/indicadores", async (req, res) => {
+    try {
+      const { vendedor_nome, mes, ano } = req.query;
+      const now = new Date();
+      const targetMes = mes ? parseInt(mes as string) : now.getMonth() + 1;
+      const targetAno = ano ? parseInt(ano as string) : now.getFullYear();
+      let query = `SELECT 
+        COALESCE(SUM(valor_total), 0) as total_vendido,
+        COALESCE(SUM(itens_vendidos), 0) as total_itens,
+        COALESCE(SUM(fluxo_pessoas), 0) as total_fluxo,
+        COUNT(*) as total_registros
+      FROM vendas_outlet 
+      WHERE EXTRACT(YEAR FROM data) = $1 AND EXTRACT(MONTH FROM data) = $2`;
+      const params: any[] = [targetAno, targetMes];
+      if (vendedor_nome) {
+        params.push(vendedor_nome);
+        query += ` AND vendedor_nome = $${params.length}`;
+      }
+      const result = await pool.query(query, params);
+      res.json({ mes: targetMes, ano: targetAno, ...result.rows[0] });
+    } catch (error: any) {
+      console.error("Erro ao buscar indicadores outlet:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // =============================================================================
+  // WEBHOOK PRESENÇA - CATRACA INTELBRAS (Incontrol)
+  // =============================================================================
+
+  const presencaSSEClients = new Set<import("express").Response>();
+
+  interface WebhookLogEntry {
+    timestamp: string;
+    type: 'request' | 'success' | 'error' | 'info';
+    message: string;
+    details?: any;
+  }
+  const webhookLogs: WebhookLogEntry[] = [];
+  const MAX_WEBHOOK_LOGS = 200;
+
+  const WEBHOOK_LOG_FILE = path.join(process.cwd(), "dist", "webhook_calls.log");
+  const MAX_WEBHOOK_FILE_LINES = 500;
+
+  function addWebhookLog(type: WebhookLogEntry['type'], message: string, details?: any) {
+    const entry: WebhookLogEntry = {
+      timestamp: new Date().toISOString(),
+      type,
+      message,
+      details: details || undefined,
+    };
+    webhookLogs.unshift(entry);
+    if (webhookLogs.length > MAX_WEBHOOK_LOGS) {
+      webhookLogs.length = MAX_WEBHOOK_LOGS;
+    }
+    // Persist to file (survives server restarts)
+    try {
+      const logLine = JSON.stringify({ timestamp: entry.timestamp, type, message, details }) + "\n";
+      fs.appendFileSync(WEBHOOK_LOG_FILE, logLine, "utf8");
+      // Trim file if too large
+      try {
+        const lines = fs.readFileSync(WEBHOOK_LOG_FILE, "utf8").split("\n").filter(Boolean);
+        if (lines.length > MAX_WEBHOOK_FILE_LINES) {
+          fs.writeFileSync(WEBHOOK_LOG_FILE, lines.slice(-MAX_WEBHOOK_FILE_LINES).join("\n") + "\n", "utf8");
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  app.get("/api/webhook/presenca-events", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write("data: connected\n\n");
+    presencaSSEClients.add(res);
+    req.on("close", () => {
+      presencaSSEClients.delete(res);
+    });
+  });
+
+  function broadcastPresencaEvent(data: any) {
+    const payload = `data: ${JSON.stringify(data)}\n\n`;
+    for (const client of presencaSSEClients) {
+      try { client.write(payload); } catch (_) { presencaSSEClients.delete(client); }
+    }
+  }
+
+  app.get("/api/webhook/logs", async (_req, res) => {
+    res.json(webhookLogs);
+  });
+
+  app.get("/api/webhook/file-log", async (req, res) => {
+    try {
+      const n = parseInt(String(req.query.n || "50"));
+      if (!fs.existsSync(WEBHOOK_LOG_FILE)) {
+        return res.json({ lines: [], total: 0, message: "Nenhum log encontrado ainda" });
+      }
+      const raw = fs.readFileSync(WEBHOOK_LOG_FILE, "utf8");
+      const lines = raw.split("\n").filter(Boolean);
+      const last = lines.slice(-n).map(l => { try { return JSON.parse(l); } catch { return { raw: l }; } });
+      res.json({ lines: last.reverse(), total: lines.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/webhook/presenca", async (req, res) => {
+    try {
+      // Secret check removido: o relé já valida a origem antes de repassar
+
+      const { aluno_id, timestamp } = req.body;
+      if (!aluno_id) {
+        return res.status(400).json({ error: "aluno_id é obrigatório" });
+      }
+
+      const catracaId = String(aluno_id).trim().replace(/[^0-9.\-]/g, "");
+      let eventTime = new Date();
+      if (timestamp) {
+        const parsed = new Date(String(timestamp).replace(" ", "T"));
+        if (!isNaN(parsed.getTime())) {
+          eventTime = parsed;
+        }
+      }
+      const brDate = new Date(eventTime.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const hoje = brDate.getFullYear() + "-" + String(brDate.getMonth() + 1).padStart(2, "0") + "-" + String(brDate.getDate()).padStart(2, "0");
+      const horaAtual = String(brDate.getHours()).padStart(2, "0") + ":" + String(brDate.getMinutes()).padStart(2, "0");
+
+      const diasSemanaMap: Record<number, string> = {
+        0: "domingo", 1: "segunda", 2: "terca", 3: "quarta",
+        4: "quinta", 5: "sexta", 6: "sabado"
+      };
+      const diaSemana = diasSemanaMap[brDate.getDay()];
+
+      console.log(`[WEBHOOK PRESENCA] Recebido: aluno_id=${catracaId}, hora=${horaAtual}, data=${hoje}, dia=${diaSemana}`);
+      addWebhookLog('request', `Webhook recebido: aluno_id=${catracaId}`, { catracaId, hora: horaAtual, data: hoje, diaSemana, headers: { 'content-type': req.headers['content-type'], 'x-webhook-secret': req.headers['x-webhook-secret'] ? '***' : undefined } });
+
+      let alunoEncontrado = false;
+      let nomeAluno = "";
+      let turmaNome = "";
+      let vertente = "";
+
+      // 1. Buscar no PEC (tabela aluno) pelo id_catraca OU CPF
+      let alunoPec = await db.select().from(aluno)
+        .where(sql`REPLACE(TRIM(COALESCE(${aluno.id_catraca}, '')), ' ', '') = ${catracaId}`)
+        .limit(1);
+      if (alunoPec.length === 0) {
+        const cpfLimpo = catracaId.replace(/[^0-9]/g, '');
+        if (cpfLimpo.length >= 11) {
+          alunoPec = await db.select().from(aluno)
+            .where(sql`REPLACE(REPLACE(TRIM(${aluno.cpf}), '.', ''), '-', '') = ${cpfLimpo}`)
+            .limit(1);
+        }
+      }
+      console.log(`[WEBHOOK PRESENCA] Busca PEC (tabela aluno): ${alunoPec.length} resultado(s) para id="${catracaId}"`);
+      addWebhookLog('info', `Busca PEC: ${alunoPec.length} resultado(s) para id="${catracaId}"`);
+
+      if (alunoPec.length > 0) {
+        alunoEncontrado = true;
+        nomeAluno = alunoPec[0].nome_completo;
+        vertente = "pec";
+
+        const matriculas = await db.select({
+          instanceId: instanceEnrollments.activity_instance_id,
+        })
+          .from(instanceEnrollments)
+          .where(and(
+            eq(instanceEnrollments.student_cpf, alunoPec[0].cpf),
+            eq(instanceEnrollments.active, true)
+          ));
+
+        if (matriculas.length === 0) {
+          console.log(`[WEBHOOK PRESENCA] Aluno PEC ${nomeAluno} sem matrícula ativa`);
+          addWebhookLog('info', `PEC: ${nomeAluno} sem matrícula ativa`);
+          broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, status: "sem_turma", vertente: "pec", hora: horaAtual });
+          return res.json({ success: true, status: "sem_turma_ativa", nome: nomeAluno });
+        }
+
+        const instanceIds = matriculas.map(m => m.instanceId);
+        const turmasAtivas = await db.select().from(activityInstances)
+          .where(and(
+            inArray(activityInstances.id, instanceIds),
+            sql`${activityInstances.situation} != 'encerrada'`
+          ));
+
+        let turmaHoje: typeof turmasAtivas[0] | null = null;
+        const normalizeDia = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        for (const t of turmasAtivas) {
+          const dias = (t.dias_semana || []).map((d: string) => normalizeDia(d));
+          if (dias.some(d => d.includes(normalizeDia(diaSemana)))) {
+            if (t.start_time && t.end_time) {
+              const inicio = t.start_time.slice(0, 5);
+              const fim = t.end_time.slice(0, 5);
+              if (horaAtual >= inicio && horaAtual <= fim) {
+                turmaHoje = t;
+                break;
+              }
+            } else {
+              turmaHoje = t;
+              break;
+            }
+          }
+        }
+
+        if (!turmaHoje && turmasAtivas.length > 0) {
+          turmaHoje = turmasAtivas[0];
+        }
+
+        if (!turmaHoje) {
+          console.log(`[WEBHOOK PRESENCA] Aluno PEC ${nomeAluno} sem turma ativa hoje`);
+          addWebhookLog('info', `PEC: ${nomeAluno} sem turma hoje`);
+          broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, status: "sem_turma_hoje", vertente: "pec", hora: horaAtual });
+          return res.json({ success: true, status: "sem_turma_hoje", nome: nomeAluno });
+        }
+
+        turmaNome = turmaHoje.title;
+
+        const sessionExistente = await db.select().from(sessions)
+          .where(and(
+            eq(sessions.activity_instance_id, turmaHoje.id),
+            eq(sessions.date, hoje)
+          ))
+          .limit(1);
+
+        if (sessionExistente.length > 0) {
+          const existingAttendance = sessionExistente[0].attendance as any[] | null;
+          if (existingAttendance && existingAttendance.some((a: any) =>
+            a.alunoCpf === alunoPec[0].cpf && a.presente === true
+          )) {
+            console.log(`[WEBHOOK PRESENCA] PEC duplicado ignorado: ${nomeAluno} já presente hoje`);
+          addWebhookLog('info', `PEC duplicado ignorado: ${nomeAluno} já presente hoje`, { nome: nomeAluno, turma: turmaNome });
+            broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, turma: turmaNome, status: "ja_presente", vertente: "pec", hora: horaAtual });
+            return res.json({ success: true, status: "ja_presente", nome: nomeAluno, turma: turmaNome });
+          }
+
+          const updatedAttendance = [
+            ...(existingAttendance || []).filter((a: any) => a.alunoCpf !== alunoPec[0].cpf),
+            { alunoCpf: alunoPec[0].cpf, alunoNome: nomeAluno, presente: true, status: "presente", horaEntrada: horaAtual, origemCatraca: true }
+          ];
+          await db.update(sessions)
+            .set({ attendance: updatedAttendance })
+            .where(eq(sessions.id, sessionExistente[0].id));
+          console.log(`[WEBHOOK PRESENCA] PEC presença atualizada na sessão ${sessionExistente[0].id}: ${nomeAluno}`);
+        } else {
+          const allEnrollments = await db.select({
+            cpf: instanceEnrollments.student_cpf,
+            nome: aluno.nome_completo,
+          })
+            .from(instanceEnrollments)
+            .leftJoin(aluno, eq(instanceEnrollments.student_cpf, aluno.cpf))
+            .where(and(
+              eq(instanceEnrollments.activity_instance_id, turmaHoje.id),
+              eq(instanceEnrollments.active, true)
+            ));
+
+          const attendanceList = allEnrollments.map(e => ({
+            alunoCpf: e.cpf,
+            alunoNome: e.nome || "Sem nome",
+            presente: e.cpf === alunoPec[0].cpf,
+            status: e.cpf === alunoPec[0].cpf ? "presente" : "ausente",
+            horaEntrada: e.cpf === alunoPec[0].cpf ? horaAtual : null,
+            origemCatraca: e.cpf === alunoPec[0].cpf,
+          }));
+
+          await db.insert(sessions).values({
+            activity_instance_id: turmaHoje.id,
+            date: hoje,
+            hours: "2.00",
+            title: `Chamada Automática - ${turmaNome}`,
+            description: "Presença registrada automaticamente via catraca Intelbras",
+            status: "realizado",
+            attendance: attendanceList,
+          });
+          console.log(`[WEBHOOK PRESENCA] PEC nova sessão criada para turma ${turmaNome}: ${nomeAluno} presente`);
+        }
+
+        broadcastPresencaEvent({ tipo: "presenca", nome: nomeAluno, turma: turmaNome, status: "presente", vertente: "pec", hora: horaAtual });
+        return res.json({ success: true, status: "presente", nome: nomeAluno, turma: turmaNome, vertente: "pec" });
+      }
+
+      // 2. Buscar na Inclusão Produtiva (tabela participantes_inclusao) pelo id_catraca OU CPF
+      let participanteInclusao = await db.select().from(participantesInclusao)
+        .where(sql`REPLACE(TRIM(COALESCE(${participantesInclusao.idCatraca}, '')), ' ', '') = ${catracaId}`)
+        .limit(1);
+      if (participanteInclusao.length === 0) {
+        const cpfLimpo = catracaId.replace(/[^0-9]/g, '');
+        if (cpfLimpo.length >= 11) {
+          participanteInclusao = await db.select().from(participantesInclusao)
+            .where(sql`REPLACE(REPLACE(TRIM(${participantesInclusao.cpf}), '.', ''), '-', '') = ${cpfLimpo}`)
+            .limit(1);
+        }
+      }
+      console.log(`[WEBHOOK PRESENCA] Busca Inclusão (tabela participantes_inclusao): ${participanteInclusao.length} resultado(s) para id="${catracaId}"`);
+
+      if (participanteInclusao.length > 0) {
+        alunoEncontrado = true;
+        nomeAluno = participanteInclusao[0].nome;
+        vertente = "inclusao";
+        const participanteId = participanteInclusao[0].id;
+
+        const vinculosTurma = await db.select({
+          turmaId: participantesTurmas.turmaId,
+        })
+          .from(participantesTurmas)
+          .where(and(
+            eq(participantesTurmas.participanteId, participanteId),
+            eq(participantesTurmas.status, "ativo")
+          ));
+
+        if (vinculosTurma.length === 0) {
+          console.log(`[WEBHOOK PRESENCA] Participante Inclusão ${nomeAluno} sem turma ativa`);
+          broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, status: "sem_turma", vertente: "inclusao", hora: horaAtual });
+          return res.json({ success: true, status: "sem_turma_ativa", nome: nomeAluno });
+        }
+
+        const turmaIds = vinculosTurma.map(v => v.turmaId);
+        // Item 4: filtrar apenas turmas NÃO encerradas (status != concluido)
+        const turmasAtivas = await db.select().from(turmasInclusao)
+          .where(and(
+            inArray(turmasInclusao.id, turmaIds),
+            sql`${turmasInclusao.status} NOT IN ('concluido', 'finalizado', 'encerrada')`
+          ));
+
+        let turmaHoje: typeof turmasAtivas[0] | null = null;
+        for (const t of turmasAtivas) {
+          const dias = (t.diasSemana || []).map((d: string) => d.toLowerCase());
+          if (dias.some(d => d.includes(diaSemana))) {
+            if (t.horarioEntrada && t.horarioSaida) {
+              const inicio = t.horarioEntrada.slice(0, 5);
+              const fim = t.horarioSaida.slice(0, 5);
+              if (horaAtual >= inicio && horaAtual <= fim) {
+                turmaHoje = t;
+                break;
+              }
+            } else {
+              turmaHoje = t;
+              break;
+            }
+          }
+        }
+
+        if (!turmaHoje && turmasAtivas.length > 0) {
+          turmaHoje = turmasAtivas[0];
+        }
+
+        if (!turmaHoje) {
+          console.log(`[WEBHOOK PRESENCA] Participante Inclusão ${nomeAluno} sem turma hoje`);
+          addWebhookLog('info', `Inclusão: ${nomeAluno} sem turma hoje`);
+          broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, status: "sem_turma_hoje", vertente: "inclusao", hora: horaAtual });
+          return res.json({ success: true, status: "sem_turma_hoje", nome: nomeAluno });
+        }
+
+        turmaNome = turmaHoje.nome;
+
+        const presencaExistente = await db.select().from(presencasInclusao)
+          .where(and(
+            eq(presencasInclusao.participanteId, participanteId),
+            eq(presencasInclusao.turmaId, turmaHoje.id),
+            eq(presencasInclusao.data, hoje),
+            eq(presencasInclusao.presente, true)
+          ))
+          .limit(1);
+
+        if (presencaExistente.length > 0) {
+          console.log(`[WEBHOOK PRESENCA] Inclusão duplicado ignorado: ${nomeAluno} já presente hoje`);
+          addWebhookLog('info', `Inclusão duplicado ignorado: ${nomeAluno} já presente hoje`, { nome: nomeAluno, turma: turmaNome });
+          broadcastPresencaEvent({ tipo: "entrada", nome: nomeAluno, turma: turmaNome, status: "ja_presente", vertente: "inclusao", hora: horaAtual });
+          return res.json({ success: true, status: "ja_presente", nome: nomeAluno, turma: turmaNome });
+        }
+
+        // Usar pool.query direto para garantir gravação no DO (Drizzle ORM silenciosamente falhou)
+        const insertResult = await pool.query(
+          `INSERT INTO presencas_inclusao (participante_id, turma_id, data, presente, observacoes)
+           VALUES ($1, $2, $3, true, $4)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [participanteId, turmaHoje.id, hoje, `Presença automática via catraca às ${horaAtual}`]
+        );
+        console.log(`[WEBHOOK PRESENCA] INSERT resultado:`, insertResult.rows);
+
+        console.log(`[WEBHOOK PRESENCA] Inclusão presença registrada: ${nomeAluno} na turma ${turmaNome}`);
+        addWebhookLog('success', `Inclusão presença registrada: ${nomeAluno} → ${turmaNome} (id=${insertResult.rows[0]?.id ?? 'duplicado'})`, { nome: nomeAluno, turma: turmaNome, vertente: 'inclusao', hora: horaAtual });
+        broadcastPresencaEvent({ tipo: "presenca", nome: nomeAluno, turma: turmaNome, status: "presente", vertente: "inclusao", hora: horaAtual });
+        return res.json({ success: true, status: "presente", nome: nomeAluno, turma: turmaNome, vertente: "inclusao" });
+      }
+
+      // 3. Aluno não encontrado
+      console.log(`[WEBHOOK PRESENCA] ID catraca ${catracaId} não encontrado em nenhuma tabela`);
+      addWebhookLog('error', `ID catraca ${catracaId} não encontrado em nenhuma tabela`, { catracaId });
+      broadcastPresencaEvent({ tipo: "entrada_desconhecida", catracaId, hora: horaAtual });
+      return res.status(404).json({ error: "Aluno não encontrado", aluno_id: catracaId });
+
+    } catch (error: any) {
+      console.error("[WEBHOOK PRESENCA] Erro:", error);
+      addWebhookLog('error', `Erro interno: ${error.message}`, { stack: error.stack?.slice(0, 300) });
+      return res.status(500).json({ error: "Erro interno ao processar presença" });
+    }
+  });
+
+  // GET para consultar presença do webhook (admin)
+  app.get("/api/webhook/presenca-log", async (req, res) => {
+    try {
+      const { data } = req.query;
+      const nowBr = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const targetDate = (data as string) || nowBr.getFullYear() + "-" + String(nowBr.getMonth() + 1).padStart(2, "0") + "-" + String(nowBr.getDate()).padStart(2, "0");
+
+      const pecSessions = await db.select({
+        turma: activityInstances.title,
+        data: sessions.date,
+        attendance: sessions.attendance,
+      })
+        .from(sessions)
+        .innerJoin(activityInstances, eq(sessions.activity_instance_id, activityInstances.id))
+        .where(eq(sessions.date, targetDate));
+
+      const pecEntradas = pecSessions.flatMap(s => {
+        const att = (s.attendance as any[]) || [];
+        return att
+          .filter((a: any) => a.origemCatraca === true)
+          .map((a: any) => ({
+            nome: a.alunoNome,
+            turma: s.turma,
+            hora: a.horaEntrada,
+            vertente: "pec",
+            data: s.data,
+          }));
+      });
+
+      const inclusaoPresencas = await db.select({
+        nome: participantesInclusao.nome,
+        turma: turmasInclusao.nome,
+        data: presencasInclusao.data,
+        observacoes: presencasInclusao.observacoes,
+        createdAt: presencasInclusao.createdAt,
+      })
+        .from(presencasInclusao)
+        .innerJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
+        .innerJoin(turmasInclusao, eq(presencasInclusao.turmaId, turmasInclusao.id))
+        .where(and(
+          eq(presencasInclusao.data, targetDate),
+          eq(presencasInclusao.presente, true),
+          sql`${presencasInclusao.observacoes} LIKE '%catraca%'`
+        ));
+
+      const inclusaoEntradas = inclusaoPresencas.map(p => ({
+        nome: p.nome,
+        turma: p.turma,
+        hora: p.observacoes?.match(/às (\d{2}:\d{2})/)?.[1] || "",
+        vertente: "inclusao",
+        data: p.data,
+      }));
+
+      res.json({
+        data: targetDate,
+        entradas: [...pecEntradas, ...inclusaoEntradas].sort((a, b) => (b.hora || "").localeCompare(a.hora || "")),
+        total: pecEntradas.length + inclusaoEntradas.length,
+      });
+    } catch (error: any) {
+      console.error("[WEBHOOK PRESENCA LOG] Erro:", error);
+      res.status(500).json({ error: "Erro ao buscar log de presenças" });
+    }
+  });
+
+
+  app.delete("/api/webhook/presenca-log", async (req, res) => {
+    try {
+      const nowBr = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const hoje = nowBr.getFullYear() + "-" + String(nowBr.getMonth() + 1).padStart(2, "0") + "-" + String(nowBr.getDate()).padStart(2, "0");
+
+      // Clear PEC catraca entries: remove origemCatraca from session attendance
+      const pecSessions = await db.select({ id: sessions.id, attendance: sessions.attendance })
+        .from(sessions)
+        .where(and(
+          eq(sessions.date, hoje),
+          sql`${sessions.attendance}::text LIKE '%origemCatraca%'`
+        ));
+
+      let pecCleared = 0;
+      for (const s of pecSessions) {
+        const att = (s.attendance as any[]) || [];
+        const cleaned = att.map((a: any) => {
+          if (a.origemCatraca) {
+            const { origemCatraca, horaEntrada, ...rest } = a;
+            return { ...rest, presente: false };
+          }
+          return a;
+        });
+        await db.update(sessions).set({ attendance: cleaned }).where(eq(sessions.id, s.id));
+        pecCleared++;
+      }
+
+      // Clear Inclusao catraca entries
+      const deletedInclusao = await db.delete(presencasInclusao)
+        .where(and(
+          eq(presencasInclusao.data, hoje),
+          eq(presencasInclusao.presente, true),
+          sql`${presencasInclusao.observacoes} LIKE '%catraca%'`
+        ))
+        .returning({ id: presencasInclusao.id });
+
+      console.log(`[WEBHOOK PRESENCA LOG] Zerado: PEC=${pecCleared} sessões, Inclusão=${deletedInclusao.length} presenças`);
+
+      broadcastPresencaEvent({ tipo: "log_zerado", data: hoje });
+
+      res.json({
+        success: true,
+        message: `Log de catraca zerado para ${hoje}`,
+        pecSessions: pecCleared,
+        inclusaoPresencas: deletedInclusao.length,
+      });
+    } catch (error: any) {
+      console.error("[WEBHOOK PRESENCA LOG DELETE] Erro:", error);
+      res.status(500).json({ error: "Erro ao zerar log de presenças" });
+    }
+  });
+
+  // CADASTRO DE GERAÇÃO DE RENDA
+  const requireInclusao = requireRole(['monitor_inclusao', 'coordenador_inclusao', 'admin', 'leo']);
+  const geracaoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["image/jpeg","image/jpg","image/png","image/webp","application/pdf"];
+      if (allowed.includes(file.mimetype)) cb(null, true);
+      else cb(new Error("Formato não permitido"));
+    },
+  });
+
+  // GET /api/geracoes-de-renda — listar
+  app.get('/api/geracoes-de-renda', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      const { tipo, status } = req.query;
+      let q = 'SELECT g.*, (SELECT json_agg(e) FROM inclusao_geracao_renda_evidencias e WHERE e.inclusao_geracao_de_renda_id = g.id) as evidencias FROM inclusao_geracao_de_renda g WHERE 1=1';
+      const params: any[] = [];
+      if (tipo) { params.push(tipo); q += ` AND g.tipo = $${params.length}`; }
+      if (status) { params.push(status); q += ` AND g.status = $${params.length}`; }
+      q += ' ORDER BY g.criado_em DESC';
+      const result = await pool.query(q, params);
+      res.json(result.rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/geracoes-de-renda/download — redireciona para URL assinada do GCS
+  app.get('/api/geracoes-de-renda/download', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      const key = req.query.path as string;
+      if (!key) return res.status(400).json({ error: 'path obrigatório' });
+      const signed = await getSignedUrl(key, 60);
+      res.redirect(signed);
+    } catch (e: any) {
+      console.error('[GERACAO RENDA DOWNLOAD] Erro ao gerar URL:', e);
+      res.status(500).json({ error: 'Erro ao gerar link de download' });
+    }
+  });
+
+  // GET /api/geracoes-de-renda/buscar-participante — busca por CPF ou nome para autocomplete
+  app.get('/api/geracoes-de-renda/buscar-participante', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      const q = (req.query.q as string || '').trim();
+      if (!q || q.length < 2) return res.json([]);
+      const qNorm = q.replace(/[\.\-\/\s]/g, '');
+      const result = await pool.query(
+        `SELECT id, nome, cpf, email, telefone, genero, cor_raca as raca, data_nascimento, idade, escolaridade
+         FROM participantes_inclusao
+         WHERE nome ILIKE $1
+            OR cpf ILIKE $1
+            OR REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), '/', '') ILIKE $2
+         ORDER BY nome LIMIT 10`,
+        [`%${q}%`, `%${qNorm}%`]
+      );
+      res.json(result.rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/geracoes-de-renda/:id — ver uma específica
+  app.get('/api/geracoes-de-renda/:id', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT g.*, (SELECT json_agg(e) FROM inclusao_geracao_renda_evidencias e WHERE e.inclusao_geracao_de_renda_id = g.id) as evidencias
+         FROM inclusao_geracao_de_renda g WHERE g.id = $1`,
+        [req.params.id]
+      );
+      if (!result.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+      res.json(result.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/geracoes-de-renda — criar (múltiplas evidências: até 5 arquivos)
+  app.post('/api/geracoes-de-renda', requireAuth, requireInclusao, geracaoUpload.array('evidencias', 5), async (req, res) => {
+    try {
+      const { tipo, cpf, nome, telefone, email, genero, escolaridade, raca, dataNascimento, idade,
+              participanteInclusaoId,
+              empresa, cargo, tipoContrato, dataContratacao, faixaSalarial,
+              nomeNegocio, cnpj, faturamentoAproximado, dataInicioAtividade,
+              observacoes } = req.body;
+
+      if (!tipo || !cpf || !nome || !telefone || !genero) {
+        const faltando = [!tipo && 'tipo', !cpf && 'cpf', !nome && 'nome', !telefone && 'telefone', !genero && 'gênero'].filter(Boolean).join(', ');
+        return res.status(400).json({ error: `Campos obrigatórios faltando: ${faltando}` });
+      }
+      if (!['empregabilidade','empreendedorismo'].includes(tipo)) {
+        return res.status(400).json({ error: 'Tipo inválido' });
+      }
+
+      const result = await pool.query(
+        `INSERT INTO inclusao_geracao_de_renda
+          (tipo, cpf, nome, telefone, email, genero, escolaridade, raca, data_nascimento, idade, participante_inclusao_id,
+           empresa, cargo, tipo_contrato, data_contratacao, faixa_salarial,
+           nome_negocio, cnpj, faturamento_aproximado, data_inicio_atividade, observacoes, programa_id, status, criado_em, atualizado_em)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'ativo',NOW(),NOW())
+         RETURNING *`,
+        [tipo, cpf, nome, telefone, email, genero, escolaridade||null, raca||null,
+         dataNascimento||null, idade||null, participanteInclusaoId||null,
+         empresa||null, cargo||null, tipoContrato||null, dataContratacao||null, faixaSalarial||null,
+         nomeNegocio||null, cnpj||null, faturamentoAproximado||null, dataInicioAtividade||null,
+         observacoes||null, req.body.programaId ? parseInt(req.body.programaId) : null]
+      );
+      const novoRegistro = result.rows[0];
+
+      const arquivos = (req as any).files as Express.Multer.File[] | undefined;
+      if (arquivos && arquivos.length > 0) {
+        for (const arquivo of arquivos) {
+          const fileName = `geracao-renda/${novoRegistro.id}/${Date.now()}-${arquivo.originalname.replace(/\s/g,'_')}`;
+          const url = await uploadToGCS(arquivo.buffer, fileName, arquivo.mimetype);
+          await pool.query(
+            `INSERT INTO inclusao_geracao_renda_evidencias (inclusao_geracao_de_renda_id, nome_arquivo, storage_url, mime_type, tamanho_bytes, criado_em)
+             VALUES ($1,$2,$3,$4,$5,NOW())`,
+            [novoRegistro.id, arquivo.originalname, url, arquivo.mimetype, arquivo.size]
+          );
+        }
+        console.log(`✅ [GERACAO RENDA] ${arquivos.length} evidência(s) salva(s) para registro ${novoRegistro.id}`);
+      }
+
+      res.status(201).json(novoRegistro);
+    } catch (e: any) {
+      console.error('❌ [GERACAO RENDA] Erro ao criar:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PUT /api/geracoes-de-renda/:id — editar
+  app.put('/api/geracoes-de-renda/:id', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      const { empresa, cargo, tipoContrato, dataContratacao, faixaSalarial,
+              nomeNegocio, cnpj, faturamentoAproximado, dataInicioAtividade,
+              escolaridade, observacoes, status, programaId } = req.body;
+      const result = await pool.query(
+        `UPDATE inclusao_geracao_de_renda SET
+           empresa=$1, cargo=$2, tipo_contrato=$3, data_contratacao=$4, faixa_salarial=$5,
+           nome_negocio=$6, cnpj=$7, faturamento_aproximado=$8, data_inicio_atividade=$9,
+           escolaridade=$10, observacoes=$11, status=$12, programa_id=$13, atualizado_em=NOW()
+         WHERE id=$14 RETURNING *`,
+        [empresa||null, cargo||null, tipoContrato||null, dataContratacao||null, faixaSalarial||null,
+         nomeNegocio||null, cnpj||null, faturamentoAproximado||null, dataInicioAtividade||null,
+         escolaridade||null, observacoes||null, status||'ativo', programaId ? parseInt(programaId) : null, req.params.id]
+      );
+      if (!result.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+      res.json(result.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/geracoes-de-renda/:id — apagar
+  app.delete('/api/geracoes-de-renda/:id', requireAuth, requireInclusao, async (req, res) => {
+    try {
+      await pool.query('DELETE FROM inclusao_geracao_de_renda WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ============================================================
+  // DEMANDAS ESPONTÂNEAS
+  // ============================================================
+
+  // GET /api/demandas-espontaneas — listar
+  app.get('/api/demandas-espontaneas', requireAuth, async (req, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM demandas_espontaneas ORDER BY created_at DESC'
+      );
+      res.json(result.rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/demandas-espontaneas — criar
+  app.post('/api/demandas-espontaneas', requireAuth, async (req, res) => {
+    try {
+      const {
+        responsavel, dataAtendimento, tipoAtendimento,
+        encaminhamentoOrigem, encaminhamentoOrigemOutro,
+        nomeAtendido, sexo, idade, bairro, bairroOutro,
+        cep, endereco, numero, cidade, estado, cpfAtendido, demanda, encaminhamentosRealizados,
+        registroProfissional, criadoPorUserId, criadoPorRole
+      } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO demandas_espontaneas
+          (responsavel, data_atendimento, tipo_atendimento,
+           encaminhamento_origem, encaminhamento_origem_outro,
+           nome_atendido, sexo, idade, bairro, bairro_outro,
+           cep, endereco, numero, cidade, estado, cpf_atendido, demanda, encaminhamentos_realizados,
+           registro_profissional, criado_por_user_id, criado_por_role)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+         RETURNING *`,
+        [
+          responsavel, dataAtendimento, tipoAtendimento,
+          encaminhamentoOrigem || [], encaminhamentoOrigemOutro || null,
+          nomeAtendido, sexo, parseInt(idade), bairro, bairroOutro || null,
+          cep || null, endereco || null, numero || null, cidade || null, estado || null, cpfAtendido || null,
+          demanda, encaminhamentosRealizados || [],
+          registroProfissional, criadoPorUserId || null, criadoPorRole || null
+        ]
+      );
+      res.json(result.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/demandas-espontaneas/:id — apagar
+  app.delete('/api/demandas-espontaneas/:id', requireAuth, async (req, res) => {
+    try {
+      await pool.query('DELETE FROM demandas_espontaneas WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+
+  // ── Instagram Metrics ────────────────────────────────────────────────────────
+
+  // GET /limpar-cache - desregistra service worker e limpa cache PWA
+  app.get('/limpar-cache', (req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(`<!DOCTYPE html>
+<html lang='pt-BR'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>Limpando cache...</title>
+<style>
+  body { font-family: sans-serif; max-width: 440px; margin: 80px auto; padding: 20px; text-align: center; background: #fff; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #eee; border-top-color: #FFCC00; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 20px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  p { color: #555; }
+</style>
+</head>
+<body>
+<h2>🧹 Limpando cache...</h2>
+<div class='spinner'></div>
+<p id='status'>Desregistrando service worker...</p>
+<script>
+(async function() {
+  const el = document.getElementById('status');
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) { await reg.unregister(); }
+      el.textContent = 'Service worker removido. Limpando caches...';
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      el.textContent = 'Cache limpo! Redirecionando...';
+    }
+  } catch(e) { el.textContent = 'Redirecionando...'; }
+  setTimeout(() => { window.location.href = '/'; }, 800);
+})();
+</script>
+</body>
+</html>`);
+  });
+
+  // GET /sync-instagram - página HTML de sync sem cache PWA
+  app.get('/sync-instagram', async (req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(`<!DOCTYPE html>
+<html lang='pt-BR'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>Sync Instagram</title>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 60px auto; padding: 20px; text-align: center; background: #fafafa; }
+  button { background: #E1306C; color: white; border: none; padding: 14px 32px; font-size: 16px; border-radius: 8px; cursor: pointer; margin: 20px 0; }
+  button:hover { background: #c02459; }
+  #result { margin-top: 20px; padding: 16px; border-radius: 8px; display: none; }
+  .ok { background: #d4edda; color: #155724; }
+  .err { background: #f8d7da; color: #721c24; }
+  pre { text-align: left; font-size: 13px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h2>📸 Sincronizar Instagram</h2>
+<p>Clique para buscar os dados mais recentes do Instagram.</p>
+<button onclick='sincronizar()'>🔄 Sincronizar agora</button>
+<div id='result'></div>
+<script>
+async function sincronizar() {
+  const btn = document.querySelector('button');
+  btn.disabled = true; btn.textContent = '⏳ Sincronizando...';
+  const div = document.getElementById('result');
+  div.style.display = 'none';
+  try {
+    const r = await fetch('/api/instagram/metrics/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': '1', 'x-user-papel': 'admin' },
+      body: JSON.stringify({ periodLabel: 'morning' })
+    });
+    const d = await r.json();
+    div.style.display = 'block';
+    if (d.success) {
+      div.className = 'ok';
+      const seg = d.data?.followers_total || d.data?.followersCount || '—';
+      div.innerHTML = '<strong>✅ Sincronizado!</strong><br>Seguidores: <strong>' + seg.toLocaleString('pt-BR') + '</strong>';
+    } else {
+      div.className = 'err';
+      div.innerHTML = '<strong>❌ Erro</strong><pre>' + JSON.stringify(d, null, 2) + '</pre>';
+    }
+  } catch(e) {
+    div.style.display = 'block';
+    div.className = 'err';
+    div.innerHTML = '<strong>❌ Erro de rede</strong><pre>' + e.message + '</pre>';
+  }
+  btn.disabled = false; btn.textContent = '🔄 Sincronizar novamente';
+}
+</script>
+</body>
+</html>`);
+  });
+
+  // GET /api/instagram/metrics/current
+  app.get('/api/instagram/metrics/current', async (req, res) => {
+    try {
+      const latest = await getLatestMetrics();
+      if (!latest) return res.json({ success: true, data: null, message: 'Nenhuma métrica ainda' });
+      return res.json({ success: true, data: latest });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // GET /api/instagram/metrics/history
+  app.get('/api/instagram/metrics/history', async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 30;
+      const history = await getMetricsHistory(limit);
+      return res.json({ success: true, data: history });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // POST /api/instagram/metrics/sync - disparo manual (protegido)
+  app.post('/api/instagram/metrics/sync', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const role = user?.papel || user?.tipo || user?.role || '';
+      const allowed = ['dev', 'desenvolvedor', 'dev-admin', 'dev-marketing', 'admin', 'super_admin', 'leo', 'marketing', 'coordenador_psico', 'coordenador_inclusao', 'coordenador_pec', 'coordenador'];
+      if (!allowed.includes(role)) {
+        return res.status(403).json({ error: 'Acesso negado' });
+      }
+      const periodLabel = req.body?.periodLabel === 'evening' ? 'evening' : 'morning';
+      await saveInstagramMetrics(periodLabel as 'morning' | 'evening');
+      const latest = await getLatestMetrics();
+      return res.json({ success: true, data: latest });
+    } catch (e: any) {
+      console.error('[Instagram Sync]', e.message);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // POST /api/instagram/metrics/sync-monthly - recalcula tabela mensal a partir do histórico
+  app.post('/api/instagram/metrics/sync-monthly', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const role = user?.papel || user?.tipo || user?.role || '';
+      const allowed = ['dev', 'desenvolvedor', 'dev-admin', 'dev-marketing', 'admin', 'super_admin', 'leo', 'marketing', 'coordenador'];
+      if (!allowed.includes(role)) return res.status(403).json({ error: 'Acesso negado' });
+      const { syncMonthlyFollowersFromHistory } = await import('./services/instagramService.js');
+      await syncMonthlyFollowersFromHistory();
+      return res.json({ success: true });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+
+  // ─── Token Meta / Instagram ─────────────────────────────────────────────────
+
+  // GET /api/admin/instagram/token-status
+  app.get('/api/admin/instagram/token-status', requireAuth, async (req, res) => {
+    try {
+      const { checkTokenStatus, getToken } = await import('./services/instagramService.js');
+      const status = await checkTokenStatus();
+      const token = await getToken();
+      const dbRow = await pool.query("SELECT expires_at, updated_at FROM configuracoes_meta WHERE chave = 'page_access_token' LIMIT 1");
+      res.json({
+        ...status,
+        source: token ? (dbRow.rows[0]?.updated_at ? 'banco' : 'env') : 'nenhum',
+        expiresAt: dbRow.rows[0]?.expires_at || null,
+        updatedAt: dbRow.rows[0]?.updated_at || null,
+      });
+    } catch (e: any) {
+      res.json({ valid: false, error: e.message });
+    }
+  });
+
+  // POST /api/admin/instagram/token
+  // Body: { token, appId?, appSecret? }
+  // Se appId+appSecret fornecidos: troca por token longa duração e busca Page token permanente
+  // Se só token: salva direto (token do Explorer ou já longa duração)
+  app.post('/api/admin/instagram/token', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const role = user?.papel || user?.tipo || user?.role || '';
+      const allowed = ['dev', 'desenvolvedor', 'dev-admin', 'dev-marketing', 'admin', 'super_admin', 'leo', 'marketing', 'coordenador_psico', 'coordenador_inclusao', 'coordenador_pec', 'coordenador'];
+      if (!allowed.includes(role)) return res.status(403).json({ error: 'Acesso negado' });
+
+      const { token, appId, appSecret } = req.body || {};
+      if (!token) return res.status(400).json({ error: 'Token obrigatório' });
+
+      const { saveToken, exchangeForLongLivedToken, getPageAccessToken } = await import('./services/instagramService.js');
+
+      let finalToken = token;
+      let expiresAt: Date | undefined;
+      let message = '';
+
+      if (appId && appSecret) {
+        // Passo 1: trocar por token de longa duração (60 dias)
+        console.log('[Instagram] Trocando por token de longa duração...');
+        const longLived = await exchangeForLongLivedToken(token, appId, appSecret);
+
+        // Passo 2: buscar Page Access Token permanente
+        console.log('[Instagram] Buscando Page Access Token permanente...');
+        const pageToken = await getPageAccessToken(longLived.token);
+
+        if (pageToken) {
+          finalToken = pageToken.token;
+          // Page tokens de user token long-lived não expiram
+          message = 'Token permanente configurado para a página: ' + pageToken.pageName;
+          console.log('[Instagram] Page token permanente obtido para:', pageToken.pageName);
+        } else {
+          // Usar o long-lived user token (60 dias)
+          finalToken = longLived.token;
+          expiresAt = new Date(Date.now() + longLived.expiresIn * 1000);
+          message = 'Token de 60 dias configurado com sucesso.';
+        }
+      } else {
+        message = 'Token salvo. Para obter token permanente, forneça App ID e App Secret.';
+      }
+
+      await saveToken(finalToken, expiresAt);
+      res.json({ success: true, message, permanent: !expiresAt, expiresAt: expiresAt || null });
+    } catch (e: any) {
+      console.error('[Instagram Token] Erro:', e.message);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ─── Metas e Indicadores ────────────────────────────────────────────────────
+  // Defaults por vertente (fallback quando não há meta salva no banco)
+  const METAS_DEFAULTS: Record<string, Record<string, number>> = {
+    pec: { criancasAtendidas: 500, frequencia: 85, evasao: 10 },
+    inclusao: { frequencia: 85, evasao: 10, geracaoRenda: 1500, alunosFormados: 2000 },
+    psico: { atendimentos: 250, visitas: 250 },
+  };
+
+  // GET /api/metas-indicadores?ano=&vertente=
+  app.get('/api/metas-indicadores', async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      const vertente = (req.query.vertente as string || '').toLowerCase();
+      if (!METAS_DEFAULTS[vertente]) {
+        return res.status(400).json({ error: 'Vertente inválida. Use: pec, inclusao ou psico' });
+      }
+      const result = await pool.query(
+        'SELECT indicador, meta FROM metas_indicadores WHERE ano = $1 AND vertente = $2',
+        [ano, vertente]
+      );
+      const metas: Record<string, number> = { ...METAS_DEFAULTS[vertente] };
+      for (const row of result.rows) {
+        metas[row.indicador] = parseFloat(row.meta);
+      }
+      return res.json({ ano, vertente, metas });
+    } catch (e: any) {
+      console.error('[METAS INDICADORES GET]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/metas-indicadores  { ano, vertente, metas: { indicador: valor } }
+  app.post('/api/metas-indicadores', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const role = user?.papel || user?.tipo || user?.role || '';
+      const { ano, vertente, metas } = req.body;
+      if (!ano || !vertente || !metas) {
+        return res.status(400).json({ error: 'Campos obrigatórios: ano, vertente, metas' });
+      }
+      const vertenteLower = vertente.toLowerCase();
+      if (!METAS_DEFAULTS[vertenteLower]) {
+        return res.status(400).json({ error: 'Vertente inválida' });
+      }
+      const indicadoresPermitidos = Object.keys(METAS_DEFAULTS[vertenteLower]);
+      const entries = Object.entries(metas).filter(([k]) => indicadoresPermitidos.includes(k));
+      for (const [indicador, meta] of entries) {
+        await pool.query(
+          `INSERT INTO metas_indicadores (ano, vertente, indicador, meta, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (ano, vertente, indicador)
+           DO UPDATE SET meta = EXCLUDED.meta, updated_at = NOW()`,
+          [ano, vertenteLower, indicador, Number(meta)]
+        );
+      }
+      console.log(`[METAS] Salvas ${entries.length} metas para ${vertenteLower}/${ano} por ${role}`);
+      return res.json({ success: true, saved: entries.length });
+    } catch (e: any) {
+      console.error('[METAS INDICADORES POST]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/metas-indicadores/all?ano= - todas as vertentes de uma vez (para gestão-vista e impacto)
+  app.get('/api/metas-indicadores/all', async (req, res) => {
+    try {
+      const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
+      const result = await pool.query(
+        'SELECT vertente, indicador, meta FROM metas_indicadores WHERE ano = $1',
+        [ano]
+      );
+      const all: Record<string, Record<string, number>> = {
+        pec: { ...METAS_DEFAULTS.pec },
+        inclusao: { ...METAS_DEFAULTS.inclusao },
+        psico: { ...METAS_DEFAULTS.psico },
+      };
+      for (const row of result.rows) {
+        if (all[row.vertente]) all[row.vertente][row.indicador] = parseFloat(row.meta);
+      }
+      return res.json({ ano, metas: all });
+    } catch (e: any) {
+      console.error('[METAS ALL GET]', e.message);
+      return res.status(500).json({ error: e.message });
     }
   });
 

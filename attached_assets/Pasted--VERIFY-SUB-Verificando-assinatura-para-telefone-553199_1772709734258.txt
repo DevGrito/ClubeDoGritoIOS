@@ -1,0 +1,77 @@
+ 🔍 [VERIFY-SUB] Verificando assinatura para telefone: 5531998081381
+backend-1  | ❌ [VERIFY-SUB] Erro: findBestActiveSubscription is not defined
+backend-1  | 11:16:25 AM [express] GET /api/subscription/verify 500 in 349ms :: {"error":"Erro ao verificar assina…
+backend-1  | 11:16:42 AM [express] GET /api/dev/status 200 in 1ms :: {"isDevModeActive":false,"environment":"produ…
+backend-1  | 11:16:55 AM [express] GET /api/dev/status 200 in 1ms :: {"isDevModeActive":false,"environment":"produ…
+backend-1  | 🔍 [LOGIN ELIGIBILITY] Checking phone: +5531981156288
+backend-1  | 📱 [LOGIN ELIGIBILITY] Normalized: +5531981156288
+backend-1  | 🔍 [PHONE SEARCH] Buscando telefone: +5531981156288
+backend-1  | 🔍 [PHONE SEARCH] Dígitos testados (normalized): 5531981156288, 31981156288, 981156288
+backend-1  | ✅ [PHONE FOUND] Usuário encontrado: Pedro Vinicius Pinto Correa (telefone no banco: +5531981156288)
+backend-1  | ✅ [LOGIN ELIGIBILITY] User exists: Pedro Vinicius Pinto Correa (48)
+backend-1  | 11:16:59 AM [express] POST /api/auth/check-login-eligibility 200 in 16ms :: {"eligible":true,"exists"…
+backend-1  | 📱 SEND LOGIN CODE - Phone: +5531981156288, Time: 2026-03-05T11:16:59.808Z
+backend-1  | 🔍 SECURITY CHECK - Verificando se telefone 5531981156288 está cadastrado...
+backend-1  | 🔍 [PHONE SEARCH] Buscando telefone: 5531981156288
+backend-1  | 🔍 [PHONE SEARCH] Dígitos testados (normalized): 5531981156288, 31981156288, 981156288
+backend-1  | ✅ [PHONE FOUND] Usuário encontrado: Pedro Vinicius Pinto Correa (telefone no banco: +5531981156288)
+backend-1  | ✅ SECURITY OK - Telefone cadastrado para usuário: Pedro Vinicius Pinto Correa (ID: 48)
+backend-1  | 🔍 [LOGIN GATE] Banco (doadores) -> {
+backend-1  |   userId: 48,
+backend-1  |   found: true,
+backend-1  |   status: 'canceled',
+backend-1  |   ativo: false,
+backend-1  |   stripeCustomerId: 'cus_T79l65qOqrsnjS',
+backend-1  |   stripeSubscriptionId: 'sub_1SOOGZHT8727OGtYRIzQ4KyO'
+backend-1  | }
+backend-1  | 🔍 [LOGIN GATE] Stripe check: customer=cus_T79l65qOqrsnjS
+backend-1  | ✅ [LOGIN GATE] Banco normalizado via Stripe: {
+backend-1  |   userId: 48,
+backend-1  |   dbStatus: 'canceled',
+backend-1  |   dbAtivo: false,
+backend-1  |   stripeSubId: 'sub_1SOOGZHT8727OGtYRIzQ4KyO',
+backend-1  |   stripeSubStatus: 'canceled'
+backend-1  | }
+backend-1  | 11:17:00 AM [express] POST /api/send-login-code 402 in 222ms :: {"success":false,"error":"ASSINATURA_…
+backend-1  | 🔍 [LOGIN ELIGIBILITY] Checking phone: +5531984367045
+backend-1  | 📱 [LOGIN ELIGIBILITY] Normalized: +5531984367045
+backend-1  | 🔍 [PHONE SEARCH] Buscando telefone: +5531984367045
+backend-1  | 🔍 [PHONE SEARCH] Dígitos testados (normalized): 5531984367045, 31984367045, 984367045
+backend-1  | ✅ [PHONE FOUND] Usuário encontrado: Marcia Lucia (telefone no banco: +5531984367045)
+backend-1  | ✅ [LOGIN ELIGIBILITY] User exists: Marcia Lucia (185)
+backend-1  | 11:17:04 AM [express] POST /api/auth/check-login-eligibility 200 in 4ms :: {"eligible":true,"exists":…
+backend-1  | 📱 SEND LOGIN CODE - Phone: +5531984367045, Time: 2026-03-05T11:17:04.947Z
+backend-1  | 🔍 SECURITY CHECK - Verificando se telefone 5531984367045 está cadastrado...
+backend-1  | 🔍 [PHONE SEARCH] Buscando telefone: 5531984367045
+backend-1  | 🔍 [PHONE SEARCH] Dígitos testados (normalized): 5531984367045, 31984367045, 984367045
+backend-1  | ✅ [PHONE FOUND] Usuário encontrado: Marcia Lucia (telefone no banco: +5531984367045)
+backend-1  | ✅ SECURITY OK - Telefone cadastrado para usuário: Marcia Lucia (ID: 185)
+backend-1  | 🔍 [LOGIN GATE] Banco (doadores) -> {
+backend-1  |   userId: 185,
+backend-1  |   found: true,
+backend-1  |   status: 'pending',
+backend-1  |   ativo: false,
+backend-1  |   stripeCustomerId: 'cus_TdUv2wzolBVbVQ',
+backend-1  |   stripeSubscriptionId: 'sub_1SqzQ9HT8727OGtYLYjvNGoU'
+backend-1  | }
+backend-1  | 🔍 [LOGIN GATE] Stripe check: customer=cus_TdUv2wzolBVbVQ
+backend-1  | ✅ [LOGIN GATE] Banco normalizado via Stripe: {
+backend-1  |   userId: 185,
+backend-1  |   dbStatus: 'pending',
+backend-1  |   dbAtivo: false,
+backend-1  |   stripeSubId: 'sub_1SqzQ9HT8727OGtYLYjvNGoU',
+backend-1  |   stripeSubStatus: 'incomplete_expired'
+backend-1  | }
+backend-1  | 11:17:05 AM [express] POST /api/send-login-code 402 in 230ms :: {"success":false,"error":"ASSINATURA_…
+backend-1  | 11:17:13 AM [express] GET /api/dev/status 200 in 1ms :: {"isDevModeActive":false,"environment":"produ…
+backend-1  | 11:17:13 AM [express] GET /api/coordenador/me 401 in 0ms :: {"error":"Não autenticado como coordenado…
+backend-1  | 📥 [GET /api/users/2] Iniciando busca...
+backend-1  | ✅ [GET /api/users/2] Usuário encontrado (DO): {
+backend-1  |   id: 2,
+backend-1  |   nome: 'Monitor Inclusão Produtiva',
+backend-1  |   plano: null,
+backend-1  |   stripeCustomerId: 'cus_TUPdAfzl259VxW',
+backend-1  |   stripeSubscriptionId: null
+backend-1  | }
+backend-1  | 💰 [GET /api/users/2] Dados de doação: {
+backend-1...

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
-import logoImage from "@assets/CLUBEDOGRITO_APPpng_Prancheta 1_1755627303160.png";
+import logoImage from "../app-assets/CLUBEDOGRITO_APPpng_Prancheta 1_1755627303160.png";
 
 export default function SplashScreen() {
   const [, setLocation] = useLocation();

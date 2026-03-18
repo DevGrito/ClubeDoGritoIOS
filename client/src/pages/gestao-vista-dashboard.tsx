@@ -287,7 +287,7 @@ const ROTATION_INTERVAL = 120000; // 2 minutos em milissegundos
 
 export default function GestaoVistaDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [anoSelecionado, setAnoSelecionado] = useState('2025');
+  const [anoSelecionado, setAnoSelecionado] = useState('2026');
   const [mesSelecionado, setMesSelecionado] = useState('todos');
   const [currentPage, setCurrentPage] = useState(0); // 0 = Dados Gerais, 1 = Marketing + Negócios
   const [isPaused, setIsPaused] = useState(false);
@@ -336,13 +336,29 @@ export default function GestaoVistaDashboard() {
     refetchInterval: 60000 
   });
 
+  const { data: seguidoresMensalData } = useQuery<{ success: boolean; data: Array<{ mes: number; seguidores_ganhos: number; seguidores_perdidos: number; total_seguidores: number; materiais_distribuidos: number; doadores_ativos: number }> }>({
+    queryKey: ['/api/marketing-seguidores-mensal', anoSelecionado],
+    queryFn: () => fetch(`/api/marketing-seguidores-mensal?ano=${anoSelecionado}`).then(res => res.json()),
+    refetchInterval: 60000
+  });
+
+  const { data: igMetrics } = useQuery<any>({
+    queryKey: ['/api/instagram/metrics/current'],
+    queryFn: () => fetch('/api/instagram/metrics/current').then(r => r.json()),
+    refetchInterval: 300000,
+    retry: false,
+  });
+
+  const negociosMesParam = anoSelecionado === '2026' && mesSelecionado !== 'todos' ? `&mes=${mesSelecionado}` : '';
   const { data: negociosData } = useQuery<{ success: boolean; data: { outlet: { doacoesRecebidas: number; vendasPessoasImpactadas: number; pecasVendidas: number }; griffte: { pecasConfeccionadas: number; clientesAtendidos: number } } }>({ 
-    queryKey: ['/api/negocios-sociais'], 
+    queryKey: ['/api/negocios-sociais', anoSelecionado, mesSelecionado], 
+    queryFn: () => fetch(`/api/negocios-sociais?ano=${anoSelecionado}${negociosMesParam}`).then(r => r.json()),
     refetchInterval: 60000 
   });
 
   const { data: demograficosData } = useQuery<{ success: boolean; totalParticipantes: number; genero: Array<{ name: string; value: number; percentage: number }>; racaCor: Array<{ name: string; value: number; percentage: number }>; idade: Array<{ name: string; value: number; percentage: number }> }>({ 
-    queryKey: ['/api/dados-demograficos'], 
+    queryKey: ['/api/dados-demograficos', anoSelecionado],
+    queryFn: () => fetch(`/api/dados-demograficos?ano=${anoSelecionado}`).then(r => r.json()),
     refetchInterval: 60000 
   });
 
@@ -351,14 +367,15 @@ export default function GestaoVistaDashboard() {
 
   const ind = gvData?.indicadores;
   
-  // Se ano é 2026 ou futuro, zerar todos os valores pois não há dados ainda
-  const anoFuturo = parseInt(anoSelecionado) >= 2026;
+  // Dados agora vêm em tempo real da API para 2026
+
+  const is2026Dashboard = anoSelecionado === '2026';
 
   const programasData = [
-    { name: 'PEC', value: anoFuturo ? 0 : (ind?.criancasAtendidas?.valor || 0), color: '#10b981' },
-    { name: 'Inclusão', value: anoFuturo ? 0 : (ind?.alunosEmFormacao?.valor || 0), color: '#3b82f6' },
-    { name: 'Psicossocial', value: anoFuturo ? 0 : (ind?.atendimentos?.valor || 0), color: '#f59e0b' },
-    { name: 'Favela 3D', value: anoFuturo ? 0 : (ind?.familiasAtivas?.valor || 0), color: '#8b5cf6' },
+    { name: 'Programa de Esporte e Cultura', value: ind?.criancasAtendidas?.valor || 0, color: '#10b981' },
+    { name: 'Inclusão', value: ind?.atendidosInclusao?.valor ?? ind?.alunosEmFormacao?.valor ?? 0, color: '#3b82f6' },
+    { name: 'Psicossocial', value: ind?.atendimentos?.valor || 0, color: '#f59e0b' },
+    ...(anoSelecionado !== '2026' ? [{ name: 'Favela 3D', value: ind?.familiasAtivas?.valor || 0, color: '#8b5cf6' }] : []),
   ];
 
   // Dados de evolução mensal vindos da API (mesma fonte da tela do doador)
@@ -378,20 +395,74 @@ export default function GestaoVistaDashboard() {
   ];
 
   const metasData = [
-    { name: 'Frequência', value: anoFuturo ? 0 : (ind?.frequencia?.valor || 0), meta: 85 },
-    { name: 'Aprendizagem', value: anoFuturo ? 0 : (ind?.criterioSucesso?.valor || 0), meta: 90 },
-    { name: 'NPS', value: anoFuturo ? 0 : (ind?.nps?.valor || 0), meta: 70 },
+    { name: 'Frequência', value: ind?.frequencia?.valor || 0, meta: 85 },
+    { name: 'Aprendizagem', value: ind?.criterioSucesso?.valor || 0, meta: 90 },
+    { name: 'NPS', value: ind?.nps?.valor || 0, meta: 70 },
   ];
 
-  const totalAtendidos = anoFuturo ? 0 : ((ind?.criancasAtendidas?.valor || 0) + (ind?.alunosEmFormacao?.valor || 0) + (ind?.atendimentos?.valor || 0) + (ind?.familiasAtivas?.valor || 0));
+  const totalAtendidos = (ind?.criancasAtendidas?.valor || 0) + (ind?.alunosEmFormacao?.valor || 0) + (ind?.atendimentos?.valor || 0) + (anoSelecionado !== '2026' ? (ind?.familiasAtivas?.valor || 0) : 0);
   
-  // Valores de Marketing - 2026 tem valores específicos (só janeiro disponível)
-  const is2026 = anoSelecionado === '2026' && (mesSelecionado === '01' || mesSelecionado === 'todos');
-  const mktSeguidoresGanhos = is2026 ? 106 : (anoFuturo ? 0 : (mkt?.seguidores_ganhos || 0));
-  const mktSeguidoresPerdidos = is2026 ? 89 : (anoFuturo ? 0 : (mkt?.seguidores_perdidos || 0));
-  const mktTotalSeguidores = mkt?.total_seguidores || 11324; // Total de seguidores sempre exibido // Total de seguidores do Instagram (da API ou padrão)
-  const mktMateriaisDistribuidos = anoFuturo ? 0 : (mkt?.materiais_distribuidos || 0);
-  const mktDoadoresAtivos = anoFuturo ? 30 : doadoresAtivos;
+  // Valores de Marketing - dados da API
+  const is2026 = anoSelecionado === '2026';
+  const META_ANUAL_SEGUIDORES_2026 = 15000;
+  const SEGUIDORES_ATUAL_2026 = igMetrics?.data?.followers_total || 11538;
+  const SEGUIDORES_A_GANHAR_2026 = META_ANUAL_SEGUIDORES_2026 - SEGUIDORES_ATUAL_2026;
+  const META_MENSAL_SEGUIDORES_2026 = Math.ceil(SEGUIDORES_A_GANHAR_2026 / 12); // ~296/mês
+  const META_ANUAL_PERDIDOS_2026 = 1500;
+  const META_MENSAL_PERDIDOS_2026 = Math.ceil(META_ANUAL_PERDIDOS_2026 / 12); // ~125/mês
+  const META_ANUAL_MATERIAIS_2026 = 6000;
+  const META_MENSAL_MATERIAIS_2026 = Math.ceil(META_ANUAL_MATERIAIS_2026 / 12); // 500/mês
+
+  const segMensalRows = seguidoresMensalData?.data || [];
+  const segMensalByMes: Record<string, { ganhos: number; perdidos: number; total: number; materiais: number; doadores: number }> = {};
+  for (const row of segMensalRows) {
+    segMensalByMes[String(row.mes)] = {
+      ganhos: row.seguidores_ganhos,
+      perdidos: row.seguidores_perdidos,
+      total: row.total_seguidores,
+      materiais: row.materiais_distribuidos,
+      doadores: row.doadores_ativos || 0,
+    };
+  }
+
+  const seguidoresGanhosAcumulado = segMensalRows.reduce((acc, r) => acc + r.seguidores_ganhos, 0);
+  const seguidoresPerdidosAcumulado = segMensalRows.reduce((acc, r) => acc + r.seguidores_perdidos, 0);
+  const materiaisAcumulado = segMensalRows.reduce((acc, r) => acc + r.materiais_distribuidos, 0);
+  const ultimoMesTotal = segMensalRows.length > 0 ? segMensalRows[segMensalRows.length - 1].total_seguidores : SEGUIDORES_ATUAL_2026;
+
+  const mesData = segMensalByMes[mesSelecionado];
+
+  const mktSeguidoresGanhos = is2026
+    ? (mesSelecionado === 'todos' ? seguidoresGanhosAcumulado : (mesData?.ganhos ?? 0))
+    : (mkt?.seguidores_ganhos || 0);
+
+  const metaSeguidoresGanhos2026 = is2026
+    ? (mesSelecionado === 'todos' ? SEGUIDORES_A_GANHAR_2026 : META_MENSAL_SEGUIDORES_2026)
+    : (mkt?.seguidores_ganhos_meta || 1);
+
+  const mktSeguidoresPerdidos = is2026
+    ? (mesSelecionado === 'todos' ? seguidoresPerdidosAcumulado : (mesData?.perdidos ?? 0))
+    : (mkt?.seguidores_perdidos || 0);
+
+  const metaSeguidoresPerdidos2026 = is2026
+    ? (mesSelecionado === 'todos' ? META_ANUAL_PERDIDOS_2026 : META_MENSAL_PERDIDOS_2026)
+    : (mkt?.seguidores_perdidos_meta || 1);
+
+  const mktTotalSeguidores = is2026
+    ? (mesSelecionado === 'todos' ? ultimoMesTotal : (mesData?.total ?? ultimoMesTotal))
+    : (mkt?.total_seguidores || 11401);
+
+  const mktMateriaisDistribuidos = is2026
+    ? (mesSelecionado === 'todos' ? materiaisAcumulado : (mesData?.materiais ?? 0))
+    : (mkt?.materiais_distribuidos || 0);
+
+  const metaMateriaisDistribuidos2026 = is2026
+    ? (mesSelecionado === 'todos' ? META_ANUAL_MATERIAIS_2026 : META_MENSAL_MATERIAIS_2026)
+    : (mkt?.materiais_distribuidos_meta || 1);
+  const doadoresUltimoMes = segMensalRows.length > 0 ? (segMensalRows[segMensalRows.length - 1].doadores_ativos || 0) : 0;
+  const mktDoadoresAtivos = is2026
+    ? (mesSelecionado === 'todos' ? doadoresUltimoMes : (mesData?.doadores ?? doadoresUltimoMes))
+    : doadoresAtivos;
   const metaDoadores = 1000; // Meta de doadores
   
   // Função para calcular cor baseada no progresso (lógica do Gestão à Vista)
@@ -412,20 +483,20 @@ export default function GestaoVistaDashboard() {
     return { bar: 'bg-red-500', text: 'text-red-400' }; // Vermelho - ultrapassou a meta (ruim!)
   };
   
-  // Valores de resultados chave
-  const alunosFormados = anoFuturo ? 0 : (ind?.alunosFormados?.valor || 0);
-  const pessoasEmpregadas = anoFuturo ? 0 : (ind?.pessoasEmpregadas?.valor || 0);
-  const atendimentosPsico = anoFuturo ? 0 : (ind?.atendimentos?.valor || 0);
-  const empreendedores = anoFuturo ? 0 : (ind?.empreendedores?.valor || 0);
-  const evasaoAtual = anoFuturo ? 0 : (ind?.evasao?.valor || 0);
-  const visitasDomiciliares = anoFuturo ? 0 : (ind?.visitas?.valor || 0);
+  // Valores de resultados chave - dados da API em tempo real
+  const alunosFormados = ind?.alunosFormados?.valor || 0;
+  const pessoasEmpregadas = ind?.pessoasEmpregadas?.valor || 0;
+  const atendimentosPsico = ind?.atendimentos?.valor || 0;
+  const empreendedores = ind?.empreendedores?.valor || 0;
+  const evasaoAtual = ind?.evasao?.valor || 0;
+  const visitasDomiciliares = ind?.visitas?.valor || 0;
 
-  // Valores de Negócios Sociais zerados para ano futuro (2026)
-  const outletDoacoesRecebidas = anoFuturo ? 0 : (negociosData?.data?.outlet?.doacoesRecebidas || 0);
-  const outletPecasVendidas = anoFuturo ? 0 : (negociosData?.data?.outlet?.pecasVendidas || 0);
-  const outletPessoasImpactadas = anoFuturo ? 0 : (negociosData?.data?.outlet?.vendasPessoasImpactadas || 0);
-  const grifftePecasConfeccionadas = anoFuturo ? 0 : (negociosData?.data?.griffte?.pecasConfeccionadas || 0);
-  const griffteClientesAtendidos = anoFuturo ? 0 : (negociosData?.data?.griffte?.clientesAtendidos || 0);
+  // Valores de Negócios Sociais
+  const outletDoacoesRecebidas = negociosData?.data?.outlet?.doacoesRecebidas || 0;
+  const outletPecasVendidas = negociosData?.data?.outlet?.pecasVendidas || 0;
+  const outletPessoasImpactadas = negociosData?.data?.outlet?.vendasPessoasImpactadas || 0;
+  const grifftePecasConfeccionadas = negociosData?.data?.griffte?.pecasConfeccionadas || 0;
+  const griffteClientesAtendidos = negociosData?.data?.griffte?.clientesAtendidos || 0;
 
   if (isLoading) return <div className="h-screen bg-slate-900 flex items-center justify-center"><div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>;
 
@@ -435,10 +506,10 @@ export default function GestaoVistaDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between bg-slate-800/50 rounded-xl px-3 lg:px-6 py-2 lg:py-3 flex-wrap gap-2">
         <div className="flex items-center gap-3 lg:gap-5">
-          <img src="/attached_assets/LOGODOGRITO_LINHA_3_1765383567005.png" alt="Instituto O Grito" className="h-8 lg:h-12 object-contain" />
+          <img src="/attached_assets/image_1769454113778.png" alt="Instituto O Grito" className="h-20 lg:h-32 object-contain" />
           <div>
             <h1 className="text-lg lg:text-2xl font-bold text-white">Gestão à Vista</h1>
-            <p className="text-slate-400 text-xs lg:text-sm">Instituto O Grito</p>
+            <p className="text-slate-400 text-xs lg:text-sm">O Grito</p>
           </div>
         </div>
         
@@ -719,7 +790,7 @@ export default function GestaoVistaDashboard() {
             <p className="text-white font-bold text-xs lg:text-sm mb-1 lg:mb-2">Atendidos por Programa</p>
             <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={programasData} barCategoryGap="15%">
+                <BarChart data={programasData} barCategoryGap="15%" margin={{ top: 22, right: 5, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
                   <YAxis stroke="#64748b" fontSize={10} tickCount={4} />
@@ -734,7 +805,7 @@ export default function GestaoVistaDashboard() {
 
           {/* Geração de Renda */}
           {(() => {
-            const valor = anoFuturo ? 0 : (ind?.pessoasEmpregadas?.valor || 0);
+            const valor = ind?.pessoasEmpregadas?.valor || 0;
             const meta = ind?.pessoasEmpregadas?.meta || 100;
             const progress = meta > 0 ? Math.min((valor / meta) * 100, 100) : 0;
             const percentual = meta > 0 ? (valor / meta) * 100 : 0;
@@ -774,37 +845,40 @@ export default function GestaoVistaDashboard() {
               <div className="text-right">
                 <p className="text-slate-400 text-xs lg:text-sm">Total Seguidores</p>
                 <p className="text-xl lg:text-3xl font-bold text-white">{mktTotalSeguidores.toLocaleString('pt-BR')}</p>
+                {is2026 && (
+                  <p className="text-slate-400 text-xs">Meta: {META_ANUAL_SEGUIDORES_2026.toLocaleString('pt-BR')}</p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 lg:gap-3 flex-1">
               {/* Seguidores Ganhos - Gauge */}
               <GaugeChart 
                 value={mktSeguidoresGanhos}
-                meta={mkt?.seguidores_ganhos_meta || 1}
+                meta={is2026 ? metaSeguidoresGanhos2026 : (mkt?.seguidores_ganhos_meta || 1)}
                 label="Seguidores Ganhos"
-                hideMeta={anoFuturo}
+                hideMeta={false}
               />
               {/* Seguidores Perdidos - Gauge (inverso) */}
               <GaugeChart 
                 value={mktSeguidoresPerdidos}
-                meta={mkt?.seguidores_perdidos_meta || 1}
+                meta={is2026 ? metaSeguidoresPerdidos2026 : (mkt?.seguidores_perdidos_meta || 1)}
                 label="Seguidores Perdidos"
                 isInverse={true}
-                hideMeta={anoFuturo}
+                hideMeta={false}
               />
               {/* Doadores Ativos - Gauge */}
               <GaugeChart 
                 value={mktDoadoresAtivos}
                 meta={metaDoadores}
                 label="Doadores Ativos"
-                hideMeta={anoFuturo}
+                hideMeta={false}
               />
               {/* Materiais Distribuídos - Gauge */}
               <GaugeChart 
                 value={mktMateriaisDistribuidos}
-                meta={mkt?.materiais_distribuidos_meta || 1}
+                meta={is2026 ? metaMateriaisDistribuidos2026 : (mkt?.materiais_distribuidos_meta || 1)}
                 label="Materiais Distribuídos"
-                hideMeta={anoFuturo}
+                hideMeta={false}
               />
             </div>
           </div>
@@ -821,7 +895,7 @@ export default function GestaoVistaDashboard() {
             <div className="grid grid-cols-2 gap-2 lg:gap-4 flex-1 min-h-0">
               {/* Outlet - Cards com valores */}
               <div className="bg-slate-800/60 rounded-xl p-2 lg:p-5 border border-yellow-500/40 flex flex-col">
-                <p className="text-white font-bold text-base lg:text-xl mb-2 lg:mb-4 text-center border-b border-yellow-500/30 pb-2 lg:pb-3">OUTLET</p>
+                <p className="text-white font-bold text-base lg:text-xl mb-2 lg:mb-4 text-center border-b border-yellow-500/30 pb-2 lg:pb-3">IOG OUTLET</p>
                 <div className="flex-1 grid grid-rows-3 gap-1.5 lg:gap-3">
                   <div className="bg-gradient-to-r from-yellow-500/20 via-yellow-500/10 to-transparent rounded-lg p-2 lg:p-4 border-l-4 border-yellow-500 relative overflow-hidden group hover:from-yellow-500/30 transition-all duration-300">
                     <div className="absolute top-1 right-1 lg:top-2 lg:right-2 w-5 h-5 lg:w-8 lg:h-8 rounded-full bg-yellow-500/20 flex items-center justify-center">
@@ -863,7 +937,7 @@ export default function GestaoVistaDashboard() {
               </div>
               {/* Griffte - Cards com valores */}
               <div className="bg-slate-800/60 rounded-xl p-2 lg:p-5 border border-orange-500/40 flex flex-col">
-                <p className="text-white font-bold text-base lg:text-xl mb-2 lg:mb-4 text-center border-b border-orange-500/30 pb-2 lg:pb-3">GRIFFTE</p>
+                <p className="text-white font-bold text-base lg:text-xl mb-2 lg:mb-4 text-center border-b border-orange-500/30 pb-2 lg:pb-3">IOG CONFECÇÃO</p>
                 <div className="flex-1 grid grid-rows-2 gap-2 lg:gap-4">
                   <div className="bg-gradient-to-r from-orange-600/20 via-orange-600/10 to-transparent rounded-lg p-2 lg:p-5 border-l-4 border-orange-600 relative overflow-hidden group hover:from-orange-600/30 transition-all duration-300">
                     <div className="absolute top-1 right-1 lg:top-3 lg:right-3 w-6 h-6 lg:w-10 lg:h-10 rounded-full bg-orange-600/20 flex items-center justify-center">

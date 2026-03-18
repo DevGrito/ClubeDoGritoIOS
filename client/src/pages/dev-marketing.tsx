@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation } from 'wouter';
-import { ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, CheckCircle, AlertTriangle, Star, Edit, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, LogOut, Monitor, Camera } from 'lucide-react';
+import {  UploadCloud, FileSpreadsheet,CheckCircle2, ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, TrendingDown, CheckCircle, AlertTriangle, Star, Edit, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, LogOut, Monitor, Camera, Globe } from 'lucide-react';
 import { 
   LineChart, 
   Line, 
@@ -17,7 +17,8 @@ import {
   PieChart,
   PieChart as RechartsPieChart,
   Pie,
-  Cell
+  Cell,
+  Legend
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,7 +41,10 @@ import Logo from '@/components/logo';
 import { StripeKeyManager } from '@/components/StripeKeyManager';
 import DevLogin from '@/pages/dev-login';
 import { TeamManagementSection } from '@/components/TeamManagementSection';
-import clubeDoGritoLogo from '@assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
+import clubeDoGritoLogo from '../app-assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
 
 // Seção de Origem dos Doadores - mostra de onde vêm os usuários (Web, Android, iOS)
 function DonorOriginSection() {
@@ -503,6 +507,259 @@ function ConverterDoacoesSection({ queryClient }: { queryClient: any }) {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+
+/* ────────────────────────────────────────────────────────────────
+   Instagram Analytics Section (mLabs style)
+──────────────────────────────────────────────────────────────── */
+function InstagramProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = Math.min(Math.round((value / max) * 100), 100);
+  const [anim, setAnim] = useState(0);
+  useEffect(() => { const t = setTimeout(() => setAnim(pct), 400); return () => clearTimeout(t); }, [pct]);
+  return (
+    <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${anim}%`, backgroundColor: color }} />
+    </div>
+  );
+}
+
+const IG_META_SEGUIDORES = 15000;
+const IG_SEGUIDORES_BASE = 11538;
+const IG_META_GANHOS = IG_META_SEGUIDORES - IG_SEGUIDORES_BASE;
+const IG_META_PERDIDOS = 1500;
+const IG_MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function InstagramAnalyticsSection() {
+  const [ano, setAno] = useState('2026');
+  const [mes, setMes] = useState('todos');
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: igMetrics, refetch: refetchIg, isLoading: loadingIg } = useQuery<any>({
+    queryKey: ['/api/instagram/metrics/current'],
+    queryFn: () => fetch('/api/instagram/metrics/current').then(r => r.json()),
+    refetchInterval: 300000,
+    retry: false,
+  });
+
+  const syncIgMutation = useMutation({
+    mutationFn: () => {
+      const userId = localStorage.getItem('userId') || localStorage.getItem('mktUserId') || '1';
+      return fetch('/api/instagram/metrics/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        body: JSON.stringify({ periodLabel: 'morning' }),
+      }).then(r => r.json());
+    },
+    onSuccess: (data) => {
+      if (data?.success) {
+        toast({ title: '✅ Sincronizado!', description: 'Dados do Instagram atualizados.' });
+        queryClient.invalidateQueries({ queryKey: ['/api/instagram/metrics/current'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketing-seguidores-mensal'] });
+        refetchIg();
+      } else {
+        toast({ title: 'Aviso', description: data?.error || 'Não foi possível sincronizar.', variant: 'destructive' });
+      }
+    },
+    onError: () => toast({ title: 'Erro', description: 'Falha ao conectar com a API do Instagram.', variant: 'destructive' }),
+  });
+
+  const { data: segMensal } = useQuery<any>({
+    queryKey: ['/api/marketing-seguidores-mensal', ano],
+    queryFn: () => fetch(`/api/marketing-seguidores-mensal?ano=${ano}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  const igData        = igMetrics?.data;
+  const followersReal = igData?.followers_total || IG_SEGUIDORES_BASE;
+  const syncedAt      = igData?.synced_at
+    ? new Date(igData.synced_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const segRows: any[] = segMensal?.data || [];
+  const segByMes: Record<string, any> = {};
+  for (const r of segRows) segByMes[String(r.mes)] = r;
+  const mesData = segByMes[mes];
+
+  const acumulado   = (key: string) => segRows.reduce((acc, r) => acc + (r[key] || 0), 0);
+  const ultimoTotal = segRows.length > 0 ? segRows[segRows.length - 1].total_seguidores : followersReal;
+
+  const segGanhos   = mes === 'todos' ? acumulado('seguidores_ganhos')   : (mesData?.seguidores_ganhos   ?? 0);
+  const segPerdidos = mes === 'todos' ? acumulado('seguidores_perdidos') : (mesData?.seguidores_perdidos ?? 0);
+  const liquido     = segGanhos - segPerdidos;
+  const totalSeg    = mes === 'todos' ? followersReal : (mesData?.total_seguidores ?? followersReal);
+  const taxaCrescimento = totalSeg > 0 ? Number(((segGanhos / totalSeg) * 100).toFixed(1)) : 0;
+
+  const faltam          = Math.max(IG_META_SEGUIDORES - followersReal, 0);
+  const progressoPct    = Math.min(Math.round((followersReal / IG_META_SEGUIDORES) * 100), 100);
+  const progressColor   = progressoPct >= 100 ? '#22c55e' : progressoPct >= 70 ? '#f59e0b' : '#ec4899';
+  const mesAtual        = new Date().getMonth() + 1;
+  const mesesRestantes  = Math.max(12 - mesAtual, 1);
+  const mediaNecessaria = faltam > 0 ? Math.ceil(faltam / mesesRestantes) : 0;
+  const mediaGanhosMes  = segRows.length > 0 ? Math.round(acumulado('seguidores_ganhos') / segRows.length) : 0;
+
+  const anoAtual = new Date().getFullYear();
+  const isFuturo = (i: number) => Number(ano) === anoAtual && (i + 1) > mesAtual;
+
+  const barData = IG_MESES.map((m, i) => {
+    if (isFuturo(i)) return { mes: m, ganhos: null, perdidos: null };
+    const row = segRows.find((r: any) => Number(r.mes) === i + 1);
+    return { mes: m, ganhos: row?.seguidores_ganhos || 0, perdidos: -(row?.seguidores_perdidos || 0) };
+  });
+
+  let acum = IG_SEGUIDORES_BASE;
+  const lineData = IG_MESES.map((m, i) => {
+    if (isFuturo(i)) return { mes: m, total: null };
+    const row = segRows.find((r: any) => Number(r.mes) === i + 1);
+    if (row) acum = row.total_seguidores;
+    return { mes: m, total: acum };
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <svg className="w-7 h-7 text-pink-500" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+            </svg>
+            Instagram Analytics
+          </h2>
+          <p className="text-gray-500 text-sm">{syncedAt ? `Atualizado em ${syncedAt}` : 'Buscando dados...'}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => syncIgMutation.mutate()} disabled={syncIgMutation.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${syncIgMutation.isPending ? 'animate-spin' : ''}`} />
+            {syncIgMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+          <div className="flex gap-1">
+            {['2025','2026'].map(a => (
+              <button key={a} onClick={() => { setAno(a); setMes('todos'); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${ano === a ? 'bg-pink-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                {a}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 flex-wrap max-w-xs">
+            <button onClick={() => setMes('todos')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${mes === 'todos' ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Ano todo</button>
+            {IG_MESES.map((m, i) => (
+              <button key={i} onClick={() => setMes(String(i + 1))} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${mes === String(i + 1) ? 'bg-pink-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{m}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Painel principal: total + progress */}
+      <Card className="border-pink-100 bg-gradient-to-br from-white to-pink-50/30">
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between mb-5">
+            <div>
+              <p className="text-sm font-semibold text-gray-600">Total de Seguidores</p>
+              <p className="text-xs text-gray-400">@institutoogrito</p>
+            </div>
+            <div className="text-right">
+              <p className="text-5xl font-bold text-gray-900 tabular-nums">{followersReal.toLocaleString('pt-BR')}</p>
+              <p className="text-xs text-gray-400 mt-1">Meta: {IG_META_SEGUIDORES.toLocaleString('pt-BR')}</p>
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-xs mb-1.5">
+              <span className="font-semibold" style={{ color: progressColor }}>{progressoPct}% da meta</span>
+              <span className="text-gray-400">Faltam <strong className="text-gray-700">{faltam.toLocaleString('pt-BR')}</strong> seguidores</span>
+            </div>
+            <InstagramProgressBar value={followersReal} max={IG_META_SEGUIDORES} color={progressColor} />
+            <div className="flex justify-between text-[10px] text-gray-300 mt-1">
+              <span>{IG_SEGUIDORES_BASE.toLocaleString('pt-BR')} (início)</span>
+              <span>{IG_META_SEGUIDORES.toLocaleString('pt-BR')} (meta)</span>
+            </div>
+          </div>
+          {mediaNecessaria > 0 && (
+            <div className="mt-4 flex items-center gap-2 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-3 py-2">
+              <Target className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>Precisa de <strong>{mediaNecessaria.toLocaleString('pt-BR')} seguidores/mês</strong> nos próximos {mesesRestantes} meses para atingir a meta.{mediaGanhosMes > 0 ? ` Média atual: ${mediaGanhosMes.toLocaleString('pt-BR')}/mês.` : ''}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4 métricas */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { icon: TrendingUp,   label: 'Seguidores Ganhos',     value: `+${segGanhos.toLocaleString('pt-BR')}`,     sub: `Meta: ${(mes === 'todos' ? IG_META_GANHOS : Math.ceil(IG_META_GANHOS / 12)).toLocaleString('pt-BR')}`,  color: '#10b981', bg: '#d1fae5' },
+          { icon: TrendingDown, label: 'Seguidores Perdidos',   value: `-${segPerdidos.toLocaleString('pt-BR')}`,   sub: `Limite: ${(mes === 'todos' ? IG_META_PERDIDOS : Math.ceil(IG_META_PERDIDOS / 12)).toLocaleString('pt-BR')}`, color: '#ef4444', bg: '#fee2e2' },
+          { icon: Activity,     label: 'Crescimento Líquido',   value: `${liquido >= 0 ? '+' : ''}${liquido.toLocaleString('pt-BR')}`,  sub: `Taxa: ${taxaCrescimento}%`, color: liquido >= 0 ? '#8b5cf6' : '#ef4444', bg: '#ede9fe' },
+          { icon: Target,       label: 'Média/Mês Necessária',  value: mediaNecessaria > 0 ? `+${mediaNecessaria.toLocaleString('pt-BR')}` : '✓ Meta!', sub: `${mesesRestantes} meses restantes`, color: '#f59e0b', bg: '#fef3c7' },
+        ].map(({ icon: Icon, label, value, sub, color, bg }) => (
+          <Card key={label} className="border-gray-100">
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className="p-2.5 rounded-xl flex-shrink-0" style={{ backgroundColor: bg }}>
+                <Icon className="w-4 h-4" style={{ color }} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">{label}</p>
+                <p className="text-xl font-bold tabular-nums" style={{ color }}>{value}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-pink-500" />
+              Ganhos vs Perdidos por Mês
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={barData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={8}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="mes" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={10} tickCount={4} axisLine={false} tickLine={false} />
+                <Bar dataKey="ganhos"   fill="#10b981" radius={[3,3,0,0]} name="Ganhos" />
+                <Bar dataKey="perdidos" fill="#fca5a5" radius={[0,0,3,3]} name="Perdidos" />
+                <Legend wrapperStyle={{ fontSize: '11px' }} iconSize={8} iconType="circle" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: 11 }}
+                  formatter={(v: number) => Math.abs(v).toLocaleString('pt-BR')}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-purple-500" />
+              Evolução Total de Seguidores
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={lineData} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="mes" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={10} tickCount={4} axisLine={false} tickLine={false} domain={['auto', IG_META_SEGUIDORES + 500]} />
+                <Line type="monotone" dataKey="total" stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 0 }} name="Total" connectNulls={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: 11 }}
+                  formatter={(v: number) => v.toLocaleString('pt-BR')}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-[10px] text-gray-400 mt-1 text-center">Linha rosa pontilhada = meta {IG_META_SEGUIDORES.toLocaleString('pt-BR')}</p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -3054,6 +3311,460 @@ function LeilaoCard({ leilao }: { leilao: any }) {
 }
 
 
+function CatracaWebhookSection() {
+  const { toast } = useToast();
+  const [testId, setTestId] = useState("");
+  const [testSecret, setTestSecret] = useState("");
+  const [testResult, setTestResult] = useState<any>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [logDate, setLogDate] = useState(new Date().toISOString().split("T")[0]);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [customBaseUrl, setCustomBaseUrl] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("catraca_base_url") || "";
+    }
+    return "";
+  });
+
+  const defaultBaseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const activeBaseUrl = customBaseUrl.trim() || defaultBaseUrl;
+  const webhookUrl = `${activeBaseUrl}/webhook/presenca`;
+  const sseUrl = `${activeBaseUrl}/api/webhook/presenca-events`;
+  const logUrl = `${activeBaseUrl}/api/webhook/presenca-log`;
+
+  const saveCustomUrl = (url: string) => {
+    setCustomBaseUrl(url);
+    if (typeof window !== "undefined") {
+      if (url.trim()) {
+        localStorage.setItem("catraca_base_url", url.trim());
+      } else {
+        localStorage.removeItem("catraca_base_url");
+      }
+    }
+  };
+
+  const { data: presencaLog, isLoading: loadingLog, refetch: refetchLog } = useQuery<any>({
+    queryKey: ['/api/webhook/presenca-log', logDate],
+    queryFn: () => apiRequest(`/api/webhook/presenca-log?data=${logDate}`),
+  });
+
+  const { data: webhookLogs = [], refetch: refetchWebhookLogs } = useQuery<any[]>({
+    queryKey: ['/api/webhook/logs'],
+    refetchInterval: 5000,
+  });
+
+  const [logFilter, setLogFilter] = useState<string>('all');
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
+    toast({ title: `${label} copiado!` });
+  };
+
+  const sendTestWebhook = async () => {
+    if (!testId.trim()) {
+      toast({ title: "Digite um ID de catraca para testar", variant: "destructive" });
+      return;
+    }
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (testSecret.trim()) {
+        headers["x-webhook-secret"] = testSecret.trim();
+      }
+      const res = await fetch("/webhook/presenca", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ aluno_id: testId.trim(), timestamp: new Date().toISOString() }),
+      });
+      const data = await res.json();
+      setTestResult({ status: res.status, ...data });
+      refetchLog();
+    } catch (err: any) {
+      setTestResult({ error: err.message });
+    }
+    setTestLoading(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Activity className="w-7 h-7 text-red-600" />
+            Catraca Intelbras - Webhook Incontrol
+          </h2>
+          <p className="text-gray-600">Configure a integração com catracas Intelbras para registro automático de presença</p>
+        </div>
+      </div>
+
+      <Card className="border-2 border-blue-200 bg-blue-50/50">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 bg-blue-500 text-white rounded-lg flex items-center justify-center flex-shrink-0">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div className="flex-1 space-y-2">
+              <div>
+                <Label className="text-sm font-bold text-blue-900">URL Base (ngrok / túnel)</Label>
+                <p className="text-xs text-blue-700">Cole aqui a URL do ngrok ou túnel externo. As URLs do webhook serão geradas automaticamente. Deixe vazio para usar a URL padrão do sistema.</p>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://abc123.ngrok-free.app"
+                  value={customBaseUrl}
+                  onChange={(e) => saveCustomUrl(e.target.value)}
+                  className="font-mono text-sm bg-white border-blue-300 focus:border-blue-500"
+                />
+                {customBaseUrl.trim() && (
+                  <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100" onClick={() => saveCustomUrl("")}>
+                    Limpar
+                  </Button>
+                )}
+              </div>
+              {customBaseUrl.trim() ? (
+                <p className="text-xs text-green-700 font-medium flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> Usando URL personalizada: {activeBaseUrl}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500">Usando URL padrão: {defaultBaseUrl}</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Settings className="w-5 h-5 text-gray-600" />
+              Configuração do Webhook
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">URL do Webhook (POST)</Label>
+              <p className="text-xs text-gray-500 mb-1">Configure esta URL no sistema Intelbras Incontrol como destino do webhook de eventos</p>
+              <div className="flex gap-2">
+                <Input value={webhookUrl} readOnly className="font-mono text-sm bg-gray-50" />
+                <Button size="sm" variant="outline" onClick={() => copyToClipboard(webhookUrl, "URL Webhook")}>
+                  {copied === "URL Webhook" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">URL SSE (Eventos em Tempo Real)</Label>
+              <p className="text-xs text-gray-500 mb-1">Conecte a esta URL para receber notificações em tempo real de presenças</p>
+              <div className="flex gap-2">
+                <Input value={sseUrl} readOnly className="font-mono text-sm bg-gray-50" />
+                <Button size="sm" variant="outline" onClick={() => copyToClipboard(sseUrl, "URL SSE")}>
+                  {copied === "URL SSE" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">Formato do Payload (JSON)</Label>
+              <p className="text-xs text-gray-500 mb-1">O Incontrol deve enviar este formato no body da requisição POST</p>
+              <div className="relative">
+                <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-sm font-mono overflow-x-auto">
+{`{
+  "aluno_id": "12345",      // ID da catraca do aluno (obrigatório)
+  "timestamp": "2026-02-20T14:30:00Z"  // Data/hora (opcional, usa hora atual se omitido)
+}`}
+                </pre>
+                <Button size="sm" variant="outline" className="absolute top-2 right-2 bg-gray-800 text-white border-gray-700 hover:bg-gray-700"
+                  onClick={() => copyToClipboard(JSON.stringify({ aluno_id: "12345", timestamp: new Date().toISOString() }, null, 2), "Payload")}
+                >
+                  {copied === "Payload" ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label className="text-sm font-semibold text-gray-700">Autenticação (Opcional)</Label>
+              <p className="text-xs text-gray-500 mb-1">Se definido o secret <code className="bg-gray-100 px-1 rounded">WEBHOOK_PRESENCA_SECRET</code>, envie no header:</p>
+              <pre className="bg-gray-900 text-yellow-400 p-3 rounded-lg text-sm font-mono">
+{`Headers:
+  x-webhook-secret: "SEU_SECRET_AQUI"
+  // ou
+  Authorization: "Bearer SEU_SECRET_AQUI"`}
+              </pre>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-600" />
+              Como Funciona
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
+                <div className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">1</div>
+                <div>
+                  <p className="font-semibold text-sm">Aluno passa na catraca</p>
+                  <p className="text-xs text-gray-600">O Intelbras Incontrol detecta o ID e envia POST para o webhook</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                <div className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">2</div>
+                <div>
+                  <p className="font-semibold text-sm">Sistema busca o aluno</p>
+                  <p className="text-xs text-gray-600">Procura pelo <strong>id_catraca</strong> nas tabelas <strong>aluno</strong> (PEC) e <strong>participantes_inclusao</strong> (Inclusão)</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg">
+                <div className="w-8 h-8 bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">3</div>
+                <div>
+                  <p className="font-semibold text-sm">Verifica turma do dia</p>
+                  <p className="text-xs text-gray-600">Identifica em qual turma o aluno está matriculado no dia/horário atual</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-lg">
+                <div className="w-8 h-8 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">4</div>
+                <div>
+                  <p className="font-semibold text-sm">Registra presença</p>
+                  <p className="text-xs text-gray-600">Cria/atualiza a chamada do dia automaticamente e marca o aluno como presente</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg">
+                <div className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">5</div>
+                <div>
+                  <p className="font-semibold text-sm">Notificação em tempo real</p>
+                  <p className="text-xs text-gray-600">Envia evento SSE para todas as telas abertas (monitor, coordenador, professor)</p>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <p className="font-semibold text-sm text-orange-800 flex items-center gap-1">
+                <AlertTriangle className="w-4 h-4" /> Importante
+              </p>
+              <p className="text-xs text-orange-700 mt-1">
+                O campo <strong>id_catraca</strong> deve estar preenchido no cadastro do aluno (PEC) ou participante (Inclusão Produtiva). 
+                Sem esse campo, o sistema não consegue identificar quem passou na catraca.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Target className="w-5 h-5 text-green-600" />
+              Testar Webhook
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="text-sm font-semibold">ID da Catraca (aluno_id)</Label>
+              <p className="text-xs text-gray-500 mb-1">Digite o ID de catraca de um aluno cadastrado para simular uma passagem</p>
+              <Input
+                placeholder="Ex: 12345"
+                value={testId}
+                onChange={(e) => setTestId(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendTestWebhook()}
+              />
+            </div>
+            <div>
+              <Label className="text-sm font-semibold">Secret (opcional)</Label>
+              <p className="text-xs text-gray-500 mb-1">Se o webhook exigir autenticação, informe o secret aqui</p>
+              <Input
+                type="password"
+                placeholder="WEBHOOK_PRESENCA_SECRET"
+                value={testSecret}
+                onChange={(e) => setTestSecret(e.target.value)}
+              />
+            </div>
+            <div>
+              <Button onClick={sendTestWebhook} disabled={testLoading} className="bg-green-600 hover:bg-green-700 w-full">
+                {testLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Activity className="w-4 h-4 mr-2" />}
+                {testLoading ? "Enviando..." : "Enviar Teste"}
+              </Button>
+            </div>
+
+            {testResult && (
+              <div className={`p-4 rounded-lg border ${testResult.error || testResult.status >= 400 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+                <p className="font-semibold text-sm mb-2">
+                  {testResult.error || testResult.status >= 400 ? "Erro" : "Sucesso"} 
+                  {testResult.status && <Badge variant="outline" className="ml-2">HTTP {testResult.status}</Badge>}
+                </p>
+                {testResult.status === 401 && (
+                  <p className="text-xs text-red-600 mb-2 font-medium">
+                    O servidor exige autenticação (WEBHOOK_PRESENCA_SECRET). Preencha o campo "Secret" acima com o valor correto.
+                  </p>
+                )}
+                {testResult.status === 404 && (
+                  <p className="text-xs text-orange-600 mb-2 font-medium">
+                    ID de catraca não encontrado. Verifique se o campo "id_catraca" está preenchido no cadastro do aluno/participante.
+                  </p>
+                )}
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+                  {JSON.stringify(testResult, null, 2)}
+                </pre>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="w-5 h-5 text-indigo-600" />
+              Log de Presenças via Catraca
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <Label className="text-sm">Data</Label>
+                <Input type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} />
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetchLog()}>
+                <RefreshCw className="w-4 h-4 mr-1" /> Atualizar
+              </Button>
+            </div>
+
+            {loadingLog ? (
+              <div className="text-center py-6 text-gray-500">Carregando log...</div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Badge className="bg-indigo-100 text-indigo-800">
+                    {presencaLog?.total || 0} entrada(s) via catraca
+                  </Badge>
+                  <span className="text-xs text-gray-500">Data: {logDate}</span>
+                </div>
+
+                <ScrollArea className="h-[300px]">
+                  <div className="space-y-1">
+                    {(presencaLog?.entradas || []).length === 0 ? (
+                      <p className="text-center text-gray-400 py-8 text-sm">Nenhuma entrada via catraca nesta data</p>
+                    ) : (
+                      (presencaLog?.entradas || []).map((e: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                            <span className="text-sm font-medium">{e.nome}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={e.vertente === "pec" ? "border-yellow-500 text-yellow-700" : "border-green-500 text-green-700"}>
+                              {e.vertente === "pec" ? "PEC" : "Inclusão"}
+                            </Badge>
+                            <span className="text-xs text-gray-500">{e.turma}</span>
+                            <span className="text-xs font-mono text-gray-600">{e.hora}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-gray-600" />
+              Logs de Integração (Webhook)
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Select value={logFilter} onValueChange={setLogFilter}>
+                <SelectTrigger className="w-[140px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="request">Requisições</SelectItem>
+                  <SelectItem value="success">Sucessos</SelectItem>
+                  <SelectItem value="error">Erros</SelectItem>
+                  <SelectItem value="info">Info</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => refetchWebhookLogs()}>
+                <RefreshCw className="w-4 h-4 mr-1" /> Atualizar
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">Últimos {webhookLogs.length} eventos do webhook (atualiza automaticamente a cada 5s)</p>
+        </CardHeader>
+        <CardContent>
+          {webhookLogs.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <FileText className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">Nenhum log registrado ainda</p>
+              <p className="text-xs mt-1">Envie um teste pelo formulário acima para gerar logs</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-[400px]">
+              <div className="space-y-1.5 font-mono text-xs">
+                {webhookLogs
+                  .filter((log: any) => logFilter === 'all' || log.type === logFilter)
+                  .map((log: any, idx: number) => {
+                    const time = new Date(log.timestamp).toLocaleTimeString('pt-BR');
+                    const date = new Date(log.timestamp).toLocaleDateString('pt-BR');
+                    const colorMap: Record<string, string> = {
+                      request: 'bg-blue-100 text-blue-800 border-blue-200',
+                      success: 'bg-green-100 text-green-800 border-green-200',
+                      error: 'bg-red-100 text-red-800 border-red-200',
+                      info: 'bg-gray-100 text-gray-700 border-gray-200',
+                    };
+                    const typeColor = colorMap[log.type] || 'bg-gray-100 text-gray-700';
+                    const iconMap: Record<string, string> = {
+                      request: '→',
+                      success: '✓',
+                      error: '✗',
+                      info: 'ℹ',
+                    };
+                    const typeIcon = iconMap[log.type] || '•';
+                    return (
+                      <div key={idx} className={`p-2 rounded border ${typeColor}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2 flex-1 min-w-0">
+                            <span className="font-bold text-sm flex-shrink-0">{typeIcon}</span>
+                            <span className="break-words">{log.message}</span>
+                          </div>
+                          <span className="text-[10px] opacity-60 flex-shrink-0 whitespace-nowrap">{date} {time}</span>
+                        </div>
+                        {log.details && (
+                          <pre className="mt-1 text-[10px] opacity-70 whitespace-pre-wrap break-all pl-5">
+                            {JSON.stringify(log.details, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function DevMarketing() {
   const [, setLocation] = useLocation();
   const { userData } = useUserData();
@@ -3080,6 +3791,46 @@ export default function DevMarketing() {
     'Problema técnico',
     'Outro'
   ];
+    const [syncStripeLoading, setSyncStripeLoading] = useState(false);
+
+    const handleSyncStripeDonors = async () => {
+    const ok = confirm(
+      "Tem certeza que deseja sincronizar doadores do Stripe?\n\nIsso vai varrer customers/subscriptions e atualizar/criar Users e Doadores no banco."
+    );
+    if (!ok) return;
+
+    setSyncStripeLoading(true);
+
+    try {
+      const response = await apiRequest("/api/admin/sync-stripe-donors", {
+        method: "POST",
+      });
+
+      const r = response?.results || {};
+
+      if (!response?.success) {
+        throw new Error(response?.message || response?.error || "Falha na sincronização");
+      }
+
+      toast({
+        title: "✅ Sync Stripe concluída",
+        description: `Users: +${r.usersCreated || 0} / upd ${r.usersUpdated || 0} • Doadores: +${r.doadoresCreated || 0} / upd ${r.doadoresUpdated || 0} • Erros: ${r.errorsCount || 0}`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['/api/donors'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/donor-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/doadores/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/donor-platforms'] });
+    } catch (error: any) {
+      toast({
+        title: "❌ Erro na Sync Stripe",
+        description: error?.message || "Erro ao sincronizar",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncStripeLoading(false);
+    }
+  };
   
   const handleSaveMotivo = async () => {
     const motivoFinal = motivoSelecionado === 'Outro' ? motivoCustom : motivoSelecionado;
@@ -4052,6 +4803,108 @@ const syncStripeMutation = useMutation({
     setLocation('/dev/login');
   };
 
+  // DADOS DE IMPORTAÇÃO
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<any>(null);
+  const [commitResult, setCommitResult] = useState<any>(null);
+  const [loadingSimulate, setLoadingSimulate] = useState(false);
+  const [loadingCommit, setLoadingCommit] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importDefaultYear, setImportDefaultYear] = useState<string>(String(new Date().getFullYear()));
+  const [importPreviewTab, setImportPreviewTab] = useState<string>("resumo");
+
+  const canConfirm = useMemo(() => {
+    return !!preview && !loadingCommit && !loadingSimulate && !commitResult?.ok;
+  }, [preview, loadingCommit, loadingSimulate, commitResult]);
+
+  async function postFormData(url: string, file: File, extraFields?: Record<string, string>) {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (extraFields) {
+      for (const [k, v] of Object.entries(extraFields)) {
+        fd.append(k, v);
+      }
+    }
+
+    const headers: Record<string, string> = {};
+    const userId = localStorage.getItem("userId");
+    if (userId) headers["x-user-id"] = userId;
+    const devToken = sessionStorage.getItem("dev_token") || localStorage.getItem("dev_token");
+    if (devToken) headers["x-dev-token"] = devToken;
+
+    const resp = await fetch(url, {
+      method: "POST",
+      body: fd,
+      headers,
+      credentials: "include",
+    });
+
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(json?.error || json?.details || json?.message || "Erro na requisição");
+    }
+    return json;
+  }
+
+  async function handleSimulate() {
+    try {
+      setImportError(null);
+      setCommitResult(null);
+      setImportPreviewTab("resumo");
+
+      if (!importFile) {
+        setImportError("Selecione um arquivo .xlsx/.xls primeiro.");
+        return;
+      }
+
+      setLoadingSimulate(true);
+      const data = await postFormData("/api/import/simulate", importFile, {
+        defaultYear: importDefaultYear,
+      });
+      setPreview(data);
+    } catch (e: any) {
+      setImportError(e?.message || "Falha ao simular importação.");
+    } finally {
+      setLoadingSimulate(false);
+    }
+  }
+
+  async function handleCommit() {
+    try {
+      setImportError(null);
+      setCommitResult(null);
+
+      if (!importFile) {
+        setImportError("Selecione um arquivo .xlsx/.xls primeiro.");
+        return;
+      }
+      if (!preview) {
+        setImportError("Primeiro faça a simulação.");
+        return;
+      }
+
+      setLoadingCommit(true);
+      const data = await postFormData("/api/dev/import/commit/dados", importFile, {
+        defaultYear: importDefaultYear,
+      });
+      setCommitResult(data);
+    } catch (e: any) {
+      setImportError(e?.message || "Falha ao confirmar importação.");
+    } finally {
+      setLoadingCommit(false);
+    }
+  }
+
+  function resetImportUI() {
+    setImportFile(null);
+    setPreview(null);
+    setCommitResult(null);
+    setImportError(null);
+    setImportPreviewTab("resumo");
+  }
+
+
   return (
     <motion.div
       className="min-h-screen bg-gray-50"
@@ -4141,191 +4994,622 @@ const syncStripeMutation = useMutation({
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="p-6 mt-8">
-        <div className="max-w-7xl mx-auto">
-          <Tabs defaultValue="benefits" className="w-full">
-            {/* Indicador de scroll */}
-            <div className="flex items-center justify-center gap-2 mb-6 text-sm text-muted-foreground">
-              <span>Use a roda do mouse para navegar (14 opções no total)</span>
-            </div>
+                {/* Main Content */}
+                <main className="p-6 mt-8">
+                  <div className="max-w-7xl mx-auto">
+                    <Tabs defaultValue="benefits" className="w-full">
 
-            {/* Navegação com scroll */}
-            <div className="relative py-8 overflow-visible">
-              <div ref={tabsScrollRef} className="w-full h-auto flex justify-start gap-4 overflow-x-auto overflow-y-visible py-4 mb-6 bg-transparent border-none scrollbar-thin scroll-smooth px-2">
-                <TabsList className="flex gap-4 bg-transparent border-none h-auto" style={{ overflow: 'visible' }}>
-                <TabsTrigger 
-                  value="benefits" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400" 
-                  data-testid="tab-benefits"
-                >
-                  <Gift className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-                  <span className="text-center leading-tight font-bold text-xs">Benefícios</span>
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="stories" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-pink-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:border-pink-400" 
-                  data-testid="tab-stories"
-                >
-                  <Heart className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
-                  <span className="text-center leading-tight font-bold text-xs">Histórias</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="auctions" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-orange-500/10 to-orange-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-orange-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:border-orange-400" 
-                  data-testid="tab-auctions"
-                >
-                  <Target className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
-                  <span className="text-center leading-tight font-bold text-xs">Leilões</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="missions" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-green-500/10 to-green-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-green-500 data-[state=active]:to-green-600 data-[state=active]:text-white data-[state=active]:border-green-400" 
-                  data-testid="tab-missions"
-                >
-                  <Calendar className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Missões</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="automation" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400" 
-                  data-testid="tab-automation"
-                >
-                  <Settings className="w-6 h-6 transition-transform group-hover:rotate-90 group-hover:scale-110" />
-                  <span className="text-center leading-tight font-bold text-xs">Automação</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="donors" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400" 
-                  data-testid="tab-donors"
-                >
-                  <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Doadores</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="donor-origin" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-sky-500/10 to-sky-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-sky-500 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:border-sky-400" 
-                  data-testid="tab-donor-origin"
-                >
-                  <Monitor className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Origem Doadores</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="stripe" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-yellow-500 data-[state=active]:to-yellow-600 data-[state=active]:text-white data-[state=active]:border-yellow-400" 
-                  data-testid="tab-stripe"
-                >
-                  <DollarSign className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
-                  <span className="text-center leading-tight font-bold text-xs">Stripe</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="management" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-teal-500/10 to-teal-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-teal-500 data-[state=active]:to-teal-600 data-[state=active]:text-white data-[state=active]:border-teal-400" 
-                  data-testid="tab-management"
-                >
-                  <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Visão Gerencial</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="gestao-vista" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400" 
-                  data-testid="tab-gestao-vista"
-                >
-                  <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
-                  <span className="text-center leading-tight font-bold text-xs">Gestão à Vista</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="pagamentos-ingressos" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-emerald-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:border-emerald-400" 
-                  data-testid="tab-pagamentos-ingressos"
-                >
-                  <Ticket className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-                  <span className="text-center leading-tight font-bold text-xs">Pag. Stripe</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="pagamentos-cielo" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400" 
-                  data-testid="tab-pagamentos-cielo"
-                >
-                  <CreditCard className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Pag. Cielo</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="compradores-avulsos" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-rose-500/10 to-rose-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-rose-500 data-[state=active]:to-rose-600 data-[state=active]:text-white data-[state=active]:border-rose-400" 
-                  data-testid="tab-compradores-avulsos"
-                >
-                  <Phone className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Compradores Avulsos</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="estatisticas-ingressos" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400" 
-                  data-testid="tab-estatisticas-ingressos"
-                >
-                  <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-180" />
-                  <span className="text-center leading-tight font-bold text-xs">Estatísticas Ingressos</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="marketing-links" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400" 
-                  data-testid="tab-marketing-links"
-                >
-                  <ExternalLink className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-45" />
-                  <span className="text-center leading-tight font-bold text-xs">Marketing Links</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="converter-doacoes" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400" 
-                  data-testid="tab-converter-doacoes"
-                >
-                  <RefreshCw className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
-                  <span className="text-center leading-tight font-bold text-xs">🔄 Converter Doações</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="notifications" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400" 
-                  data-testid="tab-notifications"
-                >
-                  <MessageCircle className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
-                  <span className="text-center leading-tight font-bold text-xs">Notificações</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="gestao-equipe" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-violet-500/10 to-violet-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-violet-500 data-[state=active]:to-violet-600 data-[state=active]:text-white data-[state=active]:border-violet-400" 
-                  data-testid="tab-gestao-equipe"
-                >
-                  <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Gestão Equipe</span>
-                  
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="ganhadores" 
-                  className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400" 
-                  data-testid="tab-ganhadores"
-                >
-                  <Trophy className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                  <span className="text-center leading-tight font-bold text-xs">Ganhadores</span>
-                  
-                </TabsTrigger>
-                </TabsList>
-            </div>
+                        {/* ✅ Header de Ações (fixo para qualquer aba) */}
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-900">Painel Estratégico</h1>
+                    <p className="text-gray-600">Ações rápidas de manutenção e sincronização</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={handleSyncStripeDonors}
+                      disabled={syncStripeLoading}
+                      className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold"
+                      data-testid="btn-sync-stripe-donors"
+                    >
+                      {syncStripeLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Sincronizando...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Sync Stripe
+                        </>
+                      )}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => queryClient.invalidateQueries()}
+                      data-testid="btn-refresh-panel"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Atualizar
+                    </Button>
+                  </div>
+                </div>
+              
+               {/* Indicador de scroll */}
+              <div className="flex items-center justify-center gap-2 mb-6 text-sm text-muted-foreground">
+                <span>Use a roda do mouse para navegar (14 opções no total)</span>
+              </div>
+
+              {/* Navegação com scroll */}
+              <div className="relative py-8 overflow-visible">
+                  <div
+                    ref={tabsScrollRef}
+                    className="w-full h-auto flex justify-start gap-4 overflow-x-auto overflow-y-visible py-4 mb-6 bg-transparent border-none scrollbar-thin scroll-smooth px-2"
+                  >
+                    <TabsList className="flex gap-4 bg-transparent border-none h-auto" style={{ overflow: "visible" }}>
+                      <TabsTrigger
+                        value="benefits"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400"
+                        data-testid="tab-benefits"
+                      >
+                        <Gift className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">Benefícios</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="stories"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-pink-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:border-pink-400"
+                        data-testid="tab-stories"
+                      >
+                        <Heart className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
+                        <span className="text-center leading-tight font-bold text-xs">Histórias</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="auctions"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-orange-500/10 to-orange-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-orange-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:border-orange-400"
+                        data-testid="tab-auctions"
+                      >
+                        <Target className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">Leilões</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="missions"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-green-500/10 to-green-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-green-500 data-[state=active]:to-green-600 data-[state=active]:text-white data-[state=active]:border-green-400"
+                        data-testid="tab-missions"
+                      >
+                        <Calendar className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Missões</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="automation"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400"
+                        data-testid="tab-automation"
+                      >
+                        <Settings className="w-6 h-6 transition-transform group-hover:rotate-90 group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">Automação</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="donors"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400"
+                        data-testid="tab-donors"
+                      >
+                        <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Doadores</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="donor-origin"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-sky-500/10 to-sky-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-sky-500 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:border-sky-400"
+                        data-testid="tab-donor-origin"
+                      >
+                        <Monitor className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Origem Doadores</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="stripe"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-yellow-500 data-[state=active]:to-yellow-600 data-[state=active]:text-white data-[state=active]:border-yellow-400"
+                        data-testid="tab-stripe"
+                      >
+                        <DollarSign className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
+                        <span className="text-center leading-tight font-bold text-xs">Stripe</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="management"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-teal-500/10 to-teal-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-teal-500 data-[state=active]:to-teal-600 data-[state=active]:text-white data-[state=active]:border-teal-400"
+                        data-testid="tab-management"
+                      >
+                        <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Visão Gerencial</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="gestao-vista"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400"
+                        data-testid="tab-gestao-vista"
+                      >
+                        <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
+                        <span className="text-center leading-tight font-bold text-xs">Gestão à Vista</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="pagamentos-ingressos"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-emerald-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:border-emerald-400"
+                        data-testid="tab-pagamentos-ingressos"
+                      >
+                        <Ticket className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">Pag. Stripe</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="pagamentos-cielo"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400"
+                        data-testid="tab-pagamentos-cielo"
+                      >
+                        <CreditCard className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Pag. Cielo</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="compradores-avulsos"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-rose-500/10 to-rose-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-rose-500 data-[state=active]:to-rose-600 data-[state=active]:text-white data-[state=active]:border-rose-400"
+                        data-testid="tab-compradores-avulsos"
+                      >
+                        <Phone className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Compradores Avulsos</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="estatisticas-ingressos"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400"
+                        data-testid="tab-estatisticas-ingressos"
+                      >
+                        <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-180" />
+                        <span className="text-center leading-tight font-bold text-xs">Estatísticas Ingressos</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="marketing-links"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400"
+                        data-testid="tab-marketing-links"
+                      >
+                        <ExternalLink className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-45" />
+                        <span className="text-center leading-tight font-bold text-xs">Marketing Links</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="converter-doacoes"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400"
+                        data-testid="tab-converter-doacoes"
+                      >
+                        <RefreshCw className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">🔄 Converter Doações</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="notifications"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400"
+                        data-testid="tab-notifications"
+                      >
+                        <MessageCircle className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
+                        <span className="text-center leading-tight font-bold text-xs">Notificações</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="gestao-equipe"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-violet-500/10 to-violet-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-violet-500 data-[state=active]:to-violet-600 data-[state=active]:text-white data-[state=active]:border-violet-400"
+                        data-testid="tab-gestao-equipe"
+                      >
+                        <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Gestão Equipe</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="ganhadores"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400"
+                        data-testid="tab-ganhadores"
+                      >
+                        <Trophy className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Ganhadores</span>
+                      </TabsTrigger>
+
+                      <TabsTrigger
+                        value="catraca-webhook"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-red-500/10 to-red-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-red-500 data-[state=active]:to-red-600 data-[state=active]:text-white data-[state=active]:border-red-400"
+                        data-testid="tab-catraca-webhook"
+                      >
+                        <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
+                        <span className="text-center leading-tight font-bold text-xs">Catraca Intelbras</span>
+                      </TabsTrigger>
+
+
+                      <TabsTrigger
+                        value="instagram-analytics"
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-pink-400"
+                        data-testid="tab-instagram-analytics"
+                      >
+                        <TrendingUp className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
+                        <span className="text-center leading-tight font-bold text-xs">Instagram</span>
+                      </TabsTrigger>
+
+                      <button
+                        type="button"
+                        onClick={() => setImportOpen(true)}
+                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold
+                                  h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl
+                                  border-2 border-transparent
+                                  bg-gradient-to-br from-slate-500/10 to-slate-600/10
+                                  backdrop-blur-sm transition-all duration-300
+                                  hover:scale-105 hover:border-slate-300"
+                      >
+                        <UploadCloud className="w-6 h-6 transition-transform group-hover:scale-110" />
+                        <span className="text-center leading-tight font-bold text-xs">Importar dados</span>
+                      </button>
+                    </TabsList>
+                  </div>
+              </div>
+
+              {/* Modal de Importação de Dados */}
+              <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) resetImportUI(); }}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-lg">
+                      <FileSpreadsheet className="w-5 h-5" />
+                      Importar Dados Gerais
+                    </DialogTitle>
+                    <DialogDescription>
+                      Envie uma planilha (.xlsx/.xls), simule para conferir e depois confirme para gravar no banco.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4">
+                    {/* Upload + Configurações */}
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Arquivo (.xlsx / .xls)</label>
+                        <Input
+                          type="file"
+                          accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0] ?? null;
+                            setImportFile(f);
+                            setPreview(null);
+                            setCommitResult(null);
+                            setImportError(null);
+                          }}
+                        />
+                        {importFile?.name && (
+                          <div className="text-xs text-muted-foreground">
+                            Selecionado: <span className="font-semibold">{importFile.name}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Ano padrão</label>
+                        <Select value={importDefaultYear} onValueChange={setImportDefaultYear}>
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="2024">2024</SelectItem>
+                            <SelectItem value="2025">2025</SelectItem>
+                            <SelectItem value="2026">2026</SelectItem>
+                            <SelectItem value="2027">2027</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Classificação de programas */}
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                      <div className="font-semibold mb-1">Classificação automática de programas:</div>
+                      <div className="flex flex-wrap gap-2">
+                        <span><Badge variant="outline" className="text-xs">PEC</Badge> PEC, Casa Sonhar, SCFV, Contraturno</span>
+                        <span className="text-blue-400">|</span>
+                        <span><Badge variant="outline" className="text-xs">Inclusão</Badge> QP, Inclusão, Cursos EAD, EAD</span>
+                      </div>
+                      <div className="mt-1 text-blue-600">Projetos com nomes fora dessas palavras-chave serão rejeitados como "não classificado".</div>
+                    </div>
+
+                    {/* Botões de ação */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={handleSimulate}
+                        disabled={!importFile || loadingSimulate || loadingCommit}
+                      >
+                        {loadingSimulate ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                        Simular
+                      </Button>
+                      <Button onClick={handleCommit} disabled={!canConfirm || loadingCommit} className="bg-green-600 hover:bg-green-700">
+                        {loadingCommit ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                        Confirmar importação
+                      </Button>
+                      <Button variant="outline" onClick={resetImportUI}>
+                        Limpar
+                      </Button>
+                    </div>
+
+                    {/* Erro */}
+                    {importError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <div>{importError}</div>
+                      </div>
+                    )}
+
+                    {/* Resultado do commit */}
+                    {commitResult?.ok && (
+                      <div className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
+                        <div className="flex items-center gap-2 font-semibold text-green-800">
+                          <CheckCircle2 className="w-5 h-5" />
+                          Importação confirmada com sucesso!
+                        </div>
+                        {commitResult.summary && (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-green-700">{commitResult.summary.approvedRows ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Linhas aprovadas</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-red-600">{commitResult.summary.rejectedRows ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Rejeitadas</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-blue-600">{commitResult.summary.createdProjects ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Projetos criados</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-purple-600">{commitResult.summary.createdTurmas ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Turmas criadas</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-teal-600">{commitResult.summary.createdLinks ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Vínculos criados</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-orange-600">{commitResult.summary.updatedLinks ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Vínculos existentes</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-indigo-600">{commitResult.summary.createdActivities ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Atividades criadas</div>
+                            </div>
+                            <div className="bg-white rounded-lg p-2 text-center">
+                              <div className="text-lg font-bold text-amber-600">{commitResult.summary.filledMatriculas ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Matrículas preenchidas</div>
+                            </div>
+                          </div>
+                        )}
+                        {commitResult.rejectedPreview?.length > 0 && (
+                          <div className="mt-2">
+                            <div className="text-sm font-medium text-red-700 mb-1">Linhas rejeitadas no commit ({commitResult.rejectedPreview.length}):</div>
+                            <ScrollArea className="h-[150px]">
+                              {commitResult.rejectedPreview.map((r: any, idx: number) => (
+                                <div key={idx} className="text-xs py-1 border-b last:border-b-0 flex items-center gap-2">
+                                  <Badge variant="destructive" className="text-xs">L{r.rowIndex}</Badge>
+                                  <span>{r.error}</span>
+                                  {r.cpf && <span className="text-muted-foreground">CPF: {r.cpf}</span>}
+                                </div>
+                              ))}
+                            </ScrollArea>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    {/* Preview com abas */}
+                    {preview ? (
+                      <div className="space-y-3">
+                        {/* Badges de resumo */}
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="secondary" className="text-sm px-3 py-1">Total: {preview?.stats?.totalRows ?? 0}</Badge>
+                          <Badge className="bg-green-600 text-white text-sm px-3 py-1">Aprovadas: {preview?.stats?.approvedRows ?? 0}</Badge>
+                          <Badge className="bg-red-600 text-white text-sm px-3 py-1">Rejeitadas: {preview?.stats?.rejectedRows ?? 0}</Badge>
+                          <Badge variant="outline" className="text-sm px-3 py-1">Pessoas encontradas: {preview?.stats?.personsFound ?? 0}</Badge>
+                          <Badge variant="outline" className="text-sm px-3 py-1">Pessoas não encontradas: {preview?.stats?.personsNotFound ?? 0}</Badge>
+                        </div>
+
+                        {/* Abas do preview */}
+                        <Tabs value={importPreviewTab} onValueChange={setImportPreviewTab}>
+                          <TabsList className="grid grid-cols-4 w-full">
+                            <TabsTrigger value="resumo">Resumo</TabsTrigger>
+                            <TabsTrigger value="aprovadas">
+                              Aprovadas ({preview?.stats?.approvedRows ?? 0})
+                            </TabsTrigger>
+                            <TabsTrigger value="rejeitadas">
+                              Rejeitadas ({preview?.stats?.rejectedRows ?? 0})
+                            </TabsTrigger>
+                            <TabsTrigger value="entidades">Entidades</TabsTrigger>
+                          </TabsList>
+
+                          {/* Aba Resumo */}
+                          <TabsContent value="resumo" className="mt-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-blue-600">{preview?.stats?.projectsToCreate ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Projetos a criar</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-purple-600">{preview?.stats?.turmasToCreate ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Turmas a criar</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-teal-600">{preview?.stats?.linksToCreate ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Vínculos a criar</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-orange-600">{preview?.stats?.linksAlreadyExist ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Vínculos existentes</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-amber-600">{preview?.stats?.matriculasToFill ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Matrículas a preencher</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-green-600">{preview?.stats?.personsFound ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Pessoas encontradas</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-red-600">{preview?.stats?.personsNotFound ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Pessoas n/ encontradas</div>
+                              </Card>
+                              <Card className="p-3 text-center">
+                                <div className="text-2xl font-bold text-gray-600">{preview?.stats?.totalRows ?? 0}</div>
+                                <div className="text-xs text-muted-foreground">Total de linhas</div>
+                              </Card>
+                            </div>
+                            {preview?.debug && (
+                              <div className="mt-4 p-3 rounded-lg border bg-slate-50 text-xs space-y-1">
+                                <div className="font-semibold text-sm mb-2">Diagnóstico da Planilha</div>
+                                <div>Aba participantes: <span className="font-mono font-semibold">{preview.debug.participantesSheet}</span> (header na linha {(preview.debug.participantesHeaderRow ?? 0) + 1})</div>
+                                <div>Aba atividades: <span className="font-mono font-semibold">{preview.debug.atividadesSheet}</span> (header na linha {(preview.debug.atividadesHeaderRow ?? 0) + 1})</div>
+                                <div>Participantes lidos: <span className="font-semibold">{preview.debug.participantesTotal}</span> (com CPF: <span className="text-green-600 font-semibold">{preview.debug.participantesComCpf}</span>, sem CPF: <span className="text-red-600 font-semibold">{preview.debug.participantesSemCpf}</span>)</div>
+                                <div>Mapa ID_Atendido→CPF: <span className="font-semibold">{preview.debug.cpfByAtendidoIdSize}</span> | Mapa Matrícula→CPF: <span className="font-semibold">{preview.debug.cpfByMatriculaSize}</span> | Mapa Nome→CPF: <span className="font-semibold">{preview.debug.cpfByNomeSize}</span></div>
+                                {preview.debug.participantesSampleKeys?.length > 0 && (
+                                  <div>Colunas participantes: <span className="font-mono text-[10px]">{preview.debug.participantesSampleKeys.join(", ")}</span></div>
+                                )}
+                                {preview.debug.atividadesSampleKeys?.length > 0 && (
+                                  <div>Colunas atividades: <span className="font-mono text-[10px]">{preview.debug.atividadesSampleKeys.join(", ")}</span></div>
+                                )}
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* Aba Aprovadas */}
+                          <TabsContent value="aprovadas" className="mt-3">
+                            <ScrollArea className="h-[350px]">
+                              {(preview?.approvedRows ?? []).length === 0 ? (
+                                <div className="text-sm text-muted-foreground text-center py-8">Nenhuma linha aprovada.</div>
+                              ) : (
+                                <div className="space-y-1">
+                                  <div className="grid grid-cols-[60px_80px_1fr_1fr_1fr_100px] gap-2 text-xs font-semibold text-muted-foreground border-b pb-2 sticky top-0 bg-white">
+                                    <span>Linha</span>
+                                    <span>Tipo</span>
+                                    <span>CPF / Nome</span>
+                                    <span>Projeto</span>
+                                    <span>Turma</span>
+                                    <span>Ações</span>
+                                  </div>
+                                  {(preview?.approvedRows ?? []).slice(0, 500).map((r: any, idx: number) => (
+                                    <div key={idx} className="grid grid-cols-[60px_80px_1fr_1fr_1fr_100px] gap-2 text-xs py-1.5 border-b last:border-b-0 items-center">
+                                      <span className="font-mono">{r.rowIndex}</span>
+                                      <Badge variant={r.programType === "pec" ? "default" : "secondary"} className="text-xs w-fit">
+                                        {r.programType?.toUpperCase()}
+                                      </Badge>
+                                      <div className="truncate">
+                                        <span className="font-mono">{r.cpf}</span>
+                                        {r.nome && <span className="text-muted-foreground ml-1">({r.nome})</span>}
+                                      </div>
+                                      <span className="truncate">{r.projectName}</span>
+                                      <span className="truncate">{r.turmaTitle}</span>
+                                      <div className="flex gap-1 flex-wrap">
+                                        {r.actions?.willCreateProject && <Badge className="bg-amber-100 text-amber-800 text-[10px]">+proj</Badge>}
+                                        {r.actions?.willCreateTurma && <Badge className="bg-purple-100 text-purple-800 text-[10px]">+turma</Badge>}
+                                        {r.actions?.willCreateLink && <Badge className="bg-teal-100 text-teal-800 text-[10px]">+vínculo</Badge>}
+                                        {r.actions?.linkAlreadyExists && <Badge className="bg-gray-100 text-gray-600 text-[10px]">existe</Badge>}
+                                        {r.actions?.willFillMatricula && <Badge className="bg-indigo-100 text-indigo-800 text-[10px]">+matr</Badge>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {(preview?.approvedRows ?? []).length > 500 && (
+                                    <div className="text-xs text-muted-foreground text-center py-2">
+                                      Mostrando 500 de {preview.approvedRows.length} linhas aprovadas.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </ScrollArea>
+                          </TabsContent>
+
+                          {/* Aba Rejeitadas */}
+                          <TabsContent value="rejeitadas" className="mt-3">
+                            <ScrollArea className="h-[350px]">
+                              {(preview?.rejectedRows ?? []).length === 0 ? (
+                                <div className="text-sm text-muted-foreground text-center py-8">Nenhuma linha rejeitada. Tudo certo!</div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {(preview?.rejectedRows ?? []).slice(0, 500).map((r: any, idx: number) => (
+                                    <div key={idx} className="text-sm py-2 px-3 rounded-lg border bg-red-50/50">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <Badge variant="destructive" className="text-xs">Linha {r.rowIndex}</Badge>
+                                        <Badge variant="outline" className="text-xs">{r.errorCode}</Badge>
+                                        {r.programType && <Badge variant="secondary" className="text-xs">{r.programType.toUpperCase()}</Badge>}
+                                        {r.cpf && <span className="font-mono text-xs text-muted-foreground">CPF: {r.cpf}</span>}
+                                      </div>
+                                      <div className="text-muted-foreground mt-1 text-xs">{r.errorMessage}</div>
+                                      {r.projectName && <div className="text-xs mt-0.5">Projeto: {r.projectName}</div>}
+                                      {r.hint && <div className="text-xs mt-1 text-blue-600">Dica: {r.hint}</div>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </ScrollArea>
+                          </TabsContent>
+
+                          {/* Aba Entidades */}
+                          <TabsContent value="entidades" className="mt-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="rounded-xl border p-3">
+                                <div className="font-semibold mb-2 text-sm">Projetos / Programas</div>
+                                <ScrollArea className="h-[280px] pr-3">
+                                  {(preview?.entitiesPreview?.projects ?? []).length === 0 ? (
+                                    <div className="text-xs text-muted-foreground py-4 text-center">Nenhum projeto identificado.</div>
+                                  ) : (
+                                    (preview?.entitiesPreview?.projects ?? []).map((p: any, idx: number) => (
+                                      <div key={idx} className="flex items-center justify-between text-sm py-1.5 border-b last:border-b-0">
+                                        <span className="truncate">{p.name}</span>
+                                        {p.willCreate ? (
+                                          <Badge className="bg-amber-600 text-white text-xs">criar</Badge>
+                                        ) : (
+                                          <Badge variant="secondary" className="text-xs">existe</Badge>
+                                        )}
+                                      </div>
+                                    ))
+                                  )}
+                                </ScrollArea>
+                              </div>
+                              <div className="rounded-xl border p-3">
+                                <div className="font-semibold mb-2 text-sm">Turmas</div>
+                                <ScrollArea className="h-[280px] pr-3">
+                                  {(preview?.entitiesPreview?.turmas ?? []).length === 0 ? (
+                                    <div className="text-xs text-muted-foreground py-4 text-center">Nenhuma turma identificada.</div>
+                                  ) : (
+                                    (preview?.entitiesPreview?.turmas ?? []).map((t: any, idx: number) => (
+                                      <div key={idx} className="flex items-center justify-between text-sm py-1.5 border-b last:border-b-0">
+                                        <span className="truncate">{t.title}</span>
+                                        {t.willCreate ? (
+                                          <Badge className="bg-amber-600 text-white text-xs">criar</Badge>
+                                        ) : (
+                                          <Badge variant="secondary" className="text-xs">existe</Badge>
+                                        )}
+                                      </div>
+                                    ))
+                                  )}
+                                </ScrollArea>
+                              </div>
+                            </div>
+                          </TabsContent>
+                        </Tabs>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground text-center py-6 border rounded-lg bg-gray-50">
+                        Selecione um arquivo e clique em <span className="font-semibold">Simular</span> para ver o preview antes de confirmar.
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
 
             {/* Benefits Tab */}
             <TabsContent value="benefits" className="space-y-6 mt-6">
@@ -4680,6 +5964,8 @@ const syncStripeMutation = useMutation({
                       Atualizar
                     </Button>
                   </div>
+
+                  
 
                   <Tabs defaultValue="ativos" className="w-full">
                     <TabsList className="grid w-full grid-cols-3 max-w-md">
@@ -6489,8 +7775,16 @@ const syncStripeMutation = useMutation({
             <TabsContent value="ganhadores" className="space-y-6 mt-6">
               <GanhadoresSection queryClient={queryClient} />
             </TabsContent>
-            </div>
-          </Tabs>
+
+            {/* Catraca Intelbras / Webhook Tab */}
+            <TabsContent value="catraca-webhook" className="space-y-6 mt-6">
+              <CatracaWebhookSection />
+            </TabsContent>
+
+            <TabsContent value="instagram-analytics" className="mt-6">
+              <InstagramAnalyticsSection />
+            </TabsContent>
+            </Tabs>
         </div>
       </main>
 

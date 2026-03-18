@@ -1,4 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from "express";
+import session from "express-session";
 import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
@@ -8,6 +9,15 @@ import { setupVite, log } from "./vite";
 import { testDatabaseConnection, runAutoMigrations } from "./db";
 import { checkDevAccess } from "./middleware/devAccess";
 import { healthRouter } from "./health";
+
+process.on("uncaughtException", (err) => {
+  console.error("🔴 [CRASH] uncaughtException:", err?.message, err?.stack);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("🔴 [CRASH] unhandledRejection:", reason);
+});
 
 const app = express();
 
@@ -40,7 +50,7 @@ app.use(
       if (!origin) return cb(null, true);
 
       // Permitir todos os domínios do Replit (dev e produção)
-      if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co')) {
+      if (origin.endsWith(".replit.dev") || origin.endsWith(".repl.co")) {
         return cb(null, true);
       }
 
@@ -51,14 +61,31 @@ app.use(
     },
     credentials: true,
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+    // ✅ inclui X-User-Id pra compatibilidade (mesmo usando sessão)
     allowedHeaders:
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Dev-Access",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Dev-Access, X-User-Id",
   })
 );
 
 // responde rápido preflight
-// responde rápido preflight
 app.options("*", cors());
+
+// ✅ SESSÃO (precisa vir antes das rotas /api/*)
+app.use(
+  session({
+    name: "og.sid",
+    secret: process.env.SESSION_SECRET || "dev_secret_change_me",
+    resave: false,
+    saveUninitialized: false,
+    proxy: true, // importante atrás de proxy
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production", // true em prod (https)
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+    },
+  })
+);
 
 // 👇 Webhook Stripe precisa do raw body
 app.use("/api/webhook/stripe", express.raw({ type: "application/json" }));
@@ -85,7 +112,7 @@ app.use(
     fallthrough: false,
     etag: true,
     maxAge: "7d",
-  }),
+  })
 );
 
 // estáticos — attached_assets (bind mount do host -> container)
@@ -98,13 +125,40 @@ app.use(
     setHeaders: (res, filePath) => {
       res.setHeader("Cache-Control", "public, max-age=604800, immutable");
       if (/\.(png)$/i.test(filePath)) res.setHeader("Content-Type", "image/png");
-      if (/\.(jpe?g)$/i.test(filePath)) res.setHeader("Content-Type", "image/jpeg");
+      if (/\.(jpe?g)$/i.test(filePath))
+        res.setHeader("Content-Type", "image/jpeg");
       if (/\.webp$/i.test(filePath)) res.setHeader("Content-Type", "image/webp");
-      if (/\.svg$/i.test(filePath)) res.setHeader("Content-Type", "image/svg+xml");
-      if (/\.json$/i.test(filePath)) res.setHeader("Content-Type", "application/json");
+      if (/\.svg$/i.test(filePath))
+        res.setHeader("Content-Type", "image/svg+xml");
+      if (/\.json$/i.test(filePath))
+        res.setHeader("Content-Type", "application/json");
     },
-  }),
+  })
 );
+
+app.get("/sw.js", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Content-Type", "application/javascript");
+  res.send(`
+    self.addEventListener('install', () => self.skipWaiting());
+    self.addEventListener('activate', (event) => {
+      event.waitUntil(
+        caches.keys().then(names => Promise.all(names.map(name => caches.delete(name))))
+          .then(() => self.clients.matchAll())
+          .then(clients => clients.forEach(client => client.navigate(client.url)))
+      );
+    });
+  `);
+});
+
+app.get("/index.html", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 
 /**
  * 🔐 Guard de DEV *somente* em /api/dev
@@ -155,9 +209,14 @@ app.use((req, res, next) => {
     await runAutoMigrations();
 
     // Iniciar jobs programados de assinaturas
-    const { startSubscriptionReconciliation, startAutomaticDunning } = await import("./jobs/subscriptions");
+    const { startSubscriptionReconciliation, startAutomaticDunning } =
+      await import("./jobs/subscriptions");
     startSubscriptionReconciliation();
     startAutomaticDunning();
+    
+    // Iniciar outros jobs (sincronização Stripe, atualização automática de turmas)
+    const { initCronJobs } = await import("./jobs/cronJobs");
+    initCronJobs();
   } catch (error) {
     console.error("Failed to connect to database on startup:", error);
     process.exit(1);
@@ -186,8 +245,18 @@ app.use((req, res, next) => {
       dir: "ltr",
       categories: ["education", "social"],
       icons: [
-        { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+        {
+          src: "/icons/icon-192.png",
+          sizes: "192x192",
+          type: "image/png",
+          purpose: "any maskable",
+        },
+        {
+          src: "/icons/icon-512.png",
+          sizes: "512x512",
+          type: "image/png",
+          purpose: "any maskable",
+        },
       ],
       screenshots: [
         {
@@ -218,7 +287,6 @@ app.use((req, res, next) => {
 
   const server = await registerRoutes(app);
 
-
   // handler de erro central — não relança depois de responder
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err?.status ?? err?.statusCode ?? 500;
@@ -242,7 +310,7 @@ app.use((req, res, next) => {
         etag: true,
         maxAge: app.get("env") === "production" ? "1d" : "0",
         index: false, // não servir index.html automaticamente aqui
-      }),
+      })
     );
 
     // Fallback para SPA - qualquer rota que não seja /api/* vai para index.html
@@ -253,6 +321,8 @@ app.use((req, res, next) => {
       }
 
       // Para todas as outras rotas, serve o index.html (SPA)
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      res.setHeader("Pragma", "no-cache");
       res.sendFile(path.resolve(distPath, "index.html"));
     });
   } else if (app.get("env") === "development" || !process.env.NODE_ENV) {
@@ -283,7 +353,6 @@ app.use((req, res, next) => {
   const port = Number(process.env.PORT) || 5000;
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
-
   });
 
   server.on("error", (err: any) => {

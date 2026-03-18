@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import girlImage from "@assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
+import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function MonitorLogin() {
   const [, setLocation] = useLocation();
@@ -42,18 +42,35 @@ export default function MonitorLogin() {
         body: JSON.stringify({ email: email.trim(), senha: senha.trim() })
       });
 
-      sessionStorage.setItem("monitor_auth", "true");
-      sessionStorage.setItem("monitor_data", JSON.stringify(data.monitor));
-      
-      localStorage.setItem("userId", data.userId.toString());
-      localStorage.setItem("monitorId", data.monitor.id.toString());
-      localStorage.setItem("userPapel", data.monitor.role || "monitor");
-      localStorage.setItem("userName", data.monitor.nome || "Monitor");
-      localStorage.setItem("isVerified", "true");
+     sessionStorage.setItem("monitor_auth", "true");
+    sessionStorage.setItem("monitor_data", JSON.stringify(data.monitor));
+
+    localStorage.setItem("userId", String(data.userId));
+    localStorage.setItem("monitorId", String(data.monitor.id));
+    localStorage.setItem("userPapel", data.monitor.role || "monitor");
+    localStorage.setItem("userName", data.monitor.nome || "Monitor");
+    localStorage.setItem("userEmail", data.monitor.email || email.trim()); // ✅ faltava
+    localStorage.setItem("isVerified", "true");
+
+    console.log("✅ Login bem-sucedido:", data.monitor, "userId:", data.userId);
 
       console.log("✅ Login bem-sucedido:", data.monitor, "userId:", data.userId);
 
-      setLocation(data.monitor.redirectPath || "/rbac/monitor");
+    const role = data?.monitor?.role;
+
+      const fallback =
+        role === "monitor_pec" ? "/monitor/pec" :
+        role === "monitor_inclusao" ? "/monitor/inclusao" :
+        role === "monitor_psico" ? "/monitor/psico" :
+        "/monitor";
+
+      // ✅ se for psico, ignora redirectPath e vai direto
+      const next =
+        role === "monitor_psico"
+          ? "/monitor/psico"
+          : (data?.monitor?.redirectPath || fallback);
+
+      setLocation(next);
 
     } catch (error: any) {
       console.error("Erro ao fazer login:", error);

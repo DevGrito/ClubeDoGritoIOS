@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-console.log('🚀 [main.tsx] INICIANDO - v4.0.0');
+console.log('🚀 [main.tsx] INICIANDO - v5.0.0');
 
 // 🔒 FORÇA HTTPS em produção (previne Mixed Content)
 if (window.location.hostname !== 'localhost' && 

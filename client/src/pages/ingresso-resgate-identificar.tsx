@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import PatrocinadoresCarousel from "@/components/PatrocinadoresCarousel";
 
 export default function IngressoResgateIdentificar() {

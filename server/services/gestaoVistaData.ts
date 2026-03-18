@@ -30,7 +30,7 @@ export const dadosMensais2025 = {
 
 // Metas anuais 2025 (não mudam por mês)
 export const metasAnuais2025 = {
-  criancasAtendidas: 400, // Meta: 400 crianças (40/mês × 10 meses: fev→nov)
+  criancasAtendidas: 500, // Meta: 500 crianças (50/mês × 10 meses: fev→nov)
   alunosFormados: 800, // Meta: 800 alunos formados (80/mês × 10 meses)
   alunosEmFormacao: 1600, // Meta: 160/mês × 10 meses
   frequencia: 85,
@@ -201,3 +201,487 @@ export const getConselhoKpis = (mes: number | null) => {
     familiasAtivas: getValorMensalOuUltimo(dadosMensais2025.familiasAcompanhadas, mes), // ESTOQUE
   };
 };
+
+// ==================================================================
+// DADOS DINÂMICOS 2026 - Busca em tempo real do banco de dados
+// ==================================================================
+
+import { pool, db } from '../db';
+import { participantesInclusao } from '../../shared/schema';
+import { sql } from 'drizzle-orm';
+
+/**
+ * Buscar contagem de crianças atendidas no PEC em 2026
+ * Fonte: instance_enrollments + activity_instances
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getCriancasAtendidasPEC2026(mes: number | null = null): Promise<number> {
+  try {
+    // Conta TODOS os alunos cadastrados na tabela 'aluno'
+    // Exclui apenas os que têm situacao_atendimento = 'Inativo'
+    const safeMes1 = mes !== null ? Math.floor(Number(mes)) : null;
+    const mesFilter1 = safeMes1 !== null ? `AND EXTRACT(MONTH FROM created_at) = ${safeMes1}` : '';
+    const result = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM aluno
+      WHERE (situacao_atendimento IS NULL OR situacao_atendimento != 'Inativo')
+        AND EXTRACT(YEAR FROM created_at) = 2026
+        ${mesFilter1}
+    `);
+    console.log(`[GV 2026] Query crianças PEC 2026 (tabela aluno) result:`, result.rows);
+    return parseInt(result.rows[0]?.total || '0');
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar crianças PEC:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar total de atendimentos de Inclusão Produtiva em 2026
+ * Definição: cada vínculo aluno-turma = 1 atendimento (não é distinct por aluno)
+ * Um aluno em 3 turmas = 3 atendimentos
+ * Todos os status contam (ativo, concluido, evadido, desistente)
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getAtendimentosInclusao2026(mes: number | null = null): Promise<number> {
+  try {
+    // Mesma fonte do coordenador Inclusão: COUNT(*) FROM participantes_inclusao WHERE status = 'ativo'
+    const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM participantes_inclusao WHERE status = 'ativo'`);
+    const total = Number(result.rows?.[0]?.cnt || 0);
+    console.log(`[GV 2026] Atendidos Inclusão (participantes ativos): ${total}`);
+    return total;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar atendidos inclusão:', error);
+    return 0;
+  }
+}
+
+export async function getAtendidosPsico2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const startDate = safeMes !== null ? `2026-${String(safeMes).padStart(2,'0')}-01` : '2026-01-01';
+    const nextDate = safeMes !== null
+      ? (safeMes === 12 ? '2027-01-01' : `2026-${String(safeMes+1).padStart(2,'0')}-01`)
+      : '2027-01-01';
+    // Mesma lógica do coordenador Psicossocial: pessoas distintas em registros_confidenciais
+    const result = await pool.query(`
+      SELECT COUNT(DISTINCT COALESCE(participante_cpf, participante_nome, id::text)) as cnt
+      FROM registros_confidenciais
+      WHERE data::date >= $1 AND data::date < $2
+    `, [startDate, nextDate]);
+    const total = parseInt(result.rows[0]?.cnt || '0');
+    console.log(`[GV 2026] Atendidos Psico (mês=${mes ?? 'anual'}): ${total}`);
+    return total;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar atendidos psico:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar contagem de alunos formados na Inclusão Produtiva em 2026
+ * Fonte: participantes_turmas + turmas_inclusao
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getAlunosFormadosInclusao2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    // Mesma fonte do coordenador Inclusão: participantes_turmas de turmas finalizadas no ano
+    const mesFilter = safeMes !== null
+      ? `AND EXTRACT(YEAR FROM ti.data_fim) = 2026 AND EXTRACT(MONTH FROM ti.data_fim) = ${safeMes}`
+      : `AND EXTRACT(YEAR FROM ti.data_fim) = 2026`;
+    const result = await pool.query(`
+      SELECT COUNT(CASE WHEN pt.status = 'concluido' OR pt.status = 'formado' THEN 1 END) as total
+      FROM participantes_turmas pt
+      JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+      WHERE (ti.status = 'finalizado' OR ti.status = 'concluido')
+        ${mesFilter}
+    `);
+    return parseInt(result.rows[0]?.total || '0');
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar alunos formados:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar frequência geral em 2026
+ * Fonte: sessions (campo attendance é JSONB com lista de presenças)
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getFrequenciaGeral2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const mesFilterPec = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM s.date::date) = $1` 
+      : '';
+    const mesFilterInclusao = safeMes !== null
+      ? `AND EXTRACT(MONTH FROM pi.data) = $1`
+      : '';
+    const params = safeMes !== null ? [safeMes] : [];
+    
+    // PEC: mesma lógica do coordenador PEC — falta_justificada conta como presente
+    const mesFilterPecCoord = safeMes !== null
+      ? `AND EXTRACT(YEAR FROM s.date::date) = 2026 AND EXTRACT(MONTH FROM s.date::date) = ${safeMes}`
+      : `AND EXTRACT(YEAR FROM s.date::date) = 2026`;
+    const resultPec = await pool.query(`
+      SELECT
+        COUNT(CASE WHEN a->>'presente' = 'true' OR a->>'status' = 'falta_justificada' THEN 1 END) as presentes,
+        COUNT(*) as total_alunos
+      FROM sessions s, jsonb_array_elements(s.attendance::jsonb) as a
+      WHERE s.attendance IS NOT NULL AND jsonb_typeof(s.attendance::jsonb) = 'array'
+        ${mesFilterPecCoord}
+    `);
+
+    const resultInclusao = await pool.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE pi.presente = true) as presentes,
+        COUNT(*) as total_alunos
+      FROM presencas_inclusao pi
+      WHERE EXTRACT(YEAR FROM pi.data) = 2026
+        ${mesFilterInclusao}
+    `, params);
+
+    const presentesPec = parseInt(resultPec.rows[0]?.presentes || '0');
+    const totalPec = parseInt(resultPec.rows[0]?.total_alunos || '0');
+    const presentesInc = parseInt(resultInclusao.rows[0]?.presentes || '0');
+    const totalInc = parseInt(resultInclusao.rows[0]?.total_alunos || '0');
+
+    const totalPresentes = presentesPec + presentesInc;
+    const totalAlunos = totalPec + totalInc;
+
+    const freq = totalAlunos > 0 ? Math.round((totalPresentes / totalAlunos) * 1000) / 10 : 0;
+    console.log(`[GV 2026] Frequência geral: PEC(${presentesPec}/${totalPec}) + Inclusão(${presentesInc}/${totalInc}) = ${freq}%`);
+    return freq;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar frequência:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar participantes ativos na Inclusão Produtiva em um ano específico
+ * Um participante é "ativo no ano" se passou por qualquer turma que funcionou naquele ano
+ * (turma com data_inicio ou data_fim dentro do ano, ou created_at no ano)
+ * @param ano - Ano de referência (padrão 2026)
+ */
+export async function getAlunosEmFormacao2026(mes: number | null = null, ano: number = 2026): Promise<number> {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(DISTINCT pt.participante_id) as total
+      FROM participantes_turmas pt
+      JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+      WHERE (
+        EXTRACT(YEAR FROM ti.data_inicio) = $1
+        OR EXTRACT(YEAR FROM ti.data_fim) = $1
+        OR (ti.data_inicio <= make_date($1::int, 12, 31) AND (ti.data_fim IS NULL OR ti.data_fim >= make_date($1::int, 1, 1)))
+        OR EXTRACT(YEAR FROM ti.created_at) = $1
+      )
+    `, [ano]);
+    console.log(`[GV ${ano}] Participantes ativos na Inclusão (turmas do ano):`, result.rows);
+    return parseInt(result.rows[0]?.total || '0');
+  } catch (error) {
+    console.error(`[GV ${ano}] Erro ao buscar participantes ativos Inclusão:`, error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar todos os indicadores de 2026 de uma vez
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+/**
+ * Buscar todos os indicadores de 2026 de uma vez
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getAtendimentosColetivos2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const mesFilter = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
+    const result = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM registros_confidenciais
+      WHERE tipo = 'atendimento_coletivo'
+        AND EXTRACT(YEAR FROM data::date) = 2026
+        AND (status IS NULL OR status != 'inativo')
+        ${mesFilter}
+    `);
+    return parseInt(result.rows[0]?.total || '0');
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar atendimentos coletivos:', error);
+    return 0;
+  }
+}
+
+export async function getIndicadores2026(mes: number | null = null): Promise<{
+  criancasAtendidas: number;
+  alunosFormados: number;
+  alunosEmFormacao: number;
+  frequencia: number;
+  evasao: number;
+  geracaoRenda: number;
+  visitasDomicilio: number;
+  atendimentosPsico: number;
+  atendimentosColetivos: number;
+  avaliacaoAprendizagem: number;
+  pesquisaSatisfacao: number;
+}> {
+  const [
+    criancasAtendidas, 
+    alunosFormados, 
+    alunosEmFormacao, 
+    frequencia,
+    evasao,
+    geracaoRenda,
+    visitasDomicilio,
+    atendimentosPsico,
+    atendimentosColetivos,
+    avaliacaoAprendizagem,
+    pesquisaSatisfacao
+  ] = await Promise.all([
+    getCriancasAtendidasPEC2026(mes),
+    getAlunosFormadosInclusao2026(mes),
+    getAlunosEmFormacao2026(mes),
+    getFrequenciaGeral2026(mes),
+    getEvasao2026(mes),
+    getGeracaoRenda2026(mes),
+    getVisitasDomicilio2026(mes),
+    getAtendimentosPsico2026(mes),
+    getAtendimentosColetivos2026(mes),
+    getAvaliacaoAprendizagem2026(mes),
+    getPesquisaSatisfacao2026(mes)
+  ]);
+  
+  console.log(`📊 [GV 2026] Indicadores em tempo real (mês=${mes || 'anual'}):`, {
+    criancasAtendidas, alunosFormados, alunosEmFormacao,
+    frequencia: frequencia + '%', evasao, geracaoRenda,
+    visitasDomicilio, atendimentosPsico, atendimentosColetivos
+  });
+  
+  return { 
+    criancasAtendidas, alunosFormados, alunosEmFormacao, 
+    frequencia, evasao, geracaoRenda,
+    visitasDomicilio, atendimentosPsico, atendimentosColetivos,
+    avaliacaoAprendizagem, pesquisaSatisfacao
+  };
+}
+
+// Metas anuais 2026 (mesmas metas de 2025 por enquanto)
+export const metasAnuais2026 = {
+  criancasAtendidas: 500,
+  alunosFormados: 2000,
+  alunosEmFormacao: 1600,
+  frequencia: 85,
+  avaliacaoAprendizagem: 90,
+  pesquisaSatisfacao: 90,
+  evasao: 10,
+  geracaoRenda: 2000,
+  pessoasEmpregadas: 1500,
+  empreendedores: 500,
+  familiasAcompanhadas: 250,
+  visitasDomicilio: 250,
+  atendimentosPsico: 250,
+  atendimentosColetivos: 100
+};
+
+// ==================================================================
+// FUNÇÕES ADICIONAIS PARA 2026 - Indicadores em tempo real do banco
+// ==================================================================
+
+/**
+ * Buscar evasão (participantes que abandonaram turmas) em 2026
+ * Fonte: participantes_turmas com status diferente de 'ativo' e 'concluido'
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getEvasao2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const params = safeMes !== null ? [safeMes] : [];
+
+    // Inclusão: usa data_desligamento (data real de saída)
+    const mesFilterInclusao = safeMes !== null
+      ? `AND EXTRACT(MONTH FROM pt.data_desligamento) = $1 AND EXTRACT(YEAR FROM pt.data_desligamento) = 2026`
+      : `AND EXTRACT(YEAR FROM COALESCE(pt.data_desligamento, pt.created_at) ) = 2026`;
+
+    const resultInclusao = await pool.query(`
+      SELECT COUNT(DISTINCT pt.id) as total
+      FROM participantes_turmas pt
+      JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+      WHERE pt.status IN ('inativo', 'desistente', 'transferido', 'evadido')
+        ${mesFilterInclusao}
+    `, params);
+
+    // PEC: usa data_inativacao (campo adicionado), com fallback para updated_at
+    const mesFilterPec = safeMes !== null
+      ? `AND EXTRACT(MONTH FROM a.data_inativacao) = $1 AND EXTRACT(YEAR FROM a.data_inativacao) = 2026`
+      : `AND EXTRACT(YEAR FROM COALESCE(a.data_inativacao, a.updated_at)) = 2026`;
+
+    const resultPec = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM aluno a
+      WHERE a.situacao_atendimento = 'Inativo'
+        ${mesFilterPec}
+    `, params);
+
+    const evasaoInclusao = parseInt(resultInclusao.rows[0]?.total || '0');
+    const evasaoPec = parseInt(resultPec.rows[0]?.total || '0');
+    console.log(`[GV 2026] Evasão: Inclusão=${evasaoInclusao}, PEC=${evasaoPec}`);
+    return evasaoInclusao + evasaoPec;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar evasão:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar geração de renda (pessoas empregadas) em 2026
+ * Fonte: participantes_turmas ou registros de empregabilidade
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getGeracaoRenda2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const params: any[] = [2026];
+    let mesFilter = '';
+    if (safeMes !== null) {
+      params.push(safeMes);
+      mesFilter = `AND EXTRACT(MONTH FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $2`;
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*) as total FROM inclusao_geracao_de_renda WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1 ${mesFilter}`,
+      params
+    );
+    const total = parseInt(result.rows[0]?.total || '0');
+    console.log(`[GV 2026] Geração de renda: ${total}`);
+    return total;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar geração de renda:', error);
+    return 0;
+  }
+}
+
+export async function getGeracaoRendaSplit2026(mes: number | null = null): Promise<{ empregabilidade: number; empreendedorismo: number }> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const params: any[] = [2026];
+    let mesFilter = '';
+    if (safeMes !== null) {
+      params.push(safeMes);
+      mesFilter = `AND EXTRACT(MONTH FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $2`;
+    }
+    const result = await pool.query(
+      `SELECT tipo, COUNT(*) as total FROM inclusao_geracao_de_renda
+       WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1 ${mesFilter}
+       GROUP BY tipo`,
+      params
+    );
+    const empregabilidade = parseInt(result.rows.find((r: any) => r.tipo === 'empregabilidade')?.total || '0');
+    const empreendedorismo = parseInt(result.rows.find((r: any) => r.tipo === 'empreendedorismo')?.total || '0');
+    console.log(`[GV 2026] Geração de renda split: empregabilidade=${empregabilidade} empreendedorismo=${empreendedorismo}`);
+    return { empregabilidade, empreendedorismo };
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar geração de renda split:', error);
+    return { empregabilidade: 0, empreendedorismo: 0 };
+  }
+}
+
+/**
+ * Buscar visitas em domicílio do psicossocial em 2026
+ * Fonte: psico_atendimentos com tipo='visita_domiciliar'
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getVisitasDomicilio2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const mesFilterAtend = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data_atendimento) = $1` 
+      : '';
+    const mesFilterConf = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data::date) = $1` 
+      : '';
+    const mesFilterAtiv = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data) = $1` 
+      : '';
+    const params = safeMes !== null ? [safeMes] : [];
+    
+    const mesFilterRc = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
+    const result = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM registros_confidenciais
+      WHERE tipo = 'visita_domiciliar'
+        AND EXTRACT(YEAR FROM data::date) = 2026
+        AND (status IS NULL OR status != 'inativo')
+        ${mesFilterRc}
+    `);
+    return parseInt(result.rows[0]?.total || '0');
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar visitas em domicílio:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar atendimentos psicossociais em 2026
+ * Fonte: psico_atendimentos (todos os tipos, exceto visita que já é contada separadamente)
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getAtendimentosPsico2026(mes: number | null = null): Promise<number> {
+  try {
+    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
+    const mesFilterAtend = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data_atendimento) = $1` 
+      : '';
+    const mesFilterConf = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data::date) = $1` 
+      : '';
+    const mesFilterAtiv = safeMes !== null 
+      ? `AND EXTRACT(MONTH FROM data) = $1` 
+      : '';
+    const params = safeMes !== null ? [safeMes] : [];
+    
+    const mesFilterRc2 = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
+    const mesFilterDe = safeMes !== null ? `AND EXTRACT(MONTH FROM data_atendimento::date) = ${safeMes}` : '';
+    const [rcResult, deResult] = await Promise.all([
+      pool.query(`
+        SELECT COUNT(*) as total
+        FROM registros_confidenciais
+        WHERE tipo != 'visita_domiciliar'
+          AND EXTRACT(YEAR FROM data::date) = 2026
+          AND (status IS NULL OR status != 'inativo')
+          ${mesFilterRc2}
+      `),
+      pool.query(`
+        SELECT COUNT(*) as total
+        FROM demandas_espontaneas
+        WHERE EXTRACT(YEAR FROM data_atendimento::date) = 2026
+          ${mesFilterDe}
+      `),
+    ]);
+    return parseInt(rcResult.rows[0]?.total || '0') + parseInt(deResult.rows[0]?.total || '0');
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar atendimentos psicossociais:', error);
+    return 0;
+  }
+}
+
+/**
+ * Buscar avaliação de aprendizagem em 2026
+ * Por enquanto retorna 0 até que haja dados de avaliações no banco
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getAvaliacaoAprendizagem2026(mes: number | null = null): Promise<number> {
+  // TODO: Implementar quando houver tabela de avaliações de aprendizagem
+  // Por enquanto retorna 0 (sem dados)
+  return 0;
+}
+
+/**
+ * Buscar pesquisa de satisfação (NPS) em 2026
+ * Por enquanto retorna 0 até que haja dados de pesquisas no banco
+ * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getPesquisaSatisfacao2026(mes: number | null = null): Promise<number> {
+  // TODO: Implementar quando houver tabela de pesquisas de satisfação
+  // Por enquanto retorna 0 (sem dados)
+  return 0;
+}

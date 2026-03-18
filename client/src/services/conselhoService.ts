@@ -27,6 +27,7 @@ function mapPeriodToScope(period: ConselhoFilters['period']): string {
     'trimestral': 'quarterly', 
     'semestral': 'semiannual',
     'anual': 'annual',
+    'specific_month': 'monthly',
     'custom': 'monthly'
   };
   return mapping[period] || 'monthly';
@@ -34,11 +35,6 @@ function mapPeriodToScope(period: ConselhoFilters['period']): string {
 
 // Função para gerar período no formato esperado pelo backend (YYYY-MM)
 function generatePeriodParam(filters: ConselhoFilters): string {
-    period: filters.period, 
-    start: filters.start, 
-    end: filters.end 
-  });
-  
   // 🚨 CORREÇÃO TEMPORÁRIA: Forçar julho para semestral
   if (filters.period === 'semestral') {
     const now = new Date();
@@ -234,6 +230,7 @@ function generateMockData(filters: ConselhoFilters) {
       'trimestral': 3,
       'semestral': 6,
       'anual': 12,
+      'specific_month': 1,
       'custom': 1
     }[filters.period] || 1;
   }

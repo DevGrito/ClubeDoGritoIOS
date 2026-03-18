@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import megafoneIcon from '@assets/MEGAFONE SEM FUNDO_Prancheta 1_1756835037939.png';
+import megafoneIcon from '../app-assets/MEGAFONE SEM FUNDO_Prancheta 1_1756835037939.png';
 
 interface Story {
   id: number;

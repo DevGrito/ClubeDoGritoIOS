@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { formatCPF } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TurmaInclusaoForm } from "@/components/TurmaInclusaoForm";
+import { InstanceForm } from "@/components/pec/forms";
+import { TurmaDetailModal } from "@/components/pec/TurmaDetailModal";
+import { TurmaDetailModalInclusao } from "@/components/inclusao/TurmaDetailModalInclusao";
+import { baixarListaAlunos } from "@/lib/pdfUtils";
+import MonitorDashboard from "@/components/MonitorDashboard";
+import { getDiasAulaParaTurma, type DiaAula } from "@/lib/class-days";
+import ParticipantesInclusaoSection from "@/components/ParticipantesInclusaoSection";
+
+const normalizeToYMD = (v: any) => {
+  if (!v) return "";
+  const s = String(v);
+  return s.includes("T") ? s.split("T")[0] : s;
+};
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getBrazilDateString, formatDateBrazil } from "@/lib/brazil-date";
 import { 
   Users, 
@@ -31,17 +46,60 @@ import {
   User,
   CheckCircle,
   XCircle,
+  Loader2,
   Edit,
   Trash2,
   Eye,
-  UserPlus
+  UserPlus,
+  Camera,
+  Pencil,
+  Music,
+  Paintbrush,
+  Dumbbell,
+  Code,
+  Star,
+  Heart,
+  Lightbulb,
+  Trophy,
+  Mic,
+  Zap,
+  ScanFace,
+  Hand,
+  Wifi,
+  WifiOff,
+  Upload,
+  Utensils,
+  FileDown
 } from "lucide-react";
+
+const MARCADOR_ICONE_MAP: Record<string, any> = {
+  book: BookOpen, music: Music, art: Paintbrush, sport: Dumbbell,
+  code: Code, star: Star, heart: Heart, idea: Lightbulb,
+  trophy: Trophy, mic: Mic, camera: Camera, pencil: Pencil,
+};
 
 export default function ProfessorPage() {
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [catracaConnected, setCatracaConnected] = useState(false);
+  const changeSection = (section: string) => {
+    setActiveSection(section);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.getElementById('professor-content-area');
+        console.log('[SCROLL] professor-content-area found:', !!el, 'rect:', el?.getBoundingClientRect());
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    });
+  };
   const [showEditPlanoModal, setShowEditPlanoModal] = useState(false);
+  const [filtroStatusTurma, setFiltroStatusTurma] = useState<string>('todos');
+  const [buscaTurma, setBuscaTurma] = useState<string>('');
+  const [dashFiltroAno, setDashFiltroAno] = useState<number>(new Date().getFullYear());
+  const [dashFiltroMes, setDashFiltroMes] = useState<number>(0);
   const [showViewPlanoModal, setShowViewPlanoModal] = useState(false);
   const [showNovoPlanoModal, setShowNovoPlanoModal] = useState(false);
   const [selectedPlano, setSelectedPlano] = useState<any>(null);
@@ -58,6 +116,11 @@ export default function ProfessorPage() {
     status: 'rascunho'
   });
   
+  // States para cadastro de alunos PEC
+  const [showCadastroAlunoPecModal, setShowCadastroAlunoPecModal] = useState(false);
+  const [editingAlunoCpf, setEditingAlunoCpf] = useState<string | undefined>(undefined);
+  const [viewModeAluno, setViewModeAluno] = useState(false);
+  
   // States para cadastro de participantes (Inclusão)
   const [showNovoParticipanteModal, setShowNovoParticipanteModal] = useState(false);
   const [showEditParticipanteModal, setShowEditParticipanteModal] = useState(false);
@@ -68,21 +131,36 @@ export default function ProfessorPage() {
   // States para gerenciamento de turmas
   const [showNovaTurmaModal, setShowNovaTurmaModal] = useState(false);
   const [showEditTurmaModal, setShowEditTurmaModal] = useState(false);
+  const [showDetalhesTurmaModal, setShowDetalhesTurmaModal] = useState(false);
   const [showGerenciarAlunosModal, setShowGerenciarAlunosModal] = useState(false);
+  const [showGerenciarAlunosTurmaInclusao, setShowGerenciarAlunosTurmaInclusao] = useState(false);
+  const [turmaGerenciarInclusao, setTurmaGerenciarInclusao] = useState<any>(null);
+  const [showTurmaDetailModal, setShowTurmaDetailModal] = useState(false);
   const [selectedTurma, setSelectedTurma] = useState<any>(null);
+  const [showFinalizarTurmaModal, setShowFinalizarTurmaModal] = useState(false);
+  const [participantesSelecionados, setParticipantesSelecionados] = useState<number[]>([]);
+  const [participantesTurmaAtual, setParticipantesTurmaAtual] = useState<any[]>([]);
+  const [isLoadingParticipantesTurma, setIsLoadingParticipantesTurma] = useState(false);
+  const [isFinalizando, setIsFinalizando] = useState(false);
   const [buscaAlunoTurma, setBuscaAlunoTurma] = useState('');
-  const [novaTurmaForm, setNovaTurmaForm] = useState({
-    nome: '',
-    descricao: '',
-    horarioEntrada: '',
-    horarioSaida: '',
-    local: ''
-  });
+  const [showAlimentacaoModal, setShowAlimentacaoModal] = useState(false);
   
   // States para controle de chamada/frequência
-  const [chamadaData, setChamadaData] = useState(getBrazilDateString());
+  const [chamadaData, setChamadaData] = useState('');
   const [chamadaTurmaId, setChamadaTurmaId] = useState('');
-  const [presencas, setPresencas] = useState<Array<{ participanteId: number; nome: string; presente: boolean }>>([]);
+  const [presencas, setPresencas] = useState<Array<{ participanteId: number; nome: string; cpf?: string; presente: boolean; justificativa?: string; viaCatraca?: boolean; horaEntrada?: string }>>([]);
+  const [fotoFile, setFotoFile] = useState<File | null>(null);
+  const [fotoRegistroAula, setFotoRegistroAula] = useState<File | null>(null);
+  const fotoRegistroAulaRef = useRef<HTMLInputElement>(null);
+  const [existingFotoUrl, setExistingFotoUrl] = useState<string | null>(null);
+  const [editingChamada, setEditingChamada] = useState<any>(null);
+  const [modoManual, setModoManual] = useState(false);
+  const [showModoManualDialog, setShowModoManualDialog] = useState(false);
+  const [motivoManualSelect, setMotivoManualSelect] = useState('');
+  const [descManual, setDescManual] = useState('');
+  const [savingMotivoManual, setSavingMotivoManual] = useState(false);
+  const [catracaApplied, setCatracaApplied] = useState(false);
+  const [diasAulaDisponiveis, setDiasAulaDisponiveis] = useState<DiaAula[]>([]);
   
   // States para registro de aulas
   const [registroAulaForm, setRegistroAulaForm] = useState({
@@ -94,9 +172,12 @@ export default function ProfessorPage() {
     observacoes: ''
   });
   const [registrosAulas, setRegistrosAulas] = useState<any[]>([]);
+  const [filtroRelatorio, setFiltroRelatorio] = useState({ texto: '', data: '' });
+  const [relatorioSelecionado, setRelatorioSelecionado] = useState<any>(null);
   const [filtroChamadaData, setFiltroChamadaData] = useState('');
   const [showHistoricoChamadas, setShowHistoricoChamadas] = useState(false);
   const [historicoFiltroTurma, setHistoricoFiltroTurma] = useState('');
+
   const [historicoFiltroDataInicio, setHistoricoFiltroDataInicio] = useState('');
   const [historicoFiltroDataFim, setHistoricoFiltroDataFim] = useState('');
   
@@ -123,10 +204,21 @@ export default function ProfessorPage() {
   });
   const [diaSelecionado, setDiaSelecionado] = useState<Date | null>(null);
   
+  // States para alunos PEC
+  const [buscaAlunoPec, setBuscaAlunoPec] = useState('');
+  const [statusFilterPec, setStatusFilterPec] = useState('todos');
+
   // States para acompanhamento pedagógico
   const [filtroTurmaAcomp, setFiltroTurmaAcomp] = useState('');
   const [buscaAlunoAcomp, setBuscaAlunoAcomp] = useState('');
   const [anotacoesAlunos, setAnotacoesAlunos] = useState<Record<number, string>>({});
+  const [acompTurmaId, setAcompTurmaId] = useState('');
+  const [acompDiaAulaId, setAcompDiaAulaId] = useState('');
+  const [acompAlunoCpf, setAcompAlunoCpf] = useState('');
+  const [acompAlunoNome, setAcompAlunoNome] = useState('');
+  const [acompObservacao, setAcompObservacao] = useState('');
+  const [acompTipo, setAcompTipo] = useState('comportamental');
+  const [salvandoAcomp, setSalvandoAcomp] = useState(false);
   
   // Detectar vertente pela URL
   const vertente: 'pec' | 'inclusao' = location.includes('/professor/inclusao') ? 'inclusao' : 'pec';
@@ -144,10 +236,11 @@ export default function ProfessorPage() {
       const response = await fetch(`/api/professor/dashboard/${userId}?vertente=${vertente}`, {
         headers: { 'x-user-id': userId || '' }
       });
-      if (!response.ok) throw new Error('Failed to fetch dashboard data');
+      if (!response.ok) throw new Error('Falha ao carregar dados do painel');
       return response.json();
     },
-    enabled: !!userId
+    enabled: !!userId,
+    
   });
 
   // Query para listar participantes de Inclusão Produtiva (mesma API do coordenador)
@@ -155,10 +248,11 @@ export default function ProfessorPage() {
     queryKey: ['/api/participantes-inclusao'],
     queryFn: async () => {
       const response = await fetch('/api/participantes-inclusao');
-      if (!response.ok) throw new Error('Failed to fetch participantes');
+      if (!response.ok) throw new Error('Falha ao carregar participantes');
       return response.json();
     },
-    enabled: vertente === 'inclusao'
+    enabled: vertente === 'inclusao',
+    
   });
 
   // Query para buscar turmas do professor (todas as turmas da vertente)
@@ -166,73 +260,43 @@ export default function ProfessorPage() {
     queryKey: ['/api/professor/turmas', userId, vertente],
     queryFn: async () => {
       const response = await fetch(`/api/professor/${userId}/turmas?vertente=${vertente}`);
-      if (!response.ok) throw new Error('Failed to fetch turmas');
+      if (!response.ok) throw new Error('Falha ao carregar turmas');
       return response.json();
     },
-    enabled: !!userId
+    enabled: !!userId,
+    staleTime: 0,
   });
 
-  // Mutation para criar nova turma
-  const createTurmaMutation = useMutation({
-    mutationFn: async (data: typeof novaTurmaForm) => {
-      const response = await fetch(`/api/professor/${userId}/turmas?vertente=${vertente}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!response.ok) throw new Error('Failed to create turma');
+  // Query para buscar alunos PEC (mesma API do monitor)
+  const { data: alunosPec = [], isLoading: alunosPecLoading } = useQuery({
+    queryKey: ['/api/professor/pec/alunos', vertente],
+    queryFn: async () => {
+      const response = await fetch('/api/professor/pec/alunos');
+      if (!response.ok) throw new Error('Falha ao carregar alunos PEC');
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId, vertente] });
-      setShowNovaTurmaModal(false);
-      setNovaTurmaForm({ nome: '', descricao: '', horarioEntrada: '', horarioSaida: '', local: '' });
-      toast({ title: "Sucesso", description: "Turma criada com sucesso!" });
-    },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao criar turma", variant: "destructive" });
-    }
-  });
-
-  // Mutation para atualizar turma
-  const updateTurmaMutation = useMutation({
-    mutationFn: async ({ turmaId, data }: { turmaId: number; data: any }) => {
-      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!response.ok) throw new Error('Failed to update turma');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId] });
-      setShowEditTurmaModal(false);
-      setSelectedTurma(null);
-      toast({ title: "Sucesso", description: "Turma atualizada com sucesso!" });
-    },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao atualizar turma", variant: "destructive" });
-    }
+    enabled: vertente === 'pec',
   });
 
   // Mutation para inativar turma
   const inativarTurmaMutation = useMutation({
     mutationFn: async (turmaId: number) => {
-      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}`, {
+      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}?vertente=${vertente}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'inativo' })
       });
-      if (!response.ok) throw new Error('Failed to inactivate turma');
+      if (!response.ok) throw new Error('Falha ao inativar turma');
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/turmas-inclusao'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/grupos'] });
       toast({ title: "Sucesso", description: "Turma inativada com sucesso!" });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao inativar turma", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao inativar turma", description: error.message || "Não foi possível inativar a turma. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -244,15 +308,17 @@ export default function ProfessorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'emandamento' })
       });
-      if (!response.ok) throw new Error('Failed to reactivate turma');
+      if (!response.ok) throw new Error('Falha ao reativar turma');
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/turmas-inclusao'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/grupos'] });
       toast({ title: "Sucesso", description: "Turma reativada com sucesso!" });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao reativar turma", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao reativar turma", description: error.message || "Não foi possível reativar a turma. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -261,22 +327,23 @@ export default function ProfessorPage() {
     queryKey: ['/api/professor/turmas/alunos', selectedTurma?.id],
     queryFn: async () => {
       if (!selectedTurma?.id) return [];
-      const response = await fetch(`/api/professor/${userId}/turmas/${selectedTurma.id}/alunos`);
-      if (!response.ok) throw new Error('Failed to fetch alunos');
+      const response = await fetch(`/api/professor/${userId}/turmas/${selectedTurma.id}/alunos?vertente=${vertente}`);
+      if (!response.ok) throw new Error('Falha ao carregar alunos');
       return response.json();
     },
-    enabled: !!selectedTurma?.id && showGerenciarAlunosModal
+    enabled: !!selectedTurma?.id && showGerenciarAlunosModal,
+    
   });
 
   // Mutation para adicionar aluno à turma
   const addAlunoTurmaMutation = useMutation({
     mutationFn: async ({ turmaId, participanteId }: { turmaId: number; participanteId: number }) => {
-      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}/alunos`, {
+      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}/alunos?vertente=${vertente}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ participanteId })
       });
-      if (!response.ok) throw new Error('Failed to add aluno');
+      if (!response.ok) throw new Error('Falha ao adicionar aluno');
       return response.json();
     },
     onSuccess: () => {
@@ -284,18 +351,18 @@ export default function ProfessorPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId] });
       toast({ title: "Sucesso", description: "Aluno adicionado à turma!" });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao adicionar aluno", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao adicionar aluno", description: error.message || "Não foi possível adicionar o aluno. Tente novamente.", variant: "destructive" });
     }
   });
 
   // Mutation para remover aluno da turma
   const removeAlunoTurmaMutation = useMutation({
     mutationFn: async ({ turmaId, alunoId }: { turmaId: number; alunoId: number }) => {
-      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}/alunos/${alunoId}`, {
+      const response = await fetch(`/api/professor/${userId}/turmas/${turmaId}/alunos/${alunoId}?vertente=${vertente}`, {
         method: 'DELETE'
       });
-      if (!response.ok) throw new Error('Failed to remove aluno');
+      if (!response.ok) throw new Error('Falha ao remover aluno');
       return response.json();
     },
     onSuccess: () => {
@@ -303,74 +370,288 @@ export default function ProfessorPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId] });
       toast({ title: "Sucesso", description: "Aluno removido da turma!" });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Erro ao remover aluno", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao remover aluno", description: error.message || "Não foi possível remover o aluno. Tente novamente.", variant: "destructive" });
     }
   });
 
   // Query para buscar alunos da turma selecionada para chamada
   const { data: alunosChamada = [], isLoading: alunosChamadaLoading } = useQuery({
-    queryKey: ['/api/professor/turmas/alunos/chamada', chamadaTurmaId],
+    queryKey: ['/api/professor/turmas/alunos/chamada', chamadaTurmaId, vertente],
     queryFn: async () => {
       if (!chamadaTurmaId) return [];
-      const response = await fetch(`/api/professor/${userId}/turmas/${chamadaTurmaId}/alunos`);
-      if (!response.ok) throw new Error('Failed to fetch alunos');
+      const response = await fetch(`/api/professor/${userId}/turmas/${chamadaTurmaId}/alunos?vertente=${vertente}`);
+      if (!response.ok) throw new Error('Falha ao carregar alunos');
       return response.json();
     },
-    enabled: !!chamadaTurmaId && activeSection === 'frequencia'
+    enabled: !!chamadaTurmaId && activeSection === 'frequencia',
+    
   });
 
-  // Atualizar presenças quando os alunos da turma são carregados
+  const { data: profCatracaLog, refetch: refetchProfCatracaLog } = useQuery<{ data: string; entradas: any[]; total: number }>({
+    queryKey: ['/api/webhook/presenca-log'],
+    enabled: activeSection === 'frequencia',
+    refetchInterval: 30000,
+  });
+
+  const { data: profPecSession } = useQuery<any>({
+    queryKey: ['/api/pec/session-by-date-prof', chamadaTurmaId, chamadaData],
+    queryFn: async () => {
+      const res = await fetch(`/api/pec/sessions?activity_instance_id=${chamadaTurmaId}&date=${chamadaData}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      const sessions = await res.json();
+      if (Array.isArray(sessions)) {
+        return sessions.find((s: any) => String(s.activity_instance_id) === String(chamadaTurmaId) && String(s.date).slice(0, 10) === chamadaData) || null;
+      }
+      return null;
+    },
+    enabled: !!chamadaTurmaId && !!chamadaData && activeSection === 'frequencia' && vertente === 'pec' && !editingChamada,
+  });
+
   useEffect(() => {
+    const es = new EventSource("/api/webhook/presenca-events");
+    es.onopen = () => setCatracaConnected(true);
+    es.onerror = () => setCatracaConnected(false);
+    return () => { es.close(); setCatracaConnected(false); };
+  }, []);
+
+    useEffect(() => {
+    if (activeSection !== 'frequencia') return;
+    const es = new EventSource("/api/webhook/presenca-events");
+    es.onmessage = (event) => {
+      if (event.data === "connected") return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.tipo === "presenca") {
+          refetchProfCatracaLog();
+          if (data.vertente === "pec") {
+            queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date-prof', chamadaTurmaId, chamadaData] });
+          }
+          setCatracaApplied(false);
+        }
+      } catch (_) {}
+    };
+    return () => es.close();
+  }, [activeSection, chamadaTurmaId, chamadaData]);
+
+  useEffect(() => {
+    if (editingChamada) return;
     if (alunosChamada.length > 0) {
       setPresencas(alunosChamada.map((aluno: any) => ({
         participanteId: aluno.id,
-        nome: aluno.nome,
-        presente: true
+        nome: aluno.nome || aluno.nome_completo,
+        cpf: aluno.cpf,
+        presente: false
       })));
+      setCatracaApplied(false);
+      setModoManual(false);
     }
-  }, [alunosChamada]);
+  }, [alunosChamada, editingChamada]);
 
-  // Query para buscar histórico de chamadas do professor
+  useEffect(() => {
+    if (editingChamada) return;
+    if (vertente !== 'pec') return;
+    if (!profPecSession?.attendance) return;
+    if (presencas.length === 0) return;
+    const attendance = profPecSession.attendance as any[];
+    const catracaEntries = attendance.filter((a: any) => a.origemCatraca === true && a.presente === true);
+    if (catracaEntries.length === 0) return;
+    if (catracaApplied) return;
+
+    const catracaCpfMap = new Map(catracaEntries.map((a: any) => [a.alunoCpf, a]));
+    const updated = presencas.map(p => {
+      const entry = catracaCpfMap.get(p.cpf);
+      if (entry) {
+        return { ...p, presente: true, viaCatraca: true, horaEntrada: entry.horaEntrada };
+      }
+      return p;
+    });
+    setCatracaApplied(true);
+    setPresencas(updated);
+  }, [profPecSession, presencas.length, editingChamada, catracaApplied, vertente]);
+
+  // Query para buscar histórico de chamadas do professor (filtrado por vertente)
   const { data: historicoChamadas = [], isLoading: historicoLoading, refetch: refetchHistorico } = useQuery({
-    queryKey: ['/api/professor/historico-chamadas', userId],
+    queryKey: ['/api/professor/historico-chamadas', userId, vertente],
     queryFn: async () => {
-      const response = await fetch(`/api/professor/${userId}/historico-chamadas`);
-      if (!response.ok) throw new Error('Failed to fetch historico');
+      const response = await fetch(`/api/professor/${userId}/historico-chamadas?vertente=${vertente}`);
+      if (!response.ok) throw new Error('Falha ao carregar histórico');
       return response.json();
     },
-    enabled: !!userId && (activeSection === 'frequencia' || activeSection === 'aulas')
+    enabled: !!userId,
+    
   });
+
+  const { data: relatoriosAulas = [], isLoading: relatoriosLoading, refetch: refetchRelatorios } = useQuery({
+    queryKey: ['/api/professor/registered-lessons', userId],
+    queryFn: async () => {
+      const response = await fetch(`/api/professor/registered-lessons/${userId}`);
+      if (!response.ok) throw new Error('Falha ao carregar relatórios');
+      return response.json();
+    },
+    enabled: !!userId,
+  });
+
+  // Query para alunos da turma selecionada no acompanhamento
+  const { data: acompAlunosDaTurma = [] } = useQuery({
+    queryKey: ['/api/professor/turmas/alunos/acomp', acompTurmaId, userId],
+    queryFn: async () => {
+      if (!acompTurmaId) return [];
+      const response = await fetch(`/api/professor/${userId}/turmas/${acompTurmaId}/alunos?vertente=${vertente}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!acompTurmaId && !!userId,
+  });
+
+  // Query para sessões PEC da turma selecionada no acompanhamento (vertente PEC)
+  const { data: pecSessoesAcomp = [] } = useQuery({
+    queryKey: ['/api/pec/sessions/acomp', acompTurmaId],
+    queryFn: async () => {
+      if (!acompTurmaId) return [];
+      const response = await fetch(`/api/pec/sessions?activity_instance_id=${acompTurmaId}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!acompTurmaId && !!userId && vertente === 'pec',
+  });
+
+  // Query para listar acompanhamentos do professor
+  const { data: listaAcompanhamentos = [], refetch: refetchAcompanhamentos } = useQuery({
+    queryKey: ['/api/professor/acompanhamentos', userId],
+    queryFn: async () => {
+      const response = await fetch(`/api/professor/acompanhamentos/${userId}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!userId,
+  });
+
+  // Calcular dias de aula quando turma muda (inclusao)
+  const prevChamadaTurmaRef = useRef<string>('');
+  useEffect(() => {
+    if (chamadaTurmaId && vertente === 'inclusao') {
+      const turma = minhasTurmas?.find((t: any) => t.id.toString() === chamadaTurmaId);
+      if (turma) {
+        const todosDias = getDiasAulaParaTurma(turma);
+        const datasComChamada = new Set(
+          (historicoChamadas || [])
+            .filter((c: any) => String(c.grupoId || c.turmaId) === String(chamadaTurmaId))
+            .map((c: any) => normalizeToYMD(c.dataAtividade || c.data))
+        );
+
+        if (editingChamada && chamadaData) {
+          const editingDate = chamadaData;
+          const dias = todosDias.filter(d => !datasComChamada.has(d.date) || d.date === editingDate);
+          if (!dias.some(d => d.date === editingDate)) {
+            const diaEditando = { date: editingDate, label: new Date(editingDate + 'T12:00:00').toLocaleDateString('pt-BR'), dayOfWeek: '' };
+            setDiasAulaDisponiveis([diaEditando, ...dias]);
+          } else {
+            setDiasAulaDisponiveis(dias);
+          }
+        } else {
+          const dias = todosDias.filter(d => !datasComChamada.has(d.date));
+          setDiasAulaDisponiveis(dias);
+          const turmaChanged = prevChamadaTurmaRef.current !== chamadaTurmaId;
+          if (turmaChanged) {
+            prevChamadaTurmaRef.current = chamadaTurmaId;
+            setChamadaData(dias.length > 0 ? dias[0].date : '');
+          } else if (!chamadaData || !dias.some(d => d.date === chamadaData)) {
+            setChamadaData(dias.length > 0 ? dias[0].date : '');
+          }
+        }
+      }
+    } else if (vertente !== 'inclusao') {
+      setDiasAulaDisponiveis([]);
+      prevChamadaTurmaRef.current = '';
+      if (!chamadaData) {
+        setChamadaData(getBrazilDateString());
+      }
+    }
+  }, [chamadaTurmaId, minhasTurmas, vertente, historicoChamadas, editingChamada]);
 
   // Mutation para salvar chamada do professor
   const saveChamadaMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (params?: { teveAlimentacao?: boolean }) => {
+      const teveAlimentacao = params?.teveAlimentacao ?? false;
       if (!chamadaTurmaId || !chamadaData) {
         throw new Error("Selecione uma turma e data");
       }
+      if (!fotoFile && !editingChamada) {
+        throw new Error("É obrigatório enviar a foto comprovante para finalizar a chamada.");
+      }
+      const presencasData = presencas.map(p => ({
+        participanteId: p.participanteId,
+        nome: p.nome,
+        cpf: p.cpf,
+        presente: p.presente,
+        justificativa: p.justificativa
+      }));
+
+      if (editingChamada) {
+        if (vertente === 'pec' && editingChamada.sessionId) {
+          const res = await fetch(`/api/pec/sessions/${editingChamada.sessionId}/editar`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attendance: presencasData })
+          });
+          if (!res.ok) throw new Error('Falha ao atualizar chamada');
+          return res.json();
+        } else {
+          const res = await fetch(`/api/presencas-inclusao/editar`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              turmaId: parseInt(chamadaTurmaId),
+              data: chamadaData,
+              presencas: presencasData
+            })
+          });
+          if (!res.ok) throw new Error('Falha ao atualizar chamada');
+          return res.json();
+        }
+      }
+
       const response = await fetch(`/api/professor/${userId}/registro-presenca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           turmaId: parseInt(chamadaTurmaId),
           data: chamadaData,
-          presencas: presencas.map(p => ({
-            participanteId: p.participanteId,
-            presente: p.presente
-          }))
+          vertente: vertente,
+          presencas: presencasData,
+          teveAlimentacao
         })
       });
-      if (!response.ok) throw new Error('Failed to save chamada');
+      if (!response.ok) throw new Error('Falha ao salvar chamada');
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/professor/historico-chamadas', userId] });
-      toast({ title: "Chamada finalizada!", description: "Presenças registradas com sucesso." });
+    onSuccess: async (data) => {
+      if (fotoFile && vertente === 'inclusao') {
+        try {
+          const formData = new FormData();
+          formData.append('foto', fotoFile);
+          formData.append('turmaId', chamadaTurmaId);
+          formData.append('data', chamadaData);
+          await fetch('/api/presencas-inclusao/foto', {
+            method: 'POST',
+            body: formData
+          });
+        } catch (err) {
+          console.error('Erro ao enviar foto:', err);
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/professor/historico-chamadas', userId, vertente] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/sessions'] });
+      toast({ title: editingChamada ? "Chamada atualizada!" : "Chamada finalizada!", description: "Presenças registradas com sucesso." });
       setChamadaTurmaId('');
       setPresencas([]);
+      setFotoFile(null);
+      setExistingFotoUrl(null);
+      setEditingChamada(null);
     },
     onError: (error: any) => {
-      toast({ title: "Erro", description: error.message || "Não foi possível salvar a chamada.", variant: "destructive" });
+      toast({ title: "Erro ao salvar chamada", description: error.message || "Não foi possível salvar a chamada. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -379,10 +660,11 @@ export default function ProfessorPage() {
     queryKey: ['/api/professor/planos-aula', userId],
     queryFn: async () => {
       const response = await fetch(`/api/professor/${userId}/planos-aula`);
-      if (!response.ok) throw new Error('Failed to fetch planos');
+      if (!response.ok) throw new Error('Falha ao carregar planos');
       return response.json();
     },
-    enabled: !!userId && (activeSection === 'planos' || activeSection === 'aulas')
+    enabled: !!userId && (activeSection === 'planos' || activeSection === 'aulas'),
+    
   });
 
   // Mutation para criar plano de aula
@@ -393,7 +675,7 @@ export default function ProfessorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(planoData)
       });
-      if (!response.ok) throw new Error('Failed to create plano');
+      if (!response.ok) throw new Error('Falha ao criar plano');
       return response.json();
     },
     onSuccess: () => {
@@ -405,8 +687,8 @@ export default function ProfessorPage() {
         conteudo: '', metodologia: '', recursos: '', avaliacao: '', duracaoMinutos: '', status: 'rascunho'
       });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Não foi possível criar o plano.", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao criar plano", description: error.message || "Não foi possível criar o plano. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -418,7 +700,7 @@ export default function ProfessorPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(planoData)
       });
-      if (!response.ok) throw new Error('Failed to update plano');
+      if (!response.ok) throw new Error('Falha ao atualizar plano');
       return response.json();
     },
     onSuccess: () => {
@@ -427,8 +709,8 @@ export default function ProfessorPage() {
       setShowEditPlanoModal(false);
       setSelectedPlano(null);
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Não foi possível atualizar o plano.", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao atualizar plano", description: error.message || "Não foi possível atualizar o plano. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -438,23 +720,28 @@ export default function ProfessorPage() {
       const response = await fetch(`/api/professor/${userId}/planos-aula/${planoId}`, {
         method: 'DELETE'
       });
-      if (!response.ok) throw new Error('Failed to delete plano');
+      if (!response.ok) throw new Error('Falha ao excluir plano');
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/professor/planos-aula', userId] });
       toast({ title: "Plano excluído!", description: "Plano de aula removido com sucesso." });
     },
-    onError: () => {
-      toast({ title: "Erro", description: "Não foi possível excluir o plano.", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Erro ao excluir plano", description: error.message || "Não foi possível excluir o plano. Tente novamente.", variant: "destructive" });
     }
   });
 
   // Filtrar participantes que ainda não estão na turma
   const participantesDisponiveis = (participantesInclusao || []).filter((p: any) => {
     const jaEstaNaTurma = alunosDaTurma.some((a: any) => a.id === p.id);
-    const matchBusca = !buscaAlunoTurma || (p.nome || '').toLowerCase().includes(buscaAlunoTurma.toLowerCase());
+    const matchBusca = !buscaAlunoTurma || (p.nome || '').toLowerCase().includes(buscaAlunoTurma.toLowerCase()) || (p.cpf || '').includes(buscaAlunoTurma);
     return !jaEstaNaTurma && matchBusca;
+  }).sort((a: any, b: any) => {
+    const aInativo = a.status?.toLowerCase() === 'inativo';
+    const bInativo = b.status?.toLowerCase() === 'inativo';
+    if (aInativo !== bInativo) return aInativo ? 1 : -1;
+    return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
   });
 
   const handleLogout = () => {
@@ -522,9 +809,21 @@ export default function ProfessorPage() {
     });
   };
 
-  const handleSalvarRegistroAula = () => {
+  const handleSalvarRegistroAula = async () => {
     if (!registroAulaForm.turmaId) {
       toast({ title: "Turma obrigatória", description: "Selecione uma turma para registrar a aula.", variant: "destructive" });
+      return;
+    }
+    if (!registroAulaForm.planoId) {
+      toast({ title: "Plano de aula obrigatório", description: "Selecione um plano de aula antes de salvar.", variant: "destructive" });
+      return;
+    }
+    if (!registroAulaForm.conteudo?.trim()) {
+      toast({ title: "Relatório obrigatório", description: "Preencha o relatório de aula antes de salvar.", variant: "destructive" });
+      return;
+    }
+    if (!fotoRegistroAula) {
+      toast({ title: "Foto obrigatória", description: "Anexe uma foto da aula antes de salvar.", variant: "destructive" });
       return;
     }
     
@@ -538,29 +837,96 @@ export default function ProfessorPage() {
       chamadaInfo = `${chamada.totalPresentes ?? 0}/${chamada.totalAlunos ?? 0} presentes`;
     }
     
-    const novoRegistro = {
+    const titulo = plano?.titulo
+      ? `${plano.titulo} - ${formatDateBrazil(registroAulaForm.data)}`
+      : `Relatório - ${(turma?.nome || turma?.title) || 'Turma'} - ${formatDateBrazil(registroAulaForm.data)}`;
+
+    const payload = {
+      turmaId: parseInt(registroAulaForm.turmaId),
+      professorId: parseInt(userId),
       data: registroAulaForm.data,
-      turmaId: registroAulaForm.turmaId,
-      turmaNome: (turma?.nome || turma?.title) || '',
-      planoId: registroAulaForm.planoId,
-      planoTitulo: plano?.titulo || '',
-      chamadaId: registroAulaForm.chamadaId,
-      chamadaInfo,
-      conteudo: registroAulaForm.conteudo,
-      observacoes: registroAulaForm.observacoes
+      titulo,
+      conteudoMinistrado: registroAulaForm.conteudo,
+      observacoes: registroAulaForm.observacoes || null,
+      statusAula: 'ministrada',
     };
-    
-    setRegistrosAulas(prev => [novoRegistro, ...prev]);
-    setRegistroAulaForm({
-      data: getBrazilDateString(),
-      turmaId: '',
-      planoId: '',
-      chamadaId: '',
-      conteudo: '',
-      observacoes: ''
-    });
-    
-    toast({ title: "Aula registrada", description: "O registro de aula foi salvo com sucesso." });
+
+    try {
+      const response = await fetch('/api/professor/registered-lessons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao salvar');
+      }
+      const aulaRegistrada = await response.json();
+      // Upload da foto comprovante
+      if (fotoRegistroAula && aulaRegistrada?.id) {
+        const fd = new FormData();
+        fd.append('foto', fotoRegistroAula);
+        await fetch(`/api/professor/registered-lessons/${aulaRegistrada.id}/foto`, {
+          method: 'PATCH',
+          body: fd,
+        }).catch(err => console.error('Erro ao enviar foto:', err));
+      }
+      refetchRelatorios();
+      setRegistroAulaForm({
+        data: getBrazilDateString(),
+        turmaId: '',
+        planoId: '',
+        chamadaId: '',
+        conteudo: '',
+        observacoes: ''
+      });
+      setFotoRegistroAula(null);
+      toast({ title: "Relatório salvo", description: "O relatório de aula foi registrado com sucesso." });
+    } catch (e: any) {
+      toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleSalvarAcompanhamento = async () => {
+    if (!acompTurmaId) return toast({ title: "Selecione a turma", variant: "destructive" });
+    if (!acompDiaAulaId) return toast({ title: "Selecione o dia de aula", variant: "destructive" });
+    if (!acompAlunoCpf) return toast({ title: "Selecione o aluno", variant: "destructive" });
+    if (!acompObservacao.trim()) return toast({ title: "Preencha a observação", variant: "destructive" });
+    setSalvandoAcomp(true);
+    try {
+      const diaAula = vertente === 'pec'
+        ? pecSessoesAcomp.find((r: any) => r.id?.toString() === acompDiaAulaId)
+        : relatoriosAulas.find((r: any) => r.id?.toString() === acompDiaAulaId);
+      const data = diaAula?.date || diaAula?.data || new Date().toISOString().slice(0, 10);
+      const turma = minhasTurmas.find((t: any) => t.id?.toString() === acompTurmaId);
+      const titulo = `Acompanhamento - ${acompAlunoNome} - ${data}`;
+      const response = await fetch('/api/professor/acompanhamentos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alunoCpf: acompAlunoCpf,
+          professorId: parseInt(userId || '0'),
+          turmaId: parseInt(acompTurmaId),
+          data,
+          titulo,
+          tipoObservacao: acompTipo,
+          observacoes: acompObservacao,
+        }),
+      });
+      if (!response.ok) throw new Error('Erro ao salvar');
+      toast({ title: "Acompanhamento salvo!" });
+      setAcompTurmaId('');
+      setAcompDiaAulaId('');
+      setAcompAlunoCpf('');
+      setAcompAlunoNome('');
+      setAcompObservacao('');
+      setAcompTipo('comportamental');
+      refetchAcompanhamentos();
+    } catch (e: any) {
+      toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" });
+    } finally {
+      setSalvandoAcomp(false);
+    }
   };
 
   if (isLoading) {
@@ -575,19 +941,19 @@ export default function ProfessorPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="professor-page">
+    <div className="min-h-screen bg-slate-900" data-testid="professor-page">
       {/* Header */}
-      <div className={`border-b px-4 py-4 md:px-6 ${vertente === 'pec' ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
+      <div className={`bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${vertente === 'pec' ? 'bg-yellow-500' : 'bg-green-500'}`}>
               <GraduationCap className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
+              <h1 className="text-xl md:text-2xl font-bold text-white" data-testid="text-welcome">
                 Professor - {vertenteLabel}
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Bem-vindo, {userName}</p>
+              <p className="text-slate-400" data-testid="text-username">Bem-vindo, {userName}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -619,38 +985,26 @@ export default function ProfessorPage() {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
+        
+        {/* Dashboard Visual */}
+        <MonitorDashboard
+          vertente={vertente}
+          isLoading={vertente === 'pec' ? (alunosPecLoading || turmasLoading) : (participantesLoading || turmasLoading)}
+          alunosPec={vertente === 'pec' ? alunosPec : []}
+          participantesInclusao={vertente === 'inclusao' ? participantesInclusao : []}
+          monitorGruposData={vertente === 'pec' ? minhasTurmas : []}
+          gruposInclusaoData={vertente === 'inclusao' ? minhasTurmas : []}
+          historicoChamadas={historicoChamadas}
+          titulo="Painel do Professor"
+          filtroAno={dashFiltroAno}
+          filtroMes={dashFiltroMes}
+          onFilterChange={(ano: number, mes: number) => { setDashFiltroAno(ano); setDashFiltroMes(mes); }}
+          meusAlunos={dashboardData?.meusAlunos}
+          alunosFormados={dashboardData?.alunosFormados}
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          {/* Resumo de Atividades */}
-          <Card data-testid="card-resumo">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Target className="w-5 h-5 text-yellow-500" />
-                Resumo de Atividades
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Alunos:</span>
-                <span className="font-semibold" data-testid="text-total-alunos">
-                  {dashboardData?.totalAlunos || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Turmas Ativas:</span>
-                <span className="font-semibold" data-testid="text-turmas-ativas">
-                  {dashboardData?.turmasAtivas || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Aulas Ministradas:</span>
-                <span className="font-semibold" data-testid="text-aulas-ministradas">
-                  {dashboardData?.aulasMinistradas || 0}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Gestão de Alunos */}
           <Card data-testid="card-alunos">
             <CardHeader className="pb-3">
@@ -668,7 +1022,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'alunos' ? 'default' : 'outline'}
                   data-testid="button-ver-alunos"
-                  onClick={() => setActiveSection('alunos')}
+                  onClick={() => changeSection('alunos')}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Ver Alunos
@@ -677,10 +1031,10 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'frequencia' ? 'default' : 'outline'}
                   data-testid="button-chamada"
-                  onClick={() => setActiveSection('frequencia')}
+                  onClick={() => changeSection('frequencia')}
                 >
-                  <Clock className="w-4 h-4 mr-2" />
-                  Fazer Chamada
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Controle de Presença
                 </Button>
               </div>
             </CardContent>
@@ -703,7 +1057,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'planos' ? 'default' : 'outline'}
                   data-testid="button-criar-plano"
-                  onClick={() => setActiveSection('planos')}
+                  onClick={() => changeSection('planos')}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Meus Planos
@@ -712,10 +1066,10 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'aulas' ? 'default' : 'outline'}
                   data-testid="button-registro-aulas"
-                  onClick={() => setActiveSection('aulas')}
+                  onClick={() => changeSection('aulas')}
                 >
                   <FileText className="w-4 h-4 mr-2" />
-                  Registro de Aulas
+                  Relatório de aula
                 </Button>
               </div>
             </CardContent>
@@ -738,7 +1092,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'turmas' ? 'default' : 'outline'}
                   data-testid="button-minhas-turmas"
-                  onClick={() => setActiveSection('turmas')}
+                  onClick={() => changeSection('turmas')}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Minhas Turmas
@@ -747,7 +1101,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'calendario' ? 'default' : 'outline'}
                   data-testid="button-calendario"
-                  onClick={() => setActiveSection('calendario')}
+                  onClick={() => changeSection('calendario')}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Calendário
@@ -773,7 +1127,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'relatorios' ? 'default' : 'outline'}
                   data-testid="button-relatorio-frequencia"
-                  onClick={() => setActiveSection('relatorios')}
+                  onClick={() => changeSection('relatorios')}
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Relatórios
@@ -782,7 +1136,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'acompanhamento' ? 'default' : 'outline'}
                   data-testid="button-acompanhamento"
-                  onClick={() => setActiveSection('acompanhamento')}
+                  onClick={() => changeSection('acompanhamento')}
                 >
                   <Target className="w-4 h-4 mr-2" />
                   Acompanhamento
@@ -808,7 +1162,7 @@ export default function ProfessorPage() {
                   className="w-full" 
                   variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
                   data-testid="button-perfil"
-                  onClick={() => setActiveSection('configuracoes')}
+                  onClick={() => changeSection('configuracoes')}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   Meu Perfil
@@ -827,32 +1181,19 @@ export default function ProfessorPage() {
         </div>
 
         {/* Área de Conteúdo Dinâmica */}
-        <div className="mt-8">
-          {activeSection === 'dashboard' && (
+        <div className="mt-8" id="professor-content-area">
+          {activeSection === 'alunos' && vertente === 'inclusao' && (
+            <ParticipantesInclusaoSection 
+              showImportExport={false} 
+              readOnly={true}
+              filtroTurmaIds={(minhasTurmas || []).map((t: any) => t.id)}
+            />
+          )}
+          
+          {activeSection === 'alunos' && vertente === 'pec' && (
             <Card>
               <CardHeader>
-                <CardTitle>Dashboard Principal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">Visão geral das suas atividades pedagógicas e turmas.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeSection === 'alunos' && vertente === 'inclusao' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-green-500" />
-                  Participantes - Inclusão Produtiva
-                </CardTitle>
-                <Button 
-                  className="bg-green-500 hover:bg-green-600"
-                  onClick={() => setShowNovoParticipanteModal(true)}
-                >
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  Novo Participante
-                </Button>
+                <CardTitle>Alunos do PEC</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -860,70 +1201,47 @@ export default function ProfessorPage() {
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input 
-                        placeholder="Buscar participante por nome..." 
+                        placeholder="Buscar alunos por nome ou CPF..."
+                        value={buscaAlunoPec}
+                        onChange={(e) => setBuscaAlunoPec(e.target.value)}
                         className="pl-10"
-                        value={buscaParticipante}
-                        onChange={(e) => setBuscaParticipante(e.target.value)}
                       />
                     </div>
                   </div>
-                  
-                  {participantesLoading ? (
-                    <div className="text-center py-8">Carregando participantes...</div>
+
+                  {alunosPecLoading ? (
+                    <div className="text-center py-8 text-gray-500">Carregando alunos...</div>
                   ) : (
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Matrícula</TableHead>
                           <TableHead>Nome</TableHead>
-                          <TableHead>CPF</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Ações</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Nascimento</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(participantesInclusao || [])
-                          .filter((p: any) => !buscaParticipante || (p.nome || p.nomeCompleto || '')?.toLowerCase().includes(buscaParticipante.toLowerCase()))
-                          .map((participante: any) => (
-                            <TableRow key={participante.id}>
-                              <TableCell className="font-mono text-green-600">{participante.codigoMatricula || participante.codigo_matricula || '-'}</TableCell>
-                              <TableCell className="font-medium">{participante.nome || participante.nomeCompleto}</TableCell>
-                              <TableCell>{participante.cpf}</TableCell>
-                              <TableCell>
-                                <Badge className={participante.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                                  {participante.status || 'ativo'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2">
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline"
-                                    onClick={() => {
-                                      setSelectedParticipante(participante);
-                                      setShowViewParticipanteModal(true);
-                                    }}
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline"
-                                    onClick={() => {
-                                      setSelectedParticipante(participante);
-                                      setShowEditParticipanteModal(true);
-                                    }}
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
+                        {[...(alunosPec || [])]
+                          .sort((a: any, b: any) => {
+                            const nomeA = (a.nome_completo || '').trim().toLowerCase();
+                            const nomeB = (b.nome_completo || '').trim().toLowerCase();
+                            return nomeA.localeCompare(nomeB, 'pt-BR');
+                          })
+                          .filter((a: any) => {
+                            return !buscaAlunoPec || 
+                              (a.nome_completo || '').toLowerCase().includes(buscaAlunoPec.toLowerCase());
+                          })
+                          .map((aluno: any) => (
+                            <TableRow key={aluno.cpf || aluno.id}>
+                              <TableCell className="font-medium">{aluno.nome_completo || aluno.nome}</TableCell>
+                              <TableCell>{aluno.telefone || '-'}</TableCell>
+                              <TableCell>{aluno.data_nascimento ? formatDateBrazil(aluno.data_nascimento) : '-'}</TableCell>
                             </TableRow>
                           ))}
-                        {(!participantesInclusao || participantesInclusao.length === 0) && (
+                        {alunosPec.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-8 text-gray-500">
-                              Nenhum participante cadastrado. Clique em "Novo Participante" para começar.
+                            <TableCell colSpan={3} className="text-center py-8 text-gray-500">
+                              Nenhum aluno nas suas turmas.
                             </TableCell>
                           </TableRow>
                         )}
@@ -934,31 +1252,24 @@ export default function ProfessorPage() {
               </CardContent>
             </Card>
           )}
-          
-          {activeSection === 'alunos' && vertente === 'pec' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Gestão de Alunos - PEC</CardTitle>
-                <Button size="sm" className="bg-yellow-500 hover:bg-yellow-600">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Adicionar Aluno
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-8 text-gray-500">
-                  <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Gestão de alunos PEC em desenvolvimento.</p>
-                  <p className="text-sm">Use a tela do Monitor PEC para cadastrar alunos.</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {activeSection === 'frequencia' && (
             <>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Controle de Frequência</CardTitle>
+                <CardTitle className="flex items-center gap-2"><CheckCircle className="w-5 h-5 text-green-500" />Controle de Presença
+                  {catracaConnected ? (
+                    <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 text-xs">
+                      <Wifi className="w-3 h-3 mr-1" />
+                      Catraca Online
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-gray-400 border-gray-200 text-xs">
+                      <WifiOff className="w-3 h-3 mr-1" />
+                      Catraca Offline
+                    </Badge>
+                  )}
+                </CardTitle>
                 <Button 
                   variant="outline"
                   onClick={() => setShowHistoricoChamadas(!showHistoricoChamadas)}
@@ -972,14 +1283,6 @@ export default function ProfessorPage() {
                   <div className="space-y-4">
                     <div className="flex gap-4 items-end flex-wrap">
                       <div className="flex-1 min-w-[200px]">
-                        <label className="block text-sm font-medium mb-2">Data da Aula</label>
-                        <Input 
-                          type="date" 
-                          value={chamadaData}
-                          onChange={(e) => setChamadaData(e.target.value)}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-[200px]">
                         <label className="block text-sm font-medium mb-2">Turma</label>
                         <Select value={chamadaTurmaId} onValueChange={setChamadaTurmaId}>
                           <SelectTrigger>
@@ -988,22 +1291,206 @@ export default function ProfessorPage() {
                           <SelectContent>
                             {(minhasTurmas || []).filter((t: any) => t.status !== 'inativo').map((turma: any) => (
                               <SelectItem key={turma.id} value={turma.id.toString()}>
-                                {(turma.nome || turma.title)}
+                                <div className="flex items-center gap-2">
+                                  <span>{(turma.nome || turma.title)}</span>
+                                  {(turma.control_mode === 'intelbras' || turma.temCatraca) && (
+                                    <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5 pointer-events-none">
+                                      <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                      Catraca
+                                    </Badge>
+                                  )}
+                                </div>
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <Button 
-                        className="bg-green-500 hover:bg-green-600"
-                        onClick={() => saveChamadaMutation.mutate()}
-                        disabled={!chamadaTurmaId || presencas.length === 0 || saveChamadaMutation.isPending}
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-sm font-medium mb-2">Data da Aula</label>
+                        {vertente === 'inclusao' && diasAulaDisponiveis.length > 0 ? (
+                          <Select value={chamadaData} onValueChange={setChamadaData} disabled={!chamadaTurmaId || !!editingChamada}>
+                            <SelectTrigger>
+                              <SelectValue placeholder={chamadaTurmaId ? "Selecione a data" : "Selecione a turma primeiro"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {diasAulaDisponiveis.map((dia) => (
+                                <SelectItem key={dia.date} value={dia.date}>
+                                  {dia.label} ({dia.dayOfWeek})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input 
+                            type="date" 
+                            value={chamadaData}
+                            onChange={(e) => setChamadaData(e.target.value)}
+                            disabled={!!editingChamada}
+                          />
+                        )}
+                      </div>
+                      {chamadaTurmaId && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {editingChamada ? (
+                            existingFotoUrl ? (
+                              <div className="flex items-center gap-2">
+                                <img src={existingFotoUrl} alt="Foto comprovante" className="w-10 h-10 rounded object-cover border" />
+                                <span className="text-xs text-gray-500">Foto comprovante (somente leitura)</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Camera className="w-4 h-4 text-gray-400" />
+                                <span className="text-xs text-gray-500">Sem foto comprovante</span>
+                              </div>
+                            )
+                          ) : (
+                            <>
+                              <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">
+                                <Camera className="w-4 h-4 text-gray-500" />
+                                <span className="text-gray-600">{fotoFile ? fotoFile.name : 'Foto comprovante'}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => setFotoFile(e.target.files?.[0] || null)}
+                                />
+                              </label>
+                              {fotoFile && (
+                                <img src={URL.createObjectURL(fotoFile)} alt="Preview" className="w-10 h-10 rounded object-cover border" />
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <div 
+                        className="relative"
+                        onClick={() => {
+                          if (presencas.some(p => !p.presente && !p.justificativa)) {
+                            toast({ title: "Não é possível salvar", description: "Selecione uma justificativa para todos os alunos com falta antes de finalizar a chamada.", variant: "destructive" });
+                          }
+                        }}
                       >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        {saveChamadaMutation.isPending ? 'Salvando...' : 'Finalizar Chamada'}
-                      </Button>
+                        <Button 
+                          className="bg-green-500 hover:bg-green-600 w-full"
+                          onClick={(e) => {
+                            if (!presencas.some(p => !p.presente && !p.justificativa)) {
+                              if (editingChamada) {
+                                saveChamadaMutation.mutate({});
+                              } else {
+                                setShowAlimentacaoModal(true);
+                              }
+                            } else {
+                              e.preventDefault();
+                            }
+                          }}
+                          disabled={!chamadaTurmaId || presencas.length === 0 || saveChamadaMutation.isPending || presencas.some(p => !p.presente && !p.justificativa)}
+                          title={presencas.some(p => !p.presente && !p.justificativa) ? 'Selecione uma justificativa para todos os alunos com falta antes de salvar' : ''}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          {saveChamadaMutation.isPending ? 'Salvando...' : editingChamada ? 'Atualizar Chamada' : 'Finalizar Chamada'}
+                        </Button>
+                      </div>
+                      {editingChamada && (
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            setEditingChamada(null);
+                            setChamadaTurmaId('');
+                            setChamadaData('');
+                            setPresencas([]);
+                            setFotoFile(null);
+                            setExistingFotoUrl(null);
+                          }}
+                        >
+                          Cancelar Edição
+                        </Button>
+                      )}
                     </div>
                     
+                    {chamadaTurmaId && !editingChamada && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border">
+                        <div className="flex items-center gap-2">
+                          {modoManual ? (
+                            <>
+                              <Hand className="w-4 h-4 text-orange-500" />
+                              <span className="text-sm font-medium text-orange-700">Modo Manual</span>
+                            </>
+                          ) : (
+                            <>
+                              <ScanFace className="w-4 h-4 text-blue-500" />
+                              <span className="text-sm font-medium text-blue-700">Chamada Facial / Catraca</span>
+                              {presencas.some(p => p.viaCatraca) && (
+                                <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5">
+                                  <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                  {presencas.filter(p => p.viaCatraca).length} entrada{presencas.filter(p => p.viaCatraca).length !== 1 ? 's' : ''}
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <Button
+                          variant={modoManual ? "default" : "outline"}
+                          size="sm"
+                          className={modoManual ? "bg-orange-500 hover:bg-orange-600" : ""}
+                          onClick={() => {
+                            if (modoManual) {
+                              setModoManual(false);
+                            } else {
+                              setMotivoManualSelect('');
+                              setDescManual('');
+                              setShowModoManualDialog(true);
+                            }
+                          }}
+                        >
+                          {modoManual ? (
+                            <>
+                              <ScanFace className="w-4 h-4 mr-1" />
+                              Voltar p/ Facial
+                            </>
+                          ) : (
+                            <>
+                              <Hand className="w-4 h-4 mr-1" />
+                              Chamada Manual
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {chamadaTurmaId && profCatracaLog?.entradas && profCatracaLog.entradas.length > 0 && (
+                      <div className="border rounded-lg p-3 bg-white">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-blue-500" />
+                            Entradas via Catraca Hoje
+                          </h4>
+                          <span className="text-xs text-gray-400">
+                            {profCatracaLog.entradas.filter((e: any) => {
+                              const turma = minhasTurmas?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                              return turma ? (e.turma === turma.nome || e.turma === turma.title) : true;
+                            }).length} registro(s)
+                          </span>
+                        </div>
+                        <div className="grid gap-1.5 max-h-[160px] overflow-y-auto">
+                          {profCatracaLog.entradas
+                            .filter((e: any) => {
+                              const turma = minhasTurmas?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                              return turma ? (e.turma === turma.nome || e.turma === turma.title) : true;
+                            })
+                            .map((entry: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded bg-blue-50 border border-blue-100">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                  <span className="text-sm">{entry.nome}</span>
+                                </div>
+                                <span className="text-xs text-gray-500 font-mono">{entry.hora}</span>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      </div>
+                    )}
+
                     {chamadaTurmaId && (
                       <div className="border rounded-lg p-4">
                         <h3 className="font-semibold mb-4">
@@ -1019,44 +1506,101 @@ export default function ProfessorPage() {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            {presencas.map((aluno, index) => (
-                              <div key={aluno.participanteId} className="flex items-center justify-between p-3 border rounded">
-                                <div className="flex items-center gap-3">
-                                  <User className="w-4 h-4 text-gray-400" />
-                                  <span>{aluno.nome}</span>
+                            {[...presencas].sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map((aluno) => {
+                              const realIndex = presencas.findIndex(p => p.participanteId === aluno.participanteId);
+                              return (
+                              <div key={aluno.participanteId} className={`flex flex-col gap-2 p-3 border rounded ${!modoManual && !aluno.viaCatraca && !aluno.presente ? 'opacity-60' : ''}`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <User className="w-4 h-4 text-gray-400" />
+                                    <span>{aluno.nome}</span>
+                                    {aluno.viaCatraca && aluno.horaEntrada && (
+                                      <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px] px-1.5">
+                                        <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                        {aluno.horaEntrada}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {modoManual || editingChamada ? (
+                                  <div className="flex items-center gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <input 
+                                        type="radio" 
+                                        name={`presenca-${aluno.participanteId}`}
+                                        checked={aluno.presente}
+                                        onChange={() => {
+                                          const updated = [...presencas];
+                                          updated[realIndex].presente = true;
+                                          updated[realIndex].justificativa = undefined;
+                                          setPresencas(updated);
+                                        }}
+                                        className="w-4 h-4 text-green-600"
+                                      />
+                                      <span className="text-sm text-green-600">Presente</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <input 
+                                        type="radio" 
+                                        name={`presenca-${aluno.participanteId}`}
+                                        checked={!aluno.presente}
+                                        onChange={() => {
+                                          const updated = [...presencas];
+                                          updated[realIndex].presente = false;
+                                          setPresencas(updated);
+                                        }}
+                                        className="w-4 h-4 text-red-600"
+                                      />
+                                      <span className="text-sm text-red-600">Falta</span>
+                                    </label>
+                                  </div>
+                                  ) : (
+                                  <div className="flex items-center gap-2">
+                                    {aluno.presente ? (
+                                      <Badge className="bg-green-100 text-green-700 border-green-200">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Presente
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-gray-400 border-gray-200">
+                                        Aguardando catraca
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-4">
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <input 
-                                      type="radio" 
-                                      name={`presenca-${aluno.participanteId}`}
-                                      checked={aluno.presente}
-                                      onChange={() => {
+                                {!aluno.presente && (modoManual || editingChamada) && (
+                                  <div className="ml-7 space-y-1">
+                                    <div className="flex flex-wrap gap-1">
+                                      {['Doença', 'Atestado médico', 'Escola', 'Trabalho', 'Transporte', 'Família', 'Compromisso pessoal', 'Chuva/Clima', 'Outro', 'Sem justificativa'].map((opcao) => (
+                                        <button
+                                          key={opcao}
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = [...presencas];
+                                            updated[realIndex].justificativa = opcao;
+                                            setPresencas(updated);
+                                          }}
+                                          className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${aluno.justificativa === opcao ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                                        >
+                                          {opcao}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <Input
+                                      placeholder="Ou escreva a justificativa..."
+                                      value={aluno.justificativa || ''}
+                                      onChange={(e) => {
                                         const updated = [...presencas];
-                                        updated[index].presente = true;
+                                        updated[realIndex].justificativa = e.target.value;
                                         setPresencas(updated);
                                       }}
-                                      className="w-4 h-4 text-green-600"
+                                      className="text-sm h-8"
                                     />
-                                    <span className="text-sm text-green-600">Presente</span>
-                                  </label>
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <input 
-                                      type="radio" 
-                                      name={`presenca-${aluno.participanteId}`}
-                                      checked={!aluno.presente}
-                                      onChange={() => {
-                                        const updated = [...presencas];
-                                        updated[index].presente = false;
-                                        setPresencas(updated);
-                                      }}
-                                      className="w-4 h-4 text-red-600"
-                                    />
-                                    <span className="text-sm text-red-600">Falta</span>
-                                  </label>
-                                </div>
+                                  </div>
+                                )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1071,7 +1615,7 @@ export default function ProfessorPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Histórico de Chamadas</h3>
+                    <h3 className="font-semibold">Histórico de Presenças</h3>
                     
                     {/* Filtros de pesquisa */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
@@ -1171,13 +1715,15 @@ export default function ProfessorPage() {
                                     {dataAtividade ? formatDateBrazil(dataAtividade) : 'Data não disponível'}
                                   </p>
                                 </div>
-                                <div className="text-right">
-                                  <Badge className="bg-green-100 text-green-800">
-                                    {presentes}/{total} presentes
-                                  </Badge>
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    {total > 0 ? Math.round((presentes / total) * 100) : 0}% frequência
-                                  </p>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <Badge className="bg-green-100 text-green-800">
+                                      {presentes}/{total} presentes
+                                    </Badge>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {total > 0 ? Math.round((presentes / total) * 100) : 0}% frequência
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -1276,27 +1822,19 @@ export default function ProfessorPage() {
           {activeSection === 'aulas' && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Registro de Aulas</CardTitle>
+                <CardTitle>Relatório de Aula</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
                   <div className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-4">Registrar Nova Aula</h3>
+                    <h3 className="font-semibold mb-4">Novo Relatório de Aula</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Data da Aula</label>
-                        <Input 
-                          type="date" 
-                          value={registroAulaForm.data}
-                          onChange={(e) => setRegistroAulaForm({...registroAulaForm, data: e.target.value})}
-                        />
-                      </div>
                       <div>
                         <label className="block text-sm font-medium mb-2">Turma *</label>
                         <Select 
                           value={registroAulaForm.turmaId}
                           onValueChange={(v) => {
-                            setRegistroAulaForm({...registroAulaForm, turmaId: v, planoId: ''});
+                            setRegistroAulaForm({...registroAulaForm, turmaId: v, planoId: '', data: ''});
                           }}
                         >
                           <SelectTrigger>
@@ -1311,8 +1849,29 @@ export default function ProfessorPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Data da Aula *</label>
+                        {(() => {
+                          const turmaSel = minhasTurmas.find((t: any) => t.id.toString() === registroAulaForm.turmaId);
+                          const diasAula = turmaSel ? getDiasAulaParaTurma(turmaSel) : [];
+                          return diasAula.length > 0 ? (
+                            <Select value={registroAulaForm.data} onValueChange={(v) => setRegistroAulaForm({...registroAulaForm, data: v})}>
+                              <SelectTrigger><SelectValue placeholder="Selecione o dia" /></SelectTrigger>
+                              <SelectContent>
+                                {diasAula.map((dia) => (
+                                  <SelectItem key={dia.date} value={dia.date}>{dia.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Select disabled>
+                              <SelectTrigger><SelectValue placeholder={registroAulaForm.turmaId ? "Nenhum dia cadastrado" : "Selecione a turma primeiro"} /></SelectTrigger>
+                            </Select>
+                          );
+                        })()}
+                      </div>
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Plano de Aula (opcional)</label>
+                        <label className="block text-sm font-medium mb-2">Plano de Aula <span className="text-red-500">*</span></label>
                         <Select 
                           value={registroAulaForm.planoId}
                           onValueChange={(v) => {
@@ -1328,7 +1887,7 @@ export default function ProfessorPage() {
                           }}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione um plano (opcional)" />
+                            <SelectValue placeholder="Selecione um plano de aula" />
                           </SelectTrigger>
                           <SelectContent>
                             {meusPlanos
@@ -1341,16 +1900,7 @@ export default function ProfessorPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Filtrar chamadas por data</label>
-                        <Input 
-                          type="date"
-                          value={filtroChamadaData}
-                          onChange={(e) => setFiltroChamadaData(e.target.value)}
-                          placeholder="Filtrar por data"
-                        />
-                      </div>
-                      <div>
+                      <div className="md:col-span-2">
                         <label className="block text-sm font-medium mb-2">Chamada realizada (opcional)</label>
                         <Select 
                           value={registroAulaForm.chamadaId}
@@ -1385,9 +1935,9 @@ export default function ProfessorPage() {
                         </Select>
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Conteúdo Ministrado</label>
+                        <label className="block text-sm font-medium mb-2">Relatório de aula *</label>
                         <Textarea 
-                          placeholder="Descreva o conteúdo abordado na aula..." 
+                          placeholder="Descreva o conteúdo abordado, atividades realizadas e observações da aula..." 
                           rows={3}
                           value={registroAulaForm.conteudo}
                           onChange={(e) => setRegistroAulaForm({...registroAulaForm, conteudo: e.target.value})}
@@ -1402,6 +1952,45 @@ export default function ProfessorPage() {
                           onChange={(e) => setRegistroAulaForm({...registroAulaForm, observacoes: e.target.value})}
                         />
                       </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-2">
+                          Foto da Aula <span className="text-red-500">*</span>
+                        </label>
+                        <div
+                          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${fotoRegistroAula ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}
+                          onClick={() => fotoRegistroAulaRef.current?.click()}
+                        >
+                          {fotoRegistroAula ? (
+                            <div className="flex items-center justify-center gap-3">
+                              <img src={URL.createObjectURL(fotoRegistroAula)} alt="Preview" className="w-16 h-16 rounded object-cover border" />
+                              <div className="text-left">
+                                <p className="text-sm font-medium text-green-700">{fotoRegistroAula.name}</p>
+                                <button type="button" className="text-xs text-red-500 mt-1 hover:underline"
+                                  onClick={(e) => { e.stopPropagation(); setFotoRegistroAula(null); }}>
+                                  Remover foto
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-gray-400">
+                              <Upload className="w-8 h-8 mx-auto mb-2" />
+                              <p className="text-sm">Clique para anexar uma foto da aula</p>
+                              <p className="text-xs mt-1">JPG, PNG ou WEBP</p>
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          ref={fotoRegistroAulaRef}
+                          type="file"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) setFotoRegistroAula(file);
+                            if (fotoRegistroAulaRef.current) fotoRegistroAulaRef.current.value = '';
+                          }}
+                        />
+                      </div>
                     </div>
                     <Button 
                       className="mt-4 bg-blue-500 hover:bg-blue-600"
@@ -1414,40 +2003,68 @@ export default function ProfessorPage() {
                   </div>
                   
                   <div>
-                    <h3 className="font-semibold mb-4">Aulas Registradas</h3>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
+                      <h3 className="font-semibold">Relatórios de Aulas</h3>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          placeholder="Buscar por título ou turma..."
+                          value={filtroRelatorio.texto}
+                          onChange={(e) => setFiltroRelatorio(f => ({ ...f, texto: e.target.value }))}
+                          className="w-full sm:w-52"
+                        />
+                        <Input
+                          type="date"
+                          value={filtroRelatorio.data}
+                          onChange={(e) => setFiltroRelatorio(f => ({ ...f, data: e.target.value }))}
+                          className="w-full sm:w-40"
+                        />
+                        {(filtroRelatorio.texto || filtroRelatorio.data) && (
+                          <Button variant="ghost" size="sm" onClick={() => setFiltroRelatorio({ texto: '', data: '' })}>
+                            Limpar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                     <div className="space-y-3">
-                      {registrosAulas.length === 0 ? (
-                        <p className="text-gray-500 text-center py-4">Nenhuma aula registrada ainda</p>
-                      ) : (
-                        registrosAulas.map((aula: any, index: number) => (
-                          <div key={index} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <Calendar className="w-4 h-4 text-blue-500" />
-                                <span className="font-medium">
-                                  {formatDateBrazil(aula.data)} - {aula.turmaNome || 'Turma'}
-                                </span>
+                      {relatoriosLoading ? (
+                        <p className="text-gray-500 text-center py-4">Carregando relatórios...</p>
+                      ) : (() => {
+                        const textoLower = filtroRelatorio.texto.toLowerCase();
+                        const filtrados = relatoriosAulas.filter((rel: any) => {
+                          const turmaNome = (minhasTurmas.find((t: any) => t.id === rel.turmaId)?.nome || '').toLowerCase();
+                          const matchTexto = !textoLower || rel.titulo?.toLowerCase().includes(textoLower) || turmaNome.includes(textoLower);
+                          const matchData = !filtroRelatorio.data || rel.data === filtroRelatorio.data;
+                          return matchTexto && matchData;
+                        });
+                        if (filtrados.length === 0) return (
+                          <p className="text-gray-500 text-center py-4">
+                            {relatoriosAulas.length === 0 ? 'Nenhum relatório registrado ainda' : 'Nenhum relatório encontrado com esse filtro'}
+                          </p>
+                        );
+                        return filtrados.map((rel: any, index: number) => {
+                          const turmaNome = minhasTurmas.find((t: any) => t.id === rel.turmaId)?.nome || '';
+                          return (
+                            <div key={rel.id || index} className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => setRelatorioSelecionado(rel)}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                                  <span className="font-medium text-sm truncate">{formatDateBrazil(rel.data)} — {rel.titulo || 'Relatório de aula'}</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0 ml-2">
+                                  <Badge className="bg-green-100 text-green-800 text-xs">{rel.statusAula || 'ministrada'}</Badge>
+                                  <Button variant="ghost" size="sm" className="h-7 px-2 text-blue-600" onClick={(e) => { e.stopPropagation(); setRelatorioSelecionado(rel); }}>
+                                    <Eye className="w-3.5 h-3.5 mr-1" />Ver
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="flex gap-2">
-                                {aula.planoTitulo && (
-                                  <Badge className="bg-purple-100 text-purple-800">
-                                    Plano: {aula.planoTitulo}
-                                  </Badge>
-                                )}
-                                {aula.chamadaInfo && (
-                                  <Badge className="bg-green-100 text-green-800">
-                                    Chamada: {aula.chamadaInfo}
-                                  </Badge>
-                                )}
-                              </div>
+                              {turmaNome && <p className="text-xs text-gray-400 ml-6 mb-1">{turmaNome}</p>}
+                              {rel.conteudoMinistrado && (
+                                <p className="text-gray-600 text-sm ml-6 line-clamp-2">{rel.conteudoMinistrado}</p>
+                              )}
                             </div>
-                            <p className="text-gray-600 mb-2">{aula.conteudo || 'Sem conteúdo registrado'}</p>
-                            {aula.observacoes && (
-                              <p className="text-gray-500 text-sm italic">{aula.observacoes}</p>
-                            )}
-                          </div>
-                        ))
-                      )}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1458,12 +2075,25 @@ export default function ProfessorPage() {
           {activeSection === 'turmas' && (
             <>
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Minhas Turmas</CardTitle>
-                <Button className="bg-green-500 hover:bg-green-600" onClick={() => setShowNovaTurmaModal(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nova Turma
-                </Button>
+              <CardHeader className="flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between w-full">
+                  <CardTitle>Minhas Turmas</CardTitle>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant={filtroStatusTurma === "todos" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("todos")}>Todas</Button>
+                  <Button variant={filtroStatusTurma === "ativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("ativo")}>Em Andamento</Button>
+                  <Button variant={filtroStatusTurma === "planejado" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("planejado")}>Planejadas</Button>
+                  <Button variant={filtroStatusTurma === "concluido" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("concluido")}>Concluídas</Button>
+                  <Button variant={filtroStatusTurma === "inativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("inativo")}>Inativas</Button>
+                </div>
+                <div className="w-full">
+                  <Input
+                    placeholder="Buscar turma pelo nome..."
+                    value={buscaTurma}
+                    onChange={(e) => setBuscaTurma(e.target.value)}
+                    className="w-full max-w-sm"
+                  />
+                </div>
               </CardHeader>
               <CardContent>
                 {turmasLoading ? (
@@ -1471,26 +2101,53 @@ export default function ProfessorPage() {
                 ) : minhasTurmas.length === 0 ? (
                   <div className="text-center py-8">
                     <Users className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                    <p className="text-gray-500 mb-4">Você ainda não criou nenhuma turma</p>
-                    <Button className="bg-green-500 hover:bg-green-600" onClick={() => setShowNovaTurmaModal(true)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Criar Primeira Turma
-                    </Button>
+                    <p className="text-gray-500 mb-4">Nenhuma turma vinculada ao seu perfil. Solicite ao coordenador a vinculação.</p>
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {minhasTurmas.filter((turma: any) => turma.status !== 'inativo').map((turma: any) => (
-                      <div key={turma.id} className="border rounded-lg p-4 border-green-200">
+                    {minhasTurmas
+                      .filter((turma: any) => {
+                        if (filtroStatusTurma !== "inativo" && filtroStatusTurma !== "concluido" && (turma.status === 'inativo' || turma.status === 'encerrada')) return false;
+                        if (filtroStatusTurma === "inativo" && turma.status !== 'inativo') return false;
+                        const nomeTurma = (turma.nome || turma.title || '').toLowerCase();
+                        if (buscaTurma && !nomeTurma.includes(buscaTurma.toLowerCase())) return false;
+                        if (filtroStatusTurma === "todos") return true;
+                        if (filtroStatusTurma === "ativo") return turma.status === "ativo" || turma.status === "emandamento" || turma.status === "em_andamento" || turma.status === "execucao";
+                        if (filtroStatusTurma === "planejado") return turma.status === "planejado" || turma.status === "pendente" || turma.status === "planejamento";
+                        if (filtroStatusTurma === "concluido") return turma.status === "concluido" || turma.status === "finalizado" || turma.status === "encerrada";
+                        return turma.status === filtroStatusTurma;
+                      })
+                      .sort((a: any, b: any) => {
+                        const dataA = a.created_at || a.createdAt || a.data_inicio || "";
+                        const dataB = b.created_at || b.createdAt || b.data_inicio || "";
+                        return new Date(dataB).getTime() - new Date(dataA).getTime();
+                      })
+                      .map((turma: any) => (
+                      <div key={turma.id} className="border rounded-lg p-4" style={{ borderColor: turma.marcadorCor || '#86efac' }}>
                         <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold">{(turma.nome || turma.title)}</h3>
-                          <Badge className="bg-green-100 text-green-800">
-                            Ativa
+                          <div className="flex items-center gap-2">
+                            {turma.marcadorIcone && MARCADOR_ICONE_MAP[turma.marcadorIcone] && (() => {
+                              const IconComp = MARCADOR_ICONE_MAP[turma.marcadorIcone];
+                              return <IconComp className="w-5 h-5" style={{ color: turma.marcadorCor || '#22c55e' }} />;
+                            })()}
+                            {turma.marcadorCor && <div className="w-3 h-3 rounded-full" style={{ backgroundColor: turma.marcadorCor }}></div>}
+                            <h3 className="font-semibold">{(turma.nome || turma.title)}</h3>
+                          </div>
+                          <Badge className={
+                            turma.status === "concluido" || turma.status === "encerrada" ? "bg-blue-100 text-blue-800" :
+                            turma.status === "planejamento" || turma.status === "planejado" ? "bg-yellow-100 text-yellow-800" :
+                            turma.status === "inativo" ? "bg-gray-100 text-gray-600" :
+                            "bg-green-100 text-green-800"
+                          }>
+                            {turma.status === "concluido" || turma.status === "encerrada" ? "Finalizada" :
+                             turma.status === "planejamento" || turma.status === "planejado" ? "Planejada" :
+                             turma.status === "inativo" ? "Inativa" : "Em Andamento"}
                           </Badge>
                         </div>
                         <div className="grid grid-cols-3 gap-4 text-sm">
                           <div>
                             <span className="text-gray-500">Horário:</span>
-                            <p className="font-medium">{turma.horarioEntrada || '-'} - {turma.horarioSaida || '-'}</p>
+                            <p className="font-medium">{turma.horarioInicio || turma.horarioEntrada || turma.start_time || '-'} - {turma.horarioFim || turma.horarioSaida || turma.end_time || '-'}</p>
                           </div>
                           <div>
                             <span className="text-gray-500">Alunos:</span>
@@ -1504,37 +2161,90 @@ export default function ProfessorPage() {
                         {turma.descricao && (
                           <p className="text-sm text-gray-600 mt-2">{turma.descricao}</p>
                         )}
+                        {turma.status === "concluido" && vertente === "inclusao" && (
+                          <div className="flex items-center gap-2 mt-3 p-2 bg-green-50 rounded-md border border-green-200">
+                            <GraduationCap className="w-4 h-4 text-green-600" />
+                            <span className="text-sm font-medium text-green-700">
+                              Turma Finalizada: {turma.alunosConcluidos || 0} de {turma.totalParticipantes || turma.alunosCount || 0} alunos formados
+                            </span>
+                          </div>
+                        )}
                         <div className="flex gap-2 mt-4 flex-wrap">
+                          <Button size="sm" variant="outline" onClick={() => {
+                            setSelectedTurma(turma);
+                            setShowDetalhesTurmaModal(true);
+                          }}>
+                            <Eye className="w-4 h-4 mr-1" />
+                            Ver
+                          </Button>
                           <Button size="sm" variant="outline" className="border-green-300 text-green-700 hover:bg-green-50" onClick={() => {
                             setSelectedTurma(turma);
-                            setBuscaAlunoTurma('');
-                            setShowGerenciarAlunosModal(true);
+                            if (vertente === "inclusao") {
+                              setTurmaGerenciarInclusao(turma);
+                              setShowGerenciarAlunosTurmaInclusao(true);
+                            } else {
+                              setShowTurmaDetailModal(true);
+                            }
                           }}>
                             <UserPlus className="w-4 h-4 mr-1" />
                             Gerenciar Alunos
                           </Button>
+                          <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                            onClick={() => baixarListaAlunos(turma.id, turma, vertente !== 'inclusao')}>
+                            <FileDown className="w-4 h-4 mr-1" />
+                            Baixar lista
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => {
                             setSelectedTurma(turma);
-                            setNovaTurmaForm({
-                              nome: turma.nome || turma.title || '',
-                              descricao: turma.descricao || '',
-                              horarioEntrada: turma.horarioEntrada || '',
-                              horarioSaida: turma.horarioSaida || '',
-                              local: turma.local || ''
-                            });
                             setShowEditTurmaModal(true);
                           }}>
                             <Edit className="w-4 h-4 mr-1" />
                             Editar
                           </Button>
-                          <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" onClick={() => {
-                            if (confirm(`Tem certeza que deseja inativar a turma "${(turma.nome || turma.title)}"?`)) {
-                              inativarTurmaMutation.mutate(turma.id);
-                            }
-                          }}>
-                            <XCircle className="w-4 h-4 mr-1" />
-                            Inativar
-                          </Button>
+                          {vertente === "inclusao" && turma.status !== "concluido" && (
+                            <Button size="sm" variant="outline" className="text-green-600 border-green-600 hover:bg-green-50" onClick={async () => {
+                              setSelectedTurma(turma);
+                              setParticipantesSelecionados([]);
+                              setIsLoadingParticipantesTurma(true);
+                              try {
+                                const response = await fetch(`/api/turmas-inclusao/${turma.id}/participantes`);
+                                if (response.ok) {
+                                  const data = await response.json();
+                                  setParticipantesTurmaAtual(data.filter((p: any) => { const s = String(p?.status || "").toLowerCase(); return s === "ativo" || s === "concluido"; }));
+                                } else {
+                                  toast({ title: "Erro", description: "Não foi possível carregar os participantes", variant: "destructive" });
+                                }
+                              } catch (error) {
+                                console.error("Erro ao carregar participantes:", error);
+                                toast({ title: "Erro", description: "Erro ao carregar participantes", variant: "destructive" });
+                              } finally {
+                                setIsLoadingParticipantesTurma(false);
+                              }
+                              setShowFinalizarTurmaModal(true);
+                            }}>
+                              <GraduationCap className="w-4 h-4 mr-1" />
+                              Finalizar
+                            </Button>
+                          )}
+                          {turma.status === 'inativo' ? (
+                            <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={() => {
+                              if (confirm(`Deseja reativar a turma "${(turma.nome || turma.title)}"?`)) {
+                                reativarTurmaMutation.mutate(turma.id);
+                              }
+                            }}>
+                              <CheckCircle className="w-4 h-4 mr-1" />
+                              Reativar
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" onClick={() => {
+                              if (confirm(`Tem certeza que deseja inativar a turma "${(turma.nome || turma.title)}"?`)) {
+                                inativarTurmaMutation.mutate(turma.id);
+                              }
+                            }}>
+                              <XCircle className="w-4 h-4 mr-1" />
+                              Inativar
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1543,182 +2253,67 @@ export default function ProfessorPage() {
               </CardContent>
             </Card>
 
-            {/* Turmas Inativas */}
-            {minhasTurmas.filter((turma: any) => turma.status === 'inativo').length > 0 && (
-              <Card className="mt-4 border-gray-300">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg text-gray-600">Turmas Inativas</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4">
-                    {minhasTurmas.filter((turma: any) => turma.status === 'inativo').map((turma: any) => (
-                      <div key={turma.id} className="border rounded-lg p-4 border-gray-300 bg-gray-50 opacity-75">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold text-gray-600">{(turma.nome || turma.title)}</h3>
-                          <Badge className="bg-red-100 text-red-800">
-                            Inativa
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-500">Horário:</span>
-                            <p className="font-medium text-gray-600">{turma.horarioEntrada || '-'} - {turma.horarioSaida || '-'}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Alunos:</span>
-                            <p className="font-medium text-gray-600">{turma.alunosCount || 0}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Local:</span>
-                            <p className="font-medium text-gray-600">{turma.local || '-'}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-4">
-                          <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={() => {
-                            if (confirm(`Deseja reativar a turma "${(turma.nome || turma.title)}"?`)) {
-                              reativarTurmaMutation.mutate(turma.id);
-                            }
-                          }}>
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Reativar
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
             </>
           )}
 
-          {/* Modal Nova Turma */}
-          <Dialog open={showNovaTurmaModal} onOpenChange={setShowNovaTurmaModal}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nova Turma</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Nome da Turma *</label>
-                  <Input
-                    placeholder="Ex: Turma de Costura - Manhã"
-                    value={novaTurmaForm.nome}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, nome: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Descrição</label>
-                  <Textarea
-                    placeholder="Descreva a turma..."
-                    value={novaTurmaForm.descricao}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, descricao: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Horário Entrada</label>
-                    <Input
-                      type="time"
-                      value={novaTurmaForm.horarioEntrada}
-                      onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, horarioEntrada: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Horário Saída</label>
-                    <Input
-                      type="time"
-                      value={novaTurmaForm.horarioSaida}
-                      onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, horarioSaida: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Local</label>
-                  <Input
-                    placeholder="Ex: Sala 1, Oficina A"
-                    value={novaTurmaForm.local}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, local: e.target.value }))}
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button variant="outline" onClick={() => setShowNovaTurmaModal(false)}>Cancelar</Button>
-                  <Button 
-                    className="bg-green-500 hover:bg-green-600"
-                    disabled={!novaTurmaForm.nome || createTurmaMutation.isPending}
-                    onClick={() => createTurmaMutation.mutate(novaTurmaForm)}
-                  >
-                    {createTurmaMutation.isPending ? 'Criando...' : 'Criar Turma'}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+          {/* Modal Nova Turma - unificado: TurmaInclusaoForm (inclusão) / InstanceForm (PEC) */}
+          {vertente === 'inclusao' ? (
+            <TurmaInclusaoForm
+              open={showNovaTurmaModal}
+              onClose={() => {
+                setShowNovaTurmaModal(false);
+                queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId, vertente] });
+              }}
+              monitorUserId={parseInt(userId || '0')}
+            />
+          ) : (
+            <InstanceForm 
+              open={showNovaTurmaModal}
+              onClose={() => {
+                setShowNovaTurmaModal(false);
+                queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId, vertente] });
+              }}
+              monitorUserId={parseInt(userId || '0')}
+            />
+          )}
 
-          {/* Modal Editar Turma */}
-          <Dialog open={showEditTurmaModal} onOpenChange={setShowEditTurmaModal}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Editar Turma</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Nome da Turma *</label>
-                  <Input
-                    placeholder="Ex: Turma de Costura - Manhã"
-                    value={novaTurmaForm.nome}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, nome: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Descrição</label>
-                  <Textarea
-                    placeholder="Descreva a turma..."
-                    value={novaTurmaForm.descricao}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, descricao: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">Horário Entrada</label>
-                    <Input
-                      type="time"
-                      value={novaTurmaForm.horarioEntrada}
-                      onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, horarioEntrada: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Horário Saída</label>
-                    <Input
-                      type="time"
-                      value={novaTurmaForm.horarioSaida}
-                      onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, horarioSaida: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Local</label>
-                  <Input
-                    placeholder="Ex: Sala 1, Oficina A"
-                    value={novaTurmaForm.local}
-                    onChange={(e) => setNovaTurmaForm(prev => ({ ...prev, local: e.target.value }))}
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button variant="outline" onClick={() => { setShowEditTurmaModal(false); setSelectedTurma(null); }}>Cancelar</Button>
-                  <Button 
-                    className="bg-green-500 hover:bg-green-600"
-                    disabled={!novaTurmaForm.nome || updateTurmaMutation.isPending}
-                    onClick={() => updateTurmaMutation.mutate({ turmaId: selectedTurma.id, data: novaTurmaForm })}
-                  >
-                    {updateTurmaMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+          {/* Modal Editar Turma - usa TurmaInclusaoForm para inclusão, InstanceForm para PEC */}
+          {vertente === 'inclusao' ? (
+            <TurmaInclusaoForm
+              open={showEditTurmaModal}
+              onClose={() => {
+                setShowEditTurmaModal(false);
+                setSelectedTurma(null);
+                queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId, vertente] });
+              }}
+              turma={selectedTurma}
+              monitorUserId={parseInt(userId || '0')}
+            />
+          ) : (
+            <InstanceForm 
+              open={showEditTurmaModal}
+              onClose={() => {
+                setShowEditTurmaModal(false);
+                setSelectedTurma(null);
+                queryClient.invalidateQueries({ queryKey: ['/api/professor/turmas', userId, vertente] });
+              }}
+              instance={selectedTurma}
+              monitorUserId={parseInt(userId || '0')}
+            />
+          )}
 
-          {/* Modal Gerenciar Alunos da Turma */}
+          <TurmaDetailModalInclusao
+            open={showGerenciarAlunosTurmaInclusao}
+            onOpenChange={setShowGerenciarAlunosTurmaInclusao}
+            turma={turmaGerenciarInclusao}
+          />
+          <TurmaDetailModal
+            open={showTurmaDetailModal}
+            onOpenChange={setShowTurmaDetailModal}
+            selectedInstance={selectedTurma}
+          />
+
+          {/* Modal Gerenciar Alunos da Turma (legacy) */}
           <Dialog open={showGerenciarAlunosModal} onOpenChange={(open) => {
             setShowGerenciarAlunosModal(open);
             if (!open) setSelectedTurma(null);
@@ -1739,7 +2334,7 @@ export default function ProfessorPage() {
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-2">
-                      {alunosDaTurma.map((aluno: any) => (
+                      {[...alunosDaTurma].sort((a: any, b: any) => (a.nome || "").localeCompare(b.nome || "", 'pt-BR')).map((aluno: any) => (
                         <div key={aluno.id} className="flex items-center justify-between p-2 bg-green-50 rounded border border-green-200">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-green-200 rounded-full flex items-center justify-center">
@@ -1790,7 +2385,12 @@ export default function ProfessorPage() {
                               <User className="w-4 h-4 text-gray-600" />
                             </div>
                             <div>
-                              <p className="font-medium text-sm">{participante.nome}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-sm">{participante.nome}</p>
+                                {participante.status?.toLowerCase() === 'inativo' && (
+                                  <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Inativo</span>
+                                )}
+                              </div>
                               <p className="text-xs text-gray-500">{participante.codigoMatricula || participante.cpf}</p>
                             </div>
                           </div>
@@ -1830,6 +2430,30 @@ export default function ProfessorPage() {
             const hoje = new Date();
             const hojeStr = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
             
+            const aulaColors = ['blue', 'indigo', 'pink', 'cyan', 'orange', 'emerald'];
+            const aulasNoMes: Array<{ data: string; turmaNome: string; cor: string; horario?: string; icone?: string }> = [];
+
+            minhasTurmas.forEach((turma: any, tIdx: number) => {
+              const turmaStatus = turma.status || turma.situation || 'ativo';
+              if (turmaStatus === 'inativo' || turmaStatus === 'cancelado') return;
+
+              const cor = turma.marcadorCor || aulaColors[tIdx % aulaColors.length];
+              const nomeTurma = turma.nome || turma.title || 'Turma';
+              const horario = turma.horarioEntrada && turma.horarioSaida 
+                ? `${turma.horarioEntrada} - ${turma.horarioSaida}` 
+                : turma.horarioInicio && turma.horarioFim 
+                  ? `${turma.horarioInicio} - ${turma.horarioFim}`
+                  : turma.horario || '';
+
+              const diasDaTurma = getDiasAulaParaTurma(turma);
+              diasDaTurma.forEach((dia) => {
+                const [dYear, dMonth] = dia.date.split('-').map(Number);
+                if (dYear === ano && dMonth - 1 === mes) {
+                  aulasNoMes.push({ data: dia.date, turmaNome: nomeTurma, cor, horario, icone: turma.marcadorIcone });
+                }
+              });
+            });
+
             // Combinar planos de aula, chamadas e eventos do professor
             const todosEventos = [
               ...meusPlanos.map((p: any) => ({
@@ -1922,12 +2546,15 @@ export default function ProfessorPage() {
                         const temPlano = eventosNoDia.some(e => e.cor === 'purple');
                         const temChamada = eventosNoDia.some(e => e.cor === 'yellow');
                         const temEvento = eventosNoDia.some(e => e.cor === 'green');
+                        const aulasNoDia = dentroDoMes ? aulasNoMes.filter(a => a.data === dataStr) : [];
+                        const temAula = aulasNoDia.length > 0;
                         
                         return (
                           <div 
                             key={i} 
                             className={`p-2 border rounded min-h-[60px] cursor-pointer transition-colors ${
                               isHoje ? 'bg-blue-100 border-blue-400' :
+                              temAula && dentroDoMes ? 'bg-blue-50/50' :
                               dentroDoMes ? 'hover:bg-gray-50' : 'bg-gray-50 text-gray-300'
                             }`}
                             onClick={() => {
@@ -1940,6 +2567,19 @@ export default function ProfessorPage() {
                               <div>
                                 <span className={`text-sm ${isHoje ? 'font-bold text-blue-700' : ''}`}>{dia}</span>
                                 <div className="flex gap-0.5 justify-center mt-1 flex-wrap">
+                                  {aulasNoDia.map((aula, aIdx) => {
+                                    const isHex = aula.cor?.startsWith('#');
+                                    const colorMap: Record<string, string> = {
+                                      'blue': 'bg-blue-500', 'indigo': 'bg-indigo-500', 'pink': 'bg-pink-500',
+                                      'cyan': 'bg-cyan-500', 'orange': 'bg-orange-500', 'emerald': 'bg-emerald-500'
+                                    };
+                                    const IconComp = aula.icone ? MARCADOR_ICONE_MAP[aula.icone] : null;
+                                    const colorStyle = isHex ? { color: aula.cor } : undefined;
+                                    const colorClass = isHex ? '' : (colorMap[aula.cor] ? colorMap[aula.cor].replace('bg-', 'text-') : 'text-blue-500');
+                                    return IconComp
+                                      ? <IconComp key={`aula-${aIdx}`} className={`w-3 h-3 ${colorClass}`} style={colorStyle} title={`${aula.turmaNome}${aula.horario ? ` (${aula.horario})` : ''}`} />
+                                      : <div key={`aula-${aIdx}`} className={`w-2 h-2 rounded-sm ${isHex ? '' : (colorMap[aula.cor] || 'bg-blue-500')}`} style={isHex ? { backgroundColor: aula.cor } : undefined} title={`${aula.turmaNome}${aula.horario ? ` (${aula.horario})` : ''}`}></div>;
+                                  })}
                                   {temPlano && <div className="w-2 h-2 bg-purple-500 rounded-full" title="Plano de Aula"></div>}
                                   {temChamada && <div className="w-2 h-2 bg-yellow-500 rounded-full" title="Chamada"></div>}
                                   {temEvento && <div className="w-2 h-2 bg-green-500 rounded-full" title="Evento"></div>}
@@ -1952,7 +2592,24 @@ export default function ProfessorPage() {
                     </div>
                     
                     {/* Legenda */}
-                    <div className="flex gap-4 text-sm text-gray-600 justify-center border-t pt-4">
+                    <div className="flex gap-4 text-sm text-gray-600 justify-center border-t pt-4 flex-wrap">
+                      {minhasTurmas.filter((t: any) => {
+                        const s = t.status || 'ativo';
+                        return s !== 'inativo' && s !== 'cancelado';
+                      }).map((turma: any, tIdx: number) => {
+                        const colorBgMap: Record<string, string> = {
+                          'blue': 'bg-blue-500', 'indigo': 'bg-indigo-500', 'pink': 'bg-pink-500',
+                          'cyan': 'bg-cyan-500', 'orange': 'bg-orange-500', 'emerald': 'bg-emerald-500'
+                        };
+                        const cor = turma.marcadorCor || aulaColors[tIdx % aulaColors.length];
+                        const isHexCor = cor?.startsWith('#');
+                        return (
+                          <div key={`legend-${tIdx}`} className="flex items-center gap-1">
+                            <div className={`w-3 h-3 rounded-sm ${isHexCor ? '' : (colorBgMap[cor] || 'bg-blue-500')}`} style={isHexCor ? { backgroundColor: cor } : undefined}></div>
+                            <span>{turma.nome || turma.title || 'Turma'}</span>
+                          </div>
+                        );
+                      })}
                       <div className="flex items-center gap-1">
                         <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
                         <span>Plano de Aula</span>
@@ -2109,89 +2766,153 @@ export default function ProfessorPage() {
             </Card>
           )}
 
-          {activeSection === 'acompanhamento' && (() => {
-            // Filtrar alunos baseado na busca
-            const alunosFiltrados = participantesInclusao.filter((p: any) => {
-              const matchBusca = !buscaAlunoAcomp || 
-                (p.nome || p.nomeCompleto || '').toLowerCase().includes(buscaAlunoAcomp.toLowerCase());
-              return matchBusca;
-            });
-            
-            return (
-            <Card>
-              <CardHeader>
-                <CardTitle>Acompanhamento Pedagógico</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="flex gap-4 items-end">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-2">Buscar Aluno</label>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                        <Input 
-                          placeholder="Nome do aluno..." 
-                          className="pl-10"
-                          value={buscaAlunoAcomp}
-                          onChange={(e) => setBuscaAlunoAcomp(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-2">Turma</label>
-                      <Select value={filtroTurmaAcomp} onValueChange={setFiltroTurmaAcomp}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Todas as turmas" />
-                        </SelectTrigger>
+          {activeSection === 'acompanhamento' && (
+            <div className="space-y-6">
+              {/* Formulário de novo acompanhamento */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-blue-500" />
+                    Novo Acompanhamento
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* 1. Turma */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Turma <span className="text-red-500">*</span></label>
+                      <Select value={acompTurmaId} onValueChange={(v) => { setAcompTurmaId(v); setAcompDiaAulaId(''); setAcompAlunoCpf(''); setAcompAlunoNome(''); }}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a turma" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="todas">Todas as turmas</SelectItem>
-                          {minhasTurmas.map((turma: any) => (
-                            <SelectItem key={turma.id} value={turma.id.toString()}>{(turma.nome || turma.title)}</SelectItem>
+                          {minhasTurmas.map((t: any) => (
+                            <SelectItem key={t.id} value={t.id.toString()}>{t.nome || t.title}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {/* 2. Dia de Aula */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Dia de Aula <span className="text-red-500">*</span></label>
+                      <Select
+                        value={acompDiaAulaId}
+                        onValueChange={(v) => { setAcompDiaAulaId(v); setAcompAlunoCpf(''); setAcompAlunoNome(''); }}
+                        disabled={!acompTurmaId}
+                      >
+                        <SelectTrigger><SelectValue placeholder={acompTurmaId ? "Selecione o dia" : "Selecione a turma primeiro"} /></SelectTrigger>
+                        <SelectContent>
+                          {(() => {
+                            const dias = vertente === 'pec'
+                              ? pecSessoesAcomp
+                              : relatoriosAulas.filter((r: any) => r.turmaId?.toString() === acompTurmaId || r.turma_id?.toString() === acompTurmaId);
+                            if (dias.length === 0 && acompTurmaId) return (
+                              <div className="px-3 py-2 text-sm text-gray-500">Nenhuma aula registrada para esta turma</div>
+                            );
+                            return dias.map((r: any) => {
+                              const dateStr = r.date || r.data;
+                              return (
+                                <SelectItem key={r.id} value={r.id.toString()}>
+                                  {dateStr ? new Date(dateStr + (dateStr.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : r.id} — {r.title || r.titulo || 'Aula'}
+                                </SelectItem>
+                              );
+                            });
+                          })()}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* 3. Aluno */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Aluno <span className="text-red-500">*</span></label>
+                      <Select
+                        value={acompAlunoCpf}
+                        onValueChange={(v) => {
+                          setAcompAlunoCpf(v);
+                          const aluno = acompAlunosDaTurma.find((a: any) => (a.cpf || a.aluno_cpf) === v);
+                          setAcompAlunoNome(aluno?.nome || aluno?.nomeCompleto || aluno?.nome_completo || '');
+                        }}
+                        disabled={!acompDiaAulaId}
+                      >
+                        <SelectTrigger><SelectValue placeholder={acompDiaAulaId ? "Selecione o aluno" : "Selecione o dia primeiro"} /></SelectTrigger>
+                        <SelectContent>
+                          {acompAlunosDaTurma.map((a: any) => (
+                            <SelectItem key={a.cpf || a.aluno_cpf || a.id} value={a.cpf || a.aluno_cpf || ''}>
+                              {a.nome || a.nomeCompleto || a.nome_completo}
+                            </SelectItem>
+                          ))}
+                          {acompAlunosDaTurma.length === 0 && acompDiaAulaId && (
+                            <div className="px-3 py-2 text-sm text-gray-500">Nenhum aluno nesta turma</div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* 4. Tipo */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Tipo de Observação</label>
+                      <Select value={acompTipo} onValueChange={setAcompTipo}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="comportamental">Comportamental</SelectItem>
+                          <SelectItem value="academico">Acadêmico</SelectItem>
+                          <SelectItem value="social">Social</SelectItem>
+                          <SelectItem value="familiar">Familiar</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* 5. Observação */}
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-2">Observação <span className="text-red-500">*</span></label>
+                      <Textarea
+                        placeholder="Descreva a observação de acompanhamento do aluno nesta aula..."
+                        rows={4}
+                        value={acompObservacao}
+                        onChange={(e) => setAcompObservacao(e.target.value)}
+                      />
+                    </div>
                   </div>
-                  
-                  <div>
-                    <h3 className="font-semibold mb-4">Alunos ({alunosFiltrados.length})</h3>
-                    {alunosFiltrados.length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">Nenhum aluno encontrado</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {alunosFiltrados.slice(0, 20).map((aluno: any) => (
-                          <div key={aluno.id} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-2">
-                                <User className="w-5 h-5 text-blue-500" />
-                                <h4 className="font-semibold">{aluno.nome || aluno.nomeCompleto}</h4>
-                              </div>
-                              <Badge variant="outline">{aluno.turma || 'Sem turma'}</Badge>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium mb-2">Anotações</label>
-                              <Textarea 
-                                placeholder="Escreva observações sobre o aluno..."
-                                rows={2}
-                                value={anotacoesAlunos[aluno.id] || ''}
-                                onChange={(e) => setAnotacoesAlunos({...anotacoesAlunos, [aluno.id]: e.target.value})}
-                              />
-                            </div>
+
+                  <Button
+                    className="mt-4 bg-blue-500 hover:bg-blue-600"
+                    onClick={handleSalvarAcompanhamento}
+                    disabled={salvandoAcomp}
+                  >
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    {salvandoAcomp ? 'Salvando...' : 'Salvar Acompanhamento'}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Histórico de acompanhamentos */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-gray-500" />
+                    Histórico de Acompanhamentos ({listaAcompanhamentos.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {listaAcompanhamentos.length === 0 ? (
+                    <p className="text-gray-500 text-center py-8">Nenhum acompanhamento registrado ainda.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {listaAcompanhamentos.slice(0, 20).map((ac: any) => (
+                        <div key={ac.id} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium text-sm">{ac.titulo || 'Acompanhamento'}</span>
+                            <Badge variant="outline" className="text-xs capitalize">{ac.tipoObservacao || ac.tipo_observacao || 'geral'}</Badge>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                    {alunosFiltrados.length > 20 && (
-                      <p className="text-sm text-gray-500 text-center mt-2">
-                        Mostrando 20 de {alunosFiltrados.length} alunos. Use a busca para filtrar.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            );
-          })()}
+                          <p className="text-xs text-gray-500 mb-2">{ac.data ? new Date(ac.data + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</p>
+                          <p className="text-sm text-gray-700">{ac.observacoes}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {activeSection === 'configuracoes' && (
             <Card>
@@ -2276,31 +2997,6 @@ export default function ProfessorPage() {
         </div>
       </div>
 
-      {/* Modal de Novo Participante - Inclusão */}
-      {showNovoParticipanteModal && vertente === 'inclusao' && (
-        <ComprehensiveStudentForm 
-          open={showNovoParticipanteModal}
-          onClose={() => {
-            setShowNovoParticipanteModal(false);
-            refetchParticipantes();
-          }}
-          mode="inclusao"
-        />
-      )}
-
-      {/* Modal de Editar Participante - Inclusão */}
-      {showEditParticipanteModal && selectedParticipante && vertente === 'inclusao' && (
-        <ComprehensiveStudentForm 
-          open={showEditParticipanteModal}
-          onClose={() => {
-            setShowEditParticipanteModal(false);
-            setSelectedParticipante(null);
-            refetchParticipantes();
-          }}
-          editId={selectedParticipante.id}
-          mode="inclusao"
-        />
-      )}
 
       {/* Modal de Visualizar Participante - Inclusão */}
       <Dialog open={showViewParticipanteModal && !!selectedParticipante} onOpenChange={() => {
@@ -2355,15 +3051,6 @@ export default function ProfessorPage() {
                 </div>
               )}
               
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => {
-                  setShowViewParticipanteModal(false);
-                  setShowEditParticipanteModal(true);
-                }}>
-                  <Edit className="w-4 h-4 mr-2" />
-                  Editar
-                </Button>
-              </div>
             </div>
           )}
         </DialogContent>
@@ -2379,7 +3066,7 @@ export default function ProfessorPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Turma *</Label>
-                <Select value={planoForm.turmaId} onValueChange={(v) => setPlanoForm({...planoForm, turmaId: v})}>
+                <Select value={planoForm.turmaId} onValueChange={(v) => setPlanoForm({...planoForm, turmaId: v, data: ''})}>
                   <SelectTrigger><SelectValue placeholder="Selecione a turma" /></SelectTrigger>
                   <SelectContent>
                     {minhasTurmas.map((turma: any) => (
@@ -2390,7 +3077,24 @@ export default function ProfessorPage() {
               </div>
               <div>
                 <Label>Data *</Label>
-                <Input type="date" value={planoForm.data} onChange={(e) => setPlanoForm({...planoForm, data: e.target.value})} />
+                {(() => {
+                  const turmaSel = minhasTurmas.find((t: any) => t.id.toString() === planoForm.turmaId);
+                  const diasAula = turmaSel ? getDiasAulaParaTurma(turmaSel) : [];
+                  return diasAula.length > 0 ? (
+                    <Select value={planoForm.data} onValueChange={(v) => setPlanoForm({...planoForm, data: v})}>
+                      <SelectTrigger><SelectValue placeholder="Selecione o dia" /></SelectTrigger>
+                      <SelectContent>
+                        {diasAula.map((dia) => (
+                          <SelectItem key={dia.date} value={dia.date}>{dia.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select disabled>
+                      <SelectTrigger><SelectValue placeholder={planoForm.turmaId ? "Nenhum dia cadastrado" : "Selecione a turma primeiro"} /></SelectTrigger>
+                    </Select>
+                  );
+                })()}
               </div>
             </div>
             <div>
@@ -2409,30 +3113,9 @@ export default function ProfessorPage() {
               <Label>Metodologia *</Label>
               <Textarea value={planoForm.metodologia} onChange={(e) => setPlanoForm({...planoForm, metodologia: e.target.value})} placeholder="Como será conduzida a aula?" rows={3} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Recursos</Label>
-                <Input value={planoForm.recursos} onChange={(e) => setPlanoForm({...planoForm, recursos: e.target.value})} placeholder="Materiais necessários" />
-              </div>
-              <div>
-                <Label>Duração (minutos)</Label>
-                <Input type="number" value={planoForm.duracaoMinutos} onChange={(e) => setPlanoForm({...planoForm, duracaoMinutos: e.target.value})} placeholder="Ex: 60" />
-              </div>
-            </div>
             <div>
-              <Label>Avaliação</Label>
-              <Textarea value={planoForm.avaliacao} onChange={(e) => setPlanoForm({...planoForm, avaliacao: e.target.value})} placeholder="Como será avaliado o aprendizado?" rows={2} />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select value={planoForm.status} onValueChange={(v) => setPlanoForm({...planoForm, status: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="rascunho">Rascunho</SelectItem>
-                  <SelectItem value="aprovado">Aprovado</SelectItem>
-                  <SelectItem value="aplicado">Aplicado</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Recursos</Label>
+              <Input value={planoForm.recursos} onChange={(e) => setPlanoForm({...planoForm, recursos: e.target.value})} placeholder="Materiais necessários" />
             </div>
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => setShowNovoPlanoModal(false)}>Cancelar</Button>
@@ -2465,7 +3148,24 @@ export default function ProfessorPage() {
               </div>
               <div>
                 <Label>Data *</Label>
-                <Input type="date" value={planoForm.data} onChange={(e) => setPlanoForm({...planoForm, data: e.target.value})} />
+                {(() => {
+                  const turmaSel = minhasTurmas.find((t: any) => t.id.toString() === planoForm.turmaId);
+                  const diasAula = turmaSel ? getDiasAulaParaTurma(turmaSel) : [];
+                  return diasAula.length > 0 ? (
+                    <Select value={planoForm.data} onValueChange={(v) => setPlanoForm({...planoForm, data: v})}>
+                      <SelectTrigger><SelectValue placeholder="Selecione o dia" /></SelectTrigger>
+                      <SelectContent>
+                        {diasAula.map((dia) => (
+                          <SelectItem key={dia.date} value={dia.date}>{dia.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select disabled>
+                      <SelectTrigger><SelectValue placeholder={planoForm.turmaId ? "Nenhum dia cadastrado" : "Selecione a turma primeiro"} /></SelectTrigger>
+                    </Select>
+                  );
+                })()}
               </div>
             </div>
             <div>
@@ -2484,30 +3184,9 @@ export default function ProfessorPage() {
               <Label>Metodologia *</Label>
               <Textarea value={planoForm.metodologia} onChange={(e) => setPlanoForm({...planoForm, metodologia: e.target.value})} rows={3} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Recursos</Label>
-                <Input value={planoForm.recursos} onChange={(e) => setPlanoForm({...planoForm, recursos: e.target.value})} />
-              </div>
-              <div>
-                <Label>Duração (minutos)</Label>
-                <Input type="number" value={planoForm.duracaoMinutos} onChange={(e) => setPlanoForm({...planoForm, duracaoMinutos: e.target.value})} />
-              </div>
-            </div>
             <div>
-              <Label>Avaliação</Label>
-              <Textarea value={planoForm.avaliacao} onChange={(e) => setPlanoForm({...planoForm, avaliacao: e.target.value})} rows={2} />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select value={planoForm.status} onValueChange={(v) => setPlanoForm({...planoForm, status: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="rascunho">Rascunho</SelectItem>
-                  <SelectItem value="aprovado">Aprovado</SelectItem>
-                  <SelectItem value="aplicado">Aplicado</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Recursos</Label>
+              <Input value={planoForm.recursos} onChange={(e) => setPlanoForm({...planoForm, recursos: e.target.value})} />
             </div>
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => setShowEditPlanoModal(false)}>Cancelar</Button>
@@ -2590,6 +3269,47 @@ export default function ProfessorPage() {
         </DialogContent>
       </Dialog>
       
+      {/* Modal de Visualizar Relatório de Aula */}
+      <Dialog open={!!relatorioSelecionado} onOpenChange={(open) => { if (!open) setRelatorioSelecionado(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{relatorioSelecionado?.titulo || 'Relatório de Aula'}</DialogTitle>
+          </DialogHeader>
+          {relatorioSelecionado && (() => {
+            const turmaNome = minhasTurmas.find((t: any) => t.id === relatorioSelecionado.turmaId)?.nome || '';
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Data</p>
+                    <p className="font-medium">{formatDateBrazil(relatorioSelecionado.data)}</p>
+                  </div>
+                  {turmaNome && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Turma</p>
+                      <p className="font-medium">{turmaNome}</p>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Relatório de aula</p>
+                  <div className="border rounded-lg p-3 bg-gray-50 text-sm whitespace-pre-wrap">{relatorioSelecionado.conteudoMinistrado}</div>
+                </div>
+                {relatorioSelecionado.observacoes && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Observações</p>
+                    <div className="border rounded-lg p-3 bg-gray-50 text-sm whitespace-pre-wrap">{relatorioSelecionado.observacoes}</div>
+                  </div>
+                )}
+                <div className="flex justify-end pt-2">
+                  <Badge className="bg-green-100 text-green-800">{relatorioSelecionado.statusAula || 'ministrada'}</Badge>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
       {/* Modal Novo Evento do Calendário */}
       <Dialog open={showNovoEventoModal} onOpenChange={setShowNovoEventoModal}>
         <DialogContent className="max-w-md">
@@ -2723,7 +3443,36 @@ export default function ProfessorPage() {
           <div className="space-y-3">
             {diaSelecionado && (() => {
               const dataStr = diaSelecionado.toISOString().split('T')[0];
+
+              const diasSemanaMapDialog: Record<string, number> = {
+                'domingo': 0, 'segunda': 1, 'terca': 2, 'terça': 2, 'quarta': 3,
+                'quinta': 4, 'sexta': 5, 'sabado': 6, 'sábado': 6,
+                'seg': 1, 'ter': 2, 'qua': 3, 'qui': 4, 'sex': 5, 'sab': 6, 'dom': 0
+              };
+              const dayOfWeek = diaSelecionado.getDay();
+              const aulasHoje = minhasTurmas.filter((turma: any) => {
+                const dias = turma.diasSemana || turma.dias_semana || turma.diasAula || [];
+                if (!Array.isArray(dias) || dias.length === 0) return false;
+                const s = turma.status || 'ativo';
+                if (s === 'inativo' || s === 'cancelado') return false;
+                return dias.some((dia: string) => {
+                  const diaLower = dia.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                  return diasSemanaMapDialog[diaLower] === dayOfWeek;
+                });
+              });
+
               const eventosDoDia = [
+                ...aulasHoje.map((turma: any) => ({
+                  titulo: turma.nome || turma.title || 'Aula',
+                  tipo: 'Aula Programada',
+                  cor: 'blue',
+                  horario: turma.horarioEntrada && turma.horarioSaida 
+                    ? `${turma.horarioEntrada} - ${turma.horarioSaida}` 
+                    : turma.horarioInicio && turma.horarioFim 
+                      ? `${turma.horarioInicio} - ${turma.horarioFim}`
+                      : turma.horario || '',
+                  turmaNome: turma.nome || turma.title
+                })),
                 ...meusPlanos.filter((p: any) => p.data?.startsWith(dataStr)).map((p: any) => ({
                   titulo: p.titulo,
                   tipo: 'Plano de Aula',
@@ -2751,6 +3500,7 @@ export default function ProfessorPage() {
                 eventosDoDia.map((evento, index) => (
                   <div key={index} className="border rounded-lg p-3 flex items-center gap-3">
                     <div className={`w-3 h-3 rounded-full ${
+                      evento.cor === 'blue' ? 'bg-blue-500' :
                       evento.cor === 'purple' ? 'bg-purple-500' :
                       evento.cor === 'yellow' ? 'bg-yellow-500' : 'bg-green-500'
                     }`}></div>
@@ -2779,6 +3529,283 @@ export default function ProfessorPage() {
             >
               <Plus className="w-4 h-4 mr-2" />
               Adicionar evento neste dia
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Detalhes da Turma */}
+      <Dialog open={showDetalhesTurmaModal} onOpenChange={setShowDetalhesTurmaModal}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalhes da Turma</DialogTitle>
+          </DialogHeader>
+          {selectedTurma && (
+            <div className="space-y-6">
+              <div className="bg-green-50 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-lg">{selectedTurma.nome || selectedTurma.title}</h3>
+                  <Badge variant={selectedTurma.status === 'ativo' || selectedTurma.status === 'emandamento' ? 'default' : 'secondary'}>
+                    {selectedTurma.status === 'emandamento' ? 'Em andamento' : 
+                     selectedTurma.status === 'ativo' ? 'Ativa' : 
+                     selectedTurma.status === 'concluido' ? 'Concluída' : 
+                     selectedTurma.status === 'planejado' ? 'Planejada' : selectedTurma.status}
+                  </Badge>
+                </div>
+                {selectedTurma.descricao && (
+                  <p className="text-sm text-gray-600">{selectedTurma.descricao}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 border rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Código</p>
+                  <p className="font-semibold">{selectedTurma.codigo || 'Não definido'}</p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Local</p>
+                  <p className="font-semibold">{selectedTurma.local || 'Não definido'}</p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Datas e Horários</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">Data Início</p>
+                    <p className="font-semibold">
+                      {selectedTurma.dataInicio || selectedTurma.data_inicio
+                        ? new Date(selectedTurma.dataInicio || selectedTurma.data_inicio).toLocaleDateString('pt-BR')
+                        : 'Não definida'}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">Data Fim</p>
+                    <p className="font-semibold">
+                      {selectedTurma.dataFim || selectedTurma.data_fim
+                        ? new Date(selectedTurma.dataFim || selectedTurma.data_fim).toLocaleDateString('pt-BR')
+                        : 'Não definida'}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">Horário</p>
+                    <p className="font-semibold">
+                      {selectedTurma.horario || 
+                       ((selectedTurma.horarioInicio || selectedTurma.horarioEntrada || selectedTurma.start_time) && (selectedTurma.horarioFim || selectedTurma.horarioSaida || selectedTurma.end_time)
+                         ? `${selectedTurma.horarioInicio || selectedTurma.horarioEntrada || selectedTurma.start_time} - ${selectedTurma.horarioFim || selectedTurma.horarioSaida || selectedTurma.end_time}` 
+                         : 'Não definido')}
+                    </p>
+                  </div>
+                </div>
+                {(selectedTurma.diasSemana && selectedTurma.diasSemana.length > 0) && (
+                  <div className="p-4 bg-blue-50 rounded-lg mt-4">
+                    <p className="text-sm text-gray-600 mb-2">Dias da Semana</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedTurma.diasSemana.map((dia: string) => (
+                        <span key={dia} className="px-3 py-1 bg-blue-500 text-white rounded-full text-sm font-medium">
+                          {dia === 'segunda' ? 'Segunda' : 
+                           dia === 'terca' ? 'Terça' : 
+                           dia === 'quarta' ? 'Quarta' : 
+                           dia === 'quinta' ? 'Quinta' : 
+                           dia === 'sexta' ? 'Sexta' : 
+                           dia === 'sabado' ? 'Sábado' : 
+                           dia === 'domingo' ? 'Domingo' : dia}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDetalhesTurmaModal(false);
+                    setShowEditTurmaModal(true);
+                  }}
+                >
+                  <Edit className="w-4 h-4 mr-2" />
+                  Editar Turma
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDetalhesTurmaModal(false)}
+                >
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Finalizar Turma */}
+      <Dialog open={showFinalizarTurmaModal} onOpenChange={setShowFinalizarTurmaModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-green-600" />
+              Finalizar Turma: {selectedTurma?.nome || selectedTurma?.title}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 mb-4">Selecione os participantes que concluíram o curso com certificado.</p>
+          <div className="space-y-4">
+            {isLoadingParticipantesTurma ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+            ) : participantesTurmaAtual.length === 0 ? (
+              <div className="text-center py-8 text-gray-500"><Users className="w-12 h-12 mx-auto mb-2 text-gray-300" /><p>Nenhum participante ativo nesta turma.</p></div>
+            ) : (
+              <>
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input placeholder="Pesquisar participante..." value={buscaParticipante} onChange={(e) => setBuscaParticipante(e.target.value)} className="pl-10" />
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-gray-600">{participantesSelecionados.length} de {participantesTurmaAtual.length} selecionados</span>
+                  <Button variant="outline" size="sm" onClick={() => { setParticipantesSelecionados(participantesSelecionados.length === participantesTurmaAtual.length ? [] : participantesTurmaAtual.map((p: any) => p.id)); }}>
+                    {participantesSelecionados.length === participantesTurmaAtual.length ? "Desmarcar Todos" : "Selecionar Todos"}
+                  </Button>
+                </div>
+                <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
+                  {participantesTurmaAtual.filter((p: any) => p.nome?.toLowerCase().includes(buscaParticipante.toLowerCase()) || (p.cpf || '').includes(buscaParticipante)).map((participante: any) => (
+                    <label key={participante.id} className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={participantesSelecionados.includes(participante.id)} onChange={(e) => { setParticipantesSelecionados(e.target.checked ? [...participantesSelecionados, participante.id] : participantesSelecionados.filter(id => id !== participante.id)); }} className="w-5 h-5 rounded border-gray-300 text-green-600 focus:ring-green-500" />
+                      <div className="flex-1"><p className="font-medium">{participante.nome}</p>{participante.cpf && <p className="text-sm text-gray-500">CPF: {participante.cpf}</p>}</div>
+                      {participantesSelecionados.includes(participante.id) && <CheckCircle className="w-5 h-5 text-green-600" />}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="flex gap-3 pt-4 border-t">
+              <Button variant="outline" onClick={() => { setShowFinalizarTurmaModal(false); setParticipantesSelecionados([]); setParticipantesTurmaAtual([]); setBuscaParticipante(""); }} disabled={isFinalizando}>Cancelar</Button>
+              <Button className="bg-green-600 hover:bg-green-700 flex-1" disabled={isFinalizando || participantesTurmaAtual.length === 0} onClick={async () => {
+                if (!selectedTurma) return;
+                setIsFinalizando(true);
+                try {
+                  const response = await fetch(`/api/turmas-inclusao/${selectedTurma.id}/finalizar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ participantesConcluidosIds: participantesSelecionados }) });
+                  if (response.ok) {
+                    const result = await response.json();
+                    toast({ title: "Turma finalizada!", description: `${result.alunosConcluidos} aluno(s) formado(s) com certificado.` });
+                    queryClient.invalidateQueries({ queryKey: ["/api/professor/turmas"] });
+                    setShowFinalizarTurmaModal(false); setParticipantesSelecionados([]); setParticipantesTurmaAtual([]); setBuscaParticipante("");
+                  } else {
+                    const error = await response.json();
+                    toast({ title: "Erro", description: error.error || "Erro ao finalizar turma", variant: "destructive" });
+                  }
+                } catch (error) { toast({ title: "Erro", description: "Erro de conexão ao finalizar turma", variant: "destructive" }); }
+                finally { setIsFinalizando(false); }
+              }}>
+                {isFinalizando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Finalizando...</> : <><GraduationCap className="w-4 h-4 mr-2" /> Finalizar Turma ({participantesSelecionados.length} concluídos)</>}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Dialog justificativa Chamada Manual */}
+      <Dialog open={showModoManualDialog} onOpenChange={setShowModoManualDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>✋</span> Chamada Manual
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-800">
+              A chamada manual substitui o registro automático da catraca. O motivo ficará registrado para auditoria do coordenador.
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Motivo <span className="text-red-500">*</span></label>
+              <Select value={motivoManualSelect} onValueChange={setMotivoManualSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o motivo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Catraca desativada">Catraca desativada</SelectItem>
+                  <SelectItem value="Aluno e/ou turma não cadastrada na catraca">Aluno e/ou turma não cadastrada na catraca</SelectItem>
+                  <SelectItem value="Falta de luz no instituto">Falta de luz no instituto</SelectItem>
+                  <SelectItem value="Outro">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido</label>
+              <Textarea
+                placeholder="Descreva brevemente o ocorrido (opcional)..."
+                value={descManual}
+                onChange={(e) => setDescManual(e.target.value)}
+                className="h-20 resize-none"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setShowModoManualDialog(false)} disabled={savingMotivoManual}>
+              Cancelar
+            </Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600"
+              disabled={!motivoManualSelect || savingMotivoManual}
+              onClick={async () => {
+                setSavingMotivoManual(true);
+                const motivoFinal = descManual.trim() ? `${motivoManualSelect} — ${descManual.trim()}` : motivoManualSelect;
+                try {
+                  await fetch('/api/chamada-manual-log', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ motivo: motivoFinal, data: new Date().toISOString().slice(0, 10) }),
+                  });
+                } catch (e) {
+                  console.error('Erro ao salvar log chamada manual:', e);
+                } finally {
+                  setSavingMotivoManual(false);
+                  setShowModoManualDialog(false);
+                  setMotivoManualSelect('');
+                  setDescManual('');
+                  setModoManual(true);
+                }
+              }}
+            >
+              Confirmar e Abrir Chamada Manual
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Alimentação */}
+      <Dialog open={showAlimentacaoModal} onOpenChange={setShowAlimentacaoModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Utensils className="w-5 h-5 text-orange-500" />
+              Alimentação na Chamada
+            </DialogTitle>
+            <DialogDescription>
+              Houve distribuição de lanche nesta chamada?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 mt-2">
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => {
+                setShowAlimentacaoModal(false);
+                saveChamadaMutation.mutate({ teveAlimentacao: true });
+              }}
+              disabled={saveChamadaMutation.isPending}
+            >
+              <Utensils className="w-4 h-4 mr-2" />
+              Sim, teve lanche
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowAlimentacaoModal(false);
+                saveChamadaMutation.mutate({ teveAlimentacao: false });
+              }}
+              disabled={saveChamadaMutation.isPending}
+            >
+              Não teve lanche
             </Button>
           </div>
         </DialogContent>

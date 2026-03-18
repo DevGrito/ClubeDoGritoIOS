@@ -69,12 +69,31 @@ export default function Entrar() {
           body: JSON.stringify({ email: email.trim() }),
         });
 
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.error || "E-mail não autorizado");
+        const data = await response.json();
+
+        if (response.status === 403 && data.rejected) {
+          toast({
+            title: "Acesso negado",
+            description: data.error || "Seu acesso ao Conselho foi negado pelo administrador.",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
         }
 
-        const data = await response.json();
+        if (response.status === 202 && data.pendingApproval) {
+          toast({
+            title: "Solicitação enviada",
+            description: data.message || "Sua solicitação de acesso ao Conselho foi enviada. Aguarde aprovação.",
+          });
+          setIsLoading(false);
+          setLocation("/aguardando-aprovacao");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || "E-mail não autorizado");
+        }
 
         // limpa e preserva subscription
         const preserveSubscription = localStorage.getItem("hasActiveSubscription");

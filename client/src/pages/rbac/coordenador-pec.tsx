@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { formatCPF } from "@/lib/utils";
+import FrequenciaTurmas from "@/components/FrequenciaTurmas";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
-import type { Project, Activity as PECActivity, ActivityInstance, User as UserType, Educador } from "@shared/schema";
+import type { Project, Activity as PECActivity, ActivityInstance, User as UserType } from "@shared/schema";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -17,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -33,7 +35,6 @@ import {
   Target,
   Activity,
   Music,
-  UserCheck,
   Award,
   Download,
   Plus,
@@ -47,8 +48,11 @@ import {
   ExternalLink,
   ClipboardList,
   ChevronDown,
+  ChevronUp,
+  CheckCircle,
   UserX,
   Camera,
+  Pencil,
   Upload,
   Phone,
   MapPin,
@@ -58,23 +62,45 @@ import {
   Briefcase,
   UploadCloud,
   FileSpreadsheet,
+  UserPlus,
+  XCircle,
+  Zap,
+  Wifi,
+  WifiOff,
+  ScanFace,
+  Hand,
+  Utensils,
+  AlertCircle,
+  User,
+  TrendingUp,
+  FileDown,
 } from "lucide-react";
 import { InstanceForm, ActivityForm } from "@/components/pec/forms";
+import { TurmaDetailModal } from "@/components/pec/TurmaDetailModal";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
+import { ParticipanteDetalhesModal, type DetalhesSection } from "@/components/ParticipanteDetalhesModal";
 import AlterarSenha from "@/components/AlterarSenha";
+import CoordenadorDashboard from "@/components/CoordenadorDashboard";
+import GerenciarProfessores from "@/components/GerenciarProfessores";
+import { baixarListaAlunos } from "@/lib/pdfUtils";
+import VincularProfessoresTurma from "@/components/VincularProfessoresTurma";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export default function CoordenadorPECPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState('dashboard');
-  const contentRef = React.useRef<HTMLDivElement>(null);
+  const lower = (v: any) => String(v ?? "").toLowerCase();
   
   // Estados para modais
   const [showNovaTurmaModal, setShowNovaTurmaModal] = useState(false);
   const [showNovaOficinaModal, setShowNovaOficinaModal] = useState(false);
   const [showAdicionarAlunoModal, setShowAdicionarAlunoModal] = useState(false);
+  const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
+  const [dashFiltroMes, setDashFiltroMes] = useState(0);
   const [editStudentCpf, setEditStudentCpf] = useState<string | undefined>(undefined);
   const [showNovaAvaliacaoModal, setShowNovaAvaliacaoModal] = useState(false);
   const [showNovoPlanoModal, setShowNovoPlanoModal] = useState(false);
@@ -89,19 +115,41 @@ export default function CoordenadorPECPage() {
   const [showVisualizarOficinaModal, setShowVisualizarOficinaModal] = useState(false);
   const [showEditarOficinaModal, setShowEditarOficinaModal] = useState(false);
   const [showExcluirOficinaModal, setShowExcluirOficinaModal] = useState(false);
+  const [forceDeletarTurmas, setForceDeletarTurmas] = useState(false);
+  const [showAlimentacaoModal, setShowAlimentacaoModal] = useState(false);
+  const [editingTeveAlimentacao, setEditingTeveAlimentacao] = useState<boolean | null>(null);
+  const [showJustificativaFaltaModal, setShowJustificativaFaltaModal] = useState(false);
+  const [modalJustFaltaItems, setModalJustFaltaItems] = useState<{cpf: string; nome: string; motivo: string; obs: string; contaComoPresenca: boolean}[]>([]);
+  const MOTIVOS_FALTA_PEC = [
+    { label: 'Atestado médico', contaComoPresenca: true },
+    { label: 'Doença', contaComoPresenca: true },
+    { label: 'Guarda compartilhada', contaComoPresenca: true },
+    { label: 'Escola / Conflito de horário', contaComoPresenca: true },
+    { label: 'Trabalho', contaComoPresenca: true },
+    { label: 'Transporte', contaComoPresenca: false },
+    { label: 'Família', contaComoPresenca: false },
+    { label: 'Compromisso pessoal', contaComoPresenca: false },
+    { label: 'Chuva/Clima', contaComoPresenca: false },
+    { label: 'Outro', contaComoPresenca: false },
+    { label: 'Sem justificativa', contaComoPresenca: false },
+  ];
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
-  
-  // Estados para modais de educadores
-  const [showNovoEducadorModal, setShowNovoEducadorModal] = useState(false);
-  const [showVisualizarEducadorModal, setShowVisualizarEducadorModal] = useState(false);
-  const [showEditarEducadorModal, setShowEditarEducadorModal] = useState(false);
-  const [selectedEducador, setSelectedEducador] = useState<any>(null);
   
   // Estados para turmas
   const [showVisualizarTurmaModal, setShowVisualizarTurmaModal] = useState(false);
   const [showEditarTurmaModal, setShowEditarTurmaModal] = useState(false);
   const [showExcluirTurmaModal, setShowExcluirTurmaModal] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<any>(null);
+  const [filtroStatusTurma, setFiltroStatusTurma] = useState<string>('todos');
+  const [buscaTurma, setBuscaTurma] = useState('');
+  const [showVincularProfessoresModal, setShowVincularProfessoresModal] = useState(false);
+  // Modais de planos e relatórios de aulas
+  const [showPlanosAulaPecModal, setShowPlanosAulaPecModal] = useState(false);
+  const [showRelatoriosAulaPecModal, setShowRelatoriosAulaPecModal] = useState(false);
+  const [planoAulaPecDetalhes, setPlanoAulaPecDetalhes] = useState<any>(null);
+  const [relatorioAulaPecDetalhes, setRelatorioAulaPecDetalhes] = useState<any>(null);
+  const [filtroProfPec, setFiltroProfPec] = useState("");
+  const [turmaParaVincular, setTurmaParaVincular] = useState<any>(null);
   
   // Estados para alunos
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
@@ -109,6 +157,7 @@ export default function CoordenadorPECPage() {
   const [loadingStudentDetails, setLoadingStudentDetails] = useState(false);
   const [showStudentDetailsModal, setShowStudentDetailsModal] = useState(false);
   const [studentDocumentos, setStudentDocumentos] = useState<any[]>([]);
+  const [studentResponsaveis, setStudentResponsaveis] = useState<any[]>([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [uploadingDocumento, setUploadingDocumento] = useState(false);
   const [viewingDocumento, setViewingDocumento] = useState<any>(null);
@@ -244,7 +293,7 @@ const handleCommitImport = async () => {
       });
 
       // Recarrega lista de alunos PEC (você usa queryKey como string em useQuery)
-     queryClient.invalidateQueries({ queryKey: studentsQueryKey });
+     queryClient.invalidateQueries({ queryKey: ['/api/students/all', 'todos'] });
 
     // Fecha modal e limpa estados
     setShowImportModal(false);
@@ -263,6 +312,29 @@ const handleCommitImport = async () => {
   // Estado para alterar senha
   const [showAlterarSenhaModal, setShowAlterarSenhaModal] = useState(false);
   
+  // Estados para chamadas
+  const [showNovaChamadaForm, setShowNovaChamadaForm] = useState(true);
+  const [chamadaTurmaId, setChamadaTurmaId] = useState('');
+  const [chamadaData, setChamadaData] = useState(new Date().toISOString().split('T')[0]);
+  const [presencasChamada, setPresencasChamada] = useState<{alunoId: number; alunoNome: string; alunoCpf: string; presente: boolean; justificativa?: string; justificativaObs?: string; viaCatraca?: boolean; horaEntrada?: string}[]>([]);
+  const [expandedChamadaId, setExpandedChamadaId] = useState<number | null>(null);
+  const [fotoFile, setFotoFile] = useState<File | null>(null);
+  const [existingFotoUrl, setExistingFotoUrl] = useState<string | null>(null);
+  const [editingChamadaId, setEditingChamadaId] = useState<number | null>(null);
+  const pendingEditAttendanceRef = React.useRef<any[] | null>(null);
+  const [historicoFiltroTurma, setHistoricoFiltroTurma] = useState('');
+  const [historicoFiltroDataInicio, setHistoricoFiltroDataInicio] = useState('');
+  const [historicoFiltroDataFim, setHistoricoFiltroDataFim] = useState('');
+  const [modoManual, setModoManual] = useState(false);
+  const [showModoManualDialog, setShowModoManualDialog] = useState(false);
+  const [motivoManualSelect, setMotivoManualSelect] = useState('');
+  const [descManual, setDescManual] = useState('');
+  const [savingMotivoManual, setSavingMotivoManual] = useState(false);
+  const [pinManual, setPinManual] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [catracaApplied, setCatracaApplied] = useState(false);
+  const [catracaConnected, setCatracaConnected] = useState(false);
+  
   // State do formulário de projetos
   const [projetoForm, setProjetoForm] = useState({
     name: '',
@@ -279,20 +351,16 @@ const handleCommitImport = async () => {
   // Filtro de projeto para oficinas
   const [projetoFilterOficinas, setProjetoFilterOficinas] = useState<string>('todos');
   
-  // State do formulário de educadores
-  const [educadorForm, setEducadorForm] = useState({
-    cpf: '',
-    nome_completo: '',
-    telefone: '',
-    email: '',
-    formacao: '',
-    especialidades: '',
-    status: 'ativo'
-  });
-  
   // Coordenador sempre exibe "Coordenador" (não pega do localStorage)
-  const userId = localStorage.getItem("userId");
+  const coordenadorId =
+  localStorage.getItem("coordenadorId") ||
+  localStorage.getItem("userId"); // fallback antigo
+
   const userPapel = localStorage.getItem("userPapel");
+  const actorType = localStorage.getItem("actorType");
+
+  const isCoordinator =
+    actorType === "coordenador" || (userPapel || "").startsWith("coordenador");
 
   // Estados para perfil editável
   const [perfilData, setPerfilData] = useState({
@@ -341,8 +409,8 @@ const handleCommitImport = async () => {
     },
     onError: (error: any) => {
       toast({
-        title: "Erro",
-        description: error.message || "Erro ao atualizar perfil",
+        title: "Erro ao atualizar perfil",
+        description: error.message || "Não foi possível atualizar o perfil. Tente novamente.",
         variant: "destructive",
       });
     }
@@ -371,9 +439,14 @@ const handleCommitImport = async () => {
   // Função para mudar seção e fazer scroll
   const changeSection = (section: string) => {
     setActiveSection(section);
-    setTimeout(() => {
-      contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.getElementById('coordenador-content-area');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    });
   };
 
   // Handlers para os botões
@@ -382,10 +455,12 @@ const handleCommitImport = async () => {
   };
 
   const handleChamadaManual = () => {
-    toast({
-      title: "Chamada Manual",
-      description: "Funcionalidade em desenvolvimento."
-    });
+    setShowNovaChamadaForm(true);
+    setChamadaTurmaId('');
+    setPresencasChamada([]);
+    setFotoFile(null);
+    setEditingChamadaId(null);
+    setChamadaData(new Date().toISOString().split('T')[0]);
   };
 
   const handleChamadaIntebras = () => {
@@ -456,26 +531,8 @@ const handleCommitImport = async () => {
 
   const handleExcluirOficina = (activity: any) => {
     setSelectedActivity(activity);
+    setForceDeletarTurmas(false);
     setShowExcluirOficinaModal(true);
-  };
-
-  const handleVisualizarEducador = (educador: any) => {
-    setSelectedEducador(educador);
-    setShowVisualizarEducadorModal(true);
-  };
-
-  const handleEditarEducador = (educador: any) => {
-    setSelectedEducador(educador);
-    setEducadorForm({
-      cpf: educador.cpf || '',
-      nome_completo: educador.nome_completo || '',
-      telefone: educador.telefone || '',
-      email: educador.email || '',
-      formacao: educador.formacao || '',
-      especialidades: Array.isArray(educador.especialidades) ? educador.especialidades.join(', ') : '',
-      status: educador.vinculo?.status || 'ativo'
-    });
-    setShowEditarEducadorModal(true);
   };
 
   // Handlers de turmas
@@ -484,10 +541,19 @@ const handleCommitImport = async () => {
     setShowVisualizarTurmaModal(true);
   };
 
-  const handleEditTurma = (instance: any) => {
-    setSelectedInstance(instance);
-    setShowEditarTurmaModal(true);
-  };
+    const handleEditTurma = (instance: any) => {
+      const normalized = {
+        ...instance,
+        // garante compatibilidade com formulários antigos que usam "name"
+        name: String(instance?.name ?? instance?.title ?? ""),
+        // garante title sempre string também
+        title: String(instance?.title ?? instance?.name ?? ""),
+        location: String(instance?.location ?? ""),
+      };
+
+      setSelectedInstance(normalized);
+      setShowEditarTurmaModal(true);
+    };
 
   const handleDeleteTurma = (instance: any) => {
     setSelectedInstance(instance);
@@ -516,7 +582,7 @@ const handleCommitImport = async () => {
       setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
     },
     onError: (error: any) => {
-      toast({ title: "Erro", description: error.message || "Erro ao criar projeto", variant: "destructive" });
+      toast({ title: "Erro ao criar projeto", description: error.message || "Não foi possível criar o projeto. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -543,7 +609,7 @@ const handleCommitImport = async () => {
       setProjetoForm({ name: '', description: '', period_start: '', period_end: '', status: 'ativo', tempoIndeterminado: false });
     },
     onError: (error: any) => {
-      toast({ title: "Erro", description: error.message || "Erro ao atualizar projeto", variant: "destructive" });
+      toast({ title: "Erro ao atualizar projeto", description: error.message || "Não foi possível atualizar o projeto. Tente novamente.", variant: "destructive" });
     }
   });
 
@@ -565,8 +631,8 @@ const handleCommitImport = async () => {
     },
     onError: (error: any) => {
       toast({
-        title: "Erro ao excluir",
-        description: error?.message || "Não foi possível excluir o projeto.",
+        title: "Erro ao excluir projeto",
+        description: error?.message || "Não foi possível excluir o projeto. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -580,24 +646,26 @@ const handleCommitImport = async () => {
 
   // Mutation para excluir oficina
   const excluirOficinaMutation = useMutation({
-    mutationFn: async (activityId: number) => {
-      return await apiRequest(`/api/pec/activities/${activityId}`, {
+    mutationFn: async ({ activityId, force }: { activityId: number; force: boolean }) => {
+      return await apiRequest(`/api/pec/activities/${activityId}${force ? '?force=true' : ''}`, {
         method: 'DELETE',
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/pec/activities'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
       toast({
         title: "Oficina excluída",
         description: `A oficina "${selectedActivity?.name}" foi excluída com sucesso.`,
       });
       setShowExcluirOficinaModal(false);
       setSelectedActivity(null);
+      setForceDeletarTurmas(false);
     },
     onError: (error: any) => {
       toast({
-        title: "Erro ao excluir",
-        description: error?.message || "Não foi possível excluir a oficina.",
+        title: "Erro ao excluir oficina",
+        description: error?.message || "Não foi possível excluir a oficina. Tente novamente.",
         variant: "destructive"
       });
     }
@@ -605,143 +673,75 @@ const handleCommitImport = async () => {
 
   const confirmarExclusaoOficina = () => {
     if (selectedActivity?.id) {
-      excluirOficinaMutation.mutate(selectedActivity.id);
+      excluirOficinaMutation.mutate({ activityId: selectedActivity.id, force: forceDeletarTurmas });
     }
   };
   
-  // Mutation para cadastrar educador
-  const criarEducadorMutation = useMutation({
-    mutationFn: async (data: any) => {
-      // Processar especialidades usando função helper
-      const especialidadesArray = processarEspecialidades(data.especialidades);
-      
-      // Validar que pelo menos uma especialidade foi informada
-      if (especialidadesArray.length === 0) {
-        throw new Error('Informe pelo menos uma especialidade válida');
-      }
-      
-      const payload = {
-        ...data,
-        especialidades: especialidadesArray
-      };
-      
-      return await apiRequest('/api/educadores', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/educadores/pec'] });
-      toast({
-        title: "Educador cadastrado!",
-        description: "O educador foi cadastrado com sucesso."
-      });
-      setShowNovoEducadorModal(false);
-      setEducadorForm({
-        cpf: '',
-        nome_completo: '',
-        telefone: '',
-        email: '',
-        formacao: '',
-        especialidades: '',
-        status: 'ativo'
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao cadastrar educador",
-        description: error.message || "Não foi possível cadastrar o educador.",
-        variant: "destructive"
-      });
-    }
-  });
-
-  const atualizarEducadorMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const especialidadesArray = processarEspecialidades(data.especialidades);
-      
-      return await apiRequest(`/api/educadores/${selectedEducador.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          cpf: data.cpf,
-          nome_completo: data.nome_completo,
-          telefone: data.telefone,
-          email: data.email || null,
-          formacao: data.formacao || null,
-          especialidades: especialidadesArray,
-          status: data.status
-        })
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/educadores/pec'] });
-      toast({
-        title: "Educador atualizado!",
-        description: "Os dados do educador foram atualizados com sucesso."
-      });
-      setShowEditarEducadorModal(false);
-      setSelectedEducador(null);
-      setEducadorForm({ cpf: '', nome_completo: '', telefone: '', email: '', formacao: '', especialidades: '', status: 'ativo' });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Erro ao atualizar educador",
-        description: error.message || "Tente novamente.",
-        variant: "destructive"
-      });
-    }
-  });
-
   // Mutation para excluir turma
   const deleteInstanceMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(`/api/pec/instances/${id}`, {
-        method: 'DELETE',
-      });
+      return await apiRequest(`/api/pec/instances/${id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
       setShowExcluirTurmaModal(false);
-      toast({ title: 'Sucesso', description: 'Turma excluída com sucesso' });
+      toast({ title: 'Turma inativada', description: 'Turma inativada com sucesso. Acesse o filtro "Inativas" para reativá-la.' });
     },
     onError: (error: any) => {
-      toast({ title: 'Erro', description: error.message || 'Erro ao excluir turma', variant: 'destructive' });
+      toast({ title: 'Erro ao inativar turma', description: error.message || 'Não foi possível inativar a turma.', variant: 'destructive' });
+    },
+  });
+
+  const reativarInstanceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(`/api/pec/instances/${id}/reativar`, { method: 'PATCH' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/instances'] });
+      toast({ title: 'Turma reativada', description: 'Turma reativada com sucesso!' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao reativar turma', description: error.message || 'Não foi possível reativar a turma.', variant: 'destructive' });
     },
   });
   
-  const handleNovoEducador = () => {
-    setShowNovoEducadorModal(true);
-  };
-  
-  // Helper para processar e validar especialidades
-  const processarEspecialidades = (especialidadesStr: string): string[] => {
-    if (!especialidadesStr) return [];
-    return especialidadesStr
-      .split(',')
-      .map((e) => e.trim())
-      .filter((e) => e.length > 0);
-  };
-  
-  // Validar se educador form tem especialidades válidas
-  const educadorTemEspecialidadesValidas = (): boolean => {
-    const especialidades = processarEspecialidades(educadorForm.especialidades);
-    return especialidades.length > 0;
-  };
-
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
-    queryKey: [`/api/coordenador/dashboard/${userId}?area=pec`],
-    enabled: !!userId
+    queryKey: [`/api/coordenador/dashboard/${coordenadorId}?area=pec`],
+    enabled: !!coordenadorId && isCoordinator,
   });
+
   // Query para buscar projetos do PEC (usando fetcher padrão)
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['/api/projects'],
+    
   });
 
   // Query para buscar atividades do PEC (usando fetcher padrão)
   const { data: activities = [] } = useQuery<PECActivity[]>({
     queryKey: ['/api/pec/activities'],
+    
+  });
+
+  // Queries para planos de aula e aulas registradas (visão coordenador PEC)
+  const { data: planosAulaPec = [], isLoading: loadingPlanosPec } = useQuery({
+    queryKey: ['/api/coordenador/pec/planos-aula'],
+    queryFn: async () => {
+      const r = await fetch('/api/coordenador/pec/planos-aula', { credentials: 'include' });
+      if (!r.ok) throw new Error('Falha ao carregar planos de aula');
+      return r.json();
+    },
+    enabled: showPlanosAulaPecModal,
+  });
+
+  const { data: aulasRegistradasPec = [], isLoading: loadingRelatoriosPec } = useQuery({
+    queryKey: ['/api/coordenador/pec/aulas-registradas'],
+    queryFn: async () => {
+      const r = await fetch('/api/coordenador/pec/aulas-registradas', { credentials: 'include' });
+      if (!r.ok) throw new Error('Falha ao carregar relatórios de aulas');
+      return r.json();
+    },
+    enabled: showRelatoriosAulaPecModal,
   });
 
   // Filtrar projetos baseado no status selecionado
@@ -759,40 +759,308 @@ const handleCommitImport = async () => {
   // Query para buscar turmas/instâncias do PEC (usando fetcher padrão)
   const { data: instances = [] } = useQuery<ActivityInstance[]>({
     queryKey: ['/api/pec/instances'],
+    
   });
 
-  // Query para buscar educadores do PEC
-  const { data: educadores = [] } = useQuery<Educador[]>({
-    queryKey: ['/api/educadores/pec'],
-    enabled: activeSection === 'educadores'
+  // Query para buscar chamadas (sessions) do PEC - mesma tabela que Monitor/Professor PEC
+  const { data: chamadasPEC = [] } = useQuery<any[]>({
+    queryKey: ['/api/pec/sessions'],
+    queryFn: async () => {
+      const response = await fetch('/api/pec/sessions', {
+        credentials: "include",
+      });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: activeSection === 'chamadas',
+    
   });
 
-  const statusParam =
-  statusFilterAlunos === "ativos" ? "ativos" :
-  statusFilterAlunos === "inativos" ? "inativos" :
-  "todos";
+  // Query para buscar dados de usuários
+  const { data: usersData = [] } = useQuery<UserType[]>({
+    queryKey: ['/api/users'],
+    
+  });
+  
+  // Query para buscar alunos da turma selecionada para chamada
+  const { data: alunosChamadaTurma = [], isLoading: loadingAlunosChamada } = useQuery<any[]>({
+    queryKey: ['/api/pec/turma-alunos', chamadaTurmaId],
+    queryFn: async () => {
+      if (!chamadaTurmaId) return [];
+     const response = await fetch(`/api/pec/turma-alunos/${chamadaTurmaId}`, {
+        credentials: "include",
+      });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!chamadaTurmaId && showNovaChamadaForm
+  });
 
-const studentsQueryKey = [`/api/students/all?area=pec&status=${statusParam}`];
+  React.useEffect(() => {
+    if (editingChamadaId || !chamadaTurmaId) return;
+    const DAY_MAP: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
+    const selectedTurma = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
+    const diasSemana = selectedTurma?.dias_semana || selectedTurma?.days_of_week || selectedTurma?.diasSemana || [];
+    const occStart = selectedTurma?.occurrence_start || selectedTurma?.start_date;
+    const occEnd = selectedTurma?.occurrence_end || selectedTurma?.end_date;
+    if (diasSemana.length > 0 && occStart && occEnd) {
+      const jsDays = diasSemana.map((d: string) => DAY_MAP[d]).filter((d: number | undefined) => d !== undefined);
+      const today = new Date().toISOString().split('T')[0];
+      const current = new Date(occStart + 'T00:00:00');
+      const end = new Date(occEnd + 'T00:00:00');
+      let firstValid = '';
+      let closestToToday = '';
+      while (current <= end) {
+        if (jsDays.includes(current.getDay())) {
+          const dateStr = current.toISOString().split('T')[0];
+          if (!firstValid) firstValid = dateStr;
+          if (dateStr <= today) closestToToday = dateStr;
+          if (dateStr >= today && !closestToToday) { closestToToday = dateStr; break; }
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      setChamadaData(closestToToday || firstValid || today);
+    }
+  }, [chamadaTurmaId, instances, editingChamadaId]);
 
+  const { data: catracaLog, refetch: refetchCatracaLog } = useQuery<{ data: string; entradas: any[]; total: number }>({
+    queryKey: ['/api/webhook/presenca-log'],
+    enabled: activeSection === 'chamadas',
+    refetchInterval: 30000,
+  });
 
-const { data: students = [] } = useQuery<any[]>({
-  queryKey: studentsQueryKey,
-  enabled: true, // ✅ sempre carrega
-  queryFn: async () => {
-    const resp = await apiRequest(`/api/students/all?area=pec&status=${statusParam}`);
-    const raw = (resp as any)?.data ?? resp;
-    return Array.isArray(raw) ? raw : [];
-  },
-});
+  const { data: pecSessionExistente } = useQuery<any>({
+    queryKey: ['/api/pec/session-by-date', chamadaTurmaId, chamadaData],
+    queryFn: async () => {
+      const res = await fetch(`/api/pec/sessions?activity_instance_id=${chamadaTurmaId}&date=${chamadaData}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      const sessions = await res.json();
+      if (Array.isArray(sessions)) {
+        return sessions.find((s: any) => String(s.activity_instance_id) === String(chamadaTurmaId) && String(s.date).slice(0, 10) === chamadaData) || null;
+      }
+      return null;
+    },
+    enabled: !!chamadaTurmaId && !!chamadaData && activeSection === 'chamadas' && !editingChamadaId,
+  });
+
+  React.useEffect(() => {
+    if (activeSection !== 'chamadas') return;
+    const es = new EventSource("/api/webhook/presenca-events");
+    es.onopen = () => setCatracaConnected(true);
+    es.onerror = () => setCatracaConnected(false);
+    es.onmessage = (event) => {
+      if (event.data === "connected") { setCatracaConnected(true); return; }
+      try {
+        const data = JSON.parse(event.data);
+        if (data.tipo === "presenca" && data.vertente === "pec") {
+          refetchCatracaLog();
+          queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date', chamadaTurmaId, chamadaData] });
+          setCatracaApplied(false);
+        }
+      } catch (_) {}
+    };
+    return () => { es.close(); setCatracaConnected(false); };
+  }, [activeSection, chamadaTurmaId, chamadaData]);
+
+  // Atualizar presenças quando alunos da turma são carregados
+  React.useEffect(() => {
+    if (alunosChamadaTurma.length === 0) return;
+
+    // Modo EDIÇÃO: mesclar alunos matriculados com attendance salvo
+    if (editingChamadaId && pendingEditAttendanceRef.current !== null) {
+      const savedAttendance = pendingEditAttendanceRef.current;
+      const savedMap = new Map(savedAttendance.map((a: any) => [a.alunoCpf, a]));
+      const selectedTurmaData = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
+      setModoManual(false); // Sempre inicia em modo facial
+      const merged = alunosChamadaTurma.map((aluno: any) => {
+        const saved = savedMap.get(aluno.cpf);
+        return {
+          alunoId: aluno.id || aluno.cpf,
+          alunoNome: getNomeAluno(aluno),
+          alunoCpf: aluno.cpf,
+          presente: saved ? (saved.presente === true || saved.status === 'presente') : false,
+          justificativa: saved?.justificativa || '',
+          viaCatraca: saved?.origemCatraca || false,
+          horaEntrada: saved?.horaEntrada || undefined,
+        };
+      });
+      setPresencasChamada(merged);
+      pendingEditAttendanceRef.current = null;
+      return;
+    }
+
+    // Modo NOVA CHAMADA: inicializar todos como ausentes
+    if (!editingChamadaId) {
+      setCatracaApplied(false);
+      const selectedTurmaData = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
+      setModoManual(false); // Sempre inicia em modo facial
+      setPresencasChamada(alunosChamadaTurma.map((aluno: any) => ({
+        alunoId: aluno.id || aluno.cpf,
+        alunoNome: getNomeAluno(aluno),
+        alunoCpf: aluno.cpf,
+        presente: false,
+        justificativa: ''
+      })));
+    }
+  }, [alunosChamadaTurma, editingChamadaId]);
+
+  React.useEffect(() => {
+    if (editingChamadaId) return;
+    if (!pecSessionExistente?.attendance) return;
+    if (presencasChamada.length === 0) return;
+    const attendance = pecSessionExistente.attendance as any[];
+    const catracaEntries = attendance.filter((a: any) => a.origemCatraca === true && a.presente === true);
+    if (catracaEntries.length === 0) return;
+    if (catracaApplied) return;
+
+    const catracaCpfMap = new Map(catracaEntries.map((a: any) => [a.alunoCpf, a]));
+    const updated = presencasChamada.map(p => {
+      const entry = catracaCpfMap.get(p.alunoCpf);
+      if (entry) {
+        return { ...p, presente: true, viaCatraca: true, horaEntrada: entry.horaEntrada };
+      }
+      return p;
+    });
+    setCatracaApplied(true);
+    setPresencasChamada(updated);
+  }, [pecSessionExistente, presencasChamada.length, editingChamadaId, catracaApplied]);
+
+  // Mutation para salvar chamada
+  const salvarChamadaMutation = useMutation({
+    mutationFn: async (vars?: { teveAlimentacao?: boolean | null }) => {
+      if (!fotoFile && !editingChamadaId) {
+        throw new Error("É obrigatório enviar a foto comprovante para finalizar a chamada.");
+      }
+      const turma = instances.find((i: any) => i.id.toString() === chamadaTurmaId);
+      const url = editingChamadaId 
+        ? `/api/pec/sessions/${editingChamadaId}/editar`
+        : '/api/pec/sessions';
+      const method = editingChamadaId ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: "include",
+      body: JSON.stringify({
+          activity_instance_id: parseInt(chamadaTurmaId),
+          date: chamadaData,
+          hours: '2.00',
+          title: `Chamada - ${turma?.name || 'Turma'}`,
+          status: 'realizado',
+          teve_alimentacao: vars?.teveAlimentacao ?? null,
+          attendance: presencasChamada.map(p => ({
+            alunoNome: p.alunoNome,
+            alunoCpf: p.alunoCpf,
+            presente: p.presente,
+            justificativa: !modoManual && !p.presente ? (p.justificativa || 'Sem justificativa') : (p.justificativa || ''),
+            status: !p.presente && p.justificativa && p.justificativa !== 'Sem justificativa' ? 'falta_justificada' : (p.presente ? 'presente' : 'falta'),
+            origemCatraca: p.viaCatraca || false,
+            horaEntrada: p.horaEntrada || null,
+          }))
+        })
+      });
+      if (!response.ok) throw new Error(editingChamadaId ? 'Erro ao atualizar chamada' : 'Erro ao salvar chamada');
+      const result = await response.json();
+
+      if (fotoFile) {
+        try {
+          const formData = new FormData();
+          formData.append('foto', fotoFile);
+          formData.append('sessionId', String(result?.id || editingChamadaId || ''));
+          await fetch('/api/pec/sessions/foto', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include',
+          });
+        } catch (err) {
+          console.error('Erro ao enviar foto comprovante:', err);
+        }
+      }
+
+      return result;
+    },
+    onSuccess: () => {
+      toast({ title: 'Sucesso', description: editingChamadaId ? 'Chamada atualizada com sucesso!' : 'Chamada registrada com sucesso!' });
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/sessions'] });
+      setShowNovaChamadaForm(false);
+      setChamadaTurmaId('');
+      setPresencasChamada([]);
+      setFotoFile(null);
+      setExistingFotoUrl(null);
+      setEditingChamadaId(null);
+      setEditingTeveAlimentacao(null);
+    },
+    onError: (error: any) => {
+      toast({ title: editingChamadaId ? 'Erro ao atualizar chamada' : 'Erro ao salvar chamada', description: error.message || 'Não foi possível salvar a chamada. Tente novamente.', variant: 'destructive' });
+    }
+  });
+
+  // Query para buscar alunos da tabela aluno (todos os status para filtro funcionar no cliente)
+  const { data: alunosData = [] } = useQuery<any[]>({
+    queryKey: ['/api/students/all', 'todos'],
+    queryFn: async () => {
+      const res = await fetch('/api/students/all?status=todos', { credentials: 'include' });
+      if (!res.ok) throw new Error('Falha ao carregar alunos');
+      return res.json();
+    },
+  });
+
+  const { data: turmasAtivasPec } = useQuery<{ totalAtivas: number; porProjeto: Array<{ projeto: string; total: number }> }>({
+    queryKey: ['/api/gestao-vista/turmas-ativas-pec'],
+    queryFn: () => fetch('/api/gestao-vista/turmas-ativas-pec').then(r => r.json()),
+    refetchInterval: 120000,
+  });
+
+  const { data: dashboardDemografico, isLoading: loadingDemografico } = useQuery<any>({
+    queryKey: ['/api/coordenador/dashboard-demografico', dashFiltroAno, dashFiltroMes],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (dashFiltroAno) params.set('ano', String(dashFiltroAno));
+      if (dashFiltroMes) params.set('mes', String(dashFiltroMes));
+      const qs = params.toString();
+      const url = '/api/coordenador/dashboard-demografico' + (qs ? `?${qs}` : '');
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar dados demográficos');
+      return response.json();
+    },
+  });
+
+  const getNomeAluno = (aluno: any) => {
+    const nome =
+      aluno?.nome_completo ??
+      aluno?.nomeCompleto ??
+      aluno?.nome ??
+      aluno?.name ??
+      "";
+
+    return String(nome).trim();
+  };
+
+  const students = alunosData.map((aluno: any) => ({
+    id: aluno.id ?? aluno.cpf, // se existir id numérico, melhor; senão cpf
+    nome: getNomeAluno(aluno),
+    sobrenome: aluno?.sobrenome ? String(aluno.sobrenome).trim() : "",
+    telefone: aluno?.telefone ? String(aluno.telefone) : "",
+    email: aluno?.email ? String(aluno.email).trim() : "",
+    role: "aluno",
+    foto_perfil: aluno?.foto_perfil ?? null,
+    cpf: aluno?.cpf ?? "",
+    data_nascimento: aluno?.data_nascimento ?? null,
+    genero: aluno?.genero ?? null,
+    situacao_atendimento: aluno?.situacao_atendimento ?? "ativo",
+  }));
 
   const handleLogout = () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    toast({
-      title: "Logout realizado",
-      description: "Você foi desconectado com sucesso."
-    });
-    setTimeout(() => window.location.href = "/login/coordenador", 500);
+    // remove só o que é do coordenador
+    localStorage.removeItem("coordenadorId");
+    localStorage.removeItem("coordenadorNome");
+    localStorage.removeItem("coordenadorEmail");
+    localStorage.removeItem("userPapel");
+    localStorage.removeItem("actorType");
+    sessionStorage.removeItem("coordenador_auth");
+    sessionStorage.removeItem("coordenador_data");
+
+    toast({ title: "Logout realizado", description: "Você foi desconectado com sucesso." });
+    setTimeout(() => (window.location.href = "/login/coordenador"), 500);
   };
 
   const handleExportReport = () => {
@@ -817,25 +1085,22 @@ const { data: students = [] } = useQuery<any[]>({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="coordenador-pec-page">
+    <div className="min-h-screen bg-slate-900" data-testid="coordenador-pec-page">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-4 md:px-6">
+      <div className="bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
               <Trophy className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900" data-testid="text-welcome">
+              <h1 className="text-xl md:text-2xl font-bold text-white" data-testid="text-welcome">
                 Coordenação Esporte e Cultura
               </h1>
-              <p className="text-gray-600" data-testid="text-username">Olá {perfilData.nome}</p>
+              <p className="text-slate-400" data-testid="text-username">Olá {perfilData.nome}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant="outline" data-testid="badge-role">
-              🏆 Coordenador PEC
-            </Badge>
             <Button
               variant="outline"
               size="sm"
@@ -911,38 +1176,21 @@ const { data: students = [] } = useQuery<any[]>({
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
+        <CoordenadorDashboard
+          data={dashboardDemografico}
+          isLoading={loadingDemografico}
+          filtroAno={dashFiltroAno}
+          filtroMes={dashFiltroMes}
+          onFilterChange={(ano, mes) => {
+            setDashFiltroAno(ano);
+            setDashFiltroMes(mes);
+          }}
+          tipo="pec"
+          turmasAtivasPec={turmasAtivasPec}
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
-          {/* Indicadores da Área */}
-          <Card data-testid="card-indicadores">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Target className="w-5 h-5 text-orange-500" />
-                Indicadores da Área
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Alunos Ativos:</span>
-                <span className="font-semibold" data-testid="text-atletas-ativos">
-                  {dashboardData?.atletasAtivos || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Modalidades Oferecidas:</span>
-                <span className="font-semibold" data-testid="text-modalidades">
-                  {dashboardData?.modalidades || 0}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Oficinas Culturais:</span>
-                <span className="font-semibold text-orange-600" data-testid="text-eventos-realizados">
-                  {dashboardData?.oficinasCulturais || 0}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Gestão de Alunos */}
           <Card data-testid="card-atletas">
             <CardHeader className="pb-3">
@@ -978,26 +1226,6 @@ const { data: students = [] } = useQuery<any[]>({
                 </Button>
                 <Button 
                   className="w-full" 
-                  variant={activeSection === 'chamadas' ? 'default' : 'outline'}
-                  data-testid="button-chamadas"
-                  onClick={() => changeSection('chamadas')}
-                  size="sm"
-                >
-                  <Clock className="w-4 h-4 mr-2" />
-                  Chamadas
-                </Button>
-                <Button 
-                  className="w-full" 
-                  variant={activeSection === 'oficinas' ? 'default' : 'outline'}
-                  data-testid="button-oficinas-alunos"
-                  onClick={() => changeSection('oficinas')}
-                  size="sm"
-                >
-                  <Music className="w-4 h-4 mr-2" />
-                  Oficinas
-                </Button>
-                <Button 
-                  className="w-full" 
                   variant={activeSection === 'atletas' ? 'default' : 'outline'}
                   data-testid="button-atletas"
                   onClick={() => changeSection('atletas')}
@@ -1013,8 +1241,18 @@ const { data: students = [] } = useQuery<any[]>({
                   onClick={() => changeSection('avaliacoes')}
                   size="sm"
                 >
-                  <UserCheck className="w-4 h-4 mr-2" />
+                  <Activity className="w-4 h-4 mr-2" />
                   Avaliações Físicas
+                </Button>
+                <Button 
+                  className="w-full col-span-2" 
+                  variant={activeSection === 'chamadas' ? 'default' : 'outline'}
+                  data-testid="button-chamadas"
+                  onClick={() => changeSection('chamadas')}
+                  size="sm"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Chamadas
                 </Button>
               </div>
             </CardContent>
@@ -1125,26 +1363,45 @@ const { data: students = [] } = useQuery<any[]>({
             </CardContent>
           </Card>
 
-          {/* Gestão de Educadores */}
-          <Card data-testid="card-educadores">
+          {/* Gerenciar Professores */}
+          <Card data-testid="card-professores">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <UserCheck className="w-5 h-5 text-purple-500" />
-                Gestão de Educadores
+                <GraduationCap className="w-5 h-5 text-teal-500" />
+                Professores
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-gray-600 text-sm">
-                Gerencie educadores, cadastre profissionais e acompanhe especialidades.
+                Cadastre e gerencie os professores do programa PEC.
               </p>
-              <Button 
-                className="w-full bg-purple-500 hover:bg-purple-600 text-white" 
-                data-testid="button-educadores"
-                onClick={() => changeSection('educadores')}
-              >
-                <UserCheck className="w-4 h-4 mr-2" />
-                Educadores
-              </Button>
+              <div className="space-y-2">
+                <Button 
+                  className="w-full"
+                  variant={activeSection === 'professores' ? 'default' : 'outline'}
+                  data-testid="button-professores"
+                  onClick={() => changeSection('professores')}
+                >
+                  <GraduationCap className="w-4 h-4 mr-2" />
+                  Gerenciar Professores
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => { setFiltroProfPec(""); setShowPlanosAulaPecModal(true); }}
+                >
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  Planos de Aula
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => { setFiltroProfPec(""); setShowRelatoriosAulaPecModal(true); }}
+                >
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  Relatórios de Aulas
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -1172,6 +1429,15 @@ const { data: students = [] } = useQuery<any[]>({
                 </Button>
                 <Button 
                   className="w-full" 
+                  variant={activeSection === 'frequencias' ? 'default' : 'outline'}
+                  data-testid="button-frequencias"
+                  onClick={() => changeSection('frequencias')}
+                >
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Ver Frequências
+                </Button>
+                <Button 
+                  className="w-full" 
                   variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
                   data-testid="button-perfil"
                   onClick={() => changeSection('configuracoes')}
@@ -1193,7 +1459,7 @@ const { data: students = [] } = useQuery<any[]>({
         </div>
 
         {/* Área de Conteúdo Dinâmica */}
-        <div className="mt-8" ref={contentRef}>
+        <div className="mt-8" id="coordenador-content-area">
           {activeSection === 'dashboard' && (
             <Card>
               <CardHeader>
@@ -1256,13 +1522,13 @@ const { data: students = [] } = useQuery<any[]>({
                       <TableBody>
                         {[...students]
                           .sort((a: any, b: any) => {
-                            const nomeA = (a.nome || a.nome_completo || '').trim().toLowerCase();
-                            const nomeB = (b.nome || b.nome_completo || '').trim().toLowerCase();
+                            const nomeA = (a.nome || '').trim().toLowerCase();
+                              const nomeB = (b.nome || '').trim().toLowerCase();
                             return nomeA.localeCompare(nomeB, 'pt-BR');
                           })
                           .filter((student: any) => {
                             const matchesSearch = !searchTermAlunos || 
-                              (student.nome || student.nome_completo || '').toLowerCase().includes(searchTermAlunos.toLowerCase()) ||
+                              (student.nome || '').toLowerCase().includes(searchTermAlunos.toLowerCase()) ||
                               (student.cpf || '').includes(searchTermAlunos);
                             if (!matchesSearch) return false;
                             if (statusFilterAlunos === 'todos') return true;
@@ -1286,7 +1552,7 @@ const { data: students = [] } = useQuery<any[]>({
                               )}
                             </TableCell>
                             <TableCell className="font-medium">
-                              {student.nome || 'Sem nome'}
+                               {student.nome?.trim() ? student.nome : "Sem nome"}
                             </TableCell>
                             <TableCell>{student.cpf || 'Não informado'}</TableCell>
                             <TableCell>{student.telefone || 'Não informado'}</TableCell>
@@ -1323,7 +1589,20 @@ const { data: students = [] } = useQuery<any[]>({
 
                                      setFullStudentData(alunoData ?? null);
 
-                                      // 2) Buscar documentos do aluno (✅ usa o cpf certo)
+                                      // 2) Buscar responsáveis do aluno
+                                      try {
+                                        const resResp = await fetch(`/api/alunos/${cpfAluno}/responsaveis`, { credentials: 'include' });
+                                        if (resResp.ok) {
+                                          const respData = await resResp.json();
+                                          setStudentResponsaveis(Array.isArray(respData) ? respData : []);
+                                        } else {
+                                          setStudentResponsaveis([]);
+                                        }
+                                      } catch {
+                                        setStudentResponsaveis([]);
+                                      }
+
+                                      // 3) Buscar documentos do aluno (✅ usa o cpf certo)
                                     const userId = localStorage.getItem("userId");
 
                                     const resDocs = await fetch(`/api/documentos/aluno/${cpfAluno}`, {
@@ -1394,94 +1673,8 @@ const { data: students = [] } = useQuery<any[]>({
             </Card>
           )}
 
-          {activeSection === 'educadores' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Gestão de Educadores</CardTitle>
-                <Button size="sm" className="bg-purple-500 hover:bg-purple-600" onClick={handleNovoEducador} data-testid="button-novo-educador">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Cadastrar Educador
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Buscar educadores..." className="pl-10" data-testid="input-buscar-educadores" />
-                    </div>
-                  </div>
-                  
-                  {educadores.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      Nenhum educador encontrado. Clique em "Cadastrar Educador" para adicionar.
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Nome</TableHead>
-                          <TableHead>CPF</TableHead>
-                          <TableHead>Telefone</TableHead>
-                          <TableHead>Especialidades</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {educadores.map((educador: any) => (
-                          <TableRow key={educador.id}>
-                            <TableCell className="flex items-center gap-2">
-                              <UserCheck className="w-4 h-4 text-purple-400" />
-                              {educador.nome_completo || 'Sem nome'}
-                            </TableCell>
-                            <TableCell>{educador.cpf || 'Não informado'}</TableCell>
-                            <TableCell>{educador.telefone || 'Não informado'}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {Array.isArray(educador.especialidades) && educador.especialidades.length > 0 
-                                  ? educador.especialidades.map((esp: string, idx: number) => (
-                                      <Badge key={idx} variant="outline" className="text-xs">
-                                        {esp}
-                                      </Badge>
-                                    ))
-                                  : <span className="text-gray-400 text-sm">Nenhuma</span>
-                                }
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={educador.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                                {educador.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  onClick={() => handleVisualizarEducador(educador)}
-                                  data-testid={`button-view-educador-${educador.id}`}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  onClick={() => handleEditarEducador(educador)}
-                                  data-testid={`button-edit-educador-${educador.id}`}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          {activeSection === 'professores' && (
+            <GerenciarProfessores programa="pec" />
           )}
 
           {activeSection === 'avaliacoes' && (
@@ -1630,162 +1823,754 @@ const { data: students = [] } = useQuery<any[]>({
 
           {activeSection === 'turmas' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Gestão de Turmas</CardTitle>
-                <Button size="sm" className="bg-blue-500 hover:bg-blue-600" onClick={handleNovaTurma}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nova Turma
-                </Button>
+              <CardHeader className="flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between w-full">
+                  <CardTitle>Minhas Turmas</CardTitle>
+                  <Button className="bg-green-500 hover:bg-green-600" onClick={handleNovaTurma}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nova Turma
+                  </Button>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant={filtroStatusTurma === "todos" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("todos")}>Todas</Button>
+                  <Button variant={filtroStatusTurma === "ativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("ativo")}>Em Andamento</Button>
+                  <Button variant={filtroStatusTurma === "planejado" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("planejado")}>Planejadas</Button>
+                  <Button variant={filtroStatusTurma === "concluido" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("concluido")}>Concluídas</Button>
+                  <Button variant={filtroStatusTurma === "inativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("inativo")}>Inativas</Button>
+                </div>
+                <div className="w-full">
+                  <Input
+                    placeholder="Buscar turma pelo nome..."
+                    value={buscaTurma}
+                    onChange={(e) => setBuscaTurma(e.target.value)}
+                    className="w-full max-w-sm"
+                  />
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Buscar turmas..." className="pl-10" />
-                    </div>
-                    <Select>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Modalidade" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todas">Todas</SelectItem>
-                        <SelectItem value="futebol">Futebol</SelectItem>
-                        <SelectItem value="volei">Vôlei</SelectItem>
-                        <SelectItem value="basquete">Basquete</SelectItem>
-                        <SelectItem value="musica">Música</SelectItem>
-                        <SelectItem value="danca">Dança</SelectItem>
-                      </SelectContent>
-                    </Select>
+                {instances.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-500 mb-4">Nenhuma turma encontrada</p>
+                    <Button className="bg-green-500 hover:bg-green-600" onClick={handleNovaTurma}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Criar Primeira Turma
+                    </Button>
                   </div>
-                  
-                  {instances.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      Nenhuma turma encontrada. Clique em "Nova Turma" para adicionar.
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Turma</TableHead>
-                          <TableHead>Local</TableHead>
-                          <TableHead>Horário</TableHead>
-                          <TableHead>Vagas</TableHead>
-                          <TableHead>Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {instances.map((instance: any) => (
-                          <TableRow key={instance.id}>
-                            <TableCell>
-                              <div className="font-medium">{instance.title}</div>
-                            </TableCell>
-                            <TableCell>{instance.location || 'Não especificado'}</TableCell>
-                            <TableCell>
-                              {instance.schedule || 'A definir'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {instance.max_participants ? `${instance.max_participants} vagas` : 'Ilimitado'}
+                ) : (
+                  <div className="grid gap-4">
+                    {instances
+                      .filter((instance: any) => {
+                        const status = instance.situation || instance.status || 'ativo';
+                        if (filtroStatusTurma === 'inativo') return status === 'inativo';
+                        if (status === 'inativo') return false;
+                        if (status === 'encerrada' && filtroStatusTurma !== 'concluido') return false;
+                        const nomeTurma = (instance.title || instance.name || '').toLowerCase();
+                        if (buscaTurma && !nomeTurma.includes(buscaTurma.toLowerCase())) return false;
+                        if (filtroStatusTurma === "todos") return true;
+                        if (filtroStatusTurma === "ativo") return status === 'ativo' || status === 'execucao';
+                        if (filtroStatusTurma === "planejado") return status === 'planejamento' || status === 'planejado' || status === 'pendente';
+                        if (filtroStatusTurma === "concluido") return status === 'concluido' || status === 'encerrada';
+                        return status === filtroStatusTurma;
+                      })
+                      .map((instance: any) => {
+                        const status = instance.situation || instance.status || 'ativo';
+                        return (
+                          <div key={instance.id} className="border rounded-lg p-4 border-green-200">
+                            <div className="flex items-center justify-between mb-3">
+                              <h3 className="font-semibold">{instance.title || instance.name}</h3>
+                              <Badge className={
+                                status === "concluido" || status === "encerrada" ? "bg-blue-100 text-blue-800" :
+                                status === "planejamento" || status === "planejado" ? "bg-yellow-100 text-yellow-800" :
+                                status === "inativo" ? "bg-gray-100 text-gray-600" :
+                                "bg-green-100 text-green-800"
+                              }>
+                                {status === "concluido" || status === "encerrada" ? "Finalizada" :
+                                 status === "planejamento" || status === "planejado" ? "Planejada" :
+                                 status === "inativo" ? "Inativa" : "Em Andamento"}
                               </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => handleViewTurma(instance)}
-                                  data-testid={`button-view-turma-${instance.id}`}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => handleEditTurma(instance)}
-                                  data-testid={`button-edit-turma-${instance.id}`}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => handleDeleteTurma(instance)}
-                                  data-testid={`button-delete-turma-${instance.id}`}
-                                  className="hover:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                </Button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-500">Horário:</span>
+                                <p className="font-medium">{instance.start_time && instance.end_time ? `${instance.start_time} - ${instance.end_time}` : (instance.schedule || '- - -')}</p>
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
+                              <div>
+                                <span className="text-gray-500">Alunos:</span>
+                                <p className="font-medium">{instance.alunosCount || 0}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Local:</span>
+                                <p className="font-medium">{instance.location || '-'}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 mt-4 flex-wrap">
+                              <Button size="sm" variant="outline" onClick={() => handleViewTurma(instance)}>
+                                <Eye className="w-4 h-4 mr-1" />
+                                Ver
+                              </Button>
+                              <Button size="sm" variant="outline" className="border-green-300 text-green-700 hover:bg-green-50" onClick={() => {
+                                setSelectedInstance(instance);
+                                setShowVisualizarTurmaModal(true);
+                              }}>
+                                <UserPlus className="w-4 h-4 mr-1" />
+                                Gerenciar Alunos
+                              </Button>
+                              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                                onClick={() => baixarListaAlunos(instance.id, instance, true)}>
+                                <FileDown className="w-4 h-4 mr-1" />
+                                Baixar lista
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-teal-300 text-teal-700 hover:bg-teal-50"
+                                onClick={() => {
+                                  setTurmaParaVincular(instance);
+                                  setShowVincularProfessoresModal(true);
+                                }}
+                              >
+                                <GraduationCap className="w-4 h-4 mr-1" />
+                                Professores
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => handleEditTurma(instance)}>
+                                <Edit className="w-4 h-4 mr-1" />
+                                Editar
+                              </Button>
+                              {status === 'inativo' ? (
+                                <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={() => {
+                                  if (confirm(`Deseja reativar a turma "${instance.title || instance.name}"?`)) {
+                                    reativarInstanceMutation.mutate(instance.id);
+                                  }
+                                }}>
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  Reativar
+                                </Button>
+                              ) : (
+                                <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" onClick={() => {
+                                  if (confirm(`Tem certeza que deseja inativar a turma "${instance.title || instance.name}"?`)) {
+                                    deleteInstanceMutation.mutate(instance.id);
+                                  }
+                                }}>
+                                  <XCircle className="w-4 h-4 mr-1" />
+                                  Inativar
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </CardContent>
             </Card>
+          )}
+
+          {activeSection === 'frequencias' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-blue-500" />
+                    Frequência por Turma — PEC
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FrequenciaTurmas vertente="pec" coordenadorId={coordenadorId} enabled={activeSection === 'frequencias'} />
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeSection === 'chamadas' && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Registro de Chamadas</CardTitle>
-                <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="border-blue-500 text-blue-600 hover:bg-blue-50"
-                    data-testid="button-chamada-manual"
-                    onClick={handleChamadaManual}
-                  >
-                    <Clock className="w-4 h-4 mr-2" />
-                    Manual
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="border-green-500 text-green-600 hover:bg-green-50"
-                    data-testid="button-chamada-intebras"
-                    onClick={handleChamadaIntebras}
-                  >
-                    <Users className="w-4 h-4 mr-2" />
-                    Intebras
-                  </Button>
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                  Chamadas
+                  {catracaConnected ? (
+                    <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 text-[10px] px-1.5 py-0 ml-1">
+                      <Wifi className="w-3 h-3 mr-0.5 inline" />
+                      Catraca Online
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-gray-400 border-gray-200 text-[10px] px-1.5 py-0 ml-1">
+                      <WifiOff className="w-3 h-3 mr-0.5 inline" />
+                      Catraca Offline
+                    </Badge>
+                  )}
+                </CardTitle>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    if (showNovaChamadaForm) {
+                      setShowNovaChamadaForm(false);
+                      setEditingChamadaId(null);
+                      setFotoFile(null);
+                      setExistingFotoUrl(null);
+                    } else {
+                      handleChamadaManual();
+                    }
+                  }}
+                >
+                  <Clock className="w-4 h-4 mr-2" />
+                  {showNovaChamadaForm ? 'Ver Histórico' : 'Nova Chamada'}
+                </Button>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Buscar turma..." className="pl-10" />
+                {showNovaChamadaForm ? (
+                  <div className="space-y-4">
+                    <div className="flex gap-4 items-end flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-sm font-medium mb-2">Turma</label>
+                        <Select value={chamadaTurmaId} onValueChange={setChamadaTurmaId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione a turma" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {instances.map((turma: any) => (
+                              <SelectItem key={turma.id} value={turma.id.toString()}>
+                                <div className="flex items-center gap-2">
+                                  <span>{turma.name || turma.title}</span>
+                                  {turma.control_mode === 'intelbras' && (
+                                    <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5 pointer-events-none">
+                                      <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                      Catraca
+                                    </Badge>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-sm font-medium mb-2">Data da Aula</label>
+                        {(() => {
+                          const DAY_LABEL_TO_JS: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
+                          const JS_TO_DAY_LABEL: Record<number, string> = { 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 0: 'Domingo' };
+                          const selectedTurma = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
+                          const diasSemana = selectedTurma?.dias_semana || selectedTurma?.days_of_week || selectedTurma?.diasSemana || [];
+                          const occStart = selectedTurma?.occurrence_start || selectedTurma?.start_date;
+                          const occEnd = selectedTurma?.occurrence_end || selectedTurma?.end_date;
+
+                          if (chamadaTurmaId && diasSemana.length > 0 && occStart && occEnd) {
+                            const jsDays = diasSemana.map((d: string) => DAY_LABEL_TO_JS[d]).filter((d: number | undefined) => d !== undefined);
+                            const classDates: { value: string; label: string }[] = [];
+                            const current = new Date(occStart + 'T00:00:00');
+                            const end = new Date(occEnd + 'T00:00:00');
+                            while (current <= end) {
+                              if (jsDays.includes(current.getDay())) {
+                                const dd = String(current.getDate()).padStart(2, '0');
+                                const mm = String(current.getMonth() + 1).padStart(2, '0');
+                                const yyyy = current.getFullYear();
+                                const dateStr = `${yyyy}-${mm}-${dd}`;
+                                const dayName = JS_TO_DAY_LABEL[current.getDay()] || '';
+                                classDates.push({ value: dateStr, label: `${dd}/${mm}/${yyyy} - ${dayName}` });
+                              }
+                              current.setDate(current.getDate() + 1);
+                            }
+
+                            return (
+                              <Select value={chamadaData} onValueChange={setChamadaData} disabled={!!editingChamadaId}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione a data da aula" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {classDates.map((d) => (
+                                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          }
+
+                          return (
+                            <Input 
+                              type="date" 
+                              value={chamadaData}
+                              onChange={(e) => setChamadaData(e.target.value)}
+                              disabled={!!editingChamadaId}
+                            />
+                          );
+                        })()}
+                      </div>
+                      {chamadaTurmaId && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {editingChamadaId ? (
+                            existingFotoUrl ? (
+                              <div className="flex items-center gap-2">
+                                <img src={existingFotoUrl} alt="Foto comprovante" className="w-10 h-10 rounded object-cover border" />
+                                <span className="text-xs text-gray-500">Foto comprovante (somente leitura)</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Camera className="w-4 h-4 text-gray-400" />
+                                <span className="text-xs text-gray-500">Sem foto comprovante</span>
+                              </div>
+                            )
+                          ) : (
+                            <>
+                              <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">
+                                <Camera className="w-4 h-4 text-gray-500" />
+                                <span className="text-gray-600">{fotoFile ? fotoFile.name : 'Foto comprovante'}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => setFotoFile(e.target.files?.[0] || null)}
+                                />
+                              </label>
+                              {fotoFile && (
+                                <img src={URL.createObjectURL(fotoFile)} alt="Preview" className="w-10 h-10 rounded object-cover border" />
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {editingChamadaId && (
+                        <div className="border rounded-lg p-3 space-y-1">
+                          <p className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                            <Utensils className="w-3.5 h-3.5" />
+                            Teve alimentação nessa aula?
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTeveAlimentacao(true)}
+                              className={`flex-1 py-1.5 text-xs rounded-md border font-medium transition-colors ${editingTeveAlimentacao === true ? 'bg-green-100 border-green-500 text-green-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              ✓ Sim, teve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingTeveAlimentacao(false)}
+                              className={`flex-1 py-1.5 text-xs rounded-md border font-medium transition-colors ${editingTeveAlimentacao === false ? 'bg-red-50 border-red-400 text-red-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                            >
+                              ✗ Não teve
+                            </button>
+                          </div>
+                          {editingTeveAlimentacao === null && (
+                            <p className="text-xs text-amber-600">Não definido (chamada antiga)</p>
+                          )}
+                        </div>
+                      )}
+                      <div 
+                        className="relative"
+                        onClick={() => {}}
+                      >
+                        <Button 
+                          className="bg-green-500 hover:bg-green-600 w-full"
+                          onClick={(e) => {
+                            const faltasSemJustif = presencasChamada.filter(p => !p.presente);
+                            if (faltasSemJustif.length > 0 && !editingChamadaId) {
+                              setModalJustFaltaItems(faltasSemJustif.map(a => ({
+                                cpf: a.alunoCpf,
+                                nome: a.alunoNome,
+                                motivo: a.justificativa || 'Sem justificativa',
+                                obs: '',
+                                contaComoPresenca: MOTIVOS_FALTA_PEC.find(m => m.label === (a.justificativa || 'Sem justificativa'))?.contaComoPresenca ?? false,
+                              })));
+                              setShowJustificativaFaltaModal(true);
+                            } else if (!editingChamadaId) {
+                              setShowAlimentacaoModal(true);
+                            } else {
+                              salvarChamadaMutation.mutate({ teveAlimentacao: editingTeveAlimentacao });
+                            }
+                          }}
+                          disabled={presencasChamada.length === 0 || salvarChamadaMutation.isPending}
+                          title=""
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          {salvarChamadaMutation.isPending ? 'Salvando...' : (editingChamadaId ? 'Atualizar Presenças' : 'Finalizar Chamada')}
+                        </Button>
+                      </div>
+                      {editingChamadaId && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setEditingChamadaId(null);
+                            setChamadaTurmaId('');
+                            setPresencasChamada([]);
+                            setFotoFile(null);
+                            setExistingFotoUrl(null);
+                          }}
+                        >
+                          <X className="w-4 h-4 mr-2" />
+                          Cancelar Edição
+                        </Button>
+                      )}
                     </div>
-                    <Select>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Período" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hoje">Hoje</SelectItem>
-                        <SelectItem value="semana">Esta Semana</SelectItem>
-                        <SelectItem value="mes">Este Mês</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    
+                    {chamadaTurmaId && !editingChamadaId && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border">
+                        <div className="flex items-center gap-2">
+                          {modoManual ? (
+                            <>
+                              <Hand className="w-4 h-4 text-orange-500" />
+                              <span className="text-sm font-medium text-orange-700">Modo Manual</span>
+                              <span className="text-xs text-gray-500">- Marque presença manualmente</span>
+                            </>
+                          ) : (
+                            <>
+                              <ScanFace className="w-4 h-4 text-blue-500" />
+                              <span className="text-sm font-medium text-blue-700">Chamada Facial / Catraca</span>
+                              {presencasChamada.some(p => p.viaCatraca) && (
+                                <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5">
+                                  <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                  {presencasChamada.filter(p => p.viaCatraca).length} entrada{presencasChamada.filter(p => p.viaCatraca).length !== 1 ? 's' : ''}
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <Button
+                          variant={modoManual ? "default" : "outline"}
+                          size="sm"
+                          className={modoManual ? "bg-orange-500 hover:bg-orange-600" : ""}
+                          onClick={() => {
+                            if (modoManual) {
+                              setModoManual(false);
+                            } else {
+                              setMotivoManualSelect('');
+                              setDescManual('');
+                              setShowModoManualDialog(true);
+                            }
+                          }}
+                        >
+                          {modoManual ? (
+                            <>
+                              <ScanFace className="w-4 h-4 mr-1" />
+                              Voltar p/ Facial
+                            </>
+                          ) : (
+                            <>
+                              <Hand className="w-4 h-4 mr-1" />
+                              Chamada Manual
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {chamadaTurmaId && catracaLog?.entradas && catracaLog.entradas.length > 0 && (
+                      <div className="border rounded-lg p-3 bg-white">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-blue-500" />
+                            Entradas via Catraca Hoje
+                          </h4>
+                          <span className="text-xs text-gray-400">
+                            {catracaLog.entradas.filter((e: any) => {
+                              const turma = instances?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                              return turma ? (e.turma === turma.name || e.turma === turma.title) : true;
+                            }).length} registro{catracaLog.entradas.filter((e: any) => {
+                              const turma = instances?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                              return turma ? (e.turma === turma.name || e.turma === turma.title) : true;
+                            }).length !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="grid gap-1.5 max-h-[160px] overflow-y-auto">
+                          {catracaLog.entradas
+                            .filter((e: any) => {
+                              const turma = instances?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                              return turma ? (e.turma === turma.name || e.turma === turma.title) : true;
+                            })
+                            .map((entry: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded bg-blue-50 border border-blue-100">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                  <span className="text-sm">{entry.nome}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-[10px] px-1.5 border-blue-200 text-blue-600">
+                                    {entry.turma}
+                                  </Badge>
+                                  <span className="text-xs text-gray-500 font-mono">{entry.hora}</span>
+                                </div>
+                              </div>
+                            ))
+                          }
+                          {catracaLog.entradas.filter((e: any) => {
+                            const turma = instances?.find((t: any) => t.id.toString() === chamadaTurmaId);
+                            return turma ? (e.turma === turma.name || e.turma === turma.title) : true;
+                          }).length === 0 && (
+                            <div className="text-center py-2 text-xs text-gray-400">Nenhuma entrada desta turma hoje</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {chamadaTurmaId && (
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold mb-4">
+                          Lista de Presença - {instances.find((t: any) => t.id.toString() === chamadaTurmaId)?.name || instances.find((t: any) => t.id.toString() === chamadaTurmaId)?.title || 'Turma'}
+                          {editingChamadaId && <Badge className="ml-2 bg-yellow-500">Editando</Badge>}
+                          {loadingAlunosChamada && <span className="text-sm text-gray-500 ml-2">Carregando...</span>}
+                        </h3>
+                        {loadingAlunosChamada ? (
+                          <div className="text-center py-4 text-gray-500">Carregando alunos...</div>
+                        ) : presencasChamada.length === 0 ? (
+                          <div className="text-center py-4 text-gray-500">
+                            <Users className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                            <p>Nenhum aluno nesta turma.</p>
+                            <p className="text-sm">Adicione alunos na seção "Turmas".</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {[...presencasChamada]
+                              .map((aluno, originalIdx) => ({ ...aluno, originalIdx }))
+                              .sort((a, b) => (a.alunoNome || '').localeCompare(b.alunoNome || '', 'pt-BR'))
+                              .map((aluno) => {
+                                const idx = aluno.originalIdx;
+                                return (
+                              <div key={aluno.alunoCpf} className={`flex items-center justify-between p-3 border rounded flex-wrap gap-2 ${!modoManual && !aluno.viaCatraca && !aluno.presente ? 'opacity-60' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                  <User className="w-4 h-4 text-gray-400" />
+                                  <span>{aluno.alunoNome}</span>
+                                  {aluno.viaCatraca && aluno.horaEntrada && (
+                                    <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px] px-1.5">
+                                      <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                      {aluno.horaEntrada}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {modoManual || editingChamadaId ? (
+                                <div className="flex items-center gap-4">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                      type="radio" 
+                                      name={`presenca-coord-${aluno.alunoCpf}`}
+                                      checked={aluno.presente === true}
+                                      onChange={() => {
+                                        const updated = [...presencasChamada];
+                                        updated[idx].presente = true;
+                                        updated[idx].justificativa = '';
+                                        setPresencasChamada(updated);
+                                      }}
+                                      className="w-4 h-4 text-green-600"
+                                    />
+                                    <span className="text-sm text-green-600">Presente</span>
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                      type="radio" 
+                                      name={`presenca-coord-${aluno.alunoCpf}`}
+                                      checked={aluno.presente === false}
+                                      onChange={() => {
+                                        const updated = [...presencasChamada];
+                                        updated[idx].presente = false;
+                                        setPresencasChamada(updated);
+                                      }}
+                                      className="w-4 h-4 text-red-600"
+                                    />
+                                    <span className="text-sm text-red-600">Falta</span>
+                                  </label>
+                                </div>
+                                ) : (
+                                <div className="flex items-center gap-2">
+                                  {aluno.presente ? (
+                                    <Badge className="bg-green-100 text-green-700 border-green-200">
+                                      <CheckCircle className="w-3 h-3 mr-1" />
+                                      Presente
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-gray-400 border-gray-200">
+                                      Aguardando catraca
+                                    </Badge>
+                                  )}
+                                </div>
+                                )}
+                                {(modoManual || !!editingChamadaId) && aluno.presente === false && (
+                                  <div className="w-full mt-1 space-y-1">
+                                    <div className="flex flex-wrap gap-1">
+                                      {['Doença', 'Atestado médico', 'Escola', 'Trabalho', 'Transporte', 'Família', 'Compromisso pessoal', 'Chuva/Clima', 'Outro', 'Sem justificativa'].map((opcao) => (
+                                        <button
+                                          key={opcao}
+                                          type="button"
+                                          onClick={() => {
+                                            const updated = [...presencasChamada];
+                                            updated[idx].justificativa = opcao;
+                                            setPresencasChamada(updated);
+                                          }}
+                                          className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${aluno.justificativa === opcao ? (opcao === 'Sem justificativa' ? 'bg-red-100 border-red-400 text-red-700' : 'bg-blue-100 border-blue-400 text-blue-700') : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                                        >
+                                          {opcao}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <Input
+                                      placeholder="Ou escreva a justificativa..."
+                                      value={aluno.justificativa || ''}
+                                      onChange={(e) => {
+                                        const updated = [...presencasChamada];
+                                        updated[idx].justificativa = e.target.value;
+                                        setPresencasChamada(updated);
+                                      }}
+                                      className="h-8 text-sm"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {!chamadaTurmaId && (
+                      <div className="text-center py-8 text-gray-500">
+                        <Calendar className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>Selecione uma turma para fazer a chamada</p>
+                      </div>
+                    )}
                   </div>
-                  
-                  <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                    <div className="text-gray-400 mb-2">
-                      <svg className="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
+                ) : (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold">Histórico de Presenças</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <label className="text-sm font-medium">Turma</label>
+                        <Select value={historicoFiltroTurma} onValueChange={setHistoricoFiltroTurma}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Todas as turmas" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todas">Todas as turmas</SelectItem>
+                            {instances.map((turma: any) => (
+                              <SelectItem key={turma.id} value={turma.name || turma.title}>{turma.name || turma.title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Data Início</label>
+                        <Input
+                          type="date"
+                          value={historicoFiltroDataInicio}
+                          onChange={(e) => setHistoricoFiltroDataInicio(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Data Fim</label>
+                        <Input
+                          type="date"
+                          value={historicoFiltroDataFim}
+                          onChange={(e) => setHistoricoFiltroDataFim(e.target.value)}
+                        />
+                      </div>
                     </div>
-                    <p className="text-gray-600 font-medium mb-1">Módulo de Chamadas</p>
-                    <p className="text-gray-500 text-sm">
-                      Nenhuma chamada registrada. Clique em "Nova Chamada" para começar.
-                    </p>
+                    
+                    {chamadasPEC.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <Calendar className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>Nenhuma chamada registrada ainda.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {chamadasPEC
+                          .filter((chamada: any) => {
+                            const turma = instances.find((i: any) => i.id === chamada.activity_instance_id);
+                            const turmaNome = turma?.name || turma?.title || '';
+                            const dataAtividade = chamada.date?.split('T')[0] || '';
+                            
+                            if (historicoFiltroTurma && historicoFiltroTurma !== 'todas' && turmaNome !== historicoFiltroTurma) {
+                              return false;
+                            }
+                            if (historicoFiltroDataInicio && dataAtividade) {
+                              if (dataAtividade < historicoFiltroDataInicio) return false;
+                            }
+                            if (historicoFiltroDataFim && dataAtividade) {
+                              if (dataAtividade > historicoFiltroDataFim) return false;
+                            }
+                            return true;
+                          })
+                          .map((chamada: any) => {
+                            const turma = instances.find((i: any) => i.id === chamada.activity_instance_id);
+                            const turmaName = turma?.name || turma?.title || `Turma ${chamada.activity_instance_id}`;
+                            const presentes = chamada.attendance?.filter((a: any) => a.presente)?.length || 0;
+                            const total = chamada.enrolledCount || chamada.attendance?.length || 0;
+                            const isExpanded = expandedChamadaId === chamada.id;
+                            
+                            return (
+                              <div key={chamada.id} className="border rounded-lg overflow-hidden">
+                                <div 
+                                  className="p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 flex items-center justify-between"
+                                  onClick={() => setExpandedChamadaId(isExpanded ? null : chamada.id)}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <Calendar className="w-4 h-4 text-gray-500" />
+                                    <span className="font-medium">
+                                      {chamada.date?.split('T')[0]?.split('-').reverse().join('/') || ''}
+                                    </span>
+                                    <span className="text-gray-500">-</span>
+                                    <span>{turmaName}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-sm text-green-600 font-medium">
+                                      {presentes}/{total} presentes
+                                    </span>
+                                    {chamada.teveAlimentacao === true && (
+                                      <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 rounded px-1.5 py-0.5 font-medium">🍽️ Alimentação</span>
+                                    )}
+                                    {chamada.teveAlimentacao === false && (
+                                      <span className="text-xs bg-gray-100 text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">Sem alimentação</span>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        pendingEditAttendanceRef.current = chamada.attendance || [];
+                                        setPresencasChamada([]);
+                                        setEditingChamadaId(chamada.id);
+                                        setChamadaTurmaId(String(chamada.activity_instance_id));
+                                        setChamadaData(chamada.date?.split('T')[0] || new Date().toISOString().split('T')[0]);
+                                        const fotoUrl = chamada.fotoComprovante || (chamada.attendance || []).find((a: any) => a.fotoComprovante)?.fotoComprovante || null;
+                                        setExistingFotoUrl(fotoUrl);
+                                        setFotoFile(null);
+                                        setEditingTeveAlimentacao(chamada.teveAlimentacao ?? null);
+                                        setShowNovaChamadaForm(true);
+                                      }}
+                                    >
+                                      <Pencil className="w-3.5 h-3.5 mr-1" />
+                                      Editar
+                                    </Button>
+                                    {isExpanded ? (
+                                      <ChevronUp className="w-4 h-4 text-gray-500" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4 text-gray-500" />
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {isExpanded && chamada.attendance && chamada.attendance.length > 0 && (
+                                  <div className="p-3 border-t bg-white">
+                                    <div className="text-sm font-medium mb-2 text-gray-600">Lista de Presença:</div>
+                                    <div className="grid gap-2">
+                                      {[...chamada.attendance]
+                                        .sort((a: any, b: any) => (a.alunoNome || '').localeCompare(b.alunoNome || '', 'pt-BR'))
+                                        .map((a: any, idx: number) => (
+                                          <div key={idx} className="flex items-center justify-between py-1 px-2 rounded bg-gray-50">
+                                            <span className="text-sm">{a.alunoNome}</span>
+                                            <span className={`text-xs font-medium ${a.presente ? 'text-green-600' : 'text-red-600'}`}>
+                                              {a.presente ? 'Presente' : 'Falta'}
+                                            </span>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -1854,7 +2639,7 @@ const { data: students = [] } = useQuery<any[]>({
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setActiveSection('atletas')}>
+                        <Button size="sm" variant="outline" onClick={() => changeSection('atletas')}>
                           <Users className="w-4 h-4 mr-1" />
                           Ver Alunos
                         </Button>
@@ -2386,6 +3171,7 @@ const { data: students = [] } = useQuery<any[]>({
               </CardContent>
             </Card>
           )}
+
 
           {activeSection === 'relatorios' && (
             <Card>
@@ -2990,14 +3776,47 @@ const { data: students = [] } = useQuery<any[]>({
               <p className="text-sm text-gray-600">
                 Esta ação não pode ser desfeita. A oficina será permanentemente removida.
               </p>
-              <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded">
-                <strong>Atenção:</strong> Se esta oficina possuir turmas relacionadas, a exclusão será bloqueada.
-              </p>
+              {(() => {
+                const inativaSituations = ['encerrada', 'inativo', 'inativa'];
+                const turmasAtivas = instances.filter((i: any) => i.activity_id === selectedActivity?.id && !inativaSituations.includes(i.situation));
+                const turmasInativas = instances.filter((i: any) => i.activity_id === selectedActivity?.id && inativaSituations.includes(i.situation));
+                if (turmasInativas.length === 0 && turmasAtivas.length === 0) return null;
+                return (
+                  <div className="space-y-2">
+                    {turmasInativas.length > 0 && turmasAtivas.length === 0 && (
+                      <p className="text-sm text-green-700 bg-green-50 p-3 rounded">
+                        <strong>Info:</strong> Esta oficina possui {turmasInativas.length} turma{turmasInativas.length !== 1 ? 's' : ''} encerrada{turmasInativas.length !== 1 ? 's' : ''}/inativa{turmasInativas.length !== 1 ? 's' : ''} que serão removidas automaticamente.
+                      </p>
+                    )}
+                    {turmasAtivas.length > 0 && (
+                      <>
+                        <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded">
+                          <strong>Atenção:</strong> Esta oficina possui <strong>{turmasAtivas.length} turma{turmasAtivas.length !== 1 ? 's' : ''} ativa{turmasAtivas.length !== 1 ? 's' : ''}</strong>. É necessário confirmar a exclusão.
+                        </p>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={forceDeletarTurmas}
+                            onChange={(e) => setForceDeletarTurmas(e.target.checked)}
+                            className="w-4 h-4 accent-red-500"
+                          />
+                          <span className="text-sm text-red-700 font-medium">
+                            Excluir também as {turmasAtivas.length} turma{turmasAtivas.length !== 1 ? 's' : ''} ativa{turmasAtivas.length !== 1 ? 's' : ''}
+                          </span>
+                        </label>
+                        {!forceDeletarTurmas && (
+                          <p className="text-xs text-gray-500">Marque a opção acima para poder excluir esta oficina.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex gap-2 pt-2">
                 <Button 
-                  className="flex-1 bg-red-500 hover:bg-red-600" 
+                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50" 
                   onClick={confirmarExclusaoOficina}
-                  disabled={excluirOficinaMutation.isPending}
+                  disabled={excluirOficinaMutation.isPending || (instances.filter((i: any) => i.activity_id === selectedActivity?.id && !['encerrada','inativo','inativa'].includes(i.situation)).length > 0 && !forceDeletarTurmas)}
                   data-testid="button-confirmar-excluir-oficina"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
@@ -3112,375 +3931,22 @@ const { data: students = [] } = useQuery<any[]>({
         />
       )}
 
-      {/* Modal Cadastrar Educador */}
-      {showNovoEducadorModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowNovoEducadorModal(false)}>
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-purple-600">Cadastrar Novo Educador</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowNovoEducadorModal(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block">CPF *</label>
-                <Input 
-                  placeholder="000.000.000-00"
-                  value={educadorForm.cpf}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, cpf: e.target.value }))}
-                  data-testid="input-educador-cpf"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Nome Completo *</label>
-                <Input 
-                  placeholder="Ex: João Silva Santos"
-                  value={educadorForm.nome_completo}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, nome_completo: e.target.value }))}
-                  data-testid="input-educador-nome"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Telefone *</label>
-                <Input 
-                  placeholder="(31) 99999-9999"
-                  value={educadorForm.telefone}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, telefone: e.target.value }))}
-                  data-testid="input-educador-telefone"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Email</label>
-                <Input 
-                  placeholder="educador@example.com"
-                  type="email"
-                  value={educadorForm.email}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, email: e.target.value }))}
-                  data-testid="input-educador-email"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Formação</label>
-                <Input 
-                  placeholder="Ex: Licenciatura em Educação Física"
-                  value={educadorForm.formacao}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, formacao: e.target.value }))}
-                  data-testid="input-educador-formacao"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Especialidades *</label>
-                <Input 
-                  placeholder="Ex: Futebol, Vôlei, Basquete (separados por vírgula)"
-                  value={educadorForm.especialidades}
-                  onChange={(e) => setEducadorForm(prev => ({ ...prev, especialidades: e.target.value }))}
-                  data-testid="input-educador-especialidades"
-                />
-                <p className="text-xs text-gray-500 mt-1">Separe múltiplas especialidades por vírgula</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">Status</label>
-                <Select
-                  value={educadorForm.status}
-                  onValueChange={(value) => setEducadorForm(prev => ({ ...prev, status: value }))}
-                >
-                  <SelectTrigger data-testid="select-educador-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <Button 
-                  className="flex-1 bg-purple-500 hover:bg-purple-600" 
-                  onClick={() => criarEducadorMutation.mutate(educadorForm)}
-                  disabled={
-                    criarEducadorMutation.isPending || 
-                    !educadorForm.cpf || 
-                    !educadorForm.nome_completo || 
-                    !educadorForm.telefone ||
-                    !educadorTemEspecialidadesValidas()
-                  }
-                  data-testid="button-salvar-educador"
-                >
-                  {criarEducadorMutation.isPending ? 'Cadastrando...' : 'Cadastrar Educador'}
-                </Button>
-                <Button variant="outline" onClick={() => {
-                  setShowNovoEducadorModal(false);
-                  setEducadorForm({
-                    cpf: '',
-                    nome_completo: '',
-                    telefone: '',
-                    email: '',
-                    formacao: '',
-                    especialidades: '',
-                    status: 'ativo'
-                  });
-                }} data-testid="button-cancelar-educador">
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Visualizar Educador */}
-      {showVisualizarEducadorModal && selectedEducador && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Detalhes do Educador</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowVisualizarEducadorModal(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Nome Completo</label>
-                <p className="text-gray-700 mt-1">{selectedEducador.nome_completo}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">CPF</label>
-                  <p className="text-gray-700 mt-1">{selectedEducador.cpf}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Telefone</label>
-                  <p className="text-gray-700 mt-1">{selectedEducador.telefone}</p>
-                </div>
-              </div>
-              {selectedEducador.email && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">E-mail</label>
-                  <p className="text-gray-700 mt-1">{selectedEducador.email}</p>
-                </div>
-              )}
-              {selectedEducador.formacao && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Formação</label>
-                  <p className="text-gray-700 mt-1">{selectedEducador.formacao}</p>
-                </div>
-              )}
-              <div>
-                <label className="text-sm font-medium text-gray-500">Especialidades</label>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {Array.isArray(selectedEducador.especialidades) && selectedEducador.especialidades.length > 0 
-                    ? selectedEducador.especialidades.map((esp: string, idx: number) => (
-                        <Badge key={idx} variant="outline">
-                          {esp}
-                        </Badge>
-                      ))
-                    : <span className="text-gray-400 text-sm">Nenhuma especialidade cadastrada</span>
-                  }
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
-                <div className="mt-1">
-                  <Badge className={selectedEducador.vinculo?.status === 'ativo' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                    {selectedEducador.vinculo?.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-4 border-t mt-4">
-              <Button className="flex-1" onClick={() => {
-                setShowVisualizarEducadorModal(false);
-                handleEditarEducador(selectedEducador);
-              }}>
-                <Edit className="w-4 h-4 mr-2" />
-                Editar Educador
-              </Button>
-              <Button variant="outline" onClick={() => setShowVisualizarEducadorModal(false)}>
-                Fechar
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Editar Educador */}
-      {showEditarEducadorModal && selectedEducador && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Editar Educador</h3>
-              <Button variant="ghost" size="sm" onClick={() => {
-                setShowEditarEducadorModal(false);
-                setSelectedEducador(null);
-              }}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">CPF</label>
-                <Input
-                  value={educadorForm.cpf}
-                  onChange={(e) => setEducadorForm({ ...educadorForm, cpf: e.target.value })}
-                  placeholder="000.000.000-00"
-                  disabled
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Nome Completo *</label>
-                <Input
-                  value={educadorForm.nome_completo}
-                  onChange={(e) => setEducadorForm({ ...educadorForm, nome_completo: e.target.value })}
-                  placeholder="Nome completo do educador"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">Telefone *</label>
-                  <Input
-                    value={educadorForm.telefone}
-                    onChange={(e) => setEducadorForm({ ...educadorForm, telefone: e.target.value })}
-                    placeholder="(00) 00000-0000"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">E-mail</label>
-                  <Input
-                    value={educadorForm.email}
-                    onChange={(e) => setEducadorForm({ ...educadorForm, email: e.target.value })}
-                    placeholder="email@exemplo.com"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Formação</label>
-                <Input
-                  value={educadorForm.formacao}
-                  onChange={(e) => setEducadorForm({ ...educadorForm, formacao: e.target.value })}
-                  placeholder="Ex: Pedagogia, Artes, etc."
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Especialidades</label>
-                <Input
-                  value={educadorForm.especialidades}
-                  onChange={(e) => setEducadorForm({ ...educadorForm, especialidades: e.target.value })}
-                  placeholder="Ex: dança, música, teatro (separar por vírgula)"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Status</label>
-                <Select 
-                  value={educadorForm.status} 
-                  onValueChange={(value) => setEducadorForm({ ...educadorForm, status: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-2 pt-4">
-              <Button 
-                className="flex-1 bg-purple-500 hover:bg-purple-600" 
-                onClick={() => atualizarEducadorMutation.mutate(educadorForm)}
-                disabled={
-                  atualizarEducadorMutation.isPending || 
-                  !educadorForm.nome_completo || 
-                  !educadorForm.telefone
-                }
-              >
-                {atualizarEducadorMutation.isPending ? "Salvando..." : "Salvar Alterações"}
-              </Button>
-              <Button variant="outline" onClick={() => {
-                setShowEditarEducadorModal(false);
-                setSelectedEducador(null);
-              }}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal Visualizar Turma */}
-      <Dialog open={showVisualizarTurmaModal} onOpenChange={setShowVisualizarTurmaModal}>
-        <DialogContent className="max-w-2xl" data-testid="modal-visualizar-turma">
-          <DialogHeader>
-            <DialogTitle>Detalhes da Turma</DialogTitle>
-          </DialogHeader>
-          {selectedInstance && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Título</label>
-                  <p className="text-sm" data-testid="text-turma-title">{selectedInstance.title}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Código</label>
-                  <p className="text-sm" data-testid="text-turma-code">{selectedInstance.code}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Local</label>
-                  <p className="text-sm" data-testid="text-turma-location">{selectedInstance.location || 'Não especificado'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Situação</label>
-                  <p className="text-sm" data-testid="text-turma-situation">{selectedInstance.situation}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Período</label>
-                  <p className="text-sm" data-testid="text-turma-period">{selectedInstance.period_label || 'Não especificado'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Horário</label>
-                  <p className="text-sm" data-testid="text-turma-schedule">
-                    {selectedInstance.start_time && selectedInstance.end_time 
-                      ? `${selectedInstance.start_time} - ${selectedInstance.end_time}`
-                      : 'A definir'}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Faixa Etária</label>
-                  <p className="text-sm" data-testid="text-turma-age-range">
-                    {selectedInstance.age_min && selectedInstance.age_max
-                      ? `${selectedInstance.age_min} - ${selectedInstance.age_max} anos`
-                      : 'Não especificado'}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Modo de Controle</label>
-                  <p className="text-sm" data-testid="text-turma-control-mode">
-                    {selectedInstance.control_mode === 'manual' ? 'Manual' : 'Intelbras'}
-                  </p>
-                </div>
-              </div>
-              {selectedInstance.notes && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Observações</label>
-                  <p className="text-sm" data-testid="text-turma-notes">{selectedInstance.notes}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <TurmaDetailModal 
+        open={showVisualizarTurmaModal} 
+        onOpenChange={setShowVisualizarTurmaModal}
+        selectedInstance={selectedInstance}
+      />
 
       {/* Modal Editar Turma */}
       <InstanceForm
-        open={showEditarTurmaModal}
-        onClose={() => {
-          setShowEditarTurmaModal(false);
-          setSelectedInstance(null);
-        }}
-        instance={selectedInstance}
-        activityId={selectedInstance?.activity_id || null}
+          open={showEditarTurmaModal}
+          onClose={() => {
+            setShowEditarTurmaModal(false);
+            setSelectedInstance(null);
+          }}
+          instance={selectedInstance}
+          activityId={selectedInstance?.activity_id || null}
       />
 
       {/* Modal Excluir Turma */}
@@ -3507,189 +3973,145 @@ const { data: students = [] } = useQuery<any[]>({
       </AlertDialog>
 
       {/* Modal Visualizar Detalhes do Aluno - Completo */}
-      <Dialog open={showStudentDetailsModal} onOpenChange={(open) => {
-        setShowStudentDetailsModal(open);
-        if (!open) {
-          setFullStudentData(null);
-        }
-      }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Detalhes Completos do Aluno</DialogTitle>
-          </DialogHeader>
-          {loadingStudentDetails ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
-              <span className="ml-3">Carregando dados...</span>
-            </div>
-          ) : fullStudentData && (
-            <div className="space-y-6">
-              {/* Cabeçalho com foto e nome */}
-              <div className="flex items-center gap-4 pb-4 border-b">
-                {fullStudentData.foto_perfil && fullStudentData.foto_perfil.trim() ? (
-                  <img 
-                    src={fullStudentData.foto_perfil} 
-                    alt={fullStudentData.nome_completo} 
-                    className="w-24 h-24 rounded-full object-cover border-2 border-orange-200"
-                  />
-                ) : (
-                  <div className="w-24 h-24 rounded-full bg-orange-100 flex items-center justify-center">
-                    <User className="w-12 h-12 text-orange-500" />
-                  </div>
-                )}
-                <div>
-                  <h3 className="text-xl font-semibold">{fullStudentData.nome_completo}</h3>
-                  <p className="text-gray-500">CPF: {fullStudentData.cpf}</p>
-                  <p className={`text-sm ${fullStudentData.situacao_atendimento === 'inativo' ? 'text-red-500' : 'text-green-500'}`}>
-                    Status: {fullStudentData.situacao_atendimento === 'inativo' ? 'Inativo' : 'Ativo'}
-                  </p>
+      <ParticipanteDetalhesModal
+        open={showStudentDetailsModal}
+        onOpenChange={(open) => {
+          setShowStudentDetailsModal(open);
+          if (!open) {
+            setFullStudentData(null);
+            setStudentResponsaveis([]);
+          }
+        }}
+        title="Detalhes Completos do Aluno"
+        loading={loadingStudentDetails}
+        color="orange"
+        foto={fullStudentData?.foto_perfil}
+        nome={fullStudentData?.nome_completo}
+        cpf={fullStudentData ? formatCPF(fullStudentData.cpf) : undefined}
+        status={fullStudentData?.situacao_atendimento}
+        sections={fullStudentData ? ([
+          {
+            title: "Identificação",
+            icon: User,
+            fields: [
+              { label: "Data de Nascimento", value: fullStudentData.data_nascimento },
+              { label: "Gênero", value: fullStudentData.genero },
+              { label: "Nº Matrícula", value: fullStudentData.numero_matricula },
+              { label: "Estado Civil", value: fullStudentData.estado_civil },
+              { label: "Religião", value: fullStudentData.religiao },
+              { label: "Naturalidade", value: fullStudentData.naturalidade },
+              { label: "Nacionalidade", value: fullStudentData.nacionalidade },
+              { label: "Cor/Raça", value: fullStudentData.cor_raca },
+              { label: "Pode sair sozinho?", value: fullStudentData.pode_sair_sozinho },
+            ],
+          },
+          {
+            title: "Documentos",
+            icon: FileText,
+            fields: [
+              { label: "CPF", value: formatCPF(fullStudentData.cpf) },
+              { label: "RG", value: fullStudentData.rg },
+              { label: "Órgão Emissor", value: fullStudentData.orgao_emissor },
+              { label: "CTPS Número", value: fullStudentData.ctps_numero },
+              { label: "CTPS Série", value: fullStudentData.ctps_serie },
+              { label: "Título de Eleitor", value: fullStudentData.titulo_eleitor },
+              { label: "NIS/PIS/PASEP", value: fullStudentData.nis_pis_pasep },
+            ],
+          },
+          {
+            title: "Contato",
+            icon: Phone,
+            fields: [
+              { label: "Telefone", value: fullStudentData.telefone },
+              { label: "Email", value: fullStudentData.email },
+              { label: "WhatsApp", value: fullStudentData.whatsapp },
+            ],
+            extra: fullStudentData.contatos_emergencia && Array.isArray(fullStudentData.contatos_emergencia) && fullStudentData.contatos_emergencia.length > 0 ? (
+              <div>
+                <label className="text-xs font-medium text-gray-500">Contatos de Emergência</label>
+                <div className="space-y-1 mt-1">
+                  {fullStudentData.contatos_emergencia.map((c: any, i: number) => (
+                    <p key={i} className="text-sm bg-white p-2 rounded">{c.nome}: {c.telefone}</p>
+                  ))}
                 </div>
               </div>
-
-              {/* Seção: Identificação */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <User className="w-4 h-4" /> Identificação
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Data de Nascimento</label><p className="text-sm">{fullStudentData.data_nascimento || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Gênero</label><p className="text-sm">{fullStudentData.genero || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Nº Matrícula</label><p className="text-sm">{fullStudentData.numero_matricula || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Estado Civil</label><p className="text-sm">{fullStudentData.estado_civil || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Religião</label><p className="text-sm">{fullStudentData.religiao || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Naturalidade</label><p className="text-sm">{fullStudentData.naturalidade || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Nacionalidade</label><p className="text-sm">{fullStudentData.nacionalidade || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Cor/Raça</label><p className="text-sm">{fullStudentData.cor_raca || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Pode sair sozinho?</label><p className="text-sm">{fullStudentData.pode_sair_sozinho || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Documentos */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <FileText className="w-4 h-4" /> Documentos
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">CPF</label><p className="text-sm">{fullStudentData.cpf || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">RG</label><p className="text-sm">{fullStudentData.rg || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Órgão Emissor</label><p className="text-sm">{fullStudentData.orgao_emissor || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">CTPS Número</label><p className="text-sm">{fullStudentData.ctps_numero || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">CTPS Série</label><p className="text-sm">{fullStudentData.ctps_serie || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Título de Eleitor</label><p className="text-sm">{fullStudentData.titulo_eleitor || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">NIS/PIS/PASEP</label><p className="text-sm">{fullStudentData.nis_pis_pasep || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Contato */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Phone className="w-4 h-4" /> Contato
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Telefone</label><p className="text-sm">{fullStudentData.telefone || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Email</label><p className="text-sm">{fullStudentData.email || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">WhatsApp</label><p className="text-sm">{fullStudentData.whatsapp || '-'}</p></div>
-                </div>
-                {fullStudentData.contatos_emergencia && Array.isArray(fullStudentData.contatos_emergencia) && fullStudentData.contatos_emergencia.length > 0 && (
-                  <div className="mt-3">
-                    <label className="text-xs font-medium text-gray-500">Contatos de Emergência</label>
-                    <div className="space-y-1 mt-1">
-                      {fullStudentData.contatos_emergencia.map((c: any, i: number) => (
-                        <p key={i} className="text-sm bg-white p-2 rounded">{c.nome}: {c.telefone}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Seção: Endereço */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <MapPin className="w-4 h-4" /> Endereço
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">CEP</label><p className="text-sm">{fullStudentData.cep || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Logradouro</label><p className="text-sm">{fullStudentData.logradouro || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Número</label><p className="text-sm">{fullStudentData.numero || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Complemento</label><p className="text-sm">{fullStudentData.complemento || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Bairro</label><p className="text-sm">{fullStudentData.bairro || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Cidade</label><p className="text-sm">{fullStudentData.cidade || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Estado</label><p className="text-sm">{fullStudentData.estado || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Benefícios Sociais */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Heart className="w-4 h-4" /> Benefícios Sociais
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">CadÚnico</label><p className="text-sm">{fullStudentData.cadunico || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Bolsa Família</label><p className="text-sm">{fullStudentData.bolsa_familia || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">BPC</label><p className="text-sm">{fullStudentData.bpc || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Cartão Alimentação</label><p className="text-sm">{fullStudentData.cartao_alimentacao || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Tamanhos */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Shirt className="w-4 h-4" /> Tamanhos
-                </h4>
-                <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Camiseta</label><p className="text-sm">{fullStudentData.tamanho_camiseta || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Calça</label><p className="text-sm">{fullStudentData.tamanho_calca || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Calçado</label><p className="text-sm">{fullStudentData.tamanho_calcado || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Escolar */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <GraduationCap className="w-4 h-4" /> Informações Escolares
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Série</label><p className="text-sm">{fullStudentData.serie || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Situação Escolar</label><p className="text-sm">{fullStudentData.situacao_escolar || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Turno</label><p className="text-sm">{Array.isArray(fullStudentData.turno_escolar) ? fullStudentData.turno_escolar.join(', ') : (fullStudentData.turno_escolar || '-')}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Instituição de Ensino</label><p className="text-sm">{fullStudentData.instituicao_ensino || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Alfabetizado</label><p className="text-sm">{fullStudentData.e_alfabetizado || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Bairro da Escola</label><p className="text-sm">{fullStudentData.bairro_escola || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Saúde */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Heart className="w-4 h-4" /> Saúde
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Tipo Sanguíneo</label><p className="text-sm">{fullStudentData.tipo_sanguineo || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Particularidade de Saúde</label><p className="text-sm">{fullStudentData.possui_particularidade_saude || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Detalhes</label><p className="text-sm">{fullStudentData.detalhes_particularidade || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Alergia</label><p className="text-sm">{fullStudentData.possui_alergia || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Detalhes Alergia</label><p className="text-sm">{fullStudentData.detalhes_alergia || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Uso de Medicamento</label><p className="text-sm">{fullStudentData.faz_uso_medicamento || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Detalhes Medicamento</label><p className="text-sm">{fullStudentData.detalhes_medicamento || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Deficiência</label><p className="text-sm">{fullStudentData.possui_deficiencia || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Detalhes Deficiência</label><p className="text-sm">{fullStudentData.detalhes_deficiencia || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Restrição Alimentar</label><p className="text-sm">{fullStudentData.restricao_alimentar || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Convênio Médico</label><p className="text-sm">{fullStudentData.possui_convenio_medico || '-'}</p></div>
-                </div>
-              </div>
-
-              {/* Seção: Informações Administrativas */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Calendar className="w-4 h-4" /> Informações Administrativas
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                  <div><label className="text-xs font-medium text-gray-500">Data de Entrada</label><p className="text-sm">{fullStudentData.data_entrada || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Forma de Acesso</label><p className="text-sm">{fullStudentData.forma_acesso || '-'}</p></div>
-                  <div><label className="text-xs font-medium text-gray-500">Situação Atendimento</label><p className="text-sm">{fullStudentData.situacao_atendimento || 'Ativo'}</p></div>
-                </div>
+            ) : undefined,
+          },
+          {
+            title: "Endereço",
+            icon: MapPin,
+            fields: [
+              { label: "CEP", value: fullStudentData.cep },
+              { label: "Logradouro", value: fullStudentData.logradouro },
+              { label: "Número", value: fullStudentData.numero },
+              { label: "Complemento", value: fullStudentData.complemento },
+              { label: "Bairro", value: fullStudentData.bairro },
+              { label: "Cidade", value: fullStudentData.cidade },
+              { label: "Estado", value: fullStudentData.estado },
+            ],
+          },
+          {
+            title: "Benefícios Sociais",
+            icon: Heart,
+            cols: 4,
+            fields: [
+              { label: "CadÚnico", value: fullStudentData.cadunico },
+              { label: "Bolsa Família", value: fullStudentData.bolsa_familia },
+              { label: "BPC", value: fullStudentData.bpc },
+              { label: "Cartão Alimentação", value: fullStudentData.cartao_alimentacao },
+            ],
+          },
+          {
+            title: "Tamanhos",
+            icon: Shirt,
+            cols: 3,
+            fields: [
+              { label: "Camiseta", value: fullStudentData.tamanho_camiseta },
+              { label: "Calça", value: fullStudentData.tamanho_calca },
+              { label: "Calçado", value: fullStudentData.tamanho_calcado },
+            ],
+          },
+          {
+            title: "Informações Escolares",
+            icon: GraduationCap,
+            fields: [
+              { label: "Série", value: fullStudentData.serie },
+              { label: "Situação Escolar", value: fullStudentData.situacao_escolar },
+              { label: "Turno", value: Array.isArray(fullStudentData.turno_escolar) ? fullStudentData.turno_escolar.join(', ') : fullStudentData.turno_escolar },
+              { label: "Instituição de Ensino", value: fullStudentData.instituicao_ensino },
+              { label: "Alfabetizado", value: fullStudentData.e_alfabetizado },
+              { label: "Bairro da Escola", value: fullStudentData.bairro_escola },
+            ],
+          },
+          {
+            title: "Saúde",
+            icon: Heart,
+            fields: [
+              { label: "Tipo Sanguíneo", value: fullStudentData.tipo_sanguineo },
+              { label: "Particularidade de Saúde", value: fullStudentData.possui_particularidade_saude },
+              { label: "Detalhes", value: fullStudentData.detalhes_particularidade },
+              { label: "Alergia", value: fullStudentData.possui_alergia },
+              { label: "Detalhes Alergia", value: fullStudentData.detalhes_alergia },
+              { label: "Uso de Medicamento", value: fullStudentData.faz_uso_medicamento },
+              { label: "Detalhes Medicamento", value: fullStudentData.detalhes_medicamento },
+              { label: "Deficiência", value: fullStudentData.possui_deficiencia },
+              { label: "Detalhes Deficiência", value: fullStudentData.detalhes_deficiencia },
+              { label: "Restrição Alimentar", value: fullStudentData.restricao_alimentar },
+              { label: "Convênio Médico", value: fullStudentData.possui_convenio_medico },
+            ],
+          },
+          {
+            title: "Informações Administrativas",
+            icon: Calendar,
+            fields: [
+              { label: "Data de Entrada", value: fullStudentData.data_entrada },
+              { label: "Forma de Acesso", value: fullStudentData.forma_acesso },
+              { label: "Situação Atendimento", value: fullStudentData.situacao_atendimento || 'Ativo' },
+            ],
+            extra: (
+              <>
                 {fullStudentData.demandas && Array.isArray(fullStudentData.demandas) && fullStudentData.demandas.length > 0 && (
-                  <div className="mt-3">
+                  <div>
                     <label className="text-xs font-medium text-gray-500">Demandas</label>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {fullStudentData.demandas.map((d: string, i: number) => (
@@ -3699,210 +4121,208 @@ const { data: students = [] } = useQuery<any[]>({
                   </div>
                 )}
                 {fullStudentData.observacoes_gerais && (
-                  <div className="mt-3">
+                  <div>
                     <label className="text-xs font-medium text-gray-500">Observações Gerais</label>
                     <p className="text-sm bg-white p-2 rounded mt-1">{fullStudentData.observacoes_gerais}</p>
                   </div>
                 )}
-              </div>
-
-
-              {/* Seção: Documentos */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <FileText className="w-4 h-4" /> Documentos
-                </h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                  {/* Upload de documento */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      id="doc-upload-pec"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !selectedStudent?.cpf) return;
-                        
-                        setUploadingDocumento(true);
-                        const formData = new FormData();
-                        formData.append('documento', file);
-                        formData.append('tipoDocumento', 'Documento');
-                        
-                        try {
-                          const res = await fetch(`/api/documentos/aluno/${selectedStudent.cpf}`, {
-                            method: 'POST',
-                            body: formData
-                          });
-                          const data = await res.json();
-                          if (data.success) {
-                            toast({ title: "Documento enviado com sucesso!" });
-                            // Recarregar documentos
-                            const docsRes = await fetch(`/api/documentos/aluno/${selectedStudent.cpf}`);
-                            const docsData = await docsRes.json();
-                            setStudentDocumentos(docsData || []);
-                          } else {
-                            toast({ title: "Erro ao enviar documento", variant: "destructive" });
-                          }
-                        } catch (err) {
-                          toast({ title: "Erro ao enviar documento", variant: "destructive" });
-                        } finally {
-                          setUploadingDocumento(false);
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={uploadingDocumento}
-                      onClick={() => document.getElementById('doc-upload-pec')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      {uploadingDocumento ? 'Enviando...' : 'Enviar Documento'}
-                    </Button>
-                    <span className="text-xs text-gray-500">PDF, JPG, PNG (max 10MB)</span>
-                  </div>
-                  
-                  {/* Lista de documentos */}
-                  {studentDocumentos.length === 0 ? (
-                    <p className="text-sm text-gray-500">Nenhum documento cadastrado.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {studentDocumentos.map((doc: any) => (
-                        <div key={doc.id} className="flex items-center justify-between bg-white p-2 rounded border">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-orange-500" />
-                            <div>
-                              <p className="text-sm font-medium">{doc.nomeArquivo || doc.nome_arquivo}</p>
-                              <p className="text-xs text-gray-500">
-                                {doc.tipoDocumento || doc.tipo_documento || 'Documento'} • {(doc.createdAt || doc.created_at) ? new Date(doc.createdAt || doc.created_at).toLocaleDateString('pt-BR') : ''}
-                              </p>
+              </>
+            ),
+          },
+        ] as DetalhesSection[]) : []}
+        extraSections={fullStudentData && (
+          <>
+            <div>
+              <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
+                <Users className="w-4 h-4" /> Responsáveis
+              </h4>
+              <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                {studentResponsaveis.length > 0 ? (
+                  studentResponsaveis.map((resp: any, i: number) => {
+                    const parentescoLabels: Record<string, string> = { pai: 'Pai', mae: 'Mãe', avo: 'Avó/Avô', tio: 'Tio/Tia', irmao: 'Irmão/Irmã', tutor_legal: 'Tutor Legal', outro: 'Outro' };
+                    const escolaridadeLabels: Record<string, string> = { nao_alfabetizado: 'Não Alfabetizado', fundamental_incompleto: 'Fund. Incompleto', fundamental_completo: 'Fund. Completo', medio_incompleto: 'Médio Incompleto', medio_completo: 'Médio Completo', superior_incompleto: 'Superior Incompleto', superior_completo: 'Superior Completo', pos_graduacao: 'Pós-Graduação' };
+                    const trabLabels: Record<string, string> = { empregado_formal: 'Empregado (formal)', empregado_informal: 'Empregado (informal)', autonomo: 'Autônomo', desempregado: 'Desempregado', aposentado: 'Aposentado', do_lar: 'Do Lar', estudante: 'Estudante' };
+                    return (
+                      <div key={i} className={`bg-white p-4 rounded border ${resp.e_principal ? 'border-green-400 border-2' : 'border-gray-200'}`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <p className="text-sm font-bold">{resp.nome_completo}</p>
+                          {resp.grau_parentesco && (
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                              {parentescoLabels[resp.grau_parentesco] || resp.grau_parentesco}
+                            </span>
+                          )}
+                          {resp.e_principal && <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-semibold">Principal</span>}
+                          {resp.mora_com_aluno && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">Mora com o aluno</span>}
+                          {resp.e_contato_emergencia && <span className="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full">Emergência</span>}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Identificação</p>
+                            {resp.cpf && <div><span className="text-gray-500">CPF:</span> <span className="font-medium">{resp.cpf}</span></div>}
+                            {resp.rg && <div><span className="text-gray-500">RG:</span> <span className="font-medium">{resp.rg}{resp.orgao_emissor_rg ? ` — ${resp.orgao_emissor_rg}` : ''}</span></div>}
+                            {resp.data_nascimento && <div><span className="text-gray-500">Nascimento:</span> <span className="font-medium">{new Date(resp.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span></div>}
+                            {resp.genero && <div><span className="text-gray-500">Gênero:</span> <span className="font-medium">{resp.genero.charAt(0).toUpperCase() + resp.genero.slice(1).toLowerCase()}</span></div>}
+                            {resp.estado_civil && <div><span className="text-gray-500">Estado Civil:</span> <span className="font-medium">{resp.estado_civil}</span></div>}
+                          </div>
+                          <div className="space-y-1">
+                            <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Contato</p>
+                            {resp.telefone && <div><span className="text-gray-500">Telefone:</span> <span className="font-medium">{resp.telefone}</span></div>}
+                            {resp.whatsapp && <div><span className="text-gray-500">WhatsApp:</span> <span className="font-medium">{resp.whatsapp}</span></div>}
+                            {resp.email && <div><span className="text-gray-500">Email:</span> <span className="font-medium">{resp.email}</span></div>}
+                          </div>
+                          <div className="space-y-1">
+                            <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Socioeconômico</p>
+                            {resp.escolaridade && <div><span className="text-gray-500">Escolaridade:</span> <span className="font-medium">{escolaridadeLabels[resp.escolaridade] || resp.escolaridade}</span></div>}
+                            {resp.situacao_trabalhista && <div><span className="text-gray-500">Situação:</span> <span className="font-medium">{trabLabels[resp.situacao_trabalhista] || resp.situacao_trabalhista}</span></div>}
+                            {resp.profissao && <div><span className="text-gray-500">Profissão:</span> <span className="font-medium">{resp.profissao}</span></div>}
+                            {resp.renda_familiar && <div><span className="text-gray-500">Renda Familiar:</span> <span className="font-medium">{resp.renda_familiar}</span></div>}
+                          </div>
+                          {(resp.logradouro || resp.bairro || resp.cidade || resp.cep) && (
+                            <div className="space-y-1">
+                              <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Endereço</p>
+                              {resp.cep && <div><span className="text-gray-500">CEP:</span> <span className="font-medium">{resp.cep}</span></div>}
+                              {resp.logradouro && <div><span className="text-gray-500">Rua:</span> <span className="font-medium">{resp.logradouro}{resp.numero ? `, ${resp.numero}` : ''}{resp.complemento ? ` — ${resp.complemento}` : ''}</span></div>}
+                              {resp.bairro && <div><span className="text-gray-500">Bairro:</span> <span className="font-medium">{resp.bairro}</span></div>}
+                              {(resp.cidade || resp.estado) && <div><span className="text-gray-500">Cidade:</span> <span className="font-medium">{[resp.cidade, resp.estado].filter(Boolean).join(' — ')}</span></div>}
                             </div>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setViewingDocumento(doc)}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-red-500 hover:text-red-700"
-                              onClick={async () => {
-                                if (!confirm('Excluir este documento?')) return;
-                                try {
-                                  await fetch(`/api/documentos/${doc.id}`, { method: 'DELETE' });
-                                  toast({ title: "Documento excluído" });
-                                  setStudentDocumentos(prev => prev.filter((d: any) => d.id !== doc.id));
-                                } catch (err) {
-                                  toast({ title: "Erro ao excluir documento", variant: "destructive" });
-                                }
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Seção: Dados Profissionais */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4" /> Dados Profissionais
-                </h4>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="mb-2">
-                    <label className="text-xs font-medium text-gray-500">À procura de trabalho</label>
-                    <p className="text-sm">{fullStudentData.procura_trabalho === 'sim' ? 'Sim' : 'Não'}</p>
-                  </div>
-                  {fullStudentData.experiencias_profissionais && Array.isArray(fullStudentData.experiencias_profissionais) && fullStudentData.experiencias_profissionais.length > 0 ? (
-                    <div className="space-y-2 mt-3">
-                      <label className="text-xs font-medium text-gray-500">Experiências Profissionais</label>
-                      {fullStudentData.experiencias_profissionais.map((exp: any, i: number) => (
-                        <div key={i} className="bg-white p-2 rounded border">
-                          <p className="text-sm font-medium">{exp.empresa || exp.cargo}</p>
-                          <p className="text-xs text-gray-500">{exp.cargo} • {exp.dataEntrada} - {exp.dataSaida || 'Atual'}</p>
-                          {exp.remuneracao && <p className="text-xs text-gray-500">Remuneração: {exp.remuneracao}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 mt-2">Nenhuma experiência profissional registrada.</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Seção: Relações */}
-              <div>
-                <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
-                  <Users className="w-4 h-4" /> Relações
-                </h4>
-                <div className="bg-gray-50 p-4 rounded-lg space-y-4">
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Relacionamentos Familiares</label>
-                    {fullStudentData.relacionamentos_familiares && Array.isArray(fullStudentData.relacionamentos_familiares) && fullStudentData.relacionamentos_familiares.length > 0 ? (
-                      <div className="space-y-2 mt-2">
-                        {fullStudentData.relacionamentos_familiares.map((rel: any, i: number) => (
-                          <div key={i} className="bg-white p-2 rounded border">
-                            <p className="text-sm font-medium">{rel.nome}</p>
-                            <p className="text-xs text-gray-500">{rel.parentesco} • {rel.relacao}</p>
-                          </div>
-                        ))}
                       </div>
-                    ) : (
-                      <p className="text-sm text-gray-500 mt-1">Nenhum relacionamento familiar registrado.</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Outros Relacionamentos</label>
-                    {fullStudentData.outros_relacionamentos && Array.isArray(fullStudentData.outros_relacionamentos) && fullStudentData.outros_relacionamentos.length > 0 ? (
-                      <div className="space-y-2 mt-2">
-                        {fullStudentData.outros_relacionamentos.map((rel: any, i: number) => (
-                          <div key={i} className="bg-white p-2 rounded border">
-                            <p className="text-sm font-medium">{rel.nome}</p>
-                            <p className="text-xs text-gray-500">{rel.parentesco} • {rel.relacao}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500 mt-1">Nenhum outro relacionamento registrado.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Botões de ação */}
-              <div className="flex gap-2 pt-4 border-t">
-                <Button 
-                  className="flex-1 bg-orange-500 hover:bg-orange-600"
-                  onClick={() => {
-                    setShowStudentDetailsModal(false);
-                    setEditStudentCpf(selectedStudent?.cpf);
-                    setShowAdicionarAlunoModal(true);
-                  }}
-                >
-                  <Edit className="w-4 h-4 mr-2" />
-                  Editar
-                </Button>
-                <Button variant="outline" onClick={() => setShowStudentDetailsModal(false)}>
-                  Fechar
-                </Button>
+                    );
+                  })
+                ) : (
+                  <p className="text-sm text-gray-500">Nenhum responsável cadastrado.</p>
+                )}
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
-      {/* Modal Editar Aluno - Simplificado */}
+            <div>
+              <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
+                <Users className="w-4 h-4" /> Relações
+              </h4>
+              <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Relacionamentos Familiares</label>
+                  {fullStudentData.relacionamentos_familiares && Array.isArray(fullStudentData.relacionamentos_familiares) && fullStudentData.relacionamentos_familiares.length > 0 ? (
+                    <div className="space-y-2 mt-2">
+                      {fullStudentData.relacionamentos_familiares.map((rel: any, i: number) => (
+                        <div key={i} className="bg-white p-2 rounded border">
+                          <p className="text-sm font-medium">{rel.nome}</p>
+                          <p className="text-xs text-gray-500">{rel.parentesco} • {rel.relacao}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 mt-1">Nenhum relacionamento familiar registrado.</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500">Outros Relacionamentos</label>
+                  {fullStudentData.outros_relacionamentos && Array.isArray(fullStudentData.outros_relacionamentos) && fullStudentData.outros_relacionamentos.length > 0 ? (
+                    <div className="space-y-2 mt-2">
+                      {fullStudentData.outros_relacionamentos.map((rel: any, i: number) => (
+                        <div key={i} className="bg-white p-2 rounded border">
+                          <p className="text-sm font-medium">{rel.nome}</p>
+                          <p className="text-xs text-gray-500">{rel.parentesco} • {rel.relacao}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 mt-1">Nenhum relacionamento registrado.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-orange-600 mb-3 flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Arquivos e Documentos
+              </h4>
+              <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    id="doc-upload-pec"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !selectedStudent?.cpf) return;
+                      setUploadingDocumento(true);
+                      const formData = new FormData();
+                      formData.append('documento', file);
+                      formData.append('tipoDocumento', 'Documento');
+                      try {
+                        const res = await fetch(`/api/documentos/aluno/${selectedStudent.cpf}`, { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (data.success) {
+                          toast({ title: "Documento enviado com sucesso!" });
+                          const docsRes = await fetch(`/api/documentos/aluno/${selectedStudent.cpf}`);
+                          const docsData = await docsRes.json();
+                          setStudentDocumentos(docsData || []);
+                        } else {
+                          toast({ title: "Erro ao enviar documento", variant: "destructive" });
+                        }
+                      } catch {
+                        toast({ title: "Erro ao enviar documento", variant: "destructive" });
+                      } finally {
+                        setUploadingDocumento(false);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  <Button type="button" variant="outline" size="sm" disabled={uploadingDocumento} onClick={() => document.getElementById('doc-upload-pec')?.click()}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    {uploadingDocumento ? 'Enviando...' : 'Enviar Documento'}
+                  </Button>
+                  <span className="text-xs text-gray-500">PDF, JPG, PNG (max 10MB)</span>
+                </div>
+                {studentDocumentos.length === 0 ? (
+                  <p className="text-sm text-gray-500">Nenhum documento cadastrado.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {studentDocumentos.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-orange-500" />
+                          <div>
+                            <p className="text-sm font-medium">{doc.nomeArquivo || doc.nome_arquivo}</p>
+                            <p className="text-xs text-gray-500">{doc.tipoDocumento || doc.tipo_documento} • {(doc.createdAt || doc.created_at) ? new Date(doc.createdAt || doc.created_at).toLocaleDateString('pt-BR') : ''}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => window.open(doc.urlArquivo || doc.url_arquivo, '_blank')}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={async () => {
+                            if (!confirm('Excluir este documento?')) return;
+                            try {
+                              await fetch(`/api/documentos/${doc.id}`, { method: 'DELETE' });
+                              toast({ title: "Documento excluído" });
+                              setStudentDocumentos(prev => prev.filter((d: any) => d.id !== doc.id));
+                            } catch {
+                              toast({ title: "Erro ao excluir documento", variant: "destructive" });
+                            }
+                          }}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+        onEdit={() => {
+          setShowStudentDetailsModal(false);
+          setEditStudentCpf(selectedStudent?.cpf);
+          setShowAdicionarAlunoModal(true);
+        }}
+      />
+
+            {/* Modal Editar Aluno - Simplificado */}
       <Dialog open={showEditStudentModal} onOpenChange={setShowEditStudentModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -3974,7 +4394,7 @@ const { data: students = [] } = useQuery<any[]>({
                       ? `/api/students/${selectedStudent.cpf}/reativar`
                       : `/api/students/${selectedStudent.cpf}/inativar`;
                     await apiRequest(endpoint, { method: 'PATCH' });
-                    queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
+                    queryClient.invalidateQueries({ queryKey: ['/api/students/all', 'todos'] });
                     toast({
                       title: selectedStudent.situacao_atendimento === 'inativo' ? "Aluno reativado" : "Aluno inativado",
                       description: selectedStudent.situacao_atendimento === 'inativo' 
@@ -4181,12 +4601,12 @@ const { data: students = [] } = useQuery<any[]>({
                                 </TableCell>
                                 <TableCell>{r.rowNumber}</TableCell>
                                 <TableCell className="font-medium">{p.nome_completo || "-"}</TableCell>
-                                <TableCell>{p.cpf || "-"}</TableCell>
+                                <TableCell>{formatCPF(p.cpf)}</TableCell>
                                 <TableCell>{p.telefone || "-"}</TableCell>
                                 <TableCell>{p.data_nascimento || "-"}</TableCell>
 
                                 {/* (Opcional) exemplos se adicionar mais colunas:
-                                <TableCell>{p.genero || "-"}</TableCell>
+                                <TableCell>{p.genero ? p.genero.charAt(0).toUpperCase() + p.genero.slice(1).toLowerCase() : "-"}</TableCell>
                                 <TableCell>{p.data_entrada || "-"}</TableCell>
                                 <TableCell>{p.forma_acesso || "-"}</TableCell>
                                 */}
@@ -4258,6 +4678,424 @@ const { data: students = [] } = useQuery<any[]>({
             </div>
           </DialogContent>
         </Dialog>
+        {turmaParaVincular && (
+          <VincularProfessoresTurma
+            turmaId={turmaParaVincular.id}
+            turmaTipo="pec"
+            programa="pec"
+            open={showVincularProfessoresModal}
+            onOpenChange={setShowVincularProfessoresModal}
+            turmaNome={turmaParaVincular.title || turmaParaVincular.name}
+          />
+        )}
+      {/* Dialog justificativa Chamada Manual */}
+      <Dialog open={showModoManualDialog} onOpenChange={setShowModoManualDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>✋</span> Chamada Manual
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-800">
+              A chamada manual substitui o registro automático da catraca. O motivo ficará registrado para auditoria do coordenador.
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Motivo <span className="text-red-500">*</span></label>
+              <Select value={motivoManualSelect} onValueChange={setMotivoManualSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o motivo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Catraca desativada">Catraca desativada</SelectItem>
+                  <SelectItem value="Aluno e/ou turma não cadastrada na catraca">Aluno e/ou turma não cadastrada na catraca</SelectItem>
+                  <SelectItem value="Falta de luz no instituto">Falta de luz no instituto</SelectItem>
+                  <SelectItem value="Outro">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido</label>
+              <Textarea
+                placeholder="Descreva brevemente o ocorrido (opcional)..."
+                value={descManual}
+                onChange={(e) => setDescManual(e.target.value)}
+                className="h-20 resize-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">PIN de acesso <span className="text-red-500">*</span></label>
+              <input
+                type="password"
+                maxLength={4}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={pinManual}
+                onChange={(e) => { setPinManual(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+                placeholder="••••"
+                className={`w-full border rounded-md px-3 py-2 text-sm text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400 ${pinError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+              />
+              {pinError && <p className="text-xs text-red-600">{pinError}</p>}
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => { setShowModoManualDialog(false); setPinManual(''); setPinError(''); }} disabled={savingMotivoManual}>
+              Cancelar
+            </Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600"
+              disabled={!motivoManualSelect || pinManual.length < 4 || savingMotivoManual}
+              onClick={async () => {
+                setSavingMotivoManual(true);
+                setPinError('');
+                try {
+                  const pinRes = await fetch('/api/presenca/validar-pin-manual', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: pinManual }),
+                  });
+                  if (!pinRes.ok) {
+                    setPinError('PIN incorreto. Verifique e tente novamente.');
+                    setSavingMotivoManual(false);
+                    return;
+                  }
+                  const motivoFinal = descManual.trim() ? `${motivoManualSelect} — ${descManual.trim()}` : motivoManualSelect;
+                  await fetch('/api/chamada-manual-log', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ motivo: motivoFinal, data: new Date().toISOString().slice(0, 10) }),
+                  });
+                  setShowModoManualDialog(false);
+                  setMotivoManualSelect('');
+                  setDescManual('');
+                  setPinManual('');
+                  setPinError('');
+                  setModoManual(true);
+                } catch (e) {
+                  console.error('Erro ao ativar modo manual:', e);
+                } finally {
+                  setSavingMotivoManual(false);
+                }
+              }}
+            >
+              {savingMotivoManual ? 'Validando...' : 'Confirmar e Abrir Chamada Manual'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Planos de Aula dos Professores de PEC */}
+      <Dialog open={showPlanosAulaPecModal} onOpenChange={setShowPlanosAulaPecModal}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-teal-500" />
+              Planos de Aula — Professores de PEC
+            </DialogTitle>
+            <DialogDescription className="text-gray-500">
+              Visualize todos os planos de aula registrados pelos professores do programa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Input
+              placeholder="Filtrar por professor ou título..."
+              value={filtroProfPec}
+              onChange={e => setFiltroProfPec(e.target.value)}
+            />
+
+            {loadingPlanosPec ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500" />
+              </div>
+            ) : planosAulaPec.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                <p>Nenhum plano de aula registrado ainda.</p>
+              </div>
+            ) : planoAulaPecDetalhes ? (
+              <div className="space-y-4">
+                <button className="text-sm text-blue-600 hover:underline" onClick={() => setPlanoAulaPecDetalhes(null)}>← Voltar para a lista</button>
+                <div className="border rounded-lg p-5 space-y-3 bg-gray-50">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h3 className="text-lg font-semibold">{planoAulaPecDetalhes.titulo}</h3>
+                    <Badge variant="outline" className="capitalize">{planoAulaPecDetalhes.status || 'rascunho'}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-gray-500">Professor:</span> <span className="font-medium">{planoAulaPecDetalhes.professorNome || '—'}</span></div>
+                    <div><span className="text-gray-500">Turma:</span> <span>{planoAulaPecDetalhes.turmaNome}</span></div>
+                    <div><span className="text-gray-500">Data:</span> <span>{planoAulaPecDetalhes.data ? new Date(planoAulaPecDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
+                    {planoAulaPecDetalhes.duracaoMinutos && <div><span className="text-gray-500">Duração:</span> <span>{planoAulaPecDetalhes.duracaoMinutos} min</span></div>}
+                  </div>
+                  <div><p className="text-gray-500 text-sm font-medium mb-1">Objetivos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.objetivos}</p></div>
+                  <div><p className="text-gray-500 text-sm font-medium mb-1">Conteúdo</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.conteudo}</p></div>
+                  <div><p className="text-gray-500 text-sm font-medium mb-1">Metodologia</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.metodologia}</p></div>
+                  {planoAulaPecDetalhes.recursos && <div><p className="text-gray-500 text-sm font-medium mb-1">Recursos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.recursos}</p></div>}
+                  {planoAulaPecDetalhes.avaliacao && <div><p className="text-gray-500 text-sm font-medium mb-1">Avaliação</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.avaliacao}</p></div>}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {planosAulaPec
+                  .filter((p: any) =>
+                    !filtroProfPec ||
+                    (p.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
+                    (p.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
+                  )
+                  .map((p: any) => (
+                    <div key={p.id} className="border rounded-lg p-4 hover:border-teal-500 hover:bg-teal-50 transition-colors cursor-pointer" onClick={() => setPlanoAulaPecDetalhes(p)}>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{p.titulo}</p>
+                          <p className="text-sm text-gray-500 mt-0.5">
+                            <span className="text-teal-600 font-medium">{p.professorNome || 'Professor'}</span>
+                            {' · '}{p.turmaNome}
+                            {' · '}{p.data ? new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 capitalize text-xs">{p.status || 'rascunho'}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                {planosAulaPec.filter((p: any) =>
+                  !filtroProfPec ||
+                  (p.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
+                  (p.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
+                ).length === 0 && (
+                  <p className="text-center text-gray-500 py-4">Nenhum resultado para o filtro aplicado.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Relatórios de Aulas dos Professores de PEC */}
+      <Dialog open={showRelatoriosAulaPecModal} onOpenChange={setShowRelatoriosAulaPecModal}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-teal-500" />
+              Relatórios de Aulas — Professores de PEC
+            </DialogTitle>
+            <DialogDescription className="text-gray-500">
+              Aulas ministradas e registradas pelos professores do programa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Input
+              placeholder="Filtrar por professor ou título..."
+              value={filtroProfPec}
+              onChange={e => setFiltroProfPec(e.target.value)}
+            />
+
+            {loadingRelatoriosPec ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500" />
+              </div>
+            ) : aulasRegistradasPec.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                <p>Nenhuma aula registrada ainda.</p>
+              </div>
+            ) : relatorioAulaPecDetalhes ? (
+              <div className="space-y-4">
+                <button className="text-sm text-blue-600 hover:underline" onClick={() => setRelatorioAulaPecDetalhes(null)}>← Voltar para a lista</button>
+                <div className="border rounded-lg p-5 space-y-3 bg-gray-50">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h3 className="text-lg font-semibold">{relatorioAulaPecDetalhes.titulo}</h3>
+                    <Badge variant="outline" className="capitalize">{relatorioAulaPecDetalhes.statusAula || 'ministrada'}</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-gray-500">Professor:</span> <span className="font-medium">{relatorioAulaPecDetalhes.professorNome || '—'}</span></div>
+                    <div><span className="text-gray-500">Turma:</span> <span>{relatorioAulaPecDetalhes.turmaNome}</span></div>
+                    <div><span className="text-gray-500">Data:</span> <span>{relatorioAulaPecDetalhes.data ? new Date(relatorioAulaPecDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
+                    {relatorioAulaPecDetalhes.duracaoMinutos && <div><span className="text-gray-500">Duração:</span> <span>{relatorioAulaPecDetalhes.duracaoMinutos} min</span></div>}
+                  </div>
+                  <div><p className="text-gray-500 text-sm font-medium mb-1">Conteúdo Ministrado</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.conteudoMinistrado}</p></div>
+                  {relatorioAulaPecDetalhes.competenciasTrabalhas && <div><p className="text-gray-500 text-sm font-medium mb-1">Competências Trabalhadas</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.competenciasTrabalhas}</p></div>}
+                  {relatorioAulaPecDetalhes.observacoes && <div><p className="text-gray-500 text-sm font-medium mb-1">Observações</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.observacoes}</p></div>}
+                  {relatorioAulaPecDetalhes.fotoComprovante && (
+                    <div>
+                      <p className="text-gray-500 text-sm font-medium mb-2">Foto Comprovante</p>
+                      <img src={relatorioAulaPecDetalhes.fotoComprovante} alt="Foto comprovante" className="rounded-lg max-h-48 object-cover border" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {aulasRegistradasPec
+                  .filter((a: any) =>
+                    !filtroProfPec ||
+                    (a.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
+                    (a.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
+                  )
+                  .map((a: any) => (
+                    <div key={a.id} className="border rounded-lg p-4 hover:border-teal-500 hover:bg-teal-50 transition-colors cursor-pointer" onClick={() => setRelatorioAulaPecDetalhes(a)}>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{a.titulo}</p>
+                          <p className="text-sm text-gray-500 mt-0.5">
+                            <span className="text-teal-600 font-medium">{a.professorNome || 'Professor'}</span>
+                            {' · '}{a.turmaNome}
+                            {' · '}{a.data ? new Date(a.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                            {a.fotoComprovante && <span className="ml-2 text-green-600">· com foto</span>}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 capitalize text-xs">{a.statusAula || 'ministrada'}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                {aulasRegistradasPec.filter((a: any) =>
+                  !filtroProfPec ||
+                  (a.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
+                  (a.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
+                ).length === 0 && (
+                  <p className="text-center text-gray-500 py-4">Nenhum resultado para o filtro aplicado.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal justificativa de falta - aparece antes do modal de alimentação */}
+      <Dialog open={showJustificativaFaltaModal} onOpenChange={(open) => { if (!open) setShowJustificativaFaltaModal(false); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-orange-500" />
+              Justificar Faltas ({modalJustFaltaItems.length} aluno{modalJustFaltaItems.length !== 1 ? 's' : ''})
+            </DialogTitle>
+            <DialogDescription>Selecione o motivo da falta para cada aluno antes de finalizar.</DialogDescription>
+          </DialogHeader>
+          {modalJustFaltaItems.length > 1 && (
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  const firstMotivo = modalJustFaltaItems[0]?.motivo || 'Sem justificativa';
+                  const firstObs = modalJustFaltaItems[0]?.obs || '';
+                  const firstContaComoPresenca = MOTIVOS_FALTA_PEC.find(m => m.label === firstMotivo)?.contaComoPresenca ?? false;
+                  setModalJustFaltaItems(modalJustFaltaItems.map(i => ({
+                    ...i,
+                    motivo: firstMotivo,
+                    obs: firstObs,
+                    contaComoPresenca: firstContaComoPresenca,
+                  })));
+                }}
+              >
+                Aplicar para todos
+              </Button>
+            </div>
+          )}
+          <div className="space-y-4 mt-1 max-h-[55vh] overflow-y-auto pr-1">
+            {modalJustFaltaItems.map((item, idx) => (
+              <div key={item.cpf} className="border rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span className="font-medium text-sm flex-1 truncate">{item.nome}</span>
+                  <Badge variant="destructive" className="text-xs">Falta</Badge>
+                </div>
+                <Select
+                  value={item.motivo}
+                  onValueChange={(val) => {
+                    const info = MOTIVOS_FALTA_PEC.find(m => m.label === val);
+                    const updated = [...modalJustFaltaItems];
+                    updated[idx] = { ...item, motivo: val, contaComoPresenca: info?.contaComoPresenca ?? false };
+                    setModalJustFaltaItems(updated);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Selecione o motivo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MOTIVOS_FALTA_PEC.map(m => (
+                      <SelectItem key={m.label} value={m.label}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {MOTIVOS_FALTA_PEC.find(m => m.label === item.motivo)?.contaComoPresenca ? (
+                  <p className="text-xs text-green-600 font-medium">✓ Conta como presença</p>
+                ) : (
+                  <p className="text-xs text-red-500">✗ Não conta como presença</p>
+                )}
+                <Textarea
+                  placeholder="Observações (opcional)"
+                  value={item.obs}
+                  onChange={(e) => {
+                    const updated = [...modalJustFaltaItems];
+                    updated[idx] = { ...item, obs: e.target.value };
+                    setModalJustFaltaItems(updated);
+                  }}
+                  className="text-sm resize-none h-16"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <Button variant="outline" onClick={() => setShowJustificativaFaltaModal(false)} className="flex-1">Cancelar</Button>
+            <Button
+              className="flex-1 bg-green-500 hover:bg-green-600"
+              onClick={() => {
+                if (!modalJustFaltaItems.every(i => i.motivo)) {
+                  toast({ title: "Preencha todos os motivos", variant: "destructive" });
+                  return;
+                }
+                const updated = presencasChamada.map(p => {
+                  const justItem = modalJustFaltaItems.find(i => i.cpf === p.alunoCpf);
+                  if (justItem) return { ...p, justificativa: justItem.motivo, justificativaObs: justItem.obs, contaComoPresenca: justItem.contaComoPresenca };
+                  return p;
+                });
+                setPresencasChamada(updated);
+                setShowJustificativaFaltaModal(false);
+                setShowAlimentacaoModal(true);
+              }}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Salvar e Finalizar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal confirmação alimentação */}
+      <Dialog open={showAlimentacaoModal} onOpenChange={(open) => { if (!open) setShowAlimentacaoModal(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Utensils className="w-5 h-5 text-green-500" />
+              Teve alimentação nessa aula?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Confirme se houve lanche nessa aula. Cada aluno presente conta como 1 lanche.
+          </p>
+          <div className="flex gap-3 mt-2">
+            <Button
+              className="flex-1 bg-green-500 hover:bg-green-600"
+              disabled={salvarChamadaMutation.isPending}
+              onClick={() => { setShowAlimentacaoModal(false); salvarChamadaMutation.mutate({ teveAlimentacao: true }); }}
+            >
+              ✓ Sim, teve lanche
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              disabled={salvarChamadaMutation.isPending}
+              onClick={() => { setShowAlimentacaoModal(false); salvarChamadaMutation.mutate({ teveAlimentacao: false }); }}
+            >
+              Não teve
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       </div>
     );
   }

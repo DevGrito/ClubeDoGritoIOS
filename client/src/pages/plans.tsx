@@ -15,12 +15,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 import { getPlanImage } from "@/lib/plan-utils";
-import diamondIcon from "@assets/image_1755634986577.png";
-import planEcoImage from "@assets/image_1758053087579.png";
-import planVozImage from "@assets/image_1758053103933.png";
-import planGritoImage from "@assets/image_1758053124494.png";
-import planPlatinumImage from "@assets/image_1758053146019.png";
-import planDiamanteImage from "@assets/image_1758053162624.png";
+import diamondIcon from "../app-assets/image_1755634986577.png";
+import planEcoImage from "../app-assets/image_1758053087579.png";
+import planVozImage from "../app-assets/image_1758053103933.png";
+import planGritoImage from "../app-assets/image_1758053124494.png";
+import planPlatinumImage from "../app-assets/image_1758053146019.png";
+import planDiamanteImage from "../app-assets/image_1758053162624.png";
 
 export default function Plans() {
   const [, setLocation] = useLocation();

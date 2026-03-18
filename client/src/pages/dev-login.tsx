@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, User, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import girlImage from "@assets/image_1769199255257.png";
+import girlImage from "../app-assets/image_1769199255257.png";
 
 export default function DevLogin() {
   const [, setLocation] = useLocation();

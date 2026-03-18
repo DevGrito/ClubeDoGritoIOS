@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
-import { format, parse } from 'date-fns';
+import { format, parse, isValid } from 'date-fns';
 import { CalendarIcon, Plus, X, Upload, FileText, Trash2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -150,6 +150,9 @@ export function validateDate(date: string): boolean {
   return day <= daysInMonth[month - 1];
 }
 
+// Helper: normaliza enums string do banco (ex: 'Feminino' → 'feminino')
+const normEnum = (v: unknown) => typeof v === 'string' ? v.toLowerCase().trim() : v;
+
 // Schema para o formulário completo de cadastro de aluno
 const studentRegistrationSchema = z.object({
   // SEÇÃO 1: Identificação
@@ -158,31 +161,33 @@ const studentRegistrationSchema = z.object({
     (val) => validateDate(val),
     { message: "Data inválida. Use o formato DD/MM/AAAA" }
   ),
-  genero: z.enum(['feminino', 'masculino', 'nao_binario', 'nao_informado'], {
-    required_error: "Gênero é obrigatório"
-  }),
-  area: z.enum(["pec", "inclusao"]).optional(),
+  genero: z.preprocess(normEnum, z.enum(['feminino', 'masculino', 'nao_binario', 'nao_informado'], {
+    required_error: "Selecione o gênero",
+    invalid_type_error: "Selecione o gênero"
+  })),
+  area: z.enum(["pec", "inclusao"], { required_error: "Área é obrigatória" }),
   foto_perfil: z.string().optional().nullable(),
   numero_matricula: z.string().optional().nullable(),
+  id_catraca: z.string().optional().nullable(),
   estado_civil: z.string().optional().nullable(),
   religiao: z.string().optional().nullable(),
   naturalidade: z.string().optional().nullable(),
   nacionalidade: z.string().optional().nullable().default("Brasil"),
-  pode_sair_sozinho: z.enum(['sim', 'nao']).optional().nullable(),
+  pode_sair_sozinho: z.preprocess(normEnum, z.enum(['sim', 'nao']).optional().nullable()),
   tamanho_calca: z.string().optional().nullable(),
   tamanho_camiseta: z.string().optional().nullable(),
   tamanho_calcado: z.string().optional().nullable(),
-  cor_raca: z.enum(['branca', 'preta', 'parda', 'amarela', 'indigena', 'nao_sabe_informar']).optional().nullable(),
-  frequenta_projeto_social: z.enum(['sim', 'nao']).optional(),
+  cor_raca: z.preprocess(normEnum, z.enum(['branca', 'preta', 'parda', 'amarela', 'indigena', 'nao_sabe_informar']).optional().nullable()),
+  frequenta_projeto_social: z.preprocess(normEnum, z.enum(['sim', 'nao']).optional()),
   projeto_social_qual: z.string().optional(),
-  acesso_internet: z.enum(['sim', 'nao']).optional(),
+  acesso_internet: z.preprocess(normEnum, z.enum(['sim', 'nao']).optional()),
   internet_qual: z.string().optional(),
   
   // SEÇÃO 2: Documentos
-  cpf: z.string().min(11, "CPF é obrigatório").refine(
-    (val) => validateCPF(val),
-    { message: "CPF inválido. Digite um CPF real" }
-  ),
+ cpf: z.string().min(1, "CPF é obrigatório")
+  .refine((val) => onlyDigits(val).length === 11, { message: "CPF deve ter 11 dígitos" })
+  .refine((val) => validateCPF(val), { message: "CPF inválido. Digite um CPF real" }),
+
   rg: z.string().optional().nullable().refine(
     (val) => !val || val.length === 0 || validateRG(val),
     { message: "RG inválido. Digite um RG real" }
@@ -191,12 +196,15 @@ const studentRegistrationSchema = z.object({
   ctps_numero: z.string().optional().nullable(),
   ctps_serie: z.string().optional().nullable(),
   titulo_eleitor: z.string().optional().nullable(),
+  possui_titulo_eleitor: z.enum(['sim', 'nao']).optional(),
+  possui_carteira_trabalho: z.enum(['sim', 'nao']).optional(),
   nis_pis_pasep: z.string().optional().nullable(),
   documentos_possui: z.array(z.string()).optional().nullable(),
   
   // SEÇÃO 3: Contato
   email: z.string().email("Email inválido").optional().nullable().or(z.literal('')),
-  telefone: z.string().min(10, "Telefone é obrigatório"),
+  telefone: z.string().min(1, "Telefone é obrigatório")
+  .refine((val) => onlyDigits(val).length >= 10, { message: "Telefone inválido" }),
   telefone_whatsapp: z.boolean().default(false),
   telefones_adicionais: z.array(z.object({
     numero: z.string(),
@@ -234,14 +242,16 @@ const studentRegistrationSchema = z.object({
   
   // SEÇÃO 7: Escolar
   serie: z.string().optional(),
-  situacao_escolar: z.enum(['cursando', 'interrompido', 'concluido']).optional(),
+  situacao_escolar: z.preprocess(normEnum, z.enum(['cursando', 'interrompido', 'concluido']).optional()),
+  escola_formou: z.string().optional().nullable(),
+  ano_conclusao_em: z.string().optional().nullable(),
   turno_escolar: z.array(z.enum(['matutino', 'vespertino', 'noturno'])).optional(),
   instituicao_ensino: z.string().optional(),
-  e_alfabetizado: z.enum(['sabe_ler_escrever', 'nao_sabe_ler_nem_escrever', 'nao_sabe_ler_nem_escrever_mas_assina']).optional(),
+  e_alfabetizado: z.preprocess(normEnum, z.enum(['sabe_ler_escrever', 'nao_sabe_ler_nem_escrever', 'nao_sabe_ler_nem_escrever_mas_assina']).optional()),
   bairro_escola: z.string().optional(),
   
   // SEÇÃO 8: Profissional
-  procura_trabalho: z.enum(['sim', 'nao']).optional(),
+  procura_trabalho: z.preprocess(normEnum, z.enum(['sim', 'nao']).optional()),
   trabalhos_atuais: z.array(z.object({
     situacao: z.string(),
     entrada: z.string(),
@@ -298,6 +308,32 @@ const studentRegistrationSchema = z.object({
   
   // SEÇÃO 11: Grupos (apenas visualização, não edição)
   
+  // SEÇÃO 12: Responsável
+  responsavel_cpf: z.string().optional().nullable(),
+  responsavel_nome_completo: z.string().optional().nullable(),
+  responsavel_grau_parentesco: z.string().optional().nullable(),
+  responsavel_rg: z.string().optional().nullable(),
+  responsavel_orgao_emissor_rg: z.string().optional().nullable(),
+  responsavel_data_nascimento: z.string().optional().nullable(),
+  responsavel_genero: z.string().optional().nullable(),
+  responsavel_estado_civil: z.string().optional().nullable(),
+  responsavel_escolaridade: z.string().optional().nullable(),
+  responsavel_situacao_trabalhista: z.string().optional().nullable(),
+  responsavel_profissao: z.string().optional().nullable(),
+  responsavel_renda_familiar: z.string().optional().nullable(),
+  responsavel_telefone: z.string().optional().nullable(),
+  responsavel_whatsapp: z.string().optional().nullable(),
+  responsavel_email: z.string().optional().nullable(),
+  responsavel_cep: z.string().optional().nullable(),
+  responsavel_logradouro: z.string().optional().nullable(),
+  responsavel_numero: z.string().optional().nullable(),
+  responsavel_complemento: z.string().optional().nullable(),
+  responsavel_bairro: z.string().optional().nullable(),
+  responsavel_cidade: z.string().optional().nullable(),
+  responsavel_estado: z.string().optional().nullable(),
+  responsavel_mora_com_aluno: z.boolean().optional().nullable(),
+  responsavel_e_contato_emergencia: z.boolean().optional().nullable(),
+
   // Campos do sistema
   professorId: z.number().optional(),
 });
@@ -312,6 +348,133 @@ interface ComprehensiveStudentFormProps {
   viewMode?: boolean;
   mode?: 'pec' | 'inclusao'; // pec = alunos PEC/Esporte-Cultura, inclusao = Inclusão Produtiva
 }
+
+// ===================== RASCUNHOS (localStorage) =====================
+type DraftMode = "pec" | "inclusao";
+
+type StudentDraft = {
+  id: string;
+  name: string;
+  mode: DraftMode;
+  schemaVersion: number;
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  payload: {
+    // valores do RHF (form.getValues())
+    formValues: any;
+    // states fora do RHF
+    additionalPhones: Array<{ numero: string; whatsapp: boolean }>;
+    emergencyContacts: Array<{ nome: string; telefone: string; whatsapp: boolean }>;
+    relacionamentosFamiliares: Array<{ nome: string; parentesco: string; relacao: string }>;
+    outrosRelacionamentos: Array<{ nome: string; parentesco: string; relacao: string }>;
+    trabalhosAtuais: Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>;
+    experienciasPassadas: Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>;
+    currentSection: number;
+    // metadados (não salva arquivo)
+    fotoPreview: string | null;
+    pendingDocumentosMeta: Array<{ name: string; size: number; type: string }>;
+  };
+};
+
+const DRAFT_SCHEMA_VERSION = 1;
+
+function getDraftStorageKey(userId: string | null, mode: DraftMode) {
+  // separa por usuário e por modo
+  const uid = userId && userId !== "0" ? userId : "anon";
+  return `og:studentDrafts:${uid}:${mode}`;
+}
+
+function safeJsonParse<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// RHF tem campo data_entrada: Date | null
+// JSON transforma Date em string. Aqui reidratamos.
+function hydrateFormValues(values: any) {
+  const v = { ...(values || {}) };
+  if (v.data_entrada) {
+    const d = new Date(v.data_entrada);
+    v.data_entrada = isNaN(d.getTime()) ? null : d;
+  }
+  return v;
+}
+
+function dehydrateFormValues(values: any) {
+  const v = { ...(values || {}) };
+  if (v.data_entrada instanceof Date) {
+    v.data_entrada = v.data_entrada.toISOString();
+  }
+  return v;
+}
+
+function listDraftsLS(userId: string | null, mode: DraftMode): StudentDraft[] {
+  const key = getDraftStorageKey(userId, mode);
+  const arr = safeJsonParse<StudentDraft[]>(localStorage.getItem(key), []);
+  // ordena por updated desc
+  return arr.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+}
+
+function saveDraftLS(userId: string | null, mode: DraftMode, draft: StudentDraft) {
+  const key = getDraftStorageKey(userId, mode);
+  const arr = listDraftsLS(userId, mode);
+
+  const idx = arr.findIndex(d => d.id === draft.id);
+  if (idx >= 0) arr[idx] = draft;
+  else arr.unshift(draft);
+
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+
+  function onlyDigits(v: string) {
+    return String(v ?? "").replace(/\D/g, "");
+  }
+
+  function normalizePersonName(input: unknown): string {
+  const raw = String(input ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!raw) return "";
+
+  // partículas comuns em PT-BR que ficam minúsculas (exceto se for a primeira palavra)
+  const lowerWords = new Set(["de", "da", "do", "das", "dos", "e", "d"]);
+
+  const words = raw.split(" ").filter(Boolean);
+
+  const norm = words.map((word, idx) => {
+    const w = word.toLowerCase();
+
+    // caso "d'...": d'ávila, d'angelo
+    if (w.startsWith("d'") && w.length > 2) {
+      const rest = w.slice(2);
+      return "d'" + rest.charAt(0).toUpperCase() + rest.slice(1);
+    }
+
+    // mantém partículas minúsculas (exceto primeira palavra)
+    if (idx > 0 && lowerWords.has(w)) return w;
+
+    // hífen: "ana-clara" -> "Ana-Clara"
+    return w
+      .split("-")
+      .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ""))
+      .join("-");
+  });
+
+  return norm.join(" ");
+}
+
+
+function deleteDraftLS(userId: string | null, mode: DraftMode, draftId: string) {
+  const key = getDraftStorageKey(userId, mode);
+  const arr = listDraftsLS(userId, mode).filter(d => d.id !== draftId);
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+// =================== FIM RASCUNHOS (localStorage) ===================
 
 export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewMode = false, mode = 'pec' }: ComprehensiveStudentFormProps) {
   const isEditMode = mode === 'inclusao' ? !!editId : !!editCpf;
@@ -332,6 +495,45 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   const [novaRelacao, setNovaRelacao] = useState({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' as 'familiar' | 'outro' });
   const [relacionamentosFamiliares, setRelacionamentosFamiliares] = useState<Array<{ nome: string; parentesco: string; relacao: string }>>([]);
   const [outrosRelacionamentos, setOutrosRelacionamentos] = useState<Array<{ nome: string; parentesco: string; relacao: string }>>([]);
+  interface ResponsavelItem {
+    id?: number;
+    cpf: string;
+    nome_completo: string;
+    grau_parentesco: string;
+    rg: string;
+    orgao_emissor_rg: string;
+    data_nascimento: string;
+    genero: string;
+    estado_civil: string;
+    escolaridade: string;
+    situacao_trabalhista: string;
+    profissao: string;
+    renda_familiar: string;
+    telefone: string;
+    whatsapp: string;
+    email: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    estado: string;
+    mora_com_aluno: boolean;
+    e_contato_emergencia: boolean;
+    e_principal: boolean;
+  }
+  const emptyResponsavel = (): ResponsavelItem => ({
+    cpf: '', nome_completo: '', grau_parentesco: '', rg: '', orgao_emissor_rg: '',
+    data_nascimento: '', genero: '', estado_civil: '', escolaridade: '', situacao_trabalhista: '',
+    profissao: '', renda_familiar: '', telefone: '', whatsapp: '', email: '',
+    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
+    mora_com_aluno: false, e_contato_emergencia: false, e_principal: false,
+  });
+  const [responsaveisData, setResponsaveisData] = useState<ResponsavelItem[]>([]);
+  const [editingResponsavelIdx, setEditingResponsavelIdx] = useState<number | null>(null);
+  const [showResponsavelForm, setShowResponsavelForm] = useState(false);
+  const [currentResponsavelForm, setCurrentResponsavelForm] = useState<ResponsavelItem>(emptyResponsavel());
   const [showAddTrabalhoModal, setShowAddTrabalhoModal] = useState(false);
   const [novoTrabalho, setNovoTrabalho] = useState({ empresa: '', cargo: '', dataEntrada: '', dataSaida: '', remuneracao: '' });
   const [trabalhosAtuais, setTrabalhosAtuais] = useState<Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>>([]);
@@ -372,6 +574,16 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   const cepValue = form.watch("cep");
   const [loadingCep, setLoadingCep] = useState(false);
 
+    // ===================== RASCUNHOS (localStorage) =====================
+  const userIdLS = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
+
+  const [drafts, setDrafts] = useState<StudentDraft[]>([]);
+  const [showDraftsDialog, setShowDraftsDialog] = useState(false);
+
+  const [showSaveDraftDialog, setShowSaveDraftDialog] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  // =================== FIM RASCUNHOS (localStorage) ===================
+
   useEffect(() => {
     const run = async () => {
       const cepDigits = String(cepValue ?? "").replace(/\D/g, "");
@@ -379,12 +591,11 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
       setLoadingCep(true);
       try {
-        const data = await fetchViaCep(cepDigits);
+        const data = await fetchAddressByCEP(cepDigits);
         if (!data) return;
 
-        // Preenche o que vem do ViaCEP
-        form.setValue("estado", data.uf || "", { shouldValidate: true, shouldDirty: true });
-        form.setValue("cidade", data.localidade || "", { shouldValidate: true, shouldDirty: true });
+        form.setValue("estado", data.estado || "", { shouldValidate: true, shouldDirty: true });
+        form.setValue("cidade", data.cidade || "", { shouldValidate: true, shouldDirty: true });
         form.setValue("bairro", data.bairro || "", { shouldValidate: true, shouldDirty: true });
         form.setValue("logradouro", data.logradouro || "", { shouldValidate: true, shouldDirty: true });
 
@@ -399,6 +610,19 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   }, [cepValue]);
 
   useEffect(() => {
+    if (open && !isEditMode && !viewMode) {
+      setCurrentSection(1);
+      form.reset();
+      setFotoPreview(null);
+      setFotoFile(null);
+      setAdditionalPhones([]);
+      setEmergencyContacts([]);
+      setRelacionamentosFamiliares([]);
+      setOutrosRelacionamentos([]);
+    }
+  }, [open]);
+
+  useEffect(() => {
     const shouldLoadData = mode === 'inclusao' ? (editId && open) : (editCpf && open);
     
     if (shouldLoadData) {
@@ -409,25 +633,35 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           .then(data => {
             console.log('[EDIT FORM INCLUSAO] Dados recebidos:', data);
             if (data && !data.error) {
+              // Helper: converts boolean DB values to the string enum expected by the form
+              const boolToEnum = (val: any, trueVal: string, falseVal: string): string | undefined => {
+                if (val === true || val === 'true') return trueVal;
+                if (val === false || val === 'false') return falseVal;
+                if (typeof val === 'string' && val.length > 0) return val; // already a string enum
+                return undefined;
+              };
+
               const formData: any = {
                 cpf: data.cpf || '',
                 nome_completo: data.nome,
+                area: data.area || 'inclusao',
                 data_nascimento: data.dataNascimento ? format(new Date(data.dataNascimento + 'T12:00:00'), 'dd/MM/yyyy') : '',
-                genero: data.genero || 'feminino',
+                genero: (data.genero || 'feminino').toLowerCase(),
                 numero_matricula: data.codigoMatricula,
+                id_catraca: data.idCatraca || data.id_catraca || (data.cpf ? String(data.cpf).replace(/\D/g, '') : ''),
                 estado_civil: data.estadoCivil,
                 religiao: data.religiao,
                 naturalidade: data.naturalidade,
                 nacionalidade: data.nacionalidade || 'Brasil',
-                pode_sair_sozinho: data.podeSairSozinho,
+                pode_sair_sozinho: boolToEnum(data.podeSairSozinho, 'sim', 'nao'),
                 tamanho_calca: data.tamanhoCalca,
                 tamanho_camiseta: data.tamanhoCamiseta,
                 tamanho_calcado: data.tamanhoCalcado,
-                cor_raca: data.corRaca,
-                frequenta_projeto_social: data.frequentaProjetoSocial,
-                projeto_social_qual: data.projetoSocialQual,
-                acesso_internet: data.acessoInternet,
-                internet_qual: data.internetQual,
+                cor_raca: data.corRaca ? data.corRaca.toLowerCase() : undefined,
+                frequenta_projeto_social: boolToEnum(data.frequentaProjetoSocial, 'sim', 'nao'),
+                projeto_social_qual: data.projetoSocialQual || undefined,
+                acesso_internet: boolToEnum(data.acessoInternet, 'sim', 'nao'),
+                internet_qual: data.internetQual || undefined,
                 rg: data.rg,
                 orgao_emissor: data.orgaoEmissor,
                 ctps_numero: data.ctpsNumero,
@@ -449,49 +683,54 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 estado: data.estado,
                 ponto_referencia: data.pontoReferencia,
                 mora_desde_ano: data.moraDesdeAno,
-                cadunico: data.cadunico || 'nao',
-                bolsa_familia: data.bolsaFamilia || 'nao',
-                bpc: data.bpc || 'nao',
-                cartao_alimentacao: data.cartaoAlimentacao || 'nao',
-                outros_beneficios: data.outrosBeneficios || 'nao',
+                cadunico: boolToEnum(data.cadunico, 'sim', 'nao') || 'nao',
+                bolsa_familia: boolToEnum(data.bolsaFamilia, 'sim', 'nao') || 'nao',
+                bpc: boolToEnum(data.bpc, 'sim', 'nao') || 'nao',
+                cartao_alimentacao: boolToEnum(data.cartaoAlimentacao, 'sim', 'nao') || 'nao',
+                outros_beneficios: boolToEnum(data.outrosBeneficios, 'sim', 'nao') || 'nao',
                 forma_acesso: data.formaAcesso || 'Busca ativa',
                 demandas: data.demandas || [],
-                observacoes_gerais: data.observacoesGerais,
-                serie: data.serie,
-                situacao_escolar: data.situacaoEscolar,
+                observacoes_gerais: data.observacoesGerais || undefined,
+                serie: data.serie || undefined,
+                situacao_escolar: data.situacaoEscolar ? data.situacaoEscolar.toLowerCase() : undefined,
                 turno_escolar: data.turnoEscolar || [],
-                instituicao_ensino: data.instituicaoEnsino,
-                e_alfabetizado: data.eAlfabetizado,
-                bairro_escola: data.bairroEscola,
-                procura_trabalho: data.procuraTrabalho,
+                instituicao_ensino: data.instituicaoEnsino || undefined,
+                e_alfabetizado: (data.eAlfabetizado === true || data.eAlfabetizado === 'true') ? 'sabe_ler_escrever' : (data.eAlfabetizado === false || data.eAlfabetizado === 'false') ? 'nao_sabe_ler_nem_escrever' : (data.eAlfabetizado ? String(data.eAlfabetizado).toLowerCase() : undefined),
+                bairro_escola: data.bairroEscola || undefined,
+                procura_trabalho: boolToEnum(data.procuraTrabalho, 'sim', 'nao'),
                 trabalhos_atuais: data.trabalhosAtuais || [],
                 experiencias_profissionais: data.experienciasProfissionais || [],
-                possui_particularidade_saude: data.possuiParticularidadeSaude,
+                possui_particularidade_saude: boolToEnum(data.possuiParticularidadeSaude, 'sim', 'nao'),
                 detalhes_particularidade: data.detalhesParticularidade,
-                possui_alergia: data.possuiAlergia,
+                possui_alergia: boolToEnum(data.possuiAlergia, 'sim', 'nao'),
                 detalhes_alergia: data.detalhesAlergia,
-                faz_uso_medicamento: data.fazUsoMedicamento,
+                faz_uso_medicamento: boolToEnum(data.fazUsoMedicamento, 'sim', 'nao'),
                 detalhes_medicamento: data.detalhesMedicamento,
-                possui_deficiencia: data.possuiDeficiencia,
+                possui_deficiencia: boolToEnum(data.possuiDeficiencia, 'sim', 'nao_possui'),
                 detalhes_deficiencia: data.detalhesDeficiencia,
-                contatos_saude: data.contatosSaude,
-                faz_uso_quimicos: data.fazUsoQuimicos,
-                familiar_usa_quimicos: data.familiarUsaQuimicos,
-                tipo_sanguineo: data.tipoSanguineo,
-                restricao_alimentar: data.restricaoAlimentar,
+                contatos_saude: Array.isArray(data.contatosSaude) ? (data.contatosSaude[0] || undefined) : (data.contatosSaude || undefined),
+                faz_uso_quimicos: boolToEnum(data.fazUsoQuimicos, 'sim', 'nao_possui'),
+                familiar_usa_quimicos: boolToEnum(data.familiarUsaQuimicos, 'sim', 'nao_possui'),
+                tipo_sanguineo: data.tipoSanguineo || undefined,
+                restricao_alimentar: boolToEnum(data.restricaoAlimentar, 'sim', 'nao'),
                 detalhes_restricao_alimentar: data.detalhesRestricaoAlimentar,
-                possui_convenio_medico: data.possuiConvenioMedico,
+                possui_convenio_medico: boolToEnum(data.possuiConvenioMedico, 'sim', 'nao'),
                 detalhes_convenio_medico: data.detalhesConvenioMedico,
-                historico_medico: data.historicoMedico,
+                historico_medico: boolToEnum(data.historicoMedico, 'sim', 'nao'),
                 ja_teve_ou_costuma_ter: data.jaTeveOuCostumaTer || [],
                 detalhes_historico_medico: data.detalhesHistoricoMedico,
                 relacionamentos_familiares: data.relacionamentosFamiliares || [],
                 outros_relacionamentos: data.outrosRelacionamentos || [],
               };
+              // Sanitize: converte null → undefined para todos os campos (Zod .optional() não aceita null)
+              Object.keys(formData).forEach(key => {
+                if (formData[key] === null) formData[key] = undefined;
+              });
               form.reset(formData);
               if (data.fotoUrl) {
                 setFotoPreview(data.fotoUrl);
               }
+              originalCpfRef.current = onlyDigits(formData.cpf || "");
               setRelacionamentosFamiliares(data.relacionamentosFamiliares || []);
               setOutrosRelacionamentos(data.outrosRelacionamentos || []);
               setTrabalhosAtuais(data.trabalhosAtuais || []);
@@ -503,27 +742,43 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           .catch(err => console.error('Erro ao carregar participante:', err));
       } else if (mode === 'pec' && editCpf) {
         console.log('[EDIT FORM] Carregando dados do aluno:', editCpf);
+        form.reset({});
+        setFotoPreview(null);
+        setFotoFile(null);
+        setDocumentos([]);
+        setPendingDocumentos([]);
+        setResponsaveisData([]);
+        setShowResponsavelForm(false);
         fetch(`/api/students/${editCpf}`)
           .then(res => res.json())
           .then(data => {
             console.log('[EDIT FORM] Dados recebidos:', data);
             console.log('[EDIT FORM] foto_perfil:', data?.foto_perfil);
             if (data && !data.error) {
+              const boolToEnumPec = (val: any, trueVal: string, falseVal: string): string | undefined => {
+                if (val === true || val === 'true') return trueVal;
+                if (val === false || val === 'false') return falseVal;
+                if (typeof val === 'string' && val.length > 0) return val;
+                return undefined;
+              };
+
               const formData: any = {
-                cpf: data.cpf,
+                cpf: onlyDigits(data.cpf),
                 nome_completo: data.nome_completo,
+                area: data.area || 'pec',
                 data_nascimento: data.data_nascimento ? format(new Date(data.data_nascimento), 'dd/MM/yyyy') : '',
-                genero: data.genero || 'feminino',
+                genero: (data.genero || 'feminino').toLowerCase(),
                 numero_matricula: data.numero_matricula,
+                id_catraca: data.id_catraca || (data.cpf ? String(data.cpf).replace(/\D/g, '') : ''),
                 estado_civil: data.estado_civil,
                 religiao: data.religiao,
                 naturalidade: data.naturalidade,
                 nacionalidade: data.nacionalidade || 'Brasil',
-                pode_sair_sozinho: data.pode_sair_sozinho,
+                pode_sair_sozinho: boolToEnumPec(data.pode_sair_sozinho, 'sim', 'nao'),
                 tamanho_calca: data.tamanho_calca,
                 tamanho_camiseta: data.tamanho_camiseta,
                 tamanho_calcado: data.tamanho_calcado,
-                cor_raca: data.cor_raca,
+                cor_raca: data.cor_raca ? data.cor_raca.toLowerCase() : undefined,
                 cep: data.cep,
                 logradouro: data.logradouro,
                 numero: data.numero,
@@ -541,16 +796,57 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 rg: data.rg,
                 orgao_emissor: data.orgao_emissor,
               };
+              // Sanitize: converte null → undefined para todos os campos (Zod .optional() não aceita null)
+              Object.keys(formData).forEach(key => {
+                if (formData[key] === null) formData[key] = undefined;
+              });
               form.reset(formData);
               if (data.foto_perfil) {
                 setFotoPreview(data.foto_perfil);
               }
+              originalCpfRef.current = onlyDigits(formData.cpf || "");
               setLoadingDocumentos(true);
               fetch(`/api/documentos/aluno/${editCpf}`)
                 .then(docsRes => docsRes.ok ? docsRes.json() : [])
                 .then(docsData => setDocumentos(docsData || []))
                 .catch(err => console.error('Erro ao carregar documentos:', err))
                 .finally(() => setLoadingDocumentos(false));
+
+              fetch(`/api/alunos/${editCpf}/responsaveis`)
+                .then(res => res.ok ? res.json() : [])
+                .then((resps: any[]) => {
+                  if (resps && resps.length > 0) {
+                    setResponsaveisData(resps.map((r: any) => ({
+                      id: r.id,
+                      cpf: r.cpf ? r.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '',
+                      nome_completo: r.nome_completo || '',
+                      grau_parentesco: r.grau_parentesco || '',
+                      rg: r.rg || '',
+                      orgao_emissor_rg: r.orgao_emissor_rg || '',
+                      data_nascimento: r.data_nascimento ? format(new Date(r.data_nascimento), 'dd/MM/yyyy') : '',
+                      genero: r.genero || '',
+                      estado_civil: r.estado_civil || '',
+                      escolaridade: r.escolaridade || '',
+                      situacao_trabalhista: r.situacao_trabalhista || '',
+                      profissao: r.profissao || '',
+                      renda_familiar: r.renda_familiar || '',
+                      telefone: r.telefone || '',
+                      whatsapp: r.whatsapp || '',
+                      email: r.email || '',
+                      cep: r.cep || '',
+                      logradouro: r.logradouro || '',
+                      numero: r.numero || '',
+                      complemento: r.complemento || '',
+                      bairro: r.bairro || '',
+                      cidade: r.cidade || '',
+                      estado: r.estado || '',
+                      mora_com_aluno: r.mora_com_aluno || false,
+                      e_contato_emergencia: r.e_contato_emergencia || false,
+                      e_principal: r.e_principal || false,
+                    })));
+                  }
+                })
+                .catch(err => console.error('Erro ao carregar responsáveis:', err));
             }
           })
           .catch(err => console.error('Erro ao carregar aluno:', err));
@@ -581,6 +877,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       setExperienciasPassadas([]);
       setAdditionalPhones([]);
       setEmergencyContacts([]);
+      setResponsaveisData([]);
+      setShowResponsavelForm(false);
     }
   }, [editCpf, editId, open, mode, isEditMode]);
 
@@ -597,6 +895,77 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           .catch(err => console.error('Erro ao buscar próxima matrícula:', err));
       }
     }, [open, isEditMode, form, mode]);
+
+  const saveResponsavel = async (alunoCpf: string) => {
+    try {
+      const existingRes = await fetch(`/api/alunos/${alunoCpf}/responsaveis`, { credentials: 'include' });
+      const existingResps: any[] = existingRes.ok ? await existingRes.json() : [];
+
+      const currentIds = new Set(responsaveisData.filter(r => r.id).map(r => r.id));
+      const currentNames = new Set(responsaveisData.filter(r => r.nome_completo).map(r => r.nome_completo.trim().toLowerCase()));
+      for (const existing of existingResps) {
+        const keepById = existing.id && currentIds.has(existing.id);
+        const keepByName = existing.nome_completo && currentNames.has(existing.nome_completo.trim().toLowerCase());
+        if (!keepById && !keepByName) {
+          await fetch(`/api/alunos/${alunoCpf}/responsaveis/${existing.id}`, {
+            method: 'DELETE', credentials: 'include',
+          }).catch(() => {});
+        }
+      }
+
+      for (const resp of responsaveisData) {
+        if (!resp.nome_completo) continue;
+        let dataNascFormatted: string | undefined;
+        if (resp.data_nascimento && /^\d{2}\/\d{2}\/\d{4}$/.test(resp.data_nascimento)) {
+          try {
+            dataNascFormatted = format(parse(resp.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd");
+          } catch { dataNascFormatted = undefined; }
+        }
+        const payload = {
+          cpf: resp.cpf ? resp.cpf.replace(/\D/g, '') : undefined,
+          nome_completo: resp.nome_completo,
+          grau_parentesco: resp.grau_parentesco || undefined,
+          rg: resp.rg || undefined,
+          orgao_emissor_rg: resp.orgao_emissor_rg || undefined,
+          data_nascimento: dataNascFormatted || undefined,
+          genero: resp.genero || undefined,
+          estado_civil: resp.estado_civil || undefined,
+          escolaridade: resp.escolaridade || undefined,
+          situacao_trabalhista: resp.situacao_trabalhista || undefined,
+          profissao: resp.profissao || undefined,
+          renda_familiar: resp.renda_familiar || undefined,
+          telefone: resp.telefone || undefined,
+          whatsapp: resp.whatsapp || undefined,
+          email: resp.email || undefined,
+          cep: resp.cep || undefined,
+          logradouro: resp.logradouro || undefined,
+          numero: resp.numero || undefined,
+          complemento: resp.complemento || undefined,
+          bairro: resp.bairro || undefined,
+          cidade: resp.cidade || undefined,
+          estado: resp.estado || undefined,
+          mora_com_aluno: resp.mora_com_aluno || false,
+          e_contato_emergencia: resp.e_contato_emergencia || false,
+          e_principal: resp.e_principal || false,
+        };
+        await fetch(`/api/alunos/${alunoCpf}/responsavel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'include',
+        });
+      }
+
+      const principal = responsaveisData.find(r => r.e_principal);
+      if (principal?.id) {
+        await fetch(`/api/alunos/${alunoCpf}/responsaveis/${principal.id}/principal`, {
+          method: 'PATCH', credentials: 'include',
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('Erro ao salvar responsáveis:', err);
+    }
+  };
 
   const createStudentMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -634,6 +1003,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           }
         }
       }
+      await saveResponsavel(cpf);
       queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
       queryClient.invalidateQueries({ queryKey: ['/api/professor/students'] });
       toast({
@@ -648,6 +1018,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       setFotoPreview(null);
       setFotoFile(null);
       setPendingDocumentos([]);
+      setResponsaveisData([]);
+      setShowResponsavelForm(false);
     },
     onError: (error: any) => {
       console.error('Erro ao cadastrar aluno:', error);
@@ -667,9 +1039,9 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       });
     },
     onSuccess: async () => {
+      const cpf = editCpf || form.getValues('cpf');
       if (fotoFile) {
         try {
-          const cpf = editCpf || form.getValues('cpf');
           const formData = new FormData();
           formData.append('foto', fotoFile);
           await fetch(`/api/coordenador/alunos/${cpf}/foto`, {
@@ -680,6 +1052,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           console.error('Erro ao fazer upload da foto:', err);
         }
       }
+      await saveResponsavel(cpf);
       queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
       queryClient.invalidateQueries({ queryKey: ['/api/professor/students'] });
       toast({
@@ -736,14 +1109,26 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       setTrabalhosAtuais([]);
       setExperienciasPassadas([]);
     },
-    onError: (error: any) => {
-      console.error('Erro ao cadastrar participante:', error);
-      toast({
-        title: "Erro ao cadastrar participante",
-        description: error.message || "Ocorreu um erro ao cadastrar o participante.",
-        variant: "destructive"
-      });
-    }
+      onError: async (error: any) => {
+        const msg = (error?.message || "").toLowerCase();
+
+        // Se sua apiRequest já joga error.message
+        // mas se você usa fetch, pegue status/json
+        if (error?.status === 409 || msg.includes("cpf") || error?.code === "CPF_DUPLICADO") {
+          toast({
+            title: "CPF já cadastrado",
+            description: "Já existe um participante com esse CPF. Busque pelo nome/CPF e edite o cadastro.",
+            variant: "destructive"
+          });
+          return;
+        }
+
+        toast({
+          title: "Erro ao cadastrar participante",
+          description: error?.message || "Não foi possível cadastrar o participante.",
+          variant: "destructive"
+        });
+      }
   });
 
   const updateInclusaoMutation = useMutation({
@@ -783,132 +1168,277 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     }
   });
 
-  const onSubmit = (data: StudentRegistrationData) => {
-    // Preparar dados para envio
-    const formattedData = {
-      cpf: data.cpf,
-      nome_completo: data.nome_completo,
-      area: data.area,
-      foto_perfil: data.foto_perfil,
-      data_nascimento: data.data_nascimento ? format(parse(data.data_nascimento, 'dd/MM/yyyy', new Date()), 'yyyy-MM-dd') : '',
-      genero: data.genero,
-      numero_matricula: data.numero_matricula,
-      estado_civil: data.estado_civil,
-      religiao: data.religiao,
-      naturalidade: data.naturalidade,
-      nacionalidade: data.nacionalidade,
-      pode_sair_sozinho: data.pode_sair_sozinho,
-      tamanho_calca: data.tamanho_calca,
-      tamanho_camiseta: data.tamanho_camiseta,
-      tamanho_calcado: data.tamanho_calcado,
-      cor_raca: data.cor_raca,
-      frequenta_projeto_social: data.frequenta_projeto_social,
-      acesso_internet: data.acesso_internet,
-      
-      // Endereço
-      cep: data.cep,
-      logradouro: data.logradouro,
-      numero: data.numero,
-      complemento: data.complemento,
-      bairro: data.bairro,
-      cidade: data.cidade,
-      estado: data.estado,
-      ponto_referencia: data.ponto_referencia,
-      mora_desde_ano: data.mora_desde_ano,
-      
-      // Documentos
-      rg: data.rg,
-      orgao_emissor: data.orgao_emissor,
-      ctps_numero: data.ctps_numero,
-      ctps_serie: data.ctps_serie,
-      titulo_eleitor: data.titulo_eleitor,
-      nis_pis_pasep: data.nis_pis_pasep,
-      documentos_possui: data.documentos_possui,
-      
-      // Contato
-      email: data.email,
-      telefone: data.telefone,
-      whatsapp: data.telefone_whatsapp ? data.telefone : undefined,
-      contatos_emergencia: data.contatos_emergencia || [],
-      
-      // Benefícios
-      cadunico: data.cadunico,
-      bolsa_familia: data.bolsa_familia,
-      bpc: data.bpc,
-      cartao_alimentacao: data.cartao_alimentacao,
-      outros_beneficios: data.outros_beneficios,
-      
-      // Informações adicionais
-      data_entrada: data.data_entrada ? format(data.data_entrada, 'yyyy-MM-dd') : undefined,
-      forma_acesso: data.forma_acesso,
-      demandas: data.demandas || [],
-      observacoes_gerais: data.observacoes_gerais,
-      
-      // SEÇÃO 6: Escolar
-      serie: data.serie,
-      situacao_escolar: data.situacao_escolar,
-      turno_escolar: data.turno_escolar,
-      instituicao_ensino: data.instituicao_ensino,
-      e_alfabetizado: data.e_alfabetizado,
-      bairro_escola: data.bairro_escola,
-      
-      // SEÇÃO 7: Profissional
-      procura_trabalho: data.procura_trabalho,
-      trabalhos_atuais: trabalhosAtuais,
-      experiencias_profissionais: [...trabalhosAtuais, ...experienciasPassadas],
-      
-      // SEÇÃO 10: Relações
-      relacionamentos_familiares: relacionamentosFamiliares,
-      outros_relacionamentos: outrosRelacionamentos,
-      
-      // SEÇÃO 8: Saúde
-      possui_particularidade_saude: data.possui_particularidade_saude,
-      detalhes_particularidade: data.detalhes_particularidade,
-      possui_alergia: data.possui_alergia,
-      detalhes_alergia: data.detalhes_alergia,
-      faz_uso_medicamento: data.faz_uso_medicamento,
-      detalhes_medicamento: data.detalhes_medicamento,
-      possui_deficiencia: data.possui_deficiencia,
-      detalhes_deficiencia: data.detalhes_deficiencia,
-      contatos_saude: data.contatos_saude,
-      faz_uso_quimicos: data.faz_uso_quimicos,
-      familiar_usa_quimicos: data.familiar_usa_quimicos,
-      tipo_sanguineo: data.tipo_sanguineo,
-      restricao_alimentar: data.restricao_alimentar,
-      detalhes_restricao_alimentar: data.detalhes_restricao_alimentar,
-      possui_convenio_medico: data.possui_convenio_medico,
-      detalhes_convenio_medico: data.detalhes_convenio_medico,
-      historico_medico: data.historico_medico,
-      ja_teve_ou_costuma_ter: data.ja_teve_ou_costuma_ter,
-      detalhes_historico_medico: data.detalhes_historico_medico,
-      
-      // Sistema
-      professorId: data.professorId || parseInt(localStorage.getItem('userId') || '0')
+  // ===================== RASCUNHOS: handlers =====================
+  function refreshDrafts() {
+    const modeKey = (mode === "inclusao" ? "inclusao" : "pec") as DraftMode;
+    setDrafts(listDraftsLS(userIdLS, modeKey));
+  }
+
+  function handleOpenSaveDraft() {
+    setDraftName("");
+    setShowSaveDraftDialog(true);
+  }
+
+  function handleConfirmSaveDraft() {
+    const name = draftName.trim();
+    if (!name) {
+      toast({ title: "Digite um nome para o rascunho", variant: "destructive" });
+      return;
+    }
+
+    const modeKey = (mode === "inclusao" ? "inclusao" : "pec") as DraftMode;
+    const nowIso = new Date().toISOString();
+
+    // pega o snapshot do form + estados externos
+    const rawFormValues = form.getValues(); // inclui data_entrada como Date
+    const formValues = dehydrateFormValues(rawFormValues);
+
+    const draft: StudentDraft = {
+      id: crypto?.randomUUID?.() ? crypto.randomUUID() : String(Date.now()),
+      name,
+      mode: modeKey,
+      schemaVersion: DRAFT_SCHEMA_VERSION,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      payload: {
+        formValues,
+        additionalPhones,
+        emergencyContacts,
+        relacionamentosFamiliares,
+        outrosRelacionamentos,
+        trabalhosAtuais,
+        experienciasPassadas,
+        currentSection,
+        fotoPreview,
+        pendingDocumentosMeta: (pendingDocumentos || []).map(f => ({
+          name: f.name,
+          size: f.size,
+          type: f.type,
+        })),
+      },
     };
+
+    saveDraftLS(userIdLS, modeKey, draft);
+    refreshDrafts();
+    setShowSaveDraftDialog(false);
+
+    toast({
+      title: "Rascunho salvo",
+      description: `Salvo como: ${name}`,
+    });
+  }
+
+  function handleLoadDraft(d: StudentDraft) {
+    // segurança: só carrega se for do modo atual
+    const modeKey = (mode === "inclusao" ? "inclusao" : "pec") as DraftMode;
+    if (d.mode !== modeKey) {
+      toast({
+        title: "Rascunho incompatível",
+        description: "Esse rascunho é de outra área (PEC/Inclusão).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // reidrata Date
+    const hydrated = hydrateFormValues(d.payload.formValues);
+
+    // aplica no RHF e nos states externos
+    form.reset(hydrated);
+
+    setAdditionalPhones(d.payload.additionalPhones || []);
+    setEmergencyContacts(d.payload.emergencyContacts || []);
+    setRelacionamentosFamiliares(d.payload.relacionamentosFamiliares || []);
+    setOutrosRelacionamentos(d.payload.outrosRelacionamentos || []);
+    setTrabalhosAtuais(d.payload.trabalhosAtuais || []);
+    setExperienciasPassadas(d.payload.experienciasPassadas || []);
+
+    setFotoPreview(d.payload.fotoPreview || null);
+    setFotoFile(null); // arquivo não vem do rascunho
+    setPendingDocumentos([]); // arquivo não vem do rascunho
+
+    setCurrentSection(d.payload.currentSection || 1);
+
+    setShowDraftsDialog(false);
+
+    toast({
+      title: "Rascunho carregado",
+      description: `Form preenchido com: ${d.name}`,
+    });
+  }
+
+  function handleDeleteDraft(d: StudentDraft) {
+    const modeKey = (mode === "inclusao" ? "inclusao" : "pec") as DraftMode;
+    if (!confirm(`Excluir o rascunho "${d.name}"?`)) return;
+
+    deleteDraftLS(userIdLS, modeKey, d.id);
+    refreshDrafts();
+
+    toast({ title: "Rascunho excluído" });
+  }
+  // =================== FIM RASCUNHOS: handlers =====================
+
+  const onSubmit = (data: StudentRegistrationData) => {
+   // ✅ Normalizar textos ANTES de montar payloads
+  const nomeNormalizado = normalizePersonName(data.nome_completo);
+  const naturalidadeNorm = normalizePersonName(data.naturalidade);
+  const cidadeNorm = normalizePersonName(data.cidade);
+  const bairroNorm = normalizePersonName(data.bairro);
+  const logradouroNorm = normalizePersonName(data.logradouro);
+  const pontoRefNorm = normalizePersonName(data.ponto_referencia);
+
+  // RHF: contatos_emergencia
+  const contatosEmergenciaNorm = (data.contatos_emergencia || []).map((c) => ({
+    ...c,
+    nome: normalizePersonName(c.nome),
+  }));
+
+  // States externos (relações)
+  const relacionamentosFamiliaresNorm = (relacionamentosFamiliares || []).map((r) => ({
+    ...r,
+    nome: normalizePersonName(r.nome),
+  }));
+
+  const outrosRelacionamentosNorm = (outrosRelacionamentos || []).map((r) => ({
+    ...r,
+    nome: normalizePersonName(r.nome),
+  }));
+
+  // Preparar dados para envio
+  const formattedData = {
+    cpf: data.cpf,
+    nome_completo: nomeNormalizado,
+    area: data.area,
+    foto_perfil: data.foto_perfil,
+    data_nascimento: data.data_nascimento
+      ? format(parse(data.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd")
+      : "",
+    genero: data.genero,
+    numero_matricula: data.numero_matricula,
+    id_catraca: data.id_catraca,
+    estado_civil: data.estado_civil,
+    religiao: data.religiao,
+    naturalidade: naturalidadeNorm,
+    nacionalidade: data.nacionalidade,
+    pode_sair_sozinho: data.pode_sair_sozinho,
+    tamanho_calca: data.tamanho_calca,
+    tamanho_camiseta: data.tamanho_camiseta,
+    tamanho_calcado: data.tamanho_calcado,
+    cor_raca: data.cor_raca,
+    frequenta_projeto_social: data.frequenta_projeto_social,
+    acesso_internet: data.acesso_internet,
+
+    // Endereço
+    cep: data.cep,
+    logradouro: logradouroNorm,
+    numero: data.numero,
+    complemento: data.complemento,
+    bairro: bairroNorm,
+    cidade: cidadeNorm,
+    estado: data.estado,
+    ponto_referencia: pontoRefNorm,
+    mora_desde_ano: data.mora_desde_ano,
+
+    // Documentos
+    rg: data.rg,
+    orgao_emissor: data.orgao_emissor,
+    ctps_numero: data.ctps_numero,
+    ctps_serie: data.ctps_serie,
+    titulo_eleitor: data.titulo_eleitor,
+    nis_pis_pasep: data.nis_pis_pasep,
+    documentos_possui: data.documentos_possui,
+
+    // Contato
+    email: data.email,
+    telefone: data.telefone,
+    whatsapp: data.telefone_whatsapp ? data.telefone : undefined,
+    contatos_emergencia: contatosEmergenciaNorm,
+
+    // Benefícios
+    cadunico: data.cadunico,
+    bolsa_familia: data.bolsa_familia,
+    bpc: data.bpc,
+    cartao_alimentacao: data.cartao_alimentacao,
+    outros_beneficios: data.outros_beneficios,
+
+    // Informações adicionais
+    data_entrada: data.data_entrada ? format(data.data_entrada, "yyyy-MM-dd") : undefined,
+    forma_acesso: data.forma_acesso,
+    demandas: data.demandas || [],
+    observacoes_gerais: data.observacoes_gerais,
+
+    // Escolar
+    serie: data.serie,
+    situacao_escolar: data.situacao_escolar,
+    turno_escolar: data.turno_escolar,
+    instituicao_ensino: data.instituicao_ensino,
+    e_alfabetizado: data.e_alfabetizado,
+    bairro_escola: data.bairro_escola,
+
+    // Profissional
+    procura_trabalho: data.procura_trabalho,
+    trabalhos_atuais: trabalhosAtuais,
+    experiencias_profissionais: [...trabalhosAtuais, ...experienciasPassadas],
+
+    // Relações
+    relacionamentos_familiares: relacionamentosFamiliaresNorm,
+    outros_relacionamentos: outrosRelacionamentosNorm,
+
+    // Saúde
+    possui_particularidade_saude: data.possui_particularidade_saude,
+    detalhes_particularidade: data.detalhes_particularidade,
+    possui_alergia: data.possui_alergia,
+    detalhes_alergia: data.detalhes_alergia,
+    faz_uso_medicamento: data.faz_uso_medicamento,
+    detalhes_medicamento: data.detalhes_medicamento,
+    possui_deficiencia: data.possui_deficiencia,
+    detalhes_deficiencia: data.detalhes_deficiencia,
+    contatos_saude: data.contatos_saude,
+    faz_uso_quimicos: data.faz_uso_quimicos,
+    familiar_usa_quimicos: data.familiar_usa_quimicos,
+    tipo_sanguineo: data.tipo_sanguineo,
+    restricao_alimentar: data.restricao_alimentar,
+    detalhes_restricao_alimentar: data.detalhes_restricao_alimentar,
+    possui_convenio_medico: data.possui_convenio_medico,
+    detalhes_convenio_medico: data.detalhes_convenio_medico,
+    historico_medico: data.historico_medico,
+    ja_teve_ou_costuma_ter: data.ja_teve_ou_costuma_ter,
+    detalhes_historico_medico: data.detalhes_historico_medico,
+
+    // Sistema
+    professorId: data.professorId || parseInt(localStorage.getItem("userId") || "0"),
+  };
 
     if (mode === 'inclusao') {
       // Converter dados para formato da API de inclusão produtiva
       const inclusaoData = {
-        nome: data.nome_completo,
+        nome: nomeNormalizado,
         cpf: data.cpf || null,
         email: data.email || null,
         telefone: data.telefone,
         genero: data.genero,
-        dataNascimento: data.data_nascimento ? format(parse(data.data_nascimento, 'dd/MM/yyyy', new Date()), 'yyyy-MM-dd') : null,
+        dataNascimento: data.data_nascimento
+          ? format(parse(data.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd")
+          : null,
         codigoMatricula: data.numero_matricula,
+        idCatraca: data.id_catraca || null,
+
         estadoCivil: data.estado_civil,
         religiao: data.religiao,
-        naturalidade: data.naturalidade,
+        naturalidade: naturalidadeNorm,
         nacionalidade: data.nacionalidade,
+
         podeSairSozinho: data.pode_sair_sozinho,
         tamanhoCalca: data.tamanho_calca,
         tamanhoCamiseta: data.tamanho_camiseta,
         tamanhoCalcado: data.tamanho_calcado,
         corRaca: data.cor_raca,
+
         frequentaProjetoSocial: data.frequenta_projeto_social,
         projetoSocialQual: data.projeto_social_qual,
         acessoInternet: data.acesso_internet,
         internetQual: data.internet_qual,
+
         rg: data.rg,
         orgaoEmissor: data.orgao_emissor,
         ctpsNumero: data.ctps_numero,
@@ -916,36 +1446,48 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         tituloEleitor: data.titulo_eleitor,
         nisPisPasep: data.nis_pis_pasep,
         documentosPossui: data.documentos_possui,
+
         telefoneWhatsapp: data.telefone_whatsapp,
+
+        // ✅ normaliza nomes do state também
         telefonesAdicionais: additionalPhones,
-        contatosEmergencia: emergencyContacts,
+        contatosEmergencia: emergencyContacts.map((c) => ({
+          ...c,
+          nome: normalizePersonName(c.nome),
+        })),
+
         cep: data.cep,
-        logradouro: data.logradouro,
+        logradouro: logradouroNorm,
         numero: data.numero,
         complemento: data.complemento,
-        bairro: data.bairro,
-        cidade: data.cidade,
+        bairro: bairroNorm,
+        cidade: cidadeNorm,
         estado: data.estado,
-        pontoReferencia: data.ponto_referencia,
+        pontoReferencia: pontoRefNorm,
         moraDesdeAno: data.mora_desde_ano,
+
         cadunico: data.cadunico,
         bolsaFamilia: data.bolsa_familia,
         bpc: data.bpc,
         cartaoAlimentacao: data.cartao_alimentacao,
         outrosBeneficios: data.outros_beneficios,
-        dataEntrada: data.data_entrada ? format(data.data_entrada, 'yyyy-MM-dd') : null,
+
+        dataEntrada: data.data_entrada ? format(data.data_entrada, "yyyy-MM-dd") : null,
         formaAcesso: data.forma_acesso,
         demandas: data.demandas,
         observacoesGerais: data.observacoes_gerais,
+
         serie: data.serie,
         situacaoEscolar: data.situacao_escolar,
         turnoEscolar: data.turno_escolar,
         instituicaoEnsino: data.instituicao_ensino,
         eAlfabetizado: data.e_alfabetizado,
         bairroEscola: data.bairro_escola,
+
         procuraTrabalho: data.procura_trabalho,
         trabalhosAtuais: trabalhosAtuais,
-        experienciasProfissionais: experienciasPassadas,
+        experienciasProfissionais: [...trabalhosAtuais, ...experienciasPassadas],
+
         possuiParticularidadeSaude: data.possui_particularidade_saude,
         detalhesParticularidade: data.detalhes_particularidade,
         possuiAlergia: data.possui_alergia,
@@ -965,8 +1507,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         historicoMedico: data.historico_medico,
         jaTeveOuCostumaTer: data.ja_teve_ou_costuma_ter,
         detalhesHistoricoMedico: data.detalhes_historico_medico,
-        relacionamentosFamiliares: relacionamentosFamiliares,
-        outrosRelacionamentos: outrosRelacionamentos,
+
+        // ✅ normaliza relações
+        relacionamentosFamiliares: relacionamentosFamiliaresNorm,
+        outrosRelacionamentos: outrosRelacionamentosNorm,
       };
       
       if (isEditMode && editId) {
@@ -983,6 +1527,18 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       }
     }
   };
+
+    // ===================== RASCUNHOS: carregar lista ao abrir =====================
+  useEffect(() => {
+    if (!open) return;
+    // só faz sentido listar no modo cadastro novo; se quiser também em edição, remove essa condição
+    if (isEditMode) return;
+
+    const modeKey = (mode === "inclusao" ? "inclusao" : "pec") as DraftMode;
+    const list = listDraftsLS(userIdLS, modeKey);
+    setDrafts(list);
+  }, [open, mode, isEditMode]);
+  // =================== FIM RASCUNHOS: carregar lista ao abrir ===================
 
   const addPhone = () => {
     const currentPhones = form.getValues('telefones_adicionais') || [];
@@ -1004,7 +1560,32 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     form.setValue('contatos_emergencia', currentContacts.filter((_, i) => i !== index));
   };
 
-  const nextSection = () => {
+  const nextSection = async () => {
+    const required = sectionRequiredFields[currentSection] || [];
+
+    const isValidSection = await form.trigger(required as any, {
+      shouldFocus: true,
+    });
+
+    if (!isValidSection) {
+      toast({
+        title: "Campos obrigatórios faltando",
+        description: "Preencha os campos desta seção para continuar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Bloquear avanço se CPF já está cadastrado (seção 1)
+    if (currentSection === 1 && cpfLookup.status === "exists") {
+      toast({
+        title: "CPF já cadastrado",
+        description: `Já existe um cadastro para ${cpfLookup.nome || "este aluno"}. Busque pelo CPF e edite o cadastro existente.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setCurrentSection(prev => Math.min(prev + 1, 11));
   };
 
@@ -1022,18 +1603,93 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     'Grupos de Convivência',
     'Serviços Socioassistenciais'
   ];
-  const sectionRequiredFields: Record<number, Array<keyof StudentRegistrationData>> = {
-        1: mode === "inclusao"
-          ? ["nome_completo", "data_nascimento", "genero"]
-          : ["nome_completo", "data_nascimento", "genero", "area"],
+    const sectionRequiredFields: Record<number, Array<keyof StudentRegistrationData>> = {
+      1: ["nome_completo", "area", "cpf", "data_nascimento", "genero"],
+      2: [],
+      3: ["telefone"],
+      6: ["data_entrada", "forma_acesso"],
+    };
+    const [cpfLookup, setCpfLookup] = useState<{
+      status: "idle" | "checking" | "exists" | "available" | "invalid" | "error";
+      nome?: string;
+      id?: number;
+    }>({ status: "idle" });
 
-        2: mode === "inclusao" ? [] : ["cpf"],
+    const originalCpfRef = React.useRef<string | null>(null);
 
-        3: ["telefone"],
+ 
+    function parseBRDateToDate(br: string): Date | null {
+  const s = String(br ?? "").trim();
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return null;
+  const d = parse(s, "dd/MM/yyyy", new Date());
+  return isValid(d) ? d : null;
+}
 
-        5: ["data_entrada", "forma_acesso"],
-      };
-  return (
+    const watchedCpf = form.watch("cpf");
+  const watchedArea = form.watch("area");
+
+useEffect(() => {
+  const cpfDigits = onlyDigits(watchedCpf || "");
+  const area = watchedArea as "pec" | "inclusao" | undefined;
+
+  // Só roda quando tiver área e CPF completo
+  if (!area) return;
+
+  // Se estiver editando e CPF é o mesmo do registro, não acusa duplicado
+  const originalCpf = originalCpfRef.current;
+  if (isEditMode && originalCpf && cpfDigits === originalCpf) {
+    setCpfLookup({ status: "idle" });
+    return;
+  }
+
+  if (cpfDigits.length === 0) {
+    setCpfLookup({ status: "idle" });
+    return;
+  }
+
+  if (cpfDigits.length !== 11) {
+    setCpfLookup({ status: "invalid" });
+    return;
+  }
+
+  const t = setTimeout(async () => {
+    setCpfLookup({ status: "checking" });
+
+    try {
+      // ✅ Sugestão de endpoints (veja a seção 4 abaixo)
+      const res = await fetch(`/api/cpf-lookup?area=${area}&cpf=${cpfDigits}`, {
+        credentials: "include",
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.exists) {
+          setCpfLookup({
+            status: "exists",
+            nome: data.nome,
+            id: data.id,
+          });
+        } else {
+          setCpfLookup({ status: "available" });
+        }
+        return;
+      }
+
+      // Se API responder 404/204 como "não existe"
+      if (res.status === 404 || res.status === 204) {
+        setCpfLookup({ status: "available" });
+        return;
+      }
+
+      setCpfLookup({ status: "error" });
+    } catch {
+      setCpfLookup({ status: "error" });
+    }
+  }, 500); // debounce
+
+  return () => clearTimeout(t);
+}, [watchedCpf, watchedArea, isEditMode]);
+      return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -1082,8 +1738,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               {currentSection === 7 && "Seção 7: Escolar"}
               {currentSection === 8 && "Seção 8: Profissional"}
               {currentSection === 9 && "Seção 9: Saúde"}
-              {currentSection === 10 && "Seção 10: Relações"}
-              {currentSection === 11 && "Seção 11: Grupos"}
+              {currentSection === 10 && "Seção 10: Grupos"}
+              {currentSection === 11 && "Seção 11: Família e Responsáveis"}
             </div>
 
             {/* SEÇÃO 1: Identificação */}
@@ -1160,6 +1816,58 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                             )}
                           />
 
+                        <FormField
+  control={form.control}
+  name="cpf"
+  render={({ field }) => {
+    const isDuplicado = cpfLookup.status === "exists";
+    const isChecking = cpfLookup.status === "checking";
+
+    return (
+      <FormItem className="col-span-2">
+        <FormLabel>CPF *</FormLabel>
+
+        <FormControl>
+          <div className="space-y-2">
+            <Input
+              {...field}
+              placeholder="000.000.000-00"
+              data-testid="input-cpf"
+              value={field.value || ""}
+              onChange={(e) => {
+                const masked = maskCPF(e.target.value);
+                field.onChange(masked);
+                const digits = masked.replace(/\D/g, '');
+                form.setValue('id_catraca', digits);
+              }}
+              className={[
+                isDuplicado ? "border-red-500 focus-visible:ring-red-500" : "",
+              ].join(" ")}
+            />
+
+            {isChecking && (
+              <p className="text-xs text-muted-foreground">Consultando CPF...</p>
+            )}
+
+            {isDuplicado && (
+              <div className="text-sm text-red-600">
+                <div className="font-semibold">CPF já cadastrado</div>
+                {cpfLookup.nome && (
+                  <div className="text-xs text-red-600">
+                    Cadastro em nome de: <span className="font-medium">{cpfLookup.nome}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </FormControl>
+
+        <FormMessage />
+      </FormItem>
+    );
+  }}
+/>
+
                   <FormField
                     control={form.control}
                     name="data_nascimento"
@@ -1216,20 +1924,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="numero_matricula"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nº de Matrícula</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Gerado automaticamente" readOnly className="bg-gray-100 cursor-not-allowed" data-testid="input-matricula" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <div className="grid grid-cols-1 gap-4">
 
                   <FormField
                     control={form.control}
@@ -1540,100 +2235,91 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
             {currentSection === 2 && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Documentos</h3>
-                
+
+                {/* Carteira de Trabalho — Sim/Não */}
                 <FormField
                   control={form.control}
-                  name="cpf"
+                  name="possui_carteira_trabalho"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>CPF *</FormLabel>
+                      <FormLabel>Possui Carteira de Trabalho?</FormLabel>
                       <FormControl>
-                        <Input 
-                          {...field} 
-                          placeholder="000.000.000-00" 
-                          data-testid="input-cpf"
-                          value={field.value || ''}
-                          onChange={(e) => field.onChange(maskCPF(e.target.value))}
-                        />
+                        <RadioGroup onValueChange={field.onChange} value={field.value} className="flex gap-4">
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="sim" id="ctps-sim" />
+                            <Label htmlFor="ctps-sim">Sim</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="nao" id="ctps-nao" />
+                            <Label htmlFor="ctps-nao">Não</Label>
+                          </div>
+                        </RadioGroup>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                {form.watch('possui_carteira_trabalho') === 'sim' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="ctps_numero"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Número da Carteira de Trabalho</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Número" data-testid="input-ctps-numero" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="ctps_serie"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Série</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Série" data-testid="input-ctps-serie" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="rg"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>RG</FormLabel>
-                        <FormControl>
-                          <Input 
-                            {...field} 
-                            placeholder="00.000.000-0" 
-                            data-testid="input-rg"
-                            value={field.value || ''}
-                            onChange={(e) => field.onChange(maskRG(e.target.value))}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="orgao_emissor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Órgão emissor</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="SSP/SP" data-testid="input-orgao-emissor" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="ctps_numero"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Carteira de Trabalho e Previdência Social</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Número" data-testid="input-ctps-numero" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="ctps_serie"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Série da Carteira de Trabalho e Previdência Social</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Série" data-testid="input-ctps-serie" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                {/* Título de Eleitor — Sim/Não */}
+                <FormField
+                  control={form.control}
+                  name="possui_titulo_eleitor"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Possui Título de Eleitor?</FormLabel>
+                      <FormControl>
+                        <RadioGroup onValueChange={field.onChange} value={field.value} className="flex gap-4">
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="sim" id="titulo-sim" />
+                            <Label htmlFor="titulo-sim">Sim</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="nao" id="titulo-nao" />
+                            <Label htmlFor="titulo-nao">Não</Label>
+                          </div>
+                        </RadioGroup>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {form.watch('possui_titulo_eleitor') === 'sim' && (
                   <FormField
                     control={form.control}
                     name="titulo_eleitor"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Título de eleitor</FormLabel>
+                        <FormLabel>Número do Título de Eleitor</FormLabel>
                         <FormControl>
                           <Input {...field} placeholder="Número" data-testid="input-titulo-eleitor" />
                         </FormControl>
@@ -1641,7 +2327,9 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                       </FormItem>
                     )}
                   />
+                )}
 
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="nis_pis_pasep"
@@ -2487,12 +3175,9 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                                 digits.length <= 4 ? `${digits.slice(0,2)}/${digits.slice(2)}` :
                                 `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`;
 
-                              const parsed = parseBRDateToDate(masked);
-                              // Atualiza o input sempre
-                              e.target.value = masked;
-
-                              // Só seta date quando estiver válido dd/MM/yyyy
-                              if (parsed) field.onChange(parsed);
+                               e.target.value = masked;
+                              const parsedDate = parseBRDateToDate(masked);
+                              if (parsedDate) field.onChange(parsedDate);
                             }}
                           />
                         </FormControl>
@@ -2626,6 +3311,11 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
+                            <SelectItem value="Não escolarizado">Não escolarizado</SelectItem>
+                            <SelectItem value="Maternal I">Maternal I</SelectItem>
+                            <SelectItem value="Maternal II">Maternal II</SelectItem>
+                            <SelectItem value="Pré I">Pré I</SelectItem>
+                            <SelectItem value="Pré II">Pré II</SelectItem>
                             <SelectItem value="1º ano">1º ano</SelectItem>
                             <SelectItem value="2º ano">2º ano</SelectItem>
                             <SelectItem value="3º ano">3º ano</SelectItem>
@@ -2638,6 +3328,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                             <SelectItem value="1º EM">1º EM</SelectItem>
                             <SelectItem value="2º EM">2º EM</SelectItem>
                             <SelectItem value="3º EM">3º EM</SelectItem>
+                            <SelectItem value="Ensino Médio Completo">Ensino Médio Completo</SelectItem>
+                            <SelectItem value="Superior Incompleto">Superior Incompleto</SelectItem>
+                            <SelectItem value="Superior Completo">Superior Completo</SelectItem>
+                            <SelectItem value="Pós-graduação">Pós-graduação</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -2645,37 +3339,71 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name="situacao_escolar"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Situação Escolar</FormLabel>
-                        <FormControl>
-                          <RadioGroup
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            className="flex gap-4"
-                          >
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="cursando" id="cursando" />
-                              <Label htmlFor="cursando">Cursando</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="interrompido" id="interrompido" />
-                              <Label htmlFor="interrompido">Interrompido</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="concluido" id="concluido" />
-                              <Label htmlFor="concluido">Concluído</Label>
-                            </div>
-                          </RadioGroup>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {!['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
+                    <FormField
+                      control={form.control}
+                      name="situacao_escolar"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Situação Escolar</FormLabel>
+                          <FormControl>
+                            <RadioGroup
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              className="flex gap-4"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="cursando" id="cursando" />
+                                <Label htmlFor="cursando">Cursando</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="interrompido" id="interrompido" />
+                                <Label htmlFor="interrompido">Interrompido</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="concluido" id="concluido" />
+                                <Label htmlFor="concluido">Concluído</Label>
+                              </div>
+                            </RadioGroup>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
+
+                {/* Campos extras quando já concluiu o Ensino Médio */}
+                {['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
+                  <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <FormField
+                      control={form.control}
+                      name="escola_formou"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Escola onde concluiu o Ensino Médio</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value || ''} placeholder="Nome da escola" data-testid="input-escola-formou" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="ano_conclusao_em"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ano de conclusão do Ensino Médio</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value || ''} placeholder="Ex: 2019" data-testid="input-ano-conclusao-em" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
 
                 <FormField
                   control={form.control}
@@ -2801,11 +3529,11 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                         >
                           <div className="flex items-center space-x-2">
                             <RadioGroupItem value="sim" id="procura-sim" />
-                            <Label htmlFor="procura-sim">Não</Label>
+                            <Label htmlFor="procura-sim">Sim</Label>
                           </div>
                           <div className="flex items-center space-x-2">
                             <RadioGroupItem value="nao" id="procura-nao" />
-                            <Label htmlFor="procura-nao">Sim</Label>
+                            <Label htmlFor="procura-nao">Não</Label>
                           </div>
                         </RadioGroup>
                       </FormControl>
@@ -3009,36 +3737,40 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 {/* Particularidades */}
                 <div className="space-y-4">
                   <h4 className="font-semibold">Particularidades</h4>
-                  <FormField
-                    control={form.control}
-                    name="possui_particularidade_saude"
-                    render={({ field }) => (
+                  <FormField control={form.control} name="possui_particularidade_saude" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Possui algum problema particular de saúde?</FormLabel>
+                      <FormControl>
+                        <RadioGroup onValueChange={field.onChange} value={field.value} className="flex gap-4">
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="sim" id="part-sim" />
+                            <Label htmlFor="part-sim">Sim</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="nao" id="part-nao" />
+                            <Label htmlFor="part-nao">Não possui</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="nao_informado" id="part-nao-info" />
+                            <Label htmlFor="part-nao-info">Não informado</Label>
+                          </div>
+                        </RadioGroup>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {form.watch("possui_particularidade_saude") === "sim" && (
+                    <FormField control={form.control} name="detalhes_particularidade" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Possui algum problema particular de saúde?</FormLabel>
+                        <FormLabel>Qual?</FormLabel>
                         <FormControl>
-                          <RadioGroup
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            className="flex gap-4"
-                          >
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="sim" id="part-sim" />
-                              <Label htmlFor="part-sim">Sim</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="nao" id="part-nao" />
-                              <Label htmlFor="part-nao">Não possui</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="nao_informado" id="part-nao-info" />
-                              <Label htmlFor="part-nao-info">Não informado</Label>
-                            </div>
-                          </RadioGroup>
+                          <Input {...field} value={field.value || ""} placeholder="Descreva a particularidade" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
-                    )}
-                  />
+                    )} />
+                  )}
                 </div>
 
                 {/* Alergias */}
@@ -3074,6 +3806,17 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                       </FormItem>
                     )}
                   />
+                  {form.watch("possui_alergia") === "sim" && (
+                    <FormField control={form.control} name="detalhes_alergia" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Qual alergia?</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Descreva a alergia" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
                 </div>
 
                 {/* Medicações */}
@@ -3105,6 +3848,17 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                       </FormItem>
                     )}
                   />
+                  {form.watch("faz_uso_medicamento") === "sim" && (
+                    <FormField control={form.control} name="detalhes_medicamento" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Qual medicação?</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Nome do medicamento e dosagem" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
                 </div>
 
                 {/* Deficiências */}
@@ -3140,6 +3894,17 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                       </FormItem>
                     )}
                   />
+                  {form.watch("possui_deficiencia") === "sim" && (
+                    <FormField control={form.control} name="detalhes_deficiencia" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Qual deficiência?</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Descreva o tipo de deficiência" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
                 </div>
 
                 {/* Químicos */}
@@ -3261,6 +4026,17 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                       </FormItem>
                     )}
                   />
+                  {form.watch("restricao_alimentar") === "sim" && (
+                    <FormField control={form.control} name="detalhes_restricao_alimentar" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Qual restrição alimentar?</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Ex: intolerância a lactose, alergia a glúten..." />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
 
                   <FormField
                     control={form.control}
@@ -3289,35 +4065,32 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name="historico_medico"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>HISTÓRICO MÉDICO:</FormLabel>
-                        <p className="text-xs text-gray-500">
-                          Informe doenças cardiovasculares, pulmonares, ortopédicas e musculares, além de cirurgias e condições como diabetes, obesidade e hipertensão
-                        </p>
-                        <FormControl>
-                          <RadioGroup
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            className="flex gap-4"
-                          >
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="sim" id="hist-sim" />
-                              <Label htmlFor="hist-sim">Sim</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="nao" id="hist-nao" />
-                              <Label htmlFor="hist-nao">Não</Label>
-                            </div>
-                          </RadioGroup>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {form.watch("possui_convenio_medico") === "sim" && (
+                    <FormField
+                      control={form.control}
+                      name="detalhes_convenio_medico"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Qual convênio?</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              value={field.value || ""}
+                              placeholder="Ex: Unimed, Bradesco Saúde, SulAmérica..."
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  <div>
+                    <p className="text-sm font-medium leading-none">HISTÓRICO MÉDICO:</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Informe doenças cardiovasculares, pulmonares, ortopédicas e musculares, além de cirurgias e condições como diabetes, obesidade e hipertensão
+                    </p>
+                  </div>
 
                   <FormField
                     control={form.control}
@@ -3362,202 +4135,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               </div>
             )}
 
-            {/* SEÇÃO 10: Relações */}
+            {/* SEÇÃO 10: Grupos */}
             {currentSection === 10 && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Relacionamentos familiares</h3>
-                
-                <div className="border rounded-lg">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">NOME</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">PARENTESCO</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">RELAÇÃO</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">AÇÃO</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {relacionamentosFamiliares.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">
-                            Nenhuma pessoa cadastrada
-                          </td>
-                        </tr>
-                      ) : (
-                        relacionamentosFamiliares.map((rel, idx) => (
-                          <tr key={idx} className="border-t">
-                            <td className="px-4 py-2 text-sm">{rel.nome}</td>
-                            <td className="px-4 py-2 text-sm">{rel.parentesco}</td>
-                            <td className="px-4 py-2 text-sm">{rel.relacao}</td>
-                            <td className="px-4 py-2">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setRelacionamentosFamiliares(prev => prev.filter((_, i) => i !== idx))}
-                              >
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <h3 className="text-lg font-semibold mt-6">Outros relacionamentos</h3>
-                
-                <div className="border rounded-lg">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">NOME</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">PARENTESCO</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">RELAÇÃO</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">AÇÃO</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {outrosRelacionamentos.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">
-                            Nenhuma pessoa cadastrada
-                          </td>
-                        </tr>
-                      ) : (
-                        outrosRelacionamentos.map((rel, idx) => (
-                          <tr key={idx} className="border-t">
-                            <td className="px-4 py-2 text-sm">{rel.nome}</td>
-                            <td className="px-4 py-2 text-sm">{rel.parentesco}</td>
-                            <td className="px-4 py-2 text-sm">{rel.relacao}</td>
-                            <td className="px-4 py-2">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setOutrosRelacionamentos(prev => prev.filter((_, i) => i !== idx))}
-                              >
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
-                  onClick={() => {
-                    setNovaRelacao({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' });
-                    setShowAddRelacaoModal(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Incluir nova relação
-                </Button>
-
-                {/* Modal para adicionar relação */}
-                <Dialog open={showAddRelacaoModal} onOpenChange={setShowAddRelacaoModal}>
-                  <DialogContent className="max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Adicionar Relação</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label>Tipo de Relacionamento</Label>
-                        <Select 
-                          value={novaRelacao.tipo} 
-                          onValueChange={(val: 'familiar' | 'outro') => setNovaRelacao({...novaRelacao, tipo: val})}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione o tipo" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="familiar">Familiar</SelectItem>
-                            <SelectItem value="outro">Outro</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Nome</Label>
-                        <Input 
-                          value={novaRelacao.nome}
-                          onChange={(e) => setNovaRelacao({...novaRelacao, nome: e.target.value})}
-                          placeholder="Nome da pessoa"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Parentesco</Label>
-                        <Select 
-                          value={novaRelacao.parentesco} 
-                          onValueChange={(val) => setNovaRelacao({...novaRelacao, parentesco: val})}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione o parentesco" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Pai">Pai</SelectItem>
-                            <SelectItem value="Mãe">Mãe</SelectItem>
-                            <SelectItem value="Filho(a)">Filho(a)</SelectItem>
-                            <SelectItem value="Irmão(ã)">Irmão(ã)</SelectItem>
-                            <SelectItem value="Avô(ó)">Avô(ó)</SelectItem>
-                            <SelectItem value="Tio(a)">Tio(a)</SelectItem>
-                            <SelectItem value="Primo(a)">Primo(a)</SelectItem>
-                            <SelectItem value="Padrasto/Madrasta">Padrasto/Madrasta</SelectItem>
-                            <SelectItem value="Cônjuge">Cônjuge</SelectItem>
-                            <SelectItem value="Amigo(a)">Amigo(a)</SelectItem>
-                            <SelectItem value="Vizinho(a)">Vizinho(a)</SelectItem>
-                            <SelectItem value="Professor(a)">Professor(a)</SelectItem>
-                            <SelectItem value="Outro">Outro</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Relação</Label>
-                        <Input 
-                          value={novaRelacao.relacao}
-                          onChange={(e) => setNovaRelacao({...novaRelacao, relacao: e.target.value})}
-                          placeholder="Descreva a relação (ex: mora junto, visita frequentemente)"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setShowAddRelacaoModal(false)}>
-                        Cancelar
-                      </Button>
-                      <Button 
-                        type="button"
-                        onClick={() => {
-                          if (!novaRelacao.nome || !novaRelacao.parentesco) {
-                            toast({ title: "Preencha o nome e parentesco", variant: "destructive" });
-                            return;
-                          }
-                          const relData = { nome: novaRelacao.nome, parentesco: novaRelacao.parentesco, relacao: novaRelacao.relacao };
-                          if (novaRelacao.tipo === 'familiar') {
-                            setRelacionamentosFamiliares(prev => [...prev, relData]);
-                          } else {
-                            setOutrosRelacionamentos(prev => [...prev, relData]);
-                          }
-                          setShowAddRelacaoModal(false);
-                          toast({ title: "Relação adicionada" });
-                        }}
-                      >
-                        Adicionar
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            )}
-
-            {/* SEÇÃO 11: Grupos */}
-            {currentSection === 11 && (
               <div className="space-y-6">
                 <h3 className="text-lg font-semibold">Grupos do Atendido</h3>
                 <p className="text-sm text-gray-600">
@@ -3609,6 +4188,612 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               </div>
             )}
 
+            {/* SEÇÃO 11: Família e Responsáveis */}
+            {currentSection === 11 && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Responsáveis pelo Aluno</h3>
+                <p className="text-sm text-gray-600">
+                  Cadastre os responsáveis legais pelo aluno (pai, mãe, tutor ou outro). Você pode adicionar vários e marcar qual é o responsável principal.
+                </p>
+
+                {responsaveisData.length > 0 && (
+                  <div className="space-y-3">
+                    {responsaveisData.map((resp, idx) => {
+                      const parentescoLabels: Record<string, string> = { pai: 'Pai', mae: 'Mãe', avo: 'Avó/Avô', tio: 'Tio/Tia', irmao: 'Irmão/Irmã', tutor_legal: 'Tutor Legal', outro: 'Outro' };
+                      return (
+                        <Card key={idx} className={`${resp.e_principal ? 'border-green-500 border-2' : 'border-gray-200'}`}>
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-base">{resp.nome_completo || 'Sem nome'}</span>
+                                  {resp.grau_parentesco && (
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                      {parentescoLabels[resp.grau_parentesco] || resp.grau_parentesco}
+                                    </span>
+                                  )}
+                                  {resp.e_principal && (
+                                    <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-semibold">
+                                      Responsável Principal
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-sm text-gray-500 mt-1 space-y-0.5">
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {resp.cpf && <span>CPF: {resp.cpf}</span>}
+                                    {resp.rg && <span>RG: {resp.rg}{resp.orgao_emissor_rg ? ` (${resp.orgao_emissor_rg})` : ''}</span>}
+                                    {resp.data_nascimento && <span>Nasc: {resp.data_nascimento}</span>}
+                                    {resp.genero && <span>Gênero: {resp.genero.charAt(0).toUpperCase() + resp.genero.slice(1).toLowerCase()}</span>}
+                                    {resp.estado_civil && <span>Est. Civil: {resp.estado_civil}</span>}
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {resp.telefone && <span>Tel: {resp.telefone}</span>}
+                                    {resp.whatsapp && <span>WhatsApp: {resp.whatsapp}</span>}
+                                    {resp.email && <span>Email: {resp.email}</span>}
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {resp.escolaridade && <span>Escolaridade: {resp.escolaridade}</span>}
+                                    {resp.situacao_trabalhista && <span>Trab: {resp.situacao_trabalhista}</span>}
+                                    {resp.profissao && <span>Profissão: {resp.profissao}</span>}
+                                    {resp.renda_familiar && <span>Renda: {resp.renda_familiar}</span>}
+                                  </div>
+                                  {(resp.logradouro || resp.bairro || resp.cidade) && (
+                                    <div>{[resp.logradouro, resp.numero, resp.complemento, resp.bairro, resp.cidade, resp.estado].filter(Boolean).join(', ')}{resp.cep ? ` - CEP: ${resp.cep}` : ''}</div>
+                                  )}
+                                  <div className="flex gap-3 mt-1">
+                                    {resp.mora_com_aluno && <span className="text-green-700 font-medium">Mora com o aluno</span>}
+                                    {resp.e_contato_emergencia && <span className="text-orange-700 font-medium">Contato de emergência</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {!resp.e_principal && (
+                                  <Button type="button" variant="outline" size="sm" onClick={() => {
+                                    setResponsaveisData(prev => prev.map((r, i) => ({ ...r, e_principal: i === idx })));
+                                  }} className="text-green-600 border-green-300 hover:bg-green-50">
+                                    Marcar Principal
+                                  </Button>
+                                )}
+                                <Button type="button" variant="outline" size="sm" onClick={() => {
+                                  setCurrentResponsavelForm({ ...resp });
+                                  setEditingResponsavelIdx(idx);
+                                  setShowResponsavelForm(true);
+                                }}>
+                                  Editar
+                                </Button>
+                                {!isReadOnly && (
+                                  <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => {
+                                    setResponsaveisData(prev => prev.filter((_, i) => i !== idx));
+                                  }}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {responsaveisData.length === 0 && !showResponsavelForm && (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                    <p className="text-gray-500 mb-3">Nenhum responsável cadastrado</p>
+                  </div>
+                )}
+
+                {!isReadOnly && !showResponsavelForm && (
+                  <Button type="button" variant="outline" onClick={() => {
+                    setCurrentResponsavelForm(emptyResponsavel());
+                    setEditingResponsavelIdx(null);
+                    setShowResponsavelForm(true);
+                  }} className="w-full border-dashed">
+                    <Plus className="h-4 w-4 mr-2" /> Adicionar Responsável
+                  </Button>
+                )}
+
+                {showResponsavelForm && (
+                  <Card className="border-blue-200 bg-blue-50/30">
+                    <CardContent className="p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-blue-800">
+                          {editingResponsavelIdx !== null ? 'Editar Responsável' : 'Novo Responsável'}
+                        </h4>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => { setShowResponsavelForm(false); setEditingResponsavelIdx(null); }}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2">
+                          <Label>Nome Completo *</Label>
+                          <Input placeholder="Nome completo do responsável" value={currentResponsavelForm.nome_completo}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, nome_completo: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Grau de Parentesco *</Label>
+                          <Select value={currentResponsavelForm.grau_parentesco}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, grau_parentesco: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pai">Pai</SelectItem>
+                              <SelectItem value="mae">Mãe</SelectItem>
+                              <SelectItem value="avo">Avó/Avô</SelectItem>
+                              <SelectItem value="tio">Tio/Tia</SelectItem>
+                              <SelectItem value="irmao">Irmão/Irmã</SelectItem>
+                              <SelectItem value="tutor_legal">Tutor Legal</SelectItem>
+                              <SelectItem value="outro">Outro</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label>CPF *</Label>
+                          <Input placeholder="000.000.000-00" value={currentResponsavelForm.cpf}
+                            onChange={e => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                              const formatted = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+                              setCurrentResponsavelForm(prev => ({ ...prev, cpf: formatted || v }));
+                            }} />
+                        </div>
+                        <div>
+                          <Label>RG</Label>
+                          <Input placeholder="Número do RG" value={currentResponsavelForm.rg}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, rg: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Órgão Emissor</Label>
+                          <Input placeholder="Ex: SSP/CE" value={currentResponsavelForm.orgao_emissor_rg}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, orgao_emissor_rg: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label>Data de Nascimento</Label>
+                          <Input placeholder="DD/MM/AAAA" value={currentResponsavelForm.data_nascimento}
+                            onChange={e => {
+                              let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+                              if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
+                              else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+                              setCurrentResponsavelForm(prev => ({ ...prev, data_nascimento: v }));
+                            }} />
+                        </div>
+                        <div>
+                          <Label>Gênero</Label>
+                          <Select value={currentResponsavelForm.genero}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, genero: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="feminino">Feminino</SelectItem>
+                              <SelectItem value="masculino">Masculino</SelectItem>
+                              <SelectItem value="nao_binario">Não Binário</SelectItem>
+                              <SelectItem value="nao_informado">Não Informado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Estado Civil</Label>
+                          <Select value={currentResponsavelForm.estado_civil}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, estado_civil: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="solteiro">Solteiro(a)</SelectItem>
+                              <SelectItem value="casado">Casado(a)</SelectItem>
+                              <SelectItem value="divorciado">Divorciado(a)</SelectItem>
+                              <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                              <SelectItem value="uniao_estavel">União Estável</SelectItem>
+                              <SelectItem value="separado">Separado(a)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label>Escolaridade</Label>
+                          <Select value={currentResponsavelForm.escolaridade}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, escolaridade: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="nao_alfabetizado">Não Alfabetizado</SelectItem>
+                              <SelectItem value="fundamental_incompleto">Fundamental Incompleto</SelectItem>
+                              <SelectItem value="fundamental_completo">Fundamental Completo</SelectItem>
+                              <SelectItem value="medio_incompleto">Médio Incompleto</SelectItem>
+                              <SelectItem value="medio_completo">Médio Completo</SelectItem>
+                              <SelectItem value="superior_incompleto">Superior Incompleto</SelectItem>
+                              <SelectItem value="superior_completo">Superior Completo</SelectItem>
+                              <SelectItem value="pos_graduacao">Pós-Graduação</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Situação Trabalhista</Label>
+                          <Select value={currentResponsavelForm.situacao_trabalhista}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, situacao_trabalhista: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="empregado_formal">Empregado Formal</SelectItem>
+                              <SelectItem value="empregado_informal">Empregado Informal</SelectItem>
+                              <SelectItem value="autonomo">Autônomo</SelectItem>
+                              <SelectItem value="desempregado">Desempregado</SelectItem>
+                              <SelectItem value="aposentado">Aposentado</SelectItem>
+                              <SelectItem value="estudante">Estudante</SelectItem>
+                              <SelectItem value="do_lar">Do Lar</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Profissão</Label>
+                          <Input placeholder="Profissão" value={currentResponsavelForm.profissao}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, profissao: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Renda Familiar</Label>
+                          <Select value={currentResponsavelForm.renda_familiar}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, renda_familiar: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ate_1_sm">Até 1 Salário Mínimo</SelectItem>
+                              <SelectItem value="1_a_2_sm">1 a 2 Salários Mínimos</SelectItem>
+                              <SelectItem value="2_a_3_sm">2 a 3 Salários Mínimos</SelectItem>
+                              <SelectItem value="3_a_5_sm">3 a 5 Salários Mínimos</SelectItem>
+                              <SelectItem value="acima_5_sm">Acima de 5 Salários Mínimos</SelectItem>
+                              <SelectItem value="sem_renda">Sem Renda</SelectItem>
+                              <SelectItem value="nao_informado">Não Informado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <h4 className="font-semibold text-gray-700 mt-2">Contato</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label>Telefone</Label>
+                          <Input placeholder="(00) 00000-0000" value={currentResponsavelForm.telefone}
+                            onChange={e => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                              let formatted = v;
+                              if (v.length > 6) formatted = `(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`;
+                              else if (v.length > 2) formatted = `(${v.slice(0,2)}) ${v.slice(2)}`;
+                              setCurrentResponsavelForm(prev => ({ ...prev, telefone: formatted }));
+                            }} />
+                        </div>
+                        <div>
+                          <Label>WhatsApp</Label>
+                          <Input placeholder="(00) 00000-0000" value={currentResponsavelForm.whatsapp}
+                            onChange={e => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 11);
+                              let formatted = v;
+                              if (v.length > 6) formatted = `(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`;
+                              else if (v.length > 2) formatted = `(${v.slice(0,2)}) ${v.slice(2)}`;
+                              setCurrentResponsavelForm(prev => ({ ...prev, whatsapp: formatted }));
+                            }} />
+                        </div>
+                        <div>
+                          <Label>E-mail</Label>
+                          <Input type="email" placeholder="email@exemplo.com" value={currentResponsavelForm.email}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, email: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <h4 className="font-semibold text-gray-700 mt-2">Endereço</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label>CEP</Label>
+                          <Input placeholder="00000-000" value={currentResponsavelForm.cep}
+                            onChange={async e => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 8);
+                              const formatted = v.length > 5 ? v.slice(0, 5) + '-' + v.slice(5) : v;
+                              setCurrentResponsavelForm(prev => ({ ...prev, cep: formatted }));
+                              if (v.length === 8) {
+                                const address = await fetchAddressByCEP(v);
+                                if (address) {
+                                  setCurrentResponsavelForm(prev => ({
+                                    ...prev,
+                                    logradouro: address.logradouro || prev.logradouro,
+                                    bairro: address.bairro || prev.bairro,
+                                    cidade: address.cidade || prev.cidade,
+                                    estado: address.estado || prev.estado,
+                                  }));
+                                }
+                              }
+                            }} />
+                        </div>
+                        <div className="md:col-span-2">
+                          <Label>Logradouro</Label>
+                          <Input placeholder="Rua, Avenida, etc." value={currentResponsavelForm.logradouro}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, logradouro: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                          <Label>Número</Label>
+                          <Input placeholder="Nº" value={currentResponsavelForm.numero}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, numero: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Complemento</Label>
+                          <Input placeholder="Apto, bloco, etc." value={currentResponsavelForm.complemento}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, complemento: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Bairro</Label>
+                          <Input placeholder="Bairro" value={currentResponsavelForm.bairro}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, bairro: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Cidade</Label>
+                          <Input placeholder="Cidade" value={currentResponsavelForm.cidade}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, cidade: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Estado</Label>
+                          <Select value={currentResponsavelForm.estado}
+                            onValueChange={v => setCurrentResponsavelForm(prev => ({ ...prev, estado: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                            <SelectContent>
+                              {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf => (
+                                <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-6 mt-2">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={currentResponsavelForm.mora_com_aluno}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, mora_com_aluno: e.target.checked }))}
+                            className="h-4 w-4 rounded border-gray-300" />
+                          Mora com o aluno
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={currentResponsavelForm.e_contato_emergencia}
+                            onChange={e => setCurrentResponsavelForm(prev => ({ ...prev, e_contato_emergencia: e.target.checked }))}
+                            className="h-4 w-4 rounded border-gray-300" />
+                          É contato de emergência
+                        </label>
+                      </div>
+
+                      <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
+                        <Button type="button" variant="outline" onClick={() => { setShowResponsavelForm(false); setEditingResponsavelIdx(null); }}>
+                          Cancelar
+                        </Button>
+                        <Button type="button" onClick={() => {
+                          if (!currentResponsavelForm.nome_completo) {
+                            toast({ title: "Campo obrigatório", description: "Nome é obrigatório.", variant: "destructive" });
+                            return;
+                          }
+                          if (!currentResponsavelForm.grau_parentesco) {
+                            toast({ title: "Campo obrigatório", description: "Selecione o grau de parentesco.", variant: "destructive" });
+                            return;
+                          }
+                          if (!currentResponsavelForm.cpf || currentResponsavelForm.cpf.replace(/\D/g, '').length !== 11) {
+                            toast({ title: "Campo obrigatório", description: "CPF do responsável é obrigatório (11 dígitos).", variant: "destructive" });
+                            return;
+                          }
+                          if (editingResponsavelIdx !== null) {
+                            setResponsaveisData(prev => prev.map((r, i) => i === editingResponsavelIdx ? { ...currentResponsavelForm } : r));
+                          } else {
+                            const isFirst = responsaveisData.length === 0;
+                            setResponsaveisData(prev => [...prev, { ...currentResponsavelForm, e_principal: isFirst ? true : currentResponsavelForm.e_principal }]);
+                          }
+                          setShowResponsavelForm(false);
+                          setEditingResponsavelIdx(null);
+                          setCurrentResponsavelForm(emptyResponsavel());
+                        }} className="bg-green-600 hover:bg-green-700">
+                          {editingResponsavelIdx !== null ? 'Salvar Alterações' : 'Adicionar'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Relacionamentos Familiares - unificado da Seção 10 */}
+                <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Relacionamentos familiares</h3>
+                
+                  <div className="border rounded-lg">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">NOME</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">PARENTESCO</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">RELAÇÃO</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">AÇÃO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {relacionamentosFamiliares.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">
+                            Nenhuma pessoa cadastrada
+                          </td>
+                        </tr>
+                      ) : (
+                        relacionamentosFamiliares.map((rel, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-4 py-2 text-sm">{rel.nome}</td>
+                            <td className="px-4 py-2 text-sm">{rel.parentesco}</td>
+                            <td className="px-4 py-2 text-sm">{rel.relacao}</td>
+                            <td className="px-4 py-2">
+                                <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setRelacionamentosFamiliares(prev => prev.filter((_, i) => i !== idx))}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                                </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                  </div>
+
+                <h3 className="text-lg font-semibold mt-6">Outros relacionamentos</h3>
+                
+                  <div className="border rounded-lg">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">NOME</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">PARENTESCO</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">RELAÇÃO</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">AÇÃO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outrosRelacionamentos.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">
+                            Nenhuma pessoa cadastrada
+                          </td>
+                        </tr>
+                      ) : (
+                        outrosRelacionamentos.map((rel, idx) => (
+                          <tr key={idx} className="border-t">
+                            <td className="px-4 py-2 text-sm">{rel.nome}</td>
+                            <td className="px-4 py-2 text-sm">{rel.parentesco}</td>
+                            <td className="px-4 py-2 text-sm">{rel.relacao}</td>
+                            <td className="px-4 py-2">
+                                <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setOutrosRelacionamentos(prev => prev.filter((_, i) => i !== idx))}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                                </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                  </div>
+
+                  <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
+                  onClick={() => {
+                    setNovaRelacao({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' });
+                    setShowAddRelacaoModal(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Incluir nova relação
+                  </Button>
+
+                  {/* Modal para adicionar relação */}
+                  <Dialog open={showAddRelacaoModal} onOpenChange={setShowAddRelacaoModal}>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Adicionar Relação</DialogTitle>
+                    </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                        <Label>Tipo de Relacionamento</Label>
+                        <Select 
+                          value={novaRelacao.tipo} 
+                          onValueChange={(val: 'familiar' | 'outro') => setNovaRelacao({...novaRelacao, tipo: val})}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="familiar">Familiar</SelectItem>
+                            <SelectItem value="outro">Outro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        </div>
+                        <div className="space-y-2">
+                        <Label>Nome</Label>
+                        <Input 
+                          value={novaRelacao.nome}
+                          onChange={(e) => setNovaRelacao({...novaRelacao, nome: e.target.value})}
+                          placeholder="Nome da pessoa"
+                        />
+                        </div>
+                        <div className="space-y-2">
+                        <Label>Parentesco</Label>
+                        <Select 
+                          value={novaRelacao.parentesco} 
+                          onValueChange={(val) => setNovaRelacao({...novaRelacao, parentesco: val})}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o parentesco" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pai">Pai</SelectItem>
+                            <SelectItem value="Mãe">Mãe</SelectItem>
+                            <SelectItem value="Filho(a)">Filho(a)</SelectItem>
+                            <SelectItem value="Irmão(ã)">Irmão(ã)</SelectItem>
+                            <SelectItem value="Avô(ó)">Avô(ó)</SelectItem>
+                            <SelectItem value="Tio(a)">Tio(a)</SelectItem>
+                            <SelectItem value="Primo(a)">Primo(a)</SelectItem>
+                            <SelectItem value="Padrasto/Madrasta">Padrasto/Madrasta</SelectItem>
+                            <SelectItem value="Cônjuge">Cônjuge</SelectItem>
+                            <SelectItem value="Amigo(a)">Amigo(a)</SelectItem>
+                            <SelectItem value="Vizinho(a)">Vizinho(a)</SelectItem>
+                            <SelectItem value="Professor(a)">Professor(a)</SelectItem>
+                            <SelectItem value="Outro">Outro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        </div>
+                        <div className="space-y-2">
+                        <Label>Relação</Label>
+                        <Input 
+                          value={novaRelacao.relacao}
+                          onChange={(e) => setNovaRelacao({...novaRelacao, relacao: e.target.value})}
+                          placeholder="Descreva a relação (ex: mora junto, visita frequentemente)"
+                        />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" onClick={() => setShowAddRelacaoModal(false)}>
+                        Cancelar
+                        </Button>
+                        <Button 
+                        type="button"
+                        onClick={() => {
+                          if (!novaRelacao.nome || !novaRelacao.parentesco) {
+                            toast({ title: "Preencha o nome e parentesco", variant: "destructive" });
+                            return;
+                          }
+                          const relData = { nome: novaRelacao.nome, parentesco: novaRelacao.parentesco, relacao: novaRelacao.relacao };
+                          if (novaRelacao.tipo === 'familiar') {
+                            setRelacionamentosFamiliares(prev => [...prev, relData]);
+                          } else {
+                            setOutrosRelacionamentos(prev => [...prev, relData]);
+                          }
+                          setShowAddRelacaoModal(false);
+                          toast({ title: "Relação adicionada" });
+                        }}
+                      >
+                        Adicionar
+                        </Button>
+                      </div>
+                  </DialogContent>
+                </Dialog>
+                </div>
+              </div>
+            )}
+
             {/* Navigation buttons */}
             <div className="flex justify-between pt-4 border-t">
               <div>
@@ -3623,49 +4808,138 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                   </Button>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onClose}
-                  data-testid="button-cancelar"
-                >
+             <div className="flex gap-2">
+                {/* RASCUNHOS: só no cadastro novo e não read-only */}
+                {!isReadOnly && !isEditMode && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowDraftsDialog(true)}
+                    >
+                      Rascunhos
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleOpenSaveDraft}
+                    >
+                      Salvar rascunho
+                    </Button>
+                  </>
+                )}
+
+                <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancelar">
                   {isReadOnly ? 'Fechar' : 'Cancelar'}
                 </Button>
+
                 {currentSection < 11 ? (
-                  <Button
-                    type="button"
-                    onClick={nextSection}
-                    data-testid="button-proximo"
-                  >
+                  <Button type="button" onClick={nextSection} data-testid="button-proximo">
                     Próximo
                   </Button>
                 ) : !isReadOnly ? (
                   <Button
                     type="button"
-                    disabled={createStudentMutation.isPending || updateStudentMutation.isPending}
+                    disabled={
+                      createStudentMutation.isPending ||
+                      updateStudentMutation.isPending ||
+                      createInclusaoMutation.isPending ||
+                      updateInclusaoMutation.isPending
+                    }
                     data-testid="button-salvar"
                     onClick={async () => {
-                      const ok = await form.trigger(undefined, { shouldFocus: true }); // valida tudo
-
+                      const ok = await form.trigger(undefined, { shouldFocus: true });
                       if (!ok) {
-                        toast({
+                                        toast({
                           title: "Campos obrigatórios faltando",
                           description: "Revise os campos destacados em vermelho.",
                           variant: "destructive",
                         });
                         return;
                       }
-
                       form.handleSubmit(onSubmit)();
                     }}
-
                   >
-                    {createStudentMutation.isPending ? 'Salvando...' : 'Salvar'}
+                    {(createStudentMutation.isPending || createInclusaoMutation.isPending) ? 'Salvando...' : 'Salvar'}
                   </Button>
                 ) : null}
               </div>
             </div>
+            {/* ===================== DIALOG: Salvar rascunho ===================== */}
+        <Dialog open={showSaveDraftDialog} onOpenChange={setShowSaveDraftDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Salvar rascunho</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Digite o nome do rascunho</Label>
+                <Input
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  placeholder="Ex: Cadastro João - faltando docs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Obs: foto e arquivos de documentos não são salvos no rascunho.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setShowSaveDraftDialog(false)}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={handleConfirmSaveDraft}>
+                  Salvar
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+      {/* ===================== DIALOG: Lista de rascunhos ===================== */}
+      <Dialog open={showDraftsDialog} onOpenChange={setShowDraftsDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Rascunhos salvos</DialogTitle>
+          </DialogHeader>
+
+          {drafts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhum rascunho salvo ainda.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {drafts.map((d) => (
+                <div key={d.id} className="flex items-center justify-between p-3 rounded border bg-muted/30">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{d.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Atualizado em: {new Date(d.updatedAt).toLocaleString("pt-BR")}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => handleLoadDraft(d)}>
+                      Carregar
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => handleDeleteDraft(d)}>
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setShowDraftsDialog(false)}>
+              Fechar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
           </form>
         </Form>
       </DialogContent>

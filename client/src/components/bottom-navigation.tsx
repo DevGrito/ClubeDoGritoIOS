@@ -1,11 +1,11 @@
 import { Home, Gift, TrendingUp, Heart, User, Ticket } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import homeIcon from "@assets/image_1756144268347.png";
-import impactoIcon from "@assets/rocket_7339928_1756908855776.png";
-import beneficiosIcon from "@assets/image_1756148798339.png";
-import financeiroIcon from "@assets/image_1756148826775.png";
-import perfilIcon from "@assets/image_1756148852420.png";
+import homeIcon from "../app-assets/image_1756144268347.png";
+import impactoIcon from "../app-assets/rocket_7339928_1756908855776.png";
+import beneficiosIcon from "../app-assets/image_1756148798339.png";
+import financeiroIcon from "../app-assets/image_1756148826775.png";
+import perfilIcon from "../app-assets/image_1756148852420.png";
 
 interface BottomNavItem {
   id: string;

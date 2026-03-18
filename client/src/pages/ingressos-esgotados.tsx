@@ -1,19 +1,19 @@
 import { useEffect } from 'react';
-import patrocinador1 from "@assets/1.png";
-import patrocinador2 from "@assets/2.png";
-import patrocinador3 from "@assets/3.png";
-import patrocinador4 from "@assets/4.png";
-import patrocinador5 from "@assets/5.png";
-import patrocinador6 from "@assets/6.png";
-import patrocinador7 from "@assets/7.png";
-import patrocinador8 from "@assets/8.png";
-import patrocinador9 from "@assets/9.png";
-import patrocinador10 from "@assets/10.png";
-import patrocinador11 from "@assets/11.png";
-import patrocinador12 from "@assets/12.png";
-import patrocinador13 from "@assets/13.png";
-import patrocinador14 from "@assets/14.png";
-import patrocinador15 from "@assets/15.png";
+import patrocinador1 from "../app-assets/1.png";
+import patrocinador2 from "../app-assets/2.png";
+import patrocinador3 from "../app-assets/3.png";
+import patrocinador4 from "../app-assets/4.png";
+import patrocinador5 from "../app-assets/5.png";
+import patrocinador6 from "../app-assets/6.png";
+import patrocinador7 from "../app-assets/7.png";
+import patrocinador8 from "../app-assets/8.png";
+import patrocinador9 from "../app-assets/9.png";
+import patrocinador10 from "../app-assets/10.png";
+import patrocinador11 from "../app-assets/11.png";
+import patrocinador12 from "../app-assets/12.png";
+import patrocinador13 from "../app-assets/13.png";
+import patrocinador14 from "../app-assets/14.png";
+import patrocinador15 from "../app-assets/15.png";
 
 export default function IngressosEsgotados() {
   useEffect(() => {

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import DashboardFinanceiro from "@/components/DashboardFinanceiro";
+import CoordenadorDashboard from "@/components/CoordenadorDashboard";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -30,6 +31,7 @@ import {
   DollarSign,
   Heart,
   Building,
+  Rocket,
   Handshake,
   TrendingUp,
   PieChart,
@@ -82,9 +84,10 @@ import Logo from "@/components/logo";
 import { isLeoByRole } from "@shared/conselho";
 import { useToast } from "@/hooks/use-toast";
 import { useDevAccess } from "@/hooks/useDevAccess";
-import favela3dLogo from "@assets/Logo_Favela3D_GF_positivoo_1754341182028.png";
+import favela3dLogo from "../app-assets/Logo_Favela3D_GF_positivoo_1754341182028.png";
 import { useIsMobile } from "@/hooks/use-mobile";
 import MetaRealizadoCard from "@/components/meta-realizado-card";
+import MetasIndicadoresForm from "@/components/MetasIndicadoresForm";
 import ConselhoApprovalManager from "@/components/conselho-approval-manager";
 import { 
   ResponsiveContainer, 
@@ -115,246 +118,119 @@ interface LeoMartinsProps {
 
 // Componente Seção Colaboradores
 function ColaboradoresSection({ mesSelecionado }: { mesSelecionado: number }) {
-  const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedDepartamento, setSelectedDepartamento] = useState("Todos");
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 20;
 
   // Buscar estatísticas
   const { data: statsData } = useQuery<any>({
-    queryKey: ["/api/colaboradores/stats", mesSelecionado],
-    queryFn: () => fetch(`/api/colaboradores/stats?mes=${mesSelecionado}`).then(r => r.json()),
+    queryKey: ["/api/colaboradores/stats"],
+    queryFn: () => fetch(`/api/colaboradores/stats`).then(r => r.json()),
   });
 
   // Buscar lista de colaboradores
   const { data: colaboradoresData } = useQuery<any>({
-    queryKey: [
-      "/api/colaboradores",
-      currentPage,
-      pageSize,
-      selectedDepartamento,
-      searchTerm, mesSelecionado,
-    ],
+    queryKey: ["/api/colaboradores", searchTerm],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        pageSize: pageSize.toString(),
-      });
-      if (selectedDepartamento !== "Todos")
-        params.append("departamento", selectedDepartamento);
+      const params = new URLSearchParams({ pageSize: "100" });
       if (searchTerm.trim()) params.append("search", searchTerm.trim());
-      params.append("mes", mesSelecionado.toString());
-
       const response = await fetch(`/api/colaboradores?${params}`);
       if (!response.ok) throw new Error("Erro ao buscar colaboradores");
       return response.json();
     },
-    enabled: showModal,
   });
-
-  const departamentos = [
-    "Todos",
-    "Inclusão Produtiva",
-    "Administrativo Financeiro",
-    "Administrativo",
-    "Marketing",
-    "Psicossocial",
-    "Favela 3D",
-    "GRIFT",
-    "Outlet",
-    "Casa Sonhar",
-    "Casa Sonhar e PEC",
-  ];
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const totalPages = colaboradoresData
-    ? Math.ceil(colaboradoresData.total / pageSize)
-    : 1;
 
   return (
     <div className="space-y-6">
-      {/* Header Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-1 gap-4 max-w-md mx-auto">
-        <Card className="border-blue-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Total Colaboradores
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-600">
-              {statsData?.totalColaboradores || 0}
-            </div>
-            <p className="text-xs text-gray-500">Colaboradores ativos</p>
-          </CardContent>
-        </Card>
+      {/* Cards de Resumo: Total, CLT e CNPJ */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {[
+          { label: 'Total', value: statsData?.totalColaboradores || 0, border: '#bfdbfe', color: '#2563eb' },
+          { label: 'CLT', value: statsData?.clt || 0, border: '#a7f3d0', color: '#059669' },
+          { label: 'CNPJ', value: statsData?.cnpj || 0, border: '#fde68a', color: '#d97706' },
+        ].map((item) => (
+          <div key={item.label} style={{ flex: 1, border: `1px solid ${item.border}`, borderRadius: '8px', padding: '12px 8px', textAlign: 'center', background: '#fff' }}>
+            <div style={{ fontSize: '0.7rem', color: '#6b7280', marginBottom: '4px' }}>{item.label}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Gráfico de Distribuição por Departamento */}
+      {/* Distribuição por Setor — oculto temporariamente
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PieChart className="w-5 h-5 text-purple-600" />
-            Distribuição por Departamento
+            Distribuição por Setor
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {statsData?.distribuicao && typeof window !== "undefined" && (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={statsData.distribuicao}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="departamento"
-                  angle={-45}
-                  textAnchor="end"
-                  height={100}
-                />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="total" fill="#8b5cf6" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <div className="space-y-3">
+            {(statsData?.porSetor || [
+              { setor: "Programa Esportivo Cultural", total: 0 },
+              { setor: "Inclusão Produtiva", total: 0 },
+              { setor: "ADM/Financeiro", total: 0 },
+              { setor: "Marketing e Comunicação", total: 0 },
+              { setor: "Psicossocial", total: 0 },
+              { setor: "Negócios Sociais", total: 0 },
+            ]).map((s: any) => (
+              <div key={s.setor} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+                <span className="text-sm text-gray-700">{s.setor}</span>
+                <span className="text-sm font-bold text-purple-700">{s.total}</span>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
+      */}
 
-      {/* Botão Ver Todos */}
-      <div className="flex justify-center">
-        <Button
-          onClick={() => setShowModal(true)}
-          className="bg-purple-600 hover:bg-purple-700"
-          size="lg"
-        >
-          <Users className="w-5 h-5 mr-2" />
-          Ver todos os colaboradores
-        </Button>
-      </div>
-
-      {/* Modal de Listagem */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-6 border-b">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">Colaboradores</h2>
-                <Button variant="ghost" onClick={() => setShowModal(false)}>
-                  <XCircle className="w-6 h-6" />
-                </Button>
-              </div>
-
-              {/* Filtros */}
-              <div className="flex flex-col md:flex-row gap-4">
-                <Input
-                  placeholder="Buscar por nome ou telefone..."
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="flex-1"
-                />
-                <Select
-                  value={selectedDepartamento}
-                  onValueChange={(v) => {
-                    setSelectedDepartamento(v);
-                    setCurrentPage(1);
-                  }}
-                >
-                  <SelectTrigger className="w-full md:w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                  <SelectItem value="-1">📊 Todos (Geral)</SelectItem>
-                    {departamentos.map((dep) => (
-                      <SelectItem key={dep} value={dep}>
-                        {dep}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="overflow-auto max-h-[60vh]">
-              <table className="w-full">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Nome
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Telefone
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Departamento
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {colaboradoresData?.items?.map((col: any) => (
-                    <tr key={col.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {col.nome}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => copyToClipboard(col.telefone)}
-                          className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
-                        >
-                          {col.telefone}
-                          <Save className="w-4 h-4" />
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="outline">{col.departamento}</Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Paginação */}
-            <div className="p-4 border-t flex items-center justify-between">
-              <p className="text-sm text-gray-600">
-                Total: {colaboradoresData?.total || 0} colaboradores
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Anterior
-                </Button>
-                <span className="px-4 py-2 text-sm">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(totalPages, p + 1))
-                  }
-                  disabled={currentPage === totalPages}
-                >
-                  Próxima
-                </Button>
-              </div>
-            </div>
+      {/* Lista de Colaboradores */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="w-5 h-5 text-purple-600" />
+            Lista de Colaboradores
+          </CardTitle>
+          <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <Input
+              placeholder="Buscar por nome..."
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              className="flex-1 text-sm"
+            />
           </div>
-        </div>
-      )}
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y divide-gray-100">
+            {colaboradoresData?.items?.map((col: any) => (
+              <div key={col.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{col.nome}</p>
+                  {col.cargo && <p className="text-xs text-gray-500">{col.cargo}</p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {col.vinculo && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${col.vinculo === 'CLT' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {col.vinculo}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {(!colaboradoresData?.items || colaboradoresData.items.length === 0) && (
+              <p className="text-sm text-gray-400 text-center py-6">Nenhum colaborador encontrado</p>
+            )}
+          </div>
+          <div className="px-4 py-3 border-t bg-gray-50 rounded-b-lg">
+            <p className="text-xs text-gray-500">{colaboradoresData?.total || 0} colaboradores</p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 // Componente Relatório Financeiro Detalhado
 function RelatorioFinanceiroDetalhado() {
-  const [mesSelecionado, setMesSelecionado] = useState<string>("2025");
+  const [mesSelecionado, setMesSelecionado] = useState<string>("2026");
   const [departamentoSelecionado, setDepartamentoSelecionado] = useState<string>("TODOS");
 
   const { data: departamentosData } = useQuery<any>({
@@ -372,19 +248,19 @@ function RelatorioFinanceiroDetalhado() {
   });
 
   const meses = [
-    { value: "2025", label: "Ano Completo 2025" },
-    { value: "2025-01", label: "Janeiro 2025" },
-    { value: "2025-02", label: "Fevereiro 2025" },
-    { value: "2025-03", label: "Março 2025" },
-    { value: "2025-04", label: "Abril 2025" },
-    { value: "2025-05", label: "Maio 2025" },
-    { value: "2025-06", label: "Junho 2025" },
-    { value: "2025-07", label: "Julho 2025" },
-    { value: "2025-08", label: "Agosto 2025" },
-    { value: "2025-09", label: "Setembro 2025" },
-    { value: "2025-10", label: "Outubro 2025" },
-    { value: "2025-11", label: "Novembro 2025" },
-    { value: "2025-12", label: "Dezembro 2025" },
+    { value: "2026", label: "Ano Completo 2026" },
+    { value: "2026-01", label: "Janeiro 2026" },
+    { value: "2026-02", label: "Fevereiro 2026" },
+    { value: "2026-03", label: "Março 2026" },
+    { value: "2026-04", label: "Abril 2026" },
+    { value: "2026-05", label: "Maio 2026" },
+    { value: "2026-06", label: "Junho 2026" },
+    { value: "2026-07", label: "Julho 2026" },
+    { value: "2026-08", label: "Agosto 2026" },
+    { value: "2026-09", label: "Setembro 2026" },
+    { value: "2026-10", label: "Outubro 2026" },
+    { value: "2026-11", label: "Novembro 2026" },
+    { value: "2026-12", label: "Dezembro 2026" },
   ];
 
   const formatMoney = (value: number) => {
@@ -562,7 +438,7 @@ function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, c
       title: "Alunos Ativos",
       value: calcularAlunosAtivosMes(mesSelecionadoDashboard),
       subtitle: dadosMensais?.meses?.[mesSelecionadoDashboard] || dadosMensaisPEC?.meses?.[mesSelecionadoDashboard] 
-        ? `${dadosMensais?.meses?.[mesSelecionadoDashboard] || dadosMensaisPEC?.meses?.[mesSelecionadoDashboard]} 2025` 
+        ? `${dadosMensais?.meses?.[mesSelecionadoDashboard] || dadosMensaisPEC?.meses?.[mesSelecionadoDashboard]} 2026` 
         : 'Estudantes participantes',
       meta: 995,
       percentual: ((calcularAlunosAtivosMes(mesSelecionadoDashboard) / 995) * 100).toFixed(1)
@@ -672,26 +548,35 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [mesSelecionadoPEC, setMesSelecionadoPEC] = useState<number>(0); // 0 = Jan, 11 = Dez
   const [dadosMensaisFavela3D, setDadosMensaisFavela3D] = useState<any>(null);
   const [mesSelecionadoFavela3D, setMesSelecionadoFavela3D] = useState<number>(0); // 0 = Jan, 11 = Dez
+  const [expandedF3DSection, setExpandedF3DSection] = useState<string | null>(null);
   const [mesSelecionadoDashboard, setMesSelecionadoDashboard] = useState<number>(-1); // -1 = Todos os meses // 7 = Agosto - Dashboard geral
   const [marketingData, setMarketingData] = useState<any>(null);
-  const [anoPatrocinador, setAnoPatrocinador] = useState<number>(2024); // Ano selecionado para patrocinadores (ano anterior)
+  const [anoPatrocinador, setAnoPatrocinador] = useState<number>(2026); // Ano selecionado para patrocinadores
+  const [privacyPatrocinadores, setPrivacyPatrocinadores] = useState<boolean>(false); // Modo privacidade para patrocinadores
+  const [anoDoador, setAnoDoador] = useState<number>(2026); // Ano selecionado para doadores
+  const [anoIndicadores, setAnoIndicadores] = useState<number>(2026); // Ano selecionado para indicadores de programas
+  const [mesSelecionadoFinanceiro, setMesSelecionadoFinanceiro] = useState<number | null>(null); // null = Ano todo
+  const [mesSelecionadoMarketing, setMesSelecionadoMarketing] = useState<number | null>(null); // null = Ano todo
+  const [dashInclusaoFiltroAno, setDashInclusaoFiltroAno] = useState(new Date().getFullYear());
+  const [dashInclusaoFiltroMes, setDashInclusaoFiltroMes] = useState(0);
+  const [dashPecFiltroAno, setDashPecFiltroAno] = useState(new Date().getFullYear());
+  const [dashPecFiltroMes, setDashPecFiltroMes] = useState(0);
   const [selectedArea, setSelectedArea] = useState<string | null>(null); // Área selecionada de cursos (tecnologia, beleza, etc.)
   const [selectedModalidade, setSelectedModalidade] = useState<string | null>(null); // Modalidade selecionada (presencial/ead)
   const [searchDoadorTerm, setSearchDoadorTerm] = useState(""); // Pesquisa na lista de doadores
   const isMobile = useIsMobile();
   const anoAnterior = new Date().getFullYear() - 1;
 
-  // Definir mês atual (0 = Jan, 9 = Out) - Outubro 2025
-  const mesAtualIndex = 9; // Out = mês 10, índice 9
+  const mesAtualIndex = new Date().getMonth();
 
   // Hook para acesso de desenvolvedor
   const devAccess = useDevAccess();
 
   // Query para buscar patrocinadores
   const { data: patrocinadoresData, isLoading, error } = useQuery({
-  queryKey: ['/api/patrocinadores', anoAnterior, mesSelecionadoDashboard],
+  queryKey: ['/api/patrocinadores', anoPatrocinador],
   queryFn: async () => {
-    const r = await fetch(`/api/patrocinadores?ano=${anoAnterior}&mes=${mesSelecionadoDashboard}`);
+    const r = await fetch(`/api/patrocinadores?ano=${anoPatrocinador}`);
     if (!r.ok) throw new Error('Failed to fetch patrocinadores');
     return r.json();
   }
@@ -704,8 +589,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   useEffect(() => {
     const fetchIndicadores = async () => {
       try {
-        console.log("🔵 [LEO DASHBOARD] Buscando indicadores...");
-        const response = await fetch("/api/inclusao-produtiva/indicadores");
+        console.log("🔵 [LEO DASHBOARD] Buscando indicadores para ano " + anoIndicadores + "...");
+        const response = await fetch("/api/inclusao-produtiva/indicadores?ano=" + anoIndicadores);
         if (!response.ok) throw new Error("Failed to fetch indicadores");
         const data = await response.json();
         console.log("✅ [LEO DASHBOARD] Indicadores recebidos:", data);
@@ -716,14 +601,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     };
 
     fetchIndicadores();
-  }, []);
+  }, [anoIndicadores]);
 
-  // Buscar dados mensais de Inclusão Produtiva 2025
+  // Buscar dados mensais de Inclusão Produtiva
   useEffect(() => {
     const fetchDadosMensais = async () => {
       try {
-        console.log("📅 [LEO DASHBOARD] Buscando dados mensais 2025...");
-        const response = await fetch("/api/inclusao-produtiva/dados-mensais");
+        console.log("📅 [LEO DASHBOARD] Buscando dados mensais " + anoIndicadores + "...");
+        const response = await fetch("/api/inclusao-produtiva/dados-mensais?ano=" + anoIndicadores);
         if (!response.ok) throw new Error("Failed to fetch dados mensais");
         const data = await response.json();
         console.log("✅ [LEO DASHBOARD] Dados mensais recebidos:", data);
@@ -778,14 +663,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     };
 
     fetchDadosMensais();
-  }, []);
+  }, [anoIndicadores]);
 
-  // Buscar dados mensais de Psicossocial 2025
+  // Buscar dados mensais de Psicossocial
   useEffect(() => {
     const fetchDadosMensaisPsicossocial = async () => {
       try {
-        console.log("📅 [PSICOSSOCIAL] Buscando dados mensais 2025...");
-        const response = await fetch("/api/psicossocial/dados-mensais");
+        console.log("📅 [PSICOSSOCIAL] Buscando dados mensais para ano " + anoIndicadores + "...");
+        const response = await fetch("/api/psicossocial/dados-mensais?ano=" + anoIndicadores);
         if (!response.ok)
           throw new Error("Failed to fetch dados mensais psicossocial");
         const data = await response.json();
@@ -816,14 +701,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     };
 
     fetchDadosMensaisPsicossocial();
-  }, []);
+  }, [anoIndicadores]);
 
-  // Buscar dados mensais de PEC (Esporte e Cultura) 2025
+  // Buscar dados mensais de PEC (Esporte e Cultura)
   useEffect(() => {
     const fetchDadosMensaisPEC = async () => {
       try {
-        console.log("📅 [PEC] Buscando dados mensais 2025...");
-        const response = await fetch("/api/pec/dados-mensais");
+        console.log("📅 [PEC] Buscando dados mensais para ano " + anoIndicadores + "...");
+        const response = await fetch("/api/pec/dados-mensais?ano=" + anoIndicadores);
         if (!response.ok) throw new Error("Failed to fetch dados mensais PEC");
         const data = await response.json();
         console.log("✅ [PEC] Dados mensais recebidos:", data);
@@ -857,13 +742,13 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     };
 
     fetchDadosMensaisPEC();
-  }, []);
+  }, [anoIndicadores]);
 
-  // Buscar dados mensais de Favela 3D 2025
+  // Buscar dados mensais de Favela 3D
   useEffect(() => {
     const fetchDadosMensaisFavela3D = async () => {
       try {
-        console.log("📅 [FAVELA 3D] Buscando dados mensais 2025...");
+        console.log("📅 [FAVELA 3D] Buscando dados mensais " + anoIndicadores + "...");
         const response = await fetch("/api/favela-3d/dados-mensais");
         if (!response.ok)
           throw new Error("Failed to fetch dados mensais Favela 3D");
@@ -945,8 +830,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   useEffect(() => {
     const fetchMarketingData = async () => {
       try {
-        console.log("📊 [MARKETING] Buscando dados do dashboard...");
-        const response = await fetch("/api/marketing/dashboard?period=2025-04");
+        console.log("📊 [MARKETING] Buscando dados do dashboard para ano " + anoIndicadores + "...");
+        const response = await fetch(`/api/marketing/dashboard?ano=${anoIndicadores}&mes=${mesSelecionadoMarketing || ""}`);
         if (!response.ok) throw new Error("Failed to fetch marketing data");
         const data = await response.json();
         console.log("✅ [MARKETING] Dados recebidos:", data);
@@ -957,14 +842,23 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     };
 
     fetchMarketingData();
-  }, []);
+  }, [anoIndicadores, mesSelecionadoMarketing]);
 
-  // Buscar dados dos Doadores (Stripe)
+
+  // Buscar dados dos Doadores (Stripe) com filtro de ano
   const { data: doadoresData } = useQuery<any>({
-    queryKey: ['/api/doadores/stats', mesSelecionadoDashboard],
-    queryFn: () => fetch(`/api/doadores/stats?mes=${mesSelecionadoDashboard}`).then(r => r.json()),
-    refetchInterval: 900000, // 15 minutos
+    queryKey: ['/api/doadores/stats', anoDoador],
+    queryFn: () => fetch(`/api/doadores/stats?ano=${anoDoador}`).then(r => r.json()),
+    refetchInterval: 300000,
+    staleTime: 60000,
     refetchOnWindowFocus: true,
+  });
+
+  // Buscar total de colaboradores para o dashboard
+  const { data: colaboradoresStatsData } = useQuery<any>({
+    queryKey: ['/api/colaboradores/stats'],
+    queryFn: () => fetch('/api/colaboradores/stats').then(r => r.json()),
+    refetchInterval: 300000,
   });
 
   // Buscar doadores externos (doam fora do aplicativo)
@@ -990,7 +884,82 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       };
     };
   }>({
-    queryKey: ['/api/negocios-sociais'],
+    queryKey: ['/api/negocios-sociais', anoIndicadores],
+    queryFn: () => fetch(`/api/negocios-sociais?ano=${anoIndicadores}`).then(r => r.json()),
+  });
+
+  const { data: indMktData } = useQuery<any>({
+    queryKey: ['/api/indicadores-marketing', anoIndicadores],
+    queryFn: () => fetch('/api/indicadores-marketing?ano=' + anoIndicadores).then(res => res.json()),
+    refetchInterval: 60000
+  });
+
+  const { data: seguidoresMensalData } = useQuery<any>({
+    queryKey: ['/api/marketing-seguidores-mensal', anoIndicadores],
+    queryFn: () => fetch('/api/marketing-seguidores-mensal?ano=' + anoIndicadores).then(res => res.json()),
+    refetchInterval: 60000
+  });
+
+  const { data: doadoresStatsData } = useQuery<any>({
+    queryKey: ['/api/doadores/stats-marketing'],
+    queryFn: () => fetch('/api/doadores/stats').then(res => res.json()),
+    refetchInterval: 60000
+  });
+
+  const { data: negociosData } = useQuery<any>({
+    queryKey: ['/api/negocios-sociais', anoIndicadores, mesSelecionadoMarketing],
+    queryFn: () => fetch('/api/negocios-sociais?ano=' + anoIndicadores + (mesSelecionadoMarketing ? '&mes=' + mesSelecionadoMarketing : '')).then(r => r.json()),
+    refetchInterval: 60000
+  });
+
+  const { data: dashInclusaoData, isLoading: loadingDashInclusao } = useQuery<any>({
+    queryKey: ['/api/coordenador/dashboard-demografico-inclusao', dashInclusaoFiltroAno, dashInclusaoFiltroMes],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (dashInclusaoFiltroAno) params.set('ano', String(dashInclusaoFiltroAno));
+      if (dashInclusaoFiltroMes) params.set('mes', String(dashInclusaoFiltroMes));
+      const qs = params.toString();
+      const url = '/api/coordenador/dashboard-demografico-inclusao' + (qs ? `?${qs}` : '');
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar dados demográficos inclusão');
+      return response.json();
+    },
+    enabled: anoIndicadores === 2026,
+  });
+
+  const { data: atendidosInclusaoData } = useQuery<any>({
+    queryKey: ['/api/inclusao/atendimentos', dashInclusaoFiltroAno, dashInclusaoFiltroMes],
+    queryFn: async () => {
+      const params = new URLSearchParams({ ano: String(dashInclusaoFiltroAno) });
+      if (dashInclusaoFiltroMes) params.set('mes', String(dashInclusaoFiltroMes));
+      const response = await fetch('/api/inclusao/atendimentos?' + params.toString(), { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar atendidos');
+      return response.json();
+    },
+    enabled: anoIndicadores === 2026,
+  });
+
+  const { data: dashPecData, isLoading: loadingDashPec } = useQuery<any>({
+    queryKey: ['/api/coordenador/dashboard-demografico', dashPecFiltroAno, dashPecFiltroMes],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (dashPecFiltroAno) params.set('ano', String(dashPecFiltroAno));
+      if (dashPecFiltroMes) params.set('mes', String(dashPecFiltroMes));
+      const qs = params.toString();
+      const url = '/api/coordenador/dashboard-demografico' + (qs ? `?${qs}` : '');
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error('Falha ao carregar dados demográficos PEC');
+      return response.json();
+    },
+    enabled: anoIndicadores === 2026,
+  });
+
+  // Buscar indicadores do Gestão à Vista (atendimentos por programa)
+  const { data: gvIndicadoresData } = useQuery<any>({
+    queryKey: ['/api/gestao-vista', anoIndicadores],
+    queryFn: () => fetch(`/api/gestao-vista?ano=${anoIndicadores}`).then(r => r.json()),
+    refetchInterval: 300000,
+    refetchOnMount: true,
   });
 
   // Buscar dados demográficos (Gênero, Raça/Cor, Idade)
@@ -1001,7 +970,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     racaCor: Array<{ name: string; value: number; percentage: number }>;
     idade: Array<{ name: string; value: number; percentage: number }>;
   }>({
-    queryKey: ['/api/dados-demograficos'],
+    queryKey: ['/api/dados-demograficos', anoIndicadores],
+    queryFn: () => fetch(`/api/dados-demograficos?ano=${anoIndicadores}`).then(r => r.json()),
     refetchInterval: 300000,
     refetchOnMount: true,
   });
@@ -1157,7 +1127,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     { nome: "Cláudio Calonge", categoria: "bronze", tipo: "pessoa_fisica", valorPatrocinio: 10000, status: "ativo", contratosAtivos: true },
   ];
 
-  // Usar dados do banco ao invés de hardcoded (agora vem filtrados do backend por ano)
   const patrocinadoresFiltrados = patrocinadoresData?.patrocinadores || [];
 
   // Calcular estatísticas dos dados do banco
@@ -1891,7 +1860,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     try {
       setLoading(true);
       const response = await fetch(
-        "/api/gestao-vista/meta-realizado?period=2025-08&scope=monthly"
+        "/api/gestao-vista/meta-realizado?period=2026-01&scope=monthly"
       );
       if (response.ok) {
         const data = await response.json();
@@ -2038,13 +2007,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       color: "text-gray-600",
     },
     {
-      id: "aluno",
-      label: "Alunos",
-      icon: GraduationCap,
-      section: "data",
-      color: "text-gray-600",
-    },
-    {
       id: "colaborador",
       label: "Colaboradores",
       icon: Handshake,
@@ -2106,6 +2068,13 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       icon: TrendingUp,
       section: "gestao",
       color: "text-pink-600",
+    },
+    {
+      id: "metas-indicadores",
+      label: "Metas e Indicadores",
+      icon: Target,
+      section: "gestao",
+      color: "text-indigo-600",
     },
     {
       id: "settings",
@@ -2236,37 +2205,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
   const renderDashboard = () => (
     <div className="space-y-6">
-      {/* Filtro compacto no canto superior direito */}
-      {dadosMensais && dadosMensaisPEC && (
-        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                <span className="text-sm font-medium text-gray-700">Filtrar por Mês:</span>
-              </div>
-              <Select 
-                value={mesSelecionadoDashboard.toString()} 
-                onValueChange={(value) => setMesSelecionadoDashboard(parseInt(value))}
-              >
-                <SelectTrigger className="w-[150px] bg-white border-blue-300">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="-1">📊 Todos (Geral)</SelectItem>
-                  {["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-                    
-                    .map((mes: string, index: number) => (
-                      <SelectItem key={index} value={index.toString()}>
-                        {mes} 2025
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Status de Doações Stripe - Linha própria */}
       <Card className="border-purple-200">
@@ -2277,33 +2215,25 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="grid grid-cols-4 gap-4 text-center">
-            <div className="p-4 bg-green-50 rounded-lg">
-              <div className="text-3xl font-bold text-green-600">{doadoresData?.porStatus?.active || 0}</div>
-              <p className="text-sm text-gray-600">Ativas</p>
-              <p className="text-xs text-gray-400">Pagando normalmente</p>
-            </div>
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <div className="text-3xl font-bold text-blue-600">{doadoresData?.porStatus?.trialing || 0}</div>
-              <p className="text-sm text-gray-600">Em Teste</p>
-              <p className="text-xs text-gray-400">Período de trial</p>
-            </div>
-            <div className="p-4 bg-yellow-50 rounded-lg">
-              <div className="text-3xl font-bold text-yellow-600">{doadoresData?.porStatus?.past_due || 0}</div>
-              <p className="text-sm text-gray-600">Pendentes</p>
-              <p className="text-xs text-gray-400">Pagamento atrasado</p>
-            </div>
-            <div className="p-4 bg-orange-50 rounded-lg">
-              <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
-              <p className="text-sm text-gray-600">Externos</p>
-              <p className="text-xs text-gray-400">Doações fora do app</p>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '8px' }}>
+            {[
+              { label: 'Ativas', value: doadoresData?.porStatus?.active || 0, bg: '#f0fdf4', color: '#16a34a', desc: 'Pagando normalmente' },
+              { label: 'Em Teste', value: doadoresData?.porStatus?.trialing || 0, bg: '#eff6ff', color: '#2563eb', desc: 'Período de trial' },
+              { label: 'Pendentes', value: doadoresData?.porStatus?.past_due || 0, bg: '#fefce8', color: '#ca8a04', desc: 'Pagamento atrasado' },
+              { label: 'Externos', value: doadoresExternosData?.totalDoadores || 0, bg: '#fff7ed', color: '#ea580c', desc: 'Doações fora do app' },
+            ].map((item) => (
+              <div key={item.label} style={{ background: item.bg, borderRadius: '8px', padding: isMobile ? '10px 6px' : '16px 8px', textAlign: 'center' }}>
+                <div style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: 700, color: item.color }}>{item.value}</div>
+                <div style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', color: '#4b5563' }}>{item.label}</div>
+                {!isMobile && <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{item.desc}</div>}
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
       {/* Header Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="border-blue-200">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">Patrocinadores</CardTitle>
@@ -2314,44 +2244,55 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-green-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Alunos Ativos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {calcularAlunosAtivosMes(mesSelecionadoDashboard)}
-            </div>
-            <p className="text-xs text-gray-500">
-              {dadosMensais?.meses?.[mesSelecionadoDashboard] || dadosMensaisPEC?.meses?.[mesSelecionadoDashboard] 
-                ? `${dadosMensais?.meses?.[mesSelecionadoDashboard] || dadosMensaisPEC?.meses?.[mesSelecionadoDashboard]} 2025` 
-                : 'Estudantes participantes'}
-            </p>
-            <div className="mt-2 pt-2 border-t border-green-100">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-600">Meta:</span>
-                <span className="text-xs font-semibold text-gray-700">995</span>
-              </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-xs text-gray-600">Realizado:</span>
-                <span className="text-xs font-semibold text-green-600">
-                  {((calcularAlunosAtivosMes(mesSelecionadoDashboard) / 995) * 100).toFixed(1)}%
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card className="border-purple-200">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">Colaboradores</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">45</div>
+            <div className="text-2xl font-bold text-purple-600">{colaboradoresStatsData?.totalColaboradores ?? 0}</div>
             <p className="text-xs text-gray-500">Equipe colaborativa</p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Atendimentos por Programa */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="w-5 h-5 text-blue-600" />
+            Atendimentos por Programa
+          </CardTitle>
+          <p className="text-xs text-gray-500">Total acumulado 2026 • Atualizado em tempo real</p>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const ind = gvIndicadoresData?.indicadores;
+            const programas = [
+              { nome: 'PEC', valor: ind?.criancasAtendidas?.valor || 0, meta: ind?.criancasAtendidas?.meta || 0, cor: 'bg-emerald-500' },
+              { nome: 'Inclusão Produtiva', valor: ind?.alunosEmFormacao?.valor || 0, meta: ind?.alunosEmFormacao?.meta || 0, cor: 'bg-blue-500' },
+              { nome: 'Psicossocial', valor: ind?.atendimentos?.valor || 0, meta: ind?.atendimentos?.meta || 0, cor: 'bg-amber-500' },
+            ];
+            const total = programas.reduce((acc, p) => acc + p.valor, 0);
+            return (
+              <div className="space-y-4">
+                <div className="text-center pb-2 border-b border-gray-100">
+                  <span className="text-3xl font-bold text-gray-800">{total.toLocaleString('pt-BR')}</span>
+                  <p className="text-xs text-gray-500 mt-1">Total de pessoas atendidas</p>
+                </div>
+                {programas.map((p) => (
+                  <div key={p.nome} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${p.cor}`} />
+                      <span className="text-sm font-medium text-gray-700">{p.nome}</span>
+                    </div>
+                    <span className="text-lg font-bold text-gray-800">{p.valor.toLocaleString('pt-BR')}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
 
       {/* Gráficos Demográficos - Gênero e Raça/Cor */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2363,8 +2304,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               Gênero
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[200px]">
+          <CardContent className="pb-3">
+            <div className="h-[250px]">
               {loadingDemograficos ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
@@ -2375,10 +2316,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <Pie
                       data={dadosDemograficos.genero}
                       cx="50%"
-                      cy="50%"
+                      cy="48%"
                       labelLine={false}
-                      label={({ percentage }: any) => `${percentage}%`}
-                      outerRadius={60}
+                      label={({ percentage }: any) => percentage >= 5 ? `${percentage}%` : ''}
+                      outerRadius={65}
                       fill="#8884d8"
                       dataKey="value"
                     >
@@ -2405,8 +2346,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               Raça/Cor
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[200px]">
+          <CardContent className="pb-3">
+            <div className="h-[250px]">
               {loadingDemograficos ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
@@ -2417,10 +2358,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <Pie
                       data={dadosDemograficos.racaCor}
                       cx="50%"
-                      cy="50%"
+                      cy="48%"
                       labelLine={false}
-                      label={({ percentage }: any) => `${percentage}%`}
-                      outerRadius={60}
+                      label={({ percentage }: any) => percentage >= 5 ? `${percentage}%` : ''}
+                      outerRadius={65}
                       fill="#8884d8"
                       dataKey="value"
                     >
@@ -2447,8 +2388,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               Faixa Etária
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[200px]">
+          <CardContent className="pb-3">
+            <div className="h-[250px]">
               {loadingDemograficos ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-400"></div>
@@ -2459,10 +2400,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <Pie
                       data={dadosDemograficos.idade}
                       cx="50%"
-                      cy="50%"
+                      cy="48%"
                       labelLine={false}
-                      label={({ percentage }: any) => `${percentage}%`}
-                      outerRadius={60}
+                      label={({ percentage }: any) => percentage >= 5 ? `${percentage}%` : ''}
+                      outerRadius={65}
                       fill="#8884d8"
                       dataKey="value"
                     >
@@ -2471,7 +2412,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number, name: string) => [`${value} pessoas`, name]} />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} iconType="square" />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} iconType="square" iconSize={8} />
                   </RechartsPieChart>
                 </ResponsiveContainer>
               ) : (
@@ -2482,245 +2423,126 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </Card>
       </div>
 
-      {/* Nosso Impacto - Gestão à Vista */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-blue-600" />
-            Nosso Impacto
-          </CardTitle>
-          <p className="text-sm text-gray-500 mt-1">Comparativo Meta x Realizado por programa</p>
-        </CardHeader>
-        <CardContent>
-          {typeof window !== 'undefined' && (
-            <ResponsiveContainer width="100%" height={400}>
-              <BarChart 
-                data={(() => {
-                  if (!gestaoVistaData?.data) return [];
-                  
-                  // Agrupar por setor, somando metas e realizados
-                  const setoresMapa = new Map();
-                  gestaoVistaData.data.forEach((item: any) => {
-                    const setorNome = item.setor_nome || 'Outros';
-                    if (!setoresMapa.has(setorNome)) {
-                      setoresMapa.set(setorNome, { meta_total: 0, realizado_total: 0, count: 0 });
-                    }
-                    const setor = setoresMapa.get(setorNome);
-                    setor.meta_total += item.meta || 0;
-                    setor.realizado_total += item.realizado || 0;
-                    setor.count += 1;
-                  });
-                  
-                  return Array.from(setoresMapa.entries()).map(([nome, dados]) => {
-                    const meta = dados.meta_total;
-                    const realizado = dados.realizado_total;
-                    const percentualAtingido = meta > 0 ? (realizado / meta) * 100 : 0;
-                    const percentualFalta = meta > 0 ? Math.max(0, 100 - percentualAtingido) : 0;
-                    const gapAbsoluto = meta - realizado;
-                    
-                    // Abreviar nomes longos para mobile
-                    const nomeAbreviado = nome
-                      .replace('PROGRAMA DE CULTURA E ESPORTE', 'PEC')
-                      .replace('PROGRAMA DE INCLUSÃO PRODUTIVA', 'INCLUSÃO')
-                      .replace('Programas Institucionais', 'INSTIT.')
-                      .replace('PSICOSSOCIAL', 'PSICO')
-                      .replace('FAVELA 3D', 'F3D')
-                      .replace('MARKETING', 'MKT');
-                    
-                    return {
-                      programa: nomeAbreviado,
-                      programaCompleto: nome,
-                      meta,
-                      realizado,
-                      percentualAtingido: parseFloat(percentualAtingido.toFixed(1)),
-                      percentualFalta: parseFloat(percentualFalta.toFixed(1)),
-                      gapAbsoluto
-                    };
-                  });
-                })()}
-                margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="programa" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={120}
-                  tick={{ fontSize: 9 }}
-                  interval={0}
-                />
-                <YAxis 
-                  tickFormatter={(value) => new Intl.NumberFormat('pt-BR').format(value)}
-                />
-                <Tooltip 
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      const isAcimaMeta = data.realizado > data.meta;
-                      const excedente = data.realizado - data.meta;
-                      
-                      return (
-                        <div className="bg-white p-4 border rounded-lg shadow-lg">
-                          <p className="font-bold mb-2">{data.programaCompleto || data.programa}</p>
-                          <div className="space-y-1 text-sm">
-                            <p><span className="text-blue-600">Meta:</span> {data.meta.toLocaleString('pt-BR')}</p>
-                            <p><span className="text-green-600">Realizado:</span> {data.realizado.toLocaleString('pt-BR')}</p>
-                            <p className="font-semibold">
-                              % Atingido: <span className={data.percentualAtingido >= 90 ? 'text-green-600' : data.percentualAtingido >= 70 ? 'text-yellow-600' : 'text-red-600'}>
-                                {data.percentualAtingido}%
-                              </span>
-                            </p>
-                            {!isAcimaMeta ? (
-                              <>
-                                <p>% que falta: {data.percentualFalta}%</p>
-                                <p className="text-gray-600">Gap: {Math.abs(data.gapAbsoluto).toLocaleString('pt-BR')}</p>
-                              </>
-                            ) : (
-                              <div className="mt-2 pt-2 border-t">
-                                <p className="text-green-600 font-semibold flex items-center gap-1">
-                                  ✓ Acima da meta
-                                </p>
-                                <p className="text-sm">Excedente: +{excedente.toLocaleString('pt-BR')} (+{((excedente/data.meta)*100).toFixed(1)}%)</p>
-                              </div>
-                            )}
-                            {data.meta === 0 && (
-                              <p className="text-gray-500 italic mt-2">Meta não definida</p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Legend 
-                  wrapperStyle={{ paddingTop: '20px' }}
-                  formatter={(value) => value === 'meta' ? 'Meta' : 'Realizado'}
-                />
-                <Bar 
-                  dataKey="meta" 
-                  fill="#3b82f6" 
-                  name="meta"
-                  label={{
-                    position: 'top',
-                    formatter: (value: number) => value > 0 ? `Meta: ${value.toLocaleString('pt-BR')}` : '',
-                    fontSize: 11,
-                    fill: '#1e40af'
-                  }}
-                />
-                <Bar 
-                  dataKey="realizado" 
-                  fill="#22c55e" 
-                  name="realizado"
-                  label={{
-                    position: 'top',
-                    formatter: (value: number, entry: any) => {
-                      if (value > 0 && entry?.percentualAtingido !== undefined) {
-                        const percent = entry.percentualAtingido;
-                        return `Realizado: ${value.toLocaleString('pt-BR')} — ${percent}%`;
-                      }
-                      return '';
-                    },
-                    fontSize: 11,
-                    fill: '#15803d'
-                  }}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Bottom Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-600" />
-              Atividades Recentes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-center h-16">
-                <p className="text-sm text-gray-500">
-                  Nenhuma atividade recente
-                </p>
-              </div>
-              
-              <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Doadores Ativos</p>
-                  <p className="text-xs text-gray-500">{doadoresData?.totalDoadores || 0} assinaturas ativas</p>
-                </div>  
-              </div>  
-              
-              <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50">
-                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Patrocinadores</p>
-                  <p className="text-xs text-gray-500">56 parceiros ativos</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Alunos Matriculados</p>
-                  <p className="text-xs text-gray-500">{calcularAlunosAtivosMes(mesSelecionadoDashboard)} estudantes participantes</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart className="w-5 h-5 text-green-600" />
-              Performance Geral
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-center h-16">
-                <p className="text-sm text-gray-500">
-                  Dashboard consolidado com métricas integradas
-                </p>
-              </div>
-            </div>
-            <div className="space-y-4">
-              {gestaoVistaData?.data && (() => {
-                const totalIndicadores = gestaoVistaData.data.length;
-                const indicadoresAtingidos = gestaoVistaData.data.filter((i: any) => (i.atingimento_percentual || 0) >= 100).length;
-                const performanceMedia = gestaoVistaData.data.reduce((acc: number, i: any) => acc + (i.atingimento_percentual || 0), 0) / totalIndicadores;
-
-                return (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Performance Média</span>
-                      <span className="text-2xl font-bold text-green-600">{performanceMedia.toFixed(1)}%</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Indicadores Atingidos</span>
-                      <span className="text-sm font-semibold">{indicadoresAtingidos} de {totalIndicadores}</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                        style={{ width: `${(indicadoresAtingidos / totalIndicadores) * 100}%` }}
-                      ></div>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
+
+  const AdminGaugeChart = ({ 
+    value, 
+    meta, 
+    label, 
+    isInverse = false,
+    hideMeta = false
+  }: { 
+    value: number; 
+    meta: number; 
+    label: string; 
+    isInverse?: boolean;
+    hideMeta?: boolean;
+  }) => {
+    const absValue = Math.abs(value);
+    const absMeta = Math.abs(meta);
+    const percentage = absMeta > 0 ? (absValue / absMeta) * 100 : 0;
+    const cappedPercentage = Math.min(percentage, 100);
+    
+    const [animatedProgress, setAnimatedProgress] = useState(0);
+    
+    useEffect(() => {
+      const duration = 1500;
+      const startTime = Date.now();
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        setAnimatedProgress(easeOut * cappedPercentage);
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      
+      requestAnimationFrame(animate);
+    }, [cappedPercentage]);
+    
+    const isGoalMet = isInverse ? percentage <= 100 : percentage >= 100;
+    
+    const getColor = () => {
+      if (isInverse) {
+        if (percentage <= 80) return '#22c55e';
+        if (percentage <= 100) return '#eab308';
+        return '#ef4444';
+      } else {
+        if (percentage >= 100) return '#22c55e';
+        if (percentage >= 80) return '#eab308';
+        return '#ef4444';
+      }
+    };
+
+    const color = getColor();
+    
+    const size = 140;
+    const strokeWidth = 14;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = Math.PI * radius;
+    const progress = (animatedProgress / 100) * circumference;
+
+    return (
+      <div className="bg-white rounded-xl p-2 lg:p-4 border border-gray-200 shadow-sm flex flex-col items-center justify-center">
+        <p className="text-gray-800 text-[10px] lg:text-base font-semibold mb-1 lg:mb-2 text-center leading-tight">{label}</p>
+        
+        <div className="relative">
+          <svg width={size} height={size / 2 + 10} viewBox={`0 0 ${size} ${size / 2 + 10}`} className="w-[80px] h-[45px] lg:w-[140px] lg:h-[80px]">
+            <path
+              d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
+              fill="none"
+              stroke="#e5e7eb"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+            />
+            <path
+              d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              strokeDasharray={`${progress} ${circumference}`}
+            />
+          </svg>
+          
+          <div className="absolute inset-0 flex flex-col items-center justify-end pb-0">
+            <span className="text-lg lg:text-3xl font-bold text-gray-900">
+              {value.toLocaleString('pt-BR')}
+            </span>
+          </div>
+        </div>
+        
+        {!hideMeta && isGoalMet && percentage >= 100 && (
+          <div className="flex items-center justify-center gap-1 mt-0.5 lg:mt-1">
+            <div className="w-4 h-4 lg:w-5 lg:h-5 rounded-full bg-green-500 flex items-center justify-center">
+              <svg className="w-2 h-2 lg:w-3 lg:h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <span className="text-green-600 text-[8px] lg:text-xs font-bold">META ATINGIDA</span>
+          </div>
+        )}
+        
+        {!hideMeta && (
+          <div className="flex items-center justify-between w-full mt-1 lg:mt-2 px-1 lg:px-2 gap-1">
+            <span className="text-gray-500 text-[9px] lg:text-sm truncate">Meta: {meta.toLocaleString('pt-BR')}</span>
+            {isGoalMet && percentage >= 100 ? (
+              <span className="text-[9px] lg:text-sm font-bold px-1 lg:px-2 py-0.5 rounded bg-green-100 text-green-600 flex items-center gap-0.5 lg:gap-1 whitespace-nowrap">
+                ✓ {Math.round(percentage)}%
+              </span>
+            ) : (
+              <span className="text-[9px] lg:text-sm font-bold px-1 lg:px-2 py-0.5 rounded whitespace-nowrap" style={{ color, backgroundColor: `${color}15` }}>
+                {Math.round(percentage)}%
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Helper para pegar último valor válido de um array
   const getLastValidValue = (arr: any[]) => {
@@ -2744,6 +2566,9 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         const taxaRetencao = statsDoadores.taxaRetencao || 0;
         const porStatus = statsDoadores.porStatus || { active: 0, trialing: 0, past_due: 0 };
         const porPlano = statsDoadores.porPlano || [];
+        const porPlanoAtivos = statsDoadores.porPlanoAtivos || [];
+        const porPlanoPendentes = statsDoadores.porPlanoPendentes || [];
+        const porPlanoCancelados = statsDoadores.porPlanoCancelados || [];
         const evolucaoMensal = statsDoadores.evolucaoMensal || [];
         const distribuicaoPorValor = statsDoadores.distribuicaoPorValor || [];
         const listaDoadores = statsDoadores.doadores || [];
@@ -2754,16 +2579,42 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
         return (
           <div className="space-y-6">
+            {/* Seletor de Ano */}
+            <div className="flex justify-end gap-2 mb-4">
+              <Button
+                onClick={() => setAnoDoador(2025)}
+                variant={anoDoador === 2025 ? "default" : "outline"}
+                className={
+                  anoDoador === 2025
+                    ? "bg-green-600 hover:bg-green-700 text-white"
+                    : ""
+                }
+              >
+                Doadores 2025
+              </Button>
+              <Button
+                onClick={() => setAnoDoador(2026)}
+                variant={anoDoador === 2026 ? "default" : "outline"}
+                className={
+                  anoDoador === 2026
+                    ? "bg-green-600 hover:bg-green-700 text-white"
+                    : ""
+                }
+              >
+                Doadores 2026
+              </Button>
+            </div>
+
             {/* Status de Doações */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Target className="w-5 h-5 text-purple-600" />
-                  Status de Doações
+                  Status de Doações - {anoDoador}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-5 gap-4">
                   <div className="text-center p-4 bg-green-50 rounded-lg">
                     <div className="text-3xl font-bold text-green-600">{porStatus.active}</div>
                     <p className="text-sm text-gray-600">Ativas</p>
@@ -2779,6 +2630,11 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <p className="text-sm text-gray-600">Pendentes</p>
                     <p className="text-xs text-gray-400">Pagamento atrasado</p>
                   </div>
+                  <div className="text-center p-4 bg-red-50 rounded-lg">
+                    <div className="text-3xl font-bold text-red-600">{porStatus.canceled}</div>
+                    <p className="text-sm text-gray-600">Cancelados</p>
+                    <p className="text-xs text-gray-400">Cancelaram em {anoDoador}</p>
+                  </div>
                   <div className="text-center p-4 bg-orange-50 rounded-lg">
                     <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
                     <p className="text-sm text-gray-600">Externos</p>
@@ -2788,50 +2644,137 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </CardContent>
             </Card>
 
-            {/* Gráficos: Distribuição por Plano e Evolução */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Distribuição por Plano */}
+            {/* Gráficos: Distribuição por Plano separados por status */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Ativos */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-blue-600" />
-                    Distribuição por Plano
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PieChart className="w-4 h-4 text-green-600" />
+                    Ativos ({porPlanoAtivos.reduce((a: number, p: any) => a + p.quantidade, 0)})
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {porPlano.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
+                  {porPlanoAtivos.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
                       <RechartsPieChart>
                         <Pie
-                          data={porPlano.filter((p: any) => p.quantidade > 0)}
+                          data={porPlanoAtivos}
                           cx="50%"
-                          cy="50%"
+                          cy="40%"
                           labelLine={false}
-                          label={({ plano, quantidade }: any) => `${plano.split(' ')[0]}: ${quantidade}`}
-                          outerRadius={100}
+                          label={({ quantidade }: any) => quantidade}
+                          outerRadius={70}
                           fill="#8884d8"
                           dataKey="quantidade"
+                          nameKey="plano"
                         >
-                          {porPlano.filter((p: any) => p.quantidade > 0).map((entry: any, index: number) => (
-                            <Cell key={`cell-${index}`} fill={CORES_PLANO[index % CORES_PLANO.length]} />
+                          {porPlanoAtivos.map((_: any, index: number) => (
+                            <Cell key={`cell-a-${index}`} fill={CORES_PLANO[index % CORES_PLANO.length]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value: any, name: string, props: any) => [
+                        <Tooltip formatter={(value: any, _: string, props: any) => [
                           `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
                           props.payload.plano
                         ]} />
+                        <Legend formatter={(value: string, entry: any) => `${value}: ${entry.payload?.quantidade || 0}`} />
                       </RechartsPieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-[300px] text-gray-400">
-                      Carregando dados...
+                    <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">
+                      Nenhum doador ativo
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              {/* Evolução Mensal de Adesões */}
+              {/* Pendentes */}
               <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PieChart className="w-4 h-4 text-yellow-600" />
+                    Pendentes ({porPlanoPendentes.reduce((a: number, p: any) => a + p.quantidade, 0)})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {porPlanoPendentes.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <RechartsPieChart>
+                        <Pie
+                          data={porPlanoPendentes}
+                          cx="50%"
+                          cy="40%"
+                          labelLine={false}
+                          label={({ quantidade }: any) => quantidade}
+                          outerRadius={70}
+                          fill="#8884d8"
+                          dataKey="quantidade"
+                          nameKey="plano"
+                        >
+                          {porPlanoPendentes.map((_: any, index: number) => (
+                            <Cell key={`cell-p-${index}`} fill={['#f59e0b', '#ef4444', '#6366f1', '#ec4899'][index % 4]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: any, _: string, props: any) => [
+                          `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
+                          props.payload.plano
+                        ]} />
+                        <Legend formatter={(value: string, entry: any) => `${value}: ${entry.payload?.quantidade || 0}`} />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">
+                      Nenhum pagamento pendente
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Cancelados */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PieChart className="w-4 h-4 text-red-600" />
+                    Cancelados ({porPlanoCancelados.reduce((a: number, p: any) => a + p.quantidade, 0)})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {porPlanoCancelados.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <RechartsPieChart>
+                        <Pie
+                          data={porPlanoCancelados}
+                          cx="50%"
+                          cy="40%"
+                          labelLine={false}
+                          label={({ quantidade }: any) => quantidade}
+                          outerRadius={70}
+                          fill="#8884d8"
+                          dataKey="quantidade"
+                          nameKey="plano"
+                        >
+                          {porPlanoCancelados.map((_: any, index: number) => (
+                            <Cell key={`cell-c-${index}`} fill={['#ef4444', '#f97316', '#a855f7', '#64748b'][index % 4]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: any, _: string, props: any) => [
+                          `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
+                          props.payload.plano
+                        ]} />
+                        <Legend formatter={(value: string, entry: any) => `${value}: ${entry.payload?.quantidade || 0}`} />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">
+                      Nenhum cancelamento
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Evolução Mensal de Adesões */}
+            <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-green-600" />
@@ -2865,8 +2808,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     </div>
                   )}
                 </CardContent>
-              </Card>
-            </div>
+            </Card>
 
             {/* Distribuição por Faixa de Valor */}
             <Card>
@@ -2928,6 +2870,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Adesão</th>
+                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Cancelamento</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Dias</th>
                       </tr>
                     </thead>
@@ -2938,7 +2881,12 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                           doador.nome?.toLowerCase().includes(searchDoadorTerm.toLowerCase()) ||
                           doador.plano?.toLowerCase().includes(searchDoadorTerm.toLowerCase())
                         )
-                        .sort((a: any, b: any) => b.valor - a.valor)
+                        .sort((a: any, b: any) => {
+                          const statusOrder: Record<string, number> = { active: 0, trialing: 1, past_due: 2, canceled: 3 };
+                          const statusDiff = (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
+                          if (statusDiff !== 0) return statusDiff;
+                          return (b.valor || 0) - (a.valor || 0);
+                        })
                         .map((doador: any, index: number) => (
                           <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
                             <td className="py-3 px-4 text-gray-800">{doador.nome}</td>
@@ -2974,6 +2922,11 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                               </span>
                             </td>
                             <td className="py-3 px-4 text-center text-gray-600">{doador.dataAdesao}</td>
+                            <td className="py-3 px-4 text-center text-gray-600">
+                              {doador.dataCancelamento ? (
+                                <span className="text-red-500">{doador.dataCancelamento}</span>
+                              ) : '-'}
+                            </td>
                             <td className="py-3 px-4 text-center text-gray-600">{doador.diasComoDoador}</td>
                           </tr>
                         ))}
@@ -3007,7 +2960,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       <tr className="border-b-2 border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
                         <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
-                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Plano</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Observação</th>
                       </tr>
@@ -3021,18 +2973,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             </td>
                             <td className="py-3 px-4 text-right font-medium text-green-600">
                               R$ {doador.valorMensal?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                                doador.plano === "platinum" ? "bg-purple-100 text-purple-700" :
-                                doador.plano === "grito" ? "bg-orange-100 text-orange-700" :
-                                doador.plano === "voz" ? "bg-blue-100 text-blue-700" :
-                                "bg-gray-100 text-gray-700"
-                              }`}>
-                                {doador.plano === "platinum" ? "Platinum" :
-                                 doador.plano === "grito" ? "Grito" :
-                                 doador.plano === "voz" ? "Voz" : "Eco"}
-                              </span>
                             </td>
                             <td className="py-3 px-4 text-center text-gray-600">{doador.periodicidade || "Mensal"}
                             </td>
@@ -3061,7 +3001,17 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         return (
           <div className="space-y-6">
             {/* Seletor de Ano */}
-            <div className="flex justify-end gap-2 mb-4">
+            <div className="flex justify-end items-center gap-2 mb-4">
+              <button
+                onClick={() => setPrivacyPatrocinadores(!privacyPatrocinadores)}
+                className={`p-2 rounded-full border transition-colors ${privacyPatrocinadores ? 'bg-gray-200 border-gray-400 text-gray-600' : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'}`}
+                title={privacyPatrocinadores ? 'Mostrar valores' : 'Ocultar valores'}
+              >
+                {privacyPatrocinadores
+                  ? <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  : <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                }
+              </button>
               <Button
                 onClick={() => setAnoPatrocinador(2024)}
                 variant={anoPatrocinador === 2024 ? "default" : "outline"}
@@ -3083,6 +3033,17 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 }
               >
                 Patrocinadores 2025
+              </Button>
+              <Button
+                onClick={() => setAnoPatrocinador(2026)}
+                variant={anoPatrocinador === 2026 ? "default" : "outline"}
+                className={
+                  anoPatrocinador === 2026
+                    ? "bg-yellow-400 hover:bg-yellow-500 text-black"
+                    : ""
+                }
+              >
+                Patrocinadores 2026
               </Button>
             </div>
 
@@ -3108,9 +3069,9 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-yellow-600">
-                    R$ {estatisticasFiltradas.totalPatrocinadores > 0 
+                    {privacyPatrocinadores ? '---' : `R$ ${estatisticasFiltradas.totalPatrocinadores > 0 
                       ? (estatisticasFiltradas.investimentoTotal / estatisticasFiltradas.totalPatrocinadores).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                      : '0,00'}
+                      : '0,00'}`}
                   </div>
                   <p className="text-xs text-gray-500">--</p>
                 </CardContent>
@@ -3124,7 +3085,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-blue-600">
-                    R$ {estatisticasFiltradas.investimentoTotal.toLocaleString('pt-BR')}
+                    {privacyPatrocinadores ? '---' : `R$ ${estatisticasFiltradas.investimentoTotal.toLocaleString('pt-BR')}`}
                   </div>
                   <p className="text-xs text-gray-500">--</p>
                 </CardContent>
@@ -3178,7 +3139,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                           }, {});
 
                         const setorData = Object.entries(investimentoPorSetor)
-                          .map(([setor, valor]) => ({ setor, valor }))
+                          .map(([setor, valor]) => ({ setor, valor: privacyPatrocinadores ? 0 : valor }))
                           .sort((a: any, b: any) => {
                             const ordem: any = {
                               Oficial: 1,
@@ -3246,25 +3207,25 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       const statusData = [
                         {
                           status: "Ativos",
-                          quantidade: contratosAtivos,
+                          quantidade: privacyPatrocinadores ? 0 : contratosAtivos,
                           fill: "#10b981",
                         },
                         {
                           status: "Renovação",
-                          quantidade: contratosRenovacao,
+                          quantidade: privacyPatrocinadores ? 0 : contratosRenovacao,
                           fill: "#3b82f6",
                         },
                         {
                           status: "Pendentes",
-                          quantidade: contratosPendentes,
+                          quantidade: privacyPatrocinadores ? 0 : contratosPendentes,
                           fill: "#f59e0b",
                         },
                         {
                           status: "Cancelados",
-                          quantidade: contratosCancelados,
+                          quantidade: privacyPatrocinadores ? 0 : contratosCancelados,
                           fill: "#ef4444",
                         },
-                      ].filter((item) => item.quantidade > 0);
+                      ].filter((item) => item.quantidade > 0 || privacyPatrocinadores);
 
                       return (
                         <ResponsiveContainer width="100%" height={300}>
@@ -3373,11 +3334,15 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                   className={`inline-block px-3 py-1 rounded-full text-sm ${
                                     patrocinador.tipo === "empresa"
                                       ? "bg-green-100 text-green-700"
+                                      : patrocinador.tipo === "anonimo"
+                                      ? "bg-gray-100 text-gray-500"
                                       : "bg-indigo-100 text-indigo-700"
                                   }`}
                                 >
                                   {patrocinador.tipo === "empresa"
                                     ? "Empresa"
+                                    : patrocinador.tipo === "anonimo"
+                                    ? "Anônimo"
                                     : "Pessoa Física"}
                                 </span>
                               </td>
@@ -3392,289 +3357,175 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </div>
         );
       case "marketing":
-        const seguidoresAtual =
-          marketingData?.dashboard?.seguidores?.atual || 0;
-        const seguidoresMeta =
-          marketingData?.dashboard?.seguidores?.meta || 15000;
-        const crescimentoMensal =
-          marketingData?.dashboard?.crescimentoMensal || 0;
-        const performanceGeral =
-          marketingData?.dashboard?.performanceGeral || 0;
+        const is2026Mkt = anoIndicadores >= 2026;
+        const META_ANUAL_SEGUIDORES_2026 = 15000;
+        const SEGUIDORES_ATUAL_2026 = 11456;
+        const SEGUIDORES_A_GANHAR_2026 = META_ANUAL_SEGUIDORES_2026 - SEGUIDORES_ATUAL_2026;
+        const META_MENSAL_SEGUIDORES_2026 = Math.ceil(SEGUIDORES_A_GANHAR_2026 / 12);
+        const META_ANUAL_PERDIDOS_2026 = 1500;
+        const META_MENSAL_PERDIDOS_2026 = Math.ceil(META_ANUAL_PERDIDOS_2026 / 12);
+        const META_ANUAL_MATERIAIS_2026 = 6000;
+        const META_MENSAL_MATERIAIS_2026 = Math.ceil(META_ANUAL_MATERIAIS_2026 / 12);
+
+        const mktRef = indMktData?.data;
+        const segMensalRows = seguidoresMensalData?.data || [];
+        const segMensalByMes: Record<string, { ganhos: number; perdidos: number; total: number; materiais: number; doadores: number }> = {};
+        for (const row of segMensalRows) {
+          segMensalByMes[String(row.mes)] = {
+            ganhos: row.seguidores_ganhos,
+            perdidos: row.seguidores_perdidos,
+            total: row.total_seguidores,
+            materiais: row.materiais_distribuidos,
+            doadores: row.doadores_ativos || 0,
+          };
+        }
+
+        const seguidoresGanhosAcumulado = segMensalRows.reduce((acc: number, r: any) => acc + r.seguidores_ganhos, 0);
+        const seguidoresPerdidosAcumulado = segMensalRows.reduce((acc: number, r: any) => acc + r.seguidores_perdidos, 0);
+        const materiaisAcumulado = segMensalRows.reduce((acc: number, r: any) => acc + r.materiais_distribuidos, 0);
+        const ultimoMesTotal = segMensalRows.length > 0 ? segMensalRows[segMensalRows.length - 1].total_seguidores : SEGUIDORES_ATUAL_2026;
+
+        const mesMktStr = mesSelecionadoMarketing === null ? 'todos' : String(mesSelecionadoMarketing);
+        const mesDataMkt = segMensalByMes[mesMktStr];
+
+        const mktSeguidoresGanhos = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? seguidoresGanhosAcumulado : (mesDataMkt?.ganhos ?? 0))
+          : (mktRef?.seguidores_ganhos || 0);
+
+        const metaSeguidoresGanhos2026 = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? SEGUIDORES_A_GANHAR_2026 : META_MENSAL_SEGUIDORES_2026)
+          : (mktRef?.seguidores_ganhos_meta || 1);
+
+        const mktSeguidoresPerdidos = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? seguidoresPerdidosAcumulado : (mesDataMkt?.perdidos ?? 0))
+          : (mktRef?.seguidores_perdidos || 0);
+
+        const metaSeguidoresPerdidos2026 = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? META_ANUAL_PERDIDOS_2026 : META_MENSAL_PERDIDOS_2026)
+          : (mktRef?.seguidores_perdidos_meta || 1);
+
+        const mktTotalSeguidores = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? ultimoMesTotal : (mesDataMkt?.total ?? ultimoMesTotal))
+          : (mktRef?.total_seguidores || 11401);
+
+        const mktMateriaisDistribuidos = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? materiaisAcumulado : (mesDataMkt?.materiais ?? 0))
+          : (mktRef?.materiais_distribuidos || 0);
+
+        const metaMateriaisDistribuidos2026 = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? META_ANUAL_MATERIAIS_2026 : META_MENSAL_MATERIAIS_2026)
+          : (mktRef?.materiais_distribuidos_meta || 1);
+
+        const doadoresAtivosVal = (doadoresStatsData?.porStatus?.active || 0) + (doadoresStatsData?.porStatus?.trialing || 0);
+        const doadoresUltimoMes = segMensalRows.length > 0 ? (segMensalRows[segMensalRows.length - 1].doadores_ativos || 0) : 0;
+        const mktDoadoresAtivos = is2026Mkt
+          ? (mesSelecionadoMarketing === null ? doadoresUltimoMes : (mesDataMkt?.doadores ?? doadoresUltimoMes))
+          : doadoresAtivosVal;
+        const metaDoadores = 1000;
+
+
+        const MESES_MKT = [
+          { value: "todos", label: "Todos os Meses" },
+          { value: "1", label: "Janeiro" },
+          { value: "2", label: "Fevereiro" },
+          { value: "3", label: "Março" },
+          { value: "4", label: "Abril" },
+          { value: "5", label: "Maio" },
+          { value: "6", label: "Junho" },
+          { value: "7", label: "Julho" },
+          { value: "8", label: "Agosto" },
+          { value: "9", label: "Setembro" },
+          { value: "10", label: "Outubro" },
+          { value: "11", label: "Novembro" },
+          { value: "12", label: "Dezembro" },
+        ];
 
         return (
           <div className="space-y-6" key="marketing-section">
-            {/* Marketing Header */}
-            <Card className="border-pink-200 bg-pink-50">
-              <CardHeader className="text-center">
-                <CardTitle className="text-2xl font-bold text-pink-700">
-                  Métricas do Marketing
-                </CardTitle>
-                <div className="text-4xl font-bold text-pink-600 mt-2">
-                  Campanha Ativa
-                </div>
-                <p className="text-sm text-pink-600 mt-1">
-                  Estratégias de comunicação e engajamento
-                </p>
-              </CardHeader>
-            </Card>
-
-            {!marketingData ? (
-              <div className="text-center py-8 text-gray-500">
-                Carregando dados...
+            {/* Seletores */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Ano:</span>
+                <Button
+                  size="sm"
+                  variant={anoIndicadores === 2025 ? "default" : "outline"}
+                  className={anoIndicadores === 2025 ? "bg-pink-600 hover:bg-pink-700" : ""}
+                  onClick={() => setAnoIndicadores(2025)}
+                >
+                  2025
+                </Button>
+                <Button
+                  size="sm"
+                  variant={anoIndicadores === 2026 ? "default" : "outline"}
+                  className={anoIndicadores === 2026 ? "bg-pink-600 hover:bg-pink-700" : ""}
+                  onClick={() => setAnoIndicadores(2026)}
+                >
+                  2026
+                </Button>
               </div>
-            ) : (
-              <>
-                {/* Cards de Métricas de Marketing */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <Card className="border-pink-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Seguidores
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-pink-600">
-                        {seguidoresAtual.toLocaleString("pt-BR")}
-                      </div>
-                      <p className="text-xs text-gray-500">Abril 2025</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-blue-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Meta Anual
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-blue-600">
-                        {seguidoresMeta.toLocaleString("pt-BR")}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Seguidores objetivo
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-green-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Crescimento Mensal
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-green-600">
-                        {crescimentoMensal.toLocaleString("pt-BR")}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Novos seguidores/mês
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-purple-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Performance
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold text-purple-600">
-                        {performanceGeral.toLocaleString("pt-BR", {
-                          minimumFractionDigits: 1,
-                          maximumFractionDigits: 1,
-                        })}
-                        %
-                      </div>
-                      <p className="text-xs text-gray-500">Meta atingida</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </>
-            )}
-
-            {/* Gráficos de Marketing */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-pink-600" />
-                    Performance das Campanhas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div key="marketing-performance-chart">
-                    {typeof window !== "undefined" && (
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart
-                          data={[
-                            {
-                              mes: "Jan",
-                              meta: 15000,
-                              seguidores: 8500,
-                              crescimento: 450,
-                            },
-                            {
-                              mes: "Fev",
-                              meta: 15000,
-                              seguidores: 9100,
-                              crescimento: 600,
-                            },
-                            {
-                              mes: "Mar",
-                              meta: 15000,
-                              seguidores: 9700,
-                              crescimento: 600,
-                            },
-                            {
-                              mes: "Abr",
-                              meta: 15000,
-                              seguidores: 10200,
-                              crescimento: 500,
-                            },
-                            {
-                              mes: "Mai",
-                              meta: 15000,
-                              seguidores: 10587,
-                              crescimento: 387,
-                            },
-                            {
-                              mes: "Jun",
-                              meta: 15000,
-                              seguidores: 11000,
-                              crescimento: 413,
-                            },
-                          ]}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="mes" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Bar
-                            dataKey="seguidores"
-                            fill="#ec4899"
-                            name="Seguidores"
-                          />
-                          <Bar
-                            dataKey="crescimento"
-                            fill="#22c55e"
-                            name="Crescimento Mensal"
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                    <div className="text-center text-sm text-gray-600 mt-2">
-                      Evolução de Seguidores vs Meta
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-pink-600" />
-                    Distribuição de Canais
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div key="marketing-channels-chart">
-                    {typeof window !== "undefined" && (
-                      <ResponsiveContainer width="100%" height={300}>
-                        <RechartsPieChart>
-                          <Pie
-                            data={[
-                              {
-                                name: "Meta: 15.000",
-                                value: 29.4,
-                                color: "#ef4444",
-                              },
-                              {
-                                name: "Atingido: 10.587",
-                                value: 70.6,
-                                color: "#22c55e",
-                              },
-                            ]}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={60}
-                            outerRadius={100}
-                            paddingAngle={5}
-                            dataKey="value"
-                          >
-                            <Cell key="cell-0" fill="#ef4444" />
-                            <Cell key="cell-1" fill="#22c55e" />
-                          </Pie>
-                          <Tooltip
-                            formatter={(value) => [`${value}%`, "Percentual"]}
-                          />
-                          <Legend />
-                        </RechartsPieChart>
-                      </ResponsiveContainer>
-                    )}
-                    <div className="text-center text-sm text-gray-600 mt-2">
-                      Meta vs Realizado - Seguidores
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Mês:</span>
+                <Select 
+                  value={mesSelecionadoMarketing === null ? "todos" : String(mesSelecionadoMarketing)} 
+                  onValueChange={(v) => setMesSelecionadoMarketing(v === "todos" ? null : parseInt(v))}
+                >
+                  <SelectTrigger className="w-[170px] text-sm h-9">
+                    <SelectValue placeholder="Mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MESES_MKT.map((mes) => (
+                      <SelectItem key={mes.value} value={mes.value}>
+                        {mes.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Resumo de Estratégias */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-pink-600" />
-                  Estratégias e Resultados
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-700">
-                      Indicadores Principais
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center p-3 bg-pink-50 rounded-lg">
-                        <span className="text-sm">Seguidores (Meta Anual)</span>
-                        <span className="font-bold text-pink-600">15.000</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                        <span className="text-sm">Seguidores (Atual)</span>
-                        <span className="font-bold text-green-600">10.587</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                        <span className="text-sm">Crescimento Mensal</span>
-                        <span className="font-bold text-blue-600">500</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="font-semibold text-gray-700">Performance</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                        <span className="text-sm">Meta Atingida</span>
-                        <span className="font-bold text-green-600">70,6%</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
-                        <span className="text-sm">Faltam para Meta</span>
-                        <span className="font-bold text-orange-600">
-                          4.413 seguidores
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                        <span className="text-sm">Estimativa Conclusão</span>
-                        <span className="font-bold text-purple-600">
-                          9 meses
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+            {/* Marketing e Tecnologia - Light card with gauges */}
+            <div className="bg-white rounded-xl p-3 lg:p-6 border border-gray-200 shadow-sm">
+              <div className="flex items-center gap-2 lg:gap-3 mb-3 lg:mb-4 flex-wrap">
+                <div className="p-2 lg:p-3 bg-pink-500 rounded-xl">
+                  <Target className="w-4 h-4 lg:w-7 lg:h-7 text-white" />
                 </div>
-              </CardContent>
-            </Card>
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-900 font-bold text-sm lg:text-xl">Marketing e Tecnologia</p>
+                  <p className="text-gray-500 text-[10px] lg:text-sm">Indicadores de Crescimento - {anoIndicadores}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-gray-500 text-[10px] lg:text-sm">Total Seguidores</p>
+                  <p className="text-lg lg:text-3xl font-bold text-gray-900">{mktTotalSeguidores.toLocaleString('pt-BR')}</p>
+                  {is2026Mkt && (
+                    <p className="text-gray-400 text-[10px] lg:text-xs">Meta: {META_ANUAL_SEGUIDORES_2026.toLocaleString('pt-BR')}</p>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
+                <AdminGaugeChart 
+                  value={mktSeguidoresGanhos}
+                  meta={is2026Mkt ? metaSeguidoresGanhos2026 : (mktRef?.seguidores_ganhos_meta || 1)}
+                  label="Seguidores Ganhos"
+                />
+                <AdminGaugeChart 
+                  value={mktSeguidoresPerdidos}
+                  meta={is2026Mkt ? metaSeguidoresPerdidos2026 : (mktRef?.seguidores_perdidos_meta || 1)}
+                  label="Seguidores Perdidos"
+                  isInverse={true}
+                />
+                <AdminGaugeChart 
+                  value={mktDoadoresAtivos}
+                  meta={metaDoadores}
+                  label="Doadores Ativos"
+                />
+                <AdminGaugeChart 
+                  value={mktMateriaisDistribuidos}
+                  meta={is2026Mkt ? metaMateriaisDistribuidos2026 : (mktRef?.materiais_distribuidos_meta || 1)}
+                  label="Materiais Distribuídos"
+                />
+              </div>
+            </div>
+
           </div>
         );
       case "conselho":
@@ -3835,478 +3686,69 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             </Card>
           </div>
         );
-      case "aluno":
-        // Calcular Alunos Ativos somando os dados dos programas
-        const calcularAlunosAtivos = () => {
-          if (!dadosMensaisPEC || !dadosMensais) return 0;
-
-          // PEC: Sala Serenata, Polo Glória, Casa Sonhar
-          const serenataData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "SALA SERENATA")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const serenata = getLastValidValue(serenataData);
-
-          const poloGloriaData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "POLO GLÓRIA")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const poloGloria = getLastValidValue(poloGloriaData);
-
-          const casaSonharData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "CASA SONHAR")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const casaSonhar = getLastValidValue(casaSonharData);
-
-          // Inclusão Produtiva: Lab, Cursos Presenciais, EAD (Alunos Ativos)
-          const labData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "LAB. VOZES DO FUTURO")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const lab = getLastValidValue(labData);
-
-          const cursosPresenciaisData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "CURSOS PRESENCIAIS")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const cursosPresenciais = getLastValidValue(cursosPresenciaisData);
-
-          const eadData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "CURSOS EAD CGD")
-            ?.indicadores?.find((i: any) => i.nome === "Alunos Ativos")?.mensal;
-          const ead = getLastValidValue(eadData);
-
-          return (
-            serenata + poloGloria + casaSonhar + lab + cursosPresenciais + ead
-          );
-        };
-
-        const alunosAtivos = calcularAlunosAtivos();
-
-        // Calcular totais por programa
-        const totalInclusao = (() => {
-          const labData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "LAB. VOZES DO FUTURO")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const lab = getLastValidValue(labData);
-
-          const presencialData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "CURSOS PRESENCIAIS")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const presencial = getLastValidValue(presencialData);
-
-          const eadData = dadosMensais?.projetos
-            ?.find((p: any) => p.projeto === "CURSOS EAD CGD")
-            ?.indicadores?.find((i: any) => i.nome === "Alunos Ativos")?.mensal;
-          const ead = getLastValidValue(eadData);
-
-          return lab + presencial + ead;
-        })();
-
-        const totalPEC = (() => {
-          const serenataData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "SALA SERENATA")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const serenata = getLastValidValue(serenataData);
-
-          const gloriaData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "POLO GLÓRIA")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const gloria = getLastValidValue(gloriaData);
-
-          const sonharData = dadosMensaisPEC?.projetos
-            ?.find((p: any) => p.projeto === "CASA SONHAR")
-            ?.indicadores?.find(
-              (i: any) => i.nome === "Quantidade de Alunos"
-            )?.mensal;
-          const sonhar = getLastValidValue(sonharData);
-
-          return serenata + gloria + sonhar;
-        })();
-
-        return (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-blue-600" />
-                  Gestão de Alunos
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Card className="border-blue-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Total de Alunos
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold text-blue-600">
-                        {alunosAtivos}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Todos os programas
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-green-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Alunos Ativos
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold text-green-600">
-                        {alunosAtivos}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Serenata + Glória + Sonhar + Lab + Presencial + IAD
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-yellow-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
-                        Taxa de Frequência
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-3xl font-bold text-yellow-600">
-                        85%
-                      </div>
-                      <p className="text-xs text-gray-500">Média mensal</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Distribuição por Programa</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      Inclusão Produtiva
-                    </span>
-                    <Badge variant="outline">{totalInclusao} alunos</Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">
-                      Polo Esportivo Cultural
-                    </span>
-                    <Badge variant="outline">{totalPEC} alunos</Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Casa Sonhar</span>
-                    <Badge variant="outline">
-                      {getLastValidValue(
-                        dadosMensaisPEC?.projetos
-                          ?.find((p: any) => p.projeto === "CASA SONHAR")
-                          ?.indicadores?.find(
-                            (i: any) => i.nome === "Quantidade de Alunos"
-                          )?.mensal
-                      )}{" "}
-                      alunos
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Favela 3D</span>
-                    <Badge variant="outline">0 alunos</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        );
       case "colaborador":
         return <ColaboradoresSection mesSelecionado={mesSelecionadoDashboard} />;
       case "favela3d":
-        // Dados mensais Favela 3D - Decolagem
-        const dadosDecolagem = {
-          visitas: {
-            mensal: [276, 220, 297, 318, 371, 354, 329, 322, 281, 323, 157, 0],
-            semestre1: 1836,
-            semestre2: 1412,
-            totalAnual: 3248,
-            impacto: 12992
-          },
-          triangulo: {
-            mensal: [10, 39, 29, 23, 91, 73, 74, 45, 110, 121, 0, 0],
-            semestre1: 265,
-            semestre2: 350,
-            totalAnual: 615,
-            impacto: 2460
-          },
-          acompanhamentoFamiliar: {
-            mensal: [null, null, null, 133, null, null, 205, null, null, 182, null, 133],
-            semestre1: 387,
-            semestre2: 133,
-            totalAnual: 520,
-            impacto: 2080
-          },
-          familiasEmbarcadas: {
-            mensal: [238, 219, 219, 217, 217, 217, 217, 218, 219, 219, 0, 0],
-            semestre1: 221,
-            semestre2: 145,
-            totalAnual: null,
-            impacto: null
-          },
-          desligamentos: {
-            mensal: [20, 39, 39, 41, 41, 41, 41, 40, 39, 39, 0, null],
-            semestre1: 36,
-            semestre2: 31,
-            totalAnual: null,
-            impacto: null
-          }
-        };
-
-        const mesesNomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-
-        const getValorDecolagem = (indicador: keyof typeof dadosDecolagem, mes: number) => {
-          const valor = dadosDecolagem[indicador].mensal[mes];
-          if (valor === null) return "—";
-          return valor.toLocaleString('pt-BR');
-        };
-
         return (
           <div className="space-y-6">
-            {/* Filtro de Mês */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Selecionar Mês</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select
-                  value={mesSelecionadoFavela3D.toString()}
-                  onValueChange={(value) =>
-                    setMesSelecionadoFavela3D(parseInt(value))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione o mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                  <SelectItem value="-1">📊 Todos (Geral)</SelectItem>
-                    {mesesNomes.map((mes: string, index: number) => (
-                      <SelectItem key={index} value={index.toString()}>
-                        {mes}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
+            <p className="text-sm text-gray-500">Dados Anuais 2025</p>
 
-            {/* Totais Anuais - Resumo */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-purple-600" />
-                  Totais Anuais - Decolagem
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div className="text-center p-3 bg-purple-50 rounded-lg">
-                    <p className="text-2xl font-bold text-purple-600">
-                      {dadosDecolagem.visitas.totalAnual?.toLocaleString('pt-BR')}
-                    </p>
-                    <p className="text-xs text-gray-600">Visitas</p>
-                  </div>
-                  <div className="text-center p-3 bg-purple-50 rounded-lg">
-                    <p className="text-2xl font-bold text-purple-600">
-                      {dadosDecolagem.triangulo.totalAnual?.toLocaleString('pt-BR')}
-                    </p>
-                    <p className="text-xs text-gray-600">Triângulo</p>
-                  </div>
-                  <div className="text-center p-3 bg-purple-50 rounded-lg">
-                    <p className="text-2xl font-bold text-purple-600">
-                      {dadosDecolagem.acompanhamentoFamiliar.totalAnual?.toLocaleString('pt-BR')}
-                    </p>
-                    <p className="text-xs text-gray-600">Acomp. Familiar</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-400">N/A</p>
-                    <p className="text-xs text-gray-600">Fam. Embarcadas</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-400">N/A</p>
-                    <p className="text-xs text-gray-600">Desligamentos</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            {!dadosMensaisFavela3D ? (
+              <div className="text-center py-8 text-gray-500">Carregando dados do Favela 3D...</div>
+            ) : dadosMensaisFavela3D?.eixos ? (
+              dadosMensaisFavela3D.eixos.map((eixo: any, index: number) => {
+                const isExpanded = expandedF3DSection === eixo.nome;
+                const eixoIcons: Record<string, any> = {
+                  'Decolagem': <Rocket className="w-5 h-5 text-white" />,
+                  'Desenvolvimento Social': <Users className="w-5 h-5 text-white" />,
+                  'Moradia e Urbanismo': <Building className="w-5 h-5 text-white" />,
+                };
 
-            {/* Decolagem - Valores do Mês Selecionado */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <img
-                      src={favela3dLogo}
-                      alt="Favela 3D"
-                      className="w-5 h-5"
-                    />
-                    Decolagem
-                  </CardTitle>
-                  <Badge variant="outline" className="bg-purple-50">
-                    {mesesNomes[mesSelecionadoFavela3D]}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 mb-2">Visitas</p>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {getValorDecolagem('visitas', mesSelecionadoFavela3D)}
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 mb-2">Triângulo</p>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {getValorDecolagem('triangulo', mesSelecionadoFavela3D)}
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 mb-2">Acompanhamento Familiar</p>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {getValorDecolagem('acompanhamentoFamiliar', mesSelecionadoFavela3D)}
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 mb-2">Famílias Embarcadas</p>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {getValorDecolagem('familiasEmbarcadas', mesSelecionadoFavela3D)}
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm text-gray-600 mb-2">Desligamentos</p>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {getValorDecolagem('desligamentos', mesSelecionadoFavela3D)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Gráfico de Evolução Mensal - Visitas */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-semibold">
-                  Evolução Mensal - Visitas
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart
-                    data={mesesNomes.map((mes: string, idx: number) => ({
-                      mes: mes.substring(0, 3),
-                      valor: dadosDecolagem.visitas.mensal[idx] || 0,
-                    }))}
+                return (
+                  <div
+                    key={eixo.nome}
+                    className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                    onClick={() => setExpandedF3DSection(isExpanded ? null : eixo.nome)}
                   >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="mes" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="valor" fill="#8b5cf6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Indicadores por Eixo (do banco de dados) */}
-            {dadosMensaisFavela3D?.eixos?.filter((eixo: any) => eixo.nome !== "Decolagem").map((eixo: any) => (
-              <Card key={eixo.nome}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <img
-                        src={favela3dLogo}
-                        alt="Favela 3D"
-                        className="w-5 h-5"
-                      />
-                      {eixo.nome}
-                    </CardTitle>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <Filter className="h-4 w-4 text-gray-500" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    {eixo.indicadores?.map((indicador: any) => (
-                      <div
-                        key={indicador.nome}
-                        className="p-4 border rounded-lg"
-                      >
-                        <p className="text-sm text-gray-600 mb-2">
-                          {indicador.nome}
-                        </p>
-                        <p className="text-2xl font-bold text-purple-600">
-                          {getValorMensalFavela3D(eixo.nome, indicador.nome) ||
-                            0}
-                        </p>
-                        {indicador.meta && (
-                          <p className="text-xs text-gray-500">
-                            Meta: {indicador.meta}
-                          </p>
-                        )}
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                            {eixoIcons[eixo.nome] || <TrendingUp className="w-5 h-5 text-white" />}
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-800">{eixo.nome}</h3>
+                        </div>
+                        <ChevronDown className={`w-5 h-5 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Gráfico de Evolução Mensal */}
-                  {eixo.indicadores?.[0] && eixo.indicadores[0].mensal && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold mb-4">
-                        Evolução Mensal - {eixo.indicadores[0].nome}
-                      </h4>
-                      <ResponsiveContainer width="100%" height={250}>
-                        <BarChart
-                          data={dadosMensaisFavela3D.meses?.map(
-                            (mes: string, idx: number) => ({
-                              mes,
-                              valor: eixo.indicadores[0].mensal?.[idx] || 0,
-                            })
-                          )}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="mes" />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="valor" fill="#8b5cf6" />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {isExpanded && (
+                        <div className="mt-4">
+                          <div className={`grid gap-3 ${eixo.indicadores.length === 1 ? 'grid-cols-1 max-w-[200px] mx-auto' : 'grid-cols-2'}`}>
+                            {eixo.indicadores.map((indicador: any, idx: number) => (
+                              <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                <div className="text-2xl font-bold text-purple-600 mb-1">
+                                  {(indicador.valor ?? 0).toLocaleString('pt-BR')}
+                                </div>
+                                <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                                {indicador.impacto > 0 && (
+                                  <p className="text-xs text-green-600 mt-1">Pessoas Impactadas: {indicador.impacto.toLocaleString('pt-BR')}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
+            )}
           </div>
         );
-      case "inclusao":
-        if (!indicadoresData) {
+      case "inclusao": {
+        if (anoIndicadores === 2025 && !indicadoresData) {
           return (
             <div className="p-6">Carregando dados de Inclusão Produtiva...</div>
           );
@@ -4346,12 +3788,70 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         
         return (
           <div className="space-y-6">
-            {/* Resumo Geral - Acumulado 2025 */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2025 ? "default" : "outline"}
+                className={anoIndicadores === 2025 ? "bg-green-600 hover:bg-green-700" : ""}
+                onClick={() => setAnoIndicadores(2025)}
+              >
+                2025
+              </Button>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2026 ? "default" : "outline"}
+                className={anoIndicadores === 2026 ? "bg-green-600 hover:bg-green-700" : ""}
+                onClick={() => setAnoIndicadores(2026)}
+              >
+                2026
+              </Button>
+            </div>
+
+            {anoIndicadores === 2026 ? (
+              <CoordenadorDashboard
+                data={dashInclusaoData ? { ...dashInclusaoData, atendimentos: atendidosInclusaoData?.total ?? 0 } : undefined}
+                isLoading={loadingDashInclusao}
+                filtroAno={dashInclusaoFiltroAno}
+                filtroMes={dashInclusaoFiltroMes}
+                onFilterChange={(ano, mes) => {
+                  setDashInclusaoFiltroAno(ano);
+                  setDashInclusaoFiltroMes(mes);
+                }}
+                tipo="inclusao"
+                titleOverride="Painel Inclusão Produtiva"
+              />
+            ) : (
+            <>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Mês:</span>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={mesSelecionadoDashboard}
+                onChange={(e) => setMesSelecionadoDashboard(parseInt(e.target.value))}
+              >
+                <option value="-1">Ano Completo</option>
+                <option value="0">Janeiro</option>
+                <option value="1">Fevereiro</option>
+                <option value="2">Março</option>
+                <option value="3">Abril</option>
+                <option value="4">Maio</option>
+                <option value="5">Junho</option>
+                <option value="6">Julho</option>
+                <option value="7">Agosto</option>
+                <option value="8">Setembro</option>
+                <option value="9">Outubro</option>
+                <option value="10">Novembro</option>
+                <option value="11">Dezembro</option>
+              </select>
+            </div>
+            
+            {/* Resumo Geral - Acumulado */}
             <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-green-700">
                   <Briefcase className="w-5 h-5" />
-                  Inclusão Produtiva - Acumulado 2025
+                  Inclusão Produtiva - Acumulado {anoIndicadores}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -5085,20 +4585,83 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
               </CardContent>
             </Card>
+            </>
+            )}
           </div>
         );
+      }
       case "pec":
         if (!dadosMensaisPEC) {
           return <div className="p-6">Carregando dados do PEC...</div>;
         }
         return (
           <div className="space-y-6">
+            {/* Seletor de Ano */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2025 ? "default" : "outline"}
+                className={anoIndicadores === 2025 ? "bg-orange-600 hover:bg-orange-700" : ""}
+                onClick={() => setAnoIndicadores(2025)}
+              >
+                2025
+              </Button>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2026 ? "default" : "outline"}
+                className={anoIndicadores === 2026 ? "bg-orange-600 hover:bg-orange-700" : ""}
+                onClick={() => setAnoIndicadores(2026)}
+              >
+                2026
+              </Button>
+            </div>
+
+            {anoIndicadores === 2026 ? (
+              <CoordenadorDashboard
+                data={dashPecData}
+                isLoading={loadingDashPec}
+                filtroAno={dashPecFiltroAno}
+                filtroMes={dashPecFiltroMes}
+                onFilterChange={(ano, mes) => {
+                  setDashPecFiltroAno(ano);
+                  setDashPecFiltroMes(mes);
+                }}
+                tipo="pec"
+                titleOverride="Painel PEC - Esporte e Cultura"
+                minAno={2026}
+              />
+            ) : (
+            <>
+            {/* Seletor de Mês PEC */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Mês:</span>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={mesSelecionadoPEC}
+                onChange={(e) => setMesSelecionadoPEC(parseInt(e.target.value))}
+              >
+                <option value="0">Janeiro</option>
+                <option value="1">Fevereiro</option>
+                <option value="2">Março</option>
+                <option value="3">Abril</option>
+                <option value="4">Maio</option>
+                <option value="5">Junho</option>
+                <option value="6">Julho</option>
+                <option value="7">Agosto</option>
+                <option value="8">Setembro</option>
+                <option value="9">Outubro</option>
+                <option value="10">Novembro</option>
+                <option value="11">Dezembro</option>
+              </select>
+            </div>
+            
             {/* Resumo Geral */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FileText className="w-5 h-5 text-orange-600" />
-                  Indicadores PEC
+                  Indicadores PEC - {anoIndicadores}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -5190,7 +4753,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       <YAxis />
                       <Tooltip />
                       <Bar dataKey="atendidos" fill="#f97316" name="Atendidos" />
-                      <Bar dataKey="atendimentos" fill="#fdba74" name="Atendimentos" />
+                      <Bar dataKey="atendimentos" fill="#fdba74" name="Atendidos" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -5244,6 +4807,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+          </>
+            )}
           </div>
         );
       case "psicossocial":
@@ -5252,58 +4817,115 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         }
         return (
           <div className="space-y-6">
+            {/* Seletor de Ano */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2025 ? "default" : "outline"}
+                className={anoIndicadores === 2025 ? "bg-blue-600 hover:bg-blue-700" : ""}
+                onClick={() => setAnoIndicadores(2025)}
+              >
+                2025
+              </Button>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2026 ? "default" : "outline"}
+                className={anoIndicadores === 2026 ? "bg-blue-600 hover:bg-blue-700" : ""}
+                onClick={() => setAnoIndicadores(2026)}
+              >
+                2026
+              </Button>
+            </div>
+            
+            {/* Seletor de Mês Psicossocial */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Mês:</span>
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={mesSelecionadoPsicossocial}
+                onChange={(e) => setMesSelecionadoPsicossocial(parseInt(e.target.value))}
+              >
+                <option value="-1">Todos (Acumulado)</option>
+                <option value="0">Janeiro</option>
+                <option value="1">Fevereiro</option>
+                <option value="2">Março</option>
+                <option value="3">Abril</option>
+                <option value="4">Maio</option>
+                <option value="5">Junho</option>
+                <option value="6">Julho</option>
+                <option value="7">Agosto</option>
+                <option value="8">Setembro</option>
+                <option value="9">Outubro</option>
+                <option value="10">Novembro</option>
+                <option value="11">Dezembro</option>
+              </select>
+            </div>
+            
             {/* Indicadores */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-600" />
-                  Indicadores Psicossocial
+                  Indicadores Psicossocial - {anoIndicadores}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {/* Resumo Geral */}
                 {dadosMensaisPsicossocial.resumo && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-700">
+                        {dadosMensaisPsicossocial.resumo.totalGeral?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Total Geral</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-purple-700">
+                        {dadosMensaisPsicossocial.resumo.totalRegistros?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Registros Confidenciais</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-green-700">
+                        {dadosMensaisPsicossocial.resumo.totalAtividades?.toLocaleString('pt-BR') || 0}
+                      </p>
+                      <p className="text-xs text-gray-600">Relatos de Atividades</p>
+                    </div>
                     <div className="text-center">
                       <p className="text-3xl font-bold text-blue-700">
                         {dadosMensaisPsicossocial.resumo.totalAtendimentos?.toLocaleString('pt-BR') || 0}
                       </p>
-                      <p className="text-xs text-gray-600">Total Atendimentos</p>
+                      <p className="text-xs text-gray-600">Atendimentos</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-3xl font-bold text-blue-700">
+                      <p className="text-3xl font-bold text-orange-700">
                         {dadosMensaisPsicossocial.resumo.totalVisitas?.toLocaleString('pt-BR') || 0}
                       </p>
-                      <p className="text-xs text-gray-600">Total Visitas</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-blue-700">
-                        {dadosMensaisPsicossocial.resumo.totalEspacos?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Espaços Coletivos</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-green-600">
-                        {dadosMensaisPsicossocial.resumo.turmasAlcancadas || 0}%
-                      </p>
-                      <p className="text-xs text-gray-600">Turmas Alcançadas</p>
+                      <p className="text-xs text-gray-600">Visitas Domiciliares</p>
                     </div>
                   </div>
                 )}
 
-                {/* Indicadores Detalhados */}
+                {/* Registros Confidenciais */}
+                <h4 className="text-sm font-semibold mb-3 text-purple-700 border-b pb-2">Registros Confidenciais</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  {dadosMensaisPsicossocial.indicadores?.map(
+                  {dadosMensaisPsicossocial.indicadores?.filter((i: any) => {
+                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
+                    return val > 0 || i.meta;
+                  }).map(
                     (indicador: any) => (
                       <div
                         key={indicador.nome}
-                        className="p-4 border rounded-lg hover:shadow-md transition-shadow"
+                        className="p-4 border border-purple-100 rounded-lg hover:shadow-md transition-shadow bg-purple-50/30"
                       >
                         <p className="text-sm text-gray-600 mb-2">
                           {indicador.nome}
                         </p>
-                        <p className="text-2xl font-bold text-blue-600">
-                          {indicador.valor?.toLocaleString('pt-BR') || 0}
+                        <p className="text-2xl font-bold text-purple-600">
+                          {mesSelecionadoPsicossocial >= 0 
+                            ? (indicador.mensal?.[mesSelecionadoPsicossocial] ?? 0).toLocaleString('pt-BR')
+                            : (indicador.valor ?? 0).toLocaleString('pt-BR')}
                         </p>
                         {indicador.meta && (
                           <div className="mt-2">
@@ -5321,91 +4943,206 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             </div>
                           </div>
                         )}
-                        {indicador.percentual !== null && !indicador.meta && (
-                          <p className="text-xs text-green-600 mt-1">
-                            {indicador.percentual}% das turmas
-                          </p>
-                        )}
                       </div>
                     )
                   )}
                 </div>
 
-                {/* Gráfico de Evolução Mensal */}
-                {dadosMensaisPsicossocial.indicadores?.[0] && (
-                  <div className="mt-6">
-                    <h4 className="text-sm font-semibold mb-4">
-                      Comparativo de Indicadores
-                    </h4>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart
-                        data={dadosMensaisPsicossocial.indicadores?.slice(0, 4).map((ind: any) => ({
-                          nome: ind.nome.length > 15 ? ind.nome.substring(0, 15) + '...' : ind.nome,
-                          valor: ind.valor || 0,
-                          meta: ind.meta || 0
-                        }))}
+                {/* Relatos de Atividades */}
+                <h4 className="text-sm font-semibold mb-3 text-green-700 border-b pb-2">Relatos de Atividades</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  {(dadosMensaisPsicossocial.relatosAtividades || []).filter((i: any) => {
+                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
+                    return val > 0;
+                  }).map(
+                    (indicador: any) => (
+                      <div
+                        key={indicador.nome}
+                        className="p-4 border border-green-100 rounded-lg hover:shadow-md transition-shadow bg-green-50/30"
                       >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
-                        <YAxis />
-                        <Tooltip />
-                        <Bar dataKey="valor" fill="#3b82f6" name="Realizado" />
-                        <Bar dataKey="meta" fill="#93c5fd" name="Meta" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
+                        <p className="text-sm text-gray-600 mb-2">
+                          {indicador.nome}
+                        </p>
+                        <p className="text-2xl font-bold text-green-600">
+                          {mesSelecionadoPsicossocial >= 0 
+                            ? (indicador.mensal?.[mesSelecionadoPsicossocial] ?? 0).toLocaleString('pt-BR')
+                            : (indicador.valor ?? 0).toLocaleString('pt-BR')}
+                        </p>
+                      </div>
+                    )
+                  )}
+                  {(dadosMensaisPsicossocial.relatosAtividades || []).filter((i: any) => {
+                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
+                    return val > 0;
+                  }).length === 0 && (
+                    <p className="text-sm text-gray-400 italic col-span-3">Nenhuma atividade registrada neste período</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
         );
-      case "negocios":
+      case "negocios": {
+        const outletDoacoes = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.doacoesRecebidas || 0;
+        const outletPecas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.pecasVendidas || 0;
+        const outletPessoas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.vendasPessoasImpactadas || 0;
+        const grifftePecas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.griffte?.pecasConfeccionadas || 0;
+        const griffteClientes = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.griffte?.clientesAtendidos || 0;
+        const mesesNegocios = [
+          { value: "todos", label: "Todos os Meses" },
+          { value: "1", label: "Janeiro" }, { value: "2", label: "Fevereiro" },
+          { value: "3", label: "Março" }, { value: "4", label: "Abril" },
+          { value: "5", label: "Maio" }, { value: "6", label: "Junho" },
+          { value: "7", label: "Julho" }, { value: "8", label: "Agosto" },
+          { value: "9", label: "Setembro" }, { value: "10", label: "Outubro" },
+          { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
+        ];
         return (
           <div className="space-y-6">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2025 ? "default" : "outline"}
+                className={anoIndicadores === 2025 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
+                onClick={() => setAnoIndicadores(2025)}
+              >
+                2025
+              </Button>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2026 ? "default" : "outline"}
+                className={anoIndicadores === 2026 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
+                onClick={() => setAnoIndicadores(2026)}
+              >
+                2026
+              </Button>
+              {anoIndicadores === 2026 && (
+                <>
+                  <span className="text-sm font-medium text-gray-600 ml-2">Mês:</span>
+                  <select
+                    className="border rounded-md px-2 py-1 text-sm bg-white text-gray-800"
+                    value={mesSelecionadoMarketing === null ? "todos" : String(mesSelecionadoMarketing)}
+                    onChange={e => setMesSelecionadoMarketing(e.target.value === "todos" ? null : Number(e.target.value))}
+                  >
+                    {mesesNegocios.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+
             {loadingNegocios ? (
               <div className="text-center py-8 text-gray-500">Carregando dados...</div>
+            ) : anoIndicadores === 2026 ? (
+              <div className="bg-white rounded-xl p-4 md:p-6 border-2 border-orange-500/30">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 md:p-3 bg-orange-500 rounded-xl">
+                    <Briefcase className="w-5 h-5 md:w-7 md:h-7 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-gray-900 font-bold text-lg md:text-xl">Negócios Sociais</p>
+                    <p className="text-gray-500 text-xs md:text-sm">Resultados do Período</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-3 md:p-5 border border-yellow-500/40">
+                    <p className="text-gray-900 font-bold text-base md:text-xl mb-3 text-center border-b border-yellow-500/30 pb-2 md:pb-3">IOG OUTLET</p>
+                    <div className="grid gap-2 md:gap-3">
+                      <div className="bg-gradient-to-r from-yellow-100 via-yellow-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-yellow-500 relative overflow-hidden">
+                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                          <svg className="w-3 h-3 md:w-4 md:h-4 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-600 text-xs md:text-sm">Doações Recebidas</p>
+                        <p className="text-yellow-600 font-bold text-2xl md:text-3xl">{outletDoacoes.toLocaleString('pt-BR')}</p>
+                      </div>
+                      <div className="bg-gradient-to-r from-orange-100 via-orange-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-orange-500 relative overflow-hidden">
+                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
+                          <svg className="w-3 h-3 md:w-4 md:h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-600 text-xs md:text-sm">Peças Vendidas</p>
+                        <p className="text-orange-600 font-bold text-2xl md:text-3xl">{outletPecas.toLocaleString('pt-BR')}</p>
+                      </div>
+                      <div className="bg-gradient-to-r from-amber-100 via-amber-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-amber-500 relative overflow-hidden">
+                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+                          <svg className="w-3 h-3 md:w-4 md:h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-600 text-xs md:text-sm">Pessoas Impactadas</p>
+                        <p className="text-amber-600 font-bold text-2xl md:text-3xl">{outletPessoas.toLocaleString('pt-BR')}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3 md:p-5 border border-orange-500/40">
+                    <p className="text-gray-900 font-bold text-base md:text-xl mb-3 text-center border-b border-orange-500/30 pb-2 md:pb-3">IOG CONFECÇÃO</p>
+                    <div className="grid gap-3 md:gap-4">
+                      <div className="bg-gradient-to-r from-orange-100 via-orange-50 to-transparent rounded-lg p-3 md:p-5 border-l-4 border-orange-600 relative overflow-hidden">
+                        <div className="absolute top-1 right-1 md:top-3 md:right-3 w-6 h-6 md:w-10 md:h-10 rounded-full bg-orange-600/20 flex items-center justify-center">
+                          <svg className="w-3 h-3 md:w-5 md:h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-600 text-xs md:text-base">Peças Confeccionadas</p>
+                        <p className="text-orange-600 font-bold text-2xl md:text-4xl">{grifftePecas.toLocaleString('pt-BR')}</p>
+                      </div>
+                      <div className="bg-gradient-to-r from-red-100 via-red-50 to-transparent rounded-lg p-3 md:p-5 border-l-4 border-red-500 relative overflow-hidden">
+                        <div className="absolute top-1 right-1 md:top-3 md:right-3 w-6 h-6 md:w-10 md:h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                          <svg className="w-3 h-3 md:w-5 md:h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-600 text-xs md:text-base">Clientes Atendidos</p>
+                        <p className="text-red-500 font-bold text-2xl md:text-4xl">{griffteClientes.toLocaleString('pt-BR')}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : (
               <>
-                {/* Resumo Geral - No topo */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <TrendingUp className="w-5 h-5 text-gray-700" />
-                      Resumo Geral
+                      Negócios Sociais - {anoIndicadores}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="text-center">
                         <p className="text-3xl font-bold text-gray-800">
-                          {((negociosSociaisData?.data?.outlet?.doacoesRecebidas || 0) + 
-                            (negociosSociaisData?.data?.outlet?.pecasVendidas || 0)).toLocaleString('pt-BR')}
+                          {(outletDoacoes + outletPecas).toLocaleString('pt-BR')}
                         </p>
                         <p className="text-xs text-gray-600">Total Itens Movimentados</p>
                       </div>
                       <div className="text-center">
                         <p className="text-3xl font-bold text-gray-800">
-                          {(negociosSociaisData?.data?.outlet?.vendasPessoasImpactadas || 0).toLocaleString('pt-BR')}
+                          {outletPessoas.toLocaleString('pt-BR')}
                         </p>
-                        <p className="text-xs text-gray-600">Pessoas Impactadas (Outlet)</p>
+                        <p className="text-xs text-gray-600">Pessoas Impactadas (IOG Outlet)</p>
                       </div>
                       <div className="text-center">
                         <p className="text-3xl font-bold text-gray-800">
-                          {(negociosSociaisData?.data?.griffte?.pecasConfeccionadas || 0).toLocaleString('pt-BR')}
+                          {grifftePecas.toLocaleString('pt-BR')}
                         </p>
-                        <p className="text-xs text-gray-600">Produção Griffte</p>
+                        <p className="text-xs text-gray-600">Produção IOG Confecção</p>
                       </div>
                       <div className="text-center">
                         <p className="text-3xl font-bold text-gray-800">
-                          {(negociosSociaisData?.data?.griffte?.clientesAtendidos || 0).toLocaleString('pt-BR')}
+                          {griffteClientes.toLocaleString('pt-BR')}
                         </p>
-                        <p className="text-xs text-gray-600">Clientes Griffte</p>
+                        <p className="text-xs text-gray-600">Clientes IOG Confecção</p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Card Outlet */}
                 <Card className="border-l-4 border-l-yellow-500">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-3">
@@ -5413,7 +5150,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                         <ShoppingBag className="w-6 h-6 text-white" />
                       </div>
                       <div>
-                        <span className="text-xl font-bold">Outlet</span>
+                        <span className="text-xl font-bold">IOG Outlet</span>
                         <p className="text-sm text-gray-500 font-normal">Loja social de roupas e acessórios</p>
                       </div>
                     </CardTitle>
@@ -5422,19 +5159,19 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="bg-yellow-50 rounded-xl p-5 text-center">
                         <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {negociosSociaisData?.data?.outlet?.doacoesRecebidas?.toLocaleString('pt-BR') || '0'}
+                          {outletDoacoes.toLocaleString('pt-BR')}
                         </p>
                         <p className="text-sm text-gray-700 font-medium">Doações Recebidas</p>
                       </div>
                       <div className="bg-yellow-50 rounded-xl p-5 text-center">
                         <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {negociosSociaisData?.data?.outlet?.vendasPessoasImpactadas?.toLocaleString('pt-BR') || '0'}
+                          {outletPessoas.toLocaleString('pt-BR')}
                         </p>
                         <p className="text-sm text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
                       </div>
                       <div className="bg-yellow-50 rounded-xl p-5 text-center">
                         <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {negociosSociaisData?.data?.outlet?.pecasVendidas?.toLocaleString('pt-BR') || '0'}
+                          {outletPecas.toLocaleString('pt-BR')}
                         </p>
                         <p className="text-sm text-gray-700 font-medium">Peças / Itens Vendidos</p>
                       </div>
@@ -5442,7 +5179,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   </CardContent>
                 </Card>
 
-                {/* Card Griffte */}
                 <Card className="border-l-4 border-l-rose-800">
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-3">
@@ -5450,7 +5186,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                         <Star className="w-6 h-6 text-white" />
                       </div>
                       <div>
-                        <span className="text-xl font-bold">Griffte</span>
+                        <span className="text-xl font-bold">IOG Confecção</span>
                         <p className="text-sm text-gray-500 font-normal">Ateliê de moda e confecção</p>
                       </div>
                     </CardTitle>
@@ -5459,13 +5195,13 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-rose-50 rounded-xl p-5 text-center">
                         <p className="text-4xl font-bold text-rose-800 mb-2">
-                          {negociosSociaisData?.data?.griffte?.pecasConfeccionadas?.toLocaleString('pt-BR') || '0'}
+                          {grifftePecas.toLocaleString('pt-BR')}
                         </p>
                         <p className="text-sm text-gray-700 font-medium">Peças Confeccionadas</p>
                       </div>
                       <div className="bg-rose-50 rounded-xl p-5 text-center">
                         <p className="text-4xl font-bold text-rose-800 mb-2">
-                          {negociosSociaisData?.data?.griffte?.clientesAtendidos?.toLocaleString('pt-BR') || '0'}
+                          {griffteClientes.toLocaleString('pt-BR')}
                         </p>
                         <p className="text-sm text-gray-700 font-medium">Clientes Atendidos</p>
                       </div>
@@ -5476,15 +5212,63 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             )}
           </div>
         );
+      }
       case "investimento":
         return (
-          <DashboardFinanceiro
-            filtrosPeriodo={{ mes: null, ano: 2025 }}
-            showRefreshControls={true}
-            showData={showFinanceiroData}
-            onToggleShowData={() => setShowFinanceiroData(!showFinanceiroData)}
-            className="space-y-4"
-          />
+          <div className="space-y-6">
+            {/* Seletor de Ano */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2025 ? "default" : "outline"}
+                className={anoIndicadores === 2025 ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+                onClick={() => setAnoIndicadores(2025)}
+              >
+                2025
+              </Button>
+              <Button
+                size="sm"
+                variant={anoIndicadores === 2026 ? "default" : "outline"}
+                className={anoIndicadores === 2026 ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+                onClick={() => setAnoIndicadores(2026)}
+              >
+                2026
+              </Button>
+            </div>
+            
+            <DashboardFinanceiro
+              filtrosPeriodo={{ mes: null, ano: anoIndicadores }}
+              showRefreshControls={true}
+              showData={showFinanceiroData}
+              onToggleShowData={() => setShowFinanceiroData(!showFinanceiroData)}
+              className="space-y-4"
+            />
+          </div>
+        );
+      case "metas-indicadores":
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800 mb-1">Controle de Metas e Indicadores</h2>
+              <p className="text-sm text-gray-500">Defina e acompanhe as metas anuais de cada setor do Instituto.</p>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-amber-700 uppercase tracking-wider">PEC — Programa Esportivo Cultural</h3>
+              <MetasIndicadoresForm vertente="pec" />
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-yellow-700 uppercase tracking-wider">Inclusão Produtiva</h3>
+              <MetasIndicadoresForm vertente="inclusao" />
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-blue-700 uppercase tracking-wider">Psicossocial</h3>
+              <MetasIndicadoresForm vertente="psico" />
+            </div>
+          </div>
         );
       default:
         return isMobile ? renderMobileDashboard() : renderDashboard();
@@ -5656,7 +5440,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               <div className="space-y-1">
                 {sidebarItems
                   .filter((item) =>
-                    ["doador", "patrocinador", "aluno", "colaborador"].includes(
+                    ["doador", "patrocinador", "colaborador"].includes(
                       item.id
                     )
                   )
@@ -5739,6 +5523,13 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               <ExternalLink className="w-5 h-5 mr-3" />
               <span className="text-sm font-medium">Canal de Transparência</span>
             </button>
+            <button
+              onClick={() => window.open('https://clubedogrito.institutoogrito.com.br/dashboard/gestao/vista', '_blank')}
+              className="flex items-center w-full px-4 py-2.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-black mb-2"
+            >
+              <ExternalLink className="w-5 h-5 mr-3" />
+              <span className="text-sm font-medium">Dashboard Gestão à Vista</span>
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center w-full px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white mb-2">
@@ -5815,8 +5606,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               <Logo size="sm" />
               <div>
                 <h2 className="text-lg font-bold text-black">
-                  {sidebarItems.find((item) => item.id === activeSection)
-                    ?.label || "Dashboard"}
+                  {(sidebarItems.find((item) => item.id === activeSection)?.label || "Dashboard") + (activeSection === "colaborador" ? " - 2026" : "")}
                 </h2>
                 <p className="text-xs text-black/70">
                   {devAccess.hasDevAccess ? "Dev Mode" : "Admin"}
@@ -6145,6 +5935,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             Canal de Transparência
           </button>
 
+          <button
+            onClick={() => window.open("https://clubedogrito.institutoogrito.com.br/dashboard/gestao/vista", "_blank")}
+            className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors bg-white hover:bg-gray-50 text-black"
+          >
+            <ExternalLink className="w-6 h-6 mr-3 text-yellow-500" />
+            Dashboard Gestão à Vista
+          </button>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -6186,8 +5984,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           <div className="flex items-center justify-between px-6 py-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
-                {sidebarItems.find((item) => item.id === activeSection)
-                  ?.label || "Dashboard"}
+                {(sidebarItems.find((item) => item.id === activeSection)?.label || "Dashboard") + (activeSection === "colaborador" ? " - 2026" : "")}
               </h1>
             </div>
             <div className="flex items-center space-x-4">

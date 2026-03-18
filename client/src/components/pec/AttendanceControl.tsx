@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatCPF } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { format } from 'date-fns';
@@ -364,7 +365,7 @@ export function AttendanceControl({
                     <div className="col-span-5">
                       <h4 className="font-medium text-gray-900">{student.name}</h4>
                       {student.cpf && (
-                        <p className="text-xs text-gray-600">CPF: {student.cpf}</p>
+                        <p className="text-xs text-gray-600">CPF: {formatCPF(student.cpf)}</p>
                       )}
                     </div>
                     
@@ -429,7 +430,7 @@ export function AttendanceControl({
                           <div>
                             <h4 className="font-medium text-gray-900">{student.name}</h4>
                             {student.cpf && (
-                              <p className="text-xs text-gray-600">CPF: {student.cpf}</p>
+                              <p className="text-xs text-gray-600">CPF: {formatCPF(student.cpf)}</p>
                             )}
                           </div>
                         </td>

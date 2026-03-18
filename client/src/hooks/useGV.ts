@@ -45,7 +45,7 @@ function transformMetaRealizadoToGV(response: GVMetaRealizadoResponse) {
     console.log('❌ [transformMetaRealizadoToGV] No data in response');
     return { 
       programs: [],
-      period: response?.period || '2025-08' 
+      period: response?.period || '2026-01' 
     };
   }
   console.log('✅ [transformMetaRealizadoToGV] Found', response.data.length, 'indicators');
@@ -99,11 +99,11 @@ function transformMetaRealizadoToGV(response: GVMetaRealizadoResponse) {
   console.log('🎯 [transformMetaRealizadoToGV] Final programs:', programs);
   return { 
     programs,
-    period: response.period || '2025-08'
+    period: response.period || '2026-01'
   };
 }
 
-export function useGV(period = '2025-08', scope = 'monthly') {
+export function useGV(period = '2026-01', scope = 'monthly') {
   console.log('🔥 [useGV] Hook chamado com period:', period, 'scope:', scope);
   const { data: rawData, isLoading, error } = useQuery<GVMetaRealizadoResponse>({
     queryKey: ['/api/gestao-vista/meta-realizado', { period, scope }],

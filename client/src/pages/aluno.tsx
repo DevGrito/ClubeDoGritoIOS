@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatCPF } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -14,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useDevAccess } from "@/hooks/useDevAccess";
-import logoClube from "@assets/LOGO_CLUBE-05_1752081350082.png";
+import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
 import { 
   Calendar, 
   BookOpen, 
@@ -1350,7 +1351,7 @@ const AlunoPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium text-gray-600">CPF</label>
-              <div className="text-gray-900">{studentData.cpf}</div>
+              <div className="text-gray-900">{formatCPF(studentData.cpf)}</div>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Telefone</label>

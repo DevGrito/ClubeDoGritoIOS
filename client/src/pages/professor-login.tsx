@@ -6,13 +6,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Mail, Lock, Eye, EyeOff, BookOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import girlImage from "@assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
+import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function ProfessorLogin() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [programa, setPrograma] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
@@ -35,22 +34,12 @@ export default function ProfessorLogin() {
       });
       return;
     }
-
-    if (!programa) {
-      toast({
-        title: "Vertente obrigatória",
-        description: "Por favor, selecione sua área de atuação",
-        variant: "destructive"
-      });
-      return;
-    }
-
     setLoading(true);
 
     try {
       const data = await apiRequest("/api/login/professor", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), senha: senha.trim(), programa })
+        body: JSON.stringify({ email: email.trim(), senha: senha.trim() })
       });
 
       sessionStorage.setItem("professor_auth", "true");
@@ -167,28 +156,7 @@ export default function ProfessorLogin() {
                   </button>
                 </div>
               </div>
-
-              {/* Campo Vertente/Programa */}
-              <div>
-                <label className="block text-sm font-medium text-black/90 mb-2">
-                  Área de Atuação
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10">
-                    <BookOpen className="w-4 h-4" />
-                  </div>
-                  <Select value={programa} onValueChange={setPrograma} disabled={loading}>
-                    <SelectTrigger className="h-11 pl-10 bg-white border-0 text-gray-900 text-sm focus:ring-2 focus:ring-white/50 rounded-xl">
-                      <SelectValue placeholder="Selecione sua área" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pec">PEC</SelectItem>
-                      <SelectItem value="inclusao_produtiva">Inclusão Produtiva</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+          
               {/* Identificador da tela */}
               <div className="text-center">
                 <p className="text-sm text-black/80">

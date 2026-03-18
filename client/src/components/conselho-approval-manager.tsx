@@ -1,19 +1,24 @@
-import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, XCircle, Clock, RefreshCw, User, Phone, Mail } from "lucide-react";
+import { CheckCircle, XCircle, Clock, RefreshCw, User, Mail } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-interface PendingRequest {
+interface ConselhoEntry {
   id: number;
-  nome: string;
-  telefone: string;
-  email?: string;
-  conselhoStatus: "pendente" | "aprovado" | "recusado";
+  email: string;
+  nome: string | null;
+  tipo: string | null;
+  ativo: boolean;
   createdAt: string;
+}
+
+interface ConselhoData {
+  pendentes: ConselhoEntry[];
+  aprovados: ConselhoEntry[];
+  recusados: ConselhoEntry[];
 }
 
 interface ConselhoApprovalManagerProps {
@@ -24,53 +29,40 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: pendingRequests, isLoading, refetch } = useQuery<PendingRequest[]>({
+  const { data, isLoading, refetch } = useQuery<ConselhoData>({
     queryKey: ["/api/admin/conselho-requests"],
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 10000,
   });
 
   const approvalMutation = useMutation({
-    mutationFn: async ({ telefone, action }: { telefone: string; action: "approve" | "reject" }) => {
+    mutationFn: async ({ email, action }: { email: string; action: "approve" | "reject" }) => {
       return await apiRequest("/api/admin/conselho-approve", {
         method: "POST",
         body: JSON.stringify({
-          telefone,
+          email,
           action,
           approvedBy: approverName,
         }),
       });
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (_, variables) => {
       toast({
-        title: variables.action === "approve" ? "Usuário aprovado!" : "Usuário rejeitado!",
-        description: `A solicitação foi ${variables.action === "approve" ? "aprovada" : "rejeitada"} com sucesso.`,
+        title: variables.action === "approve" ? "Conselheiro aprovado!" : "Solicitação recusada!",
+        description: variables.action === "approve"
+          ? "O e-mail foi adicionado à lista de conselheiros autorizados."
+          : "A solicitação foi removida.",
         variant: variables.action === "approve" ? "default" : "destructive",
       });
-      
-      // Invalidate and refetch
       queryClient.invalidateQueries({ queryKey: ["/api/admin/conselho-requests"] });
-      refetch();
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: "Erro ao processar solicitação",
-        description: "Ocorreu um erro ao tentar processar a solicitação. Tente novamente.",
+        description: "Ocorreu um erro. Tente novamente.",
         variant: "destructive",
       });
     },
   });
-
-  const handleApprove = (telefone: string) => {
-    approvalMutation.mutate({ telefone, action: "approve" });
-  };
-
-  const handleReject = (telefone: string) => {
-    approvalMutation.mutate({ telefone, action: "reject" });
-  };
-
-  const handleRefresh = () => {
-    refetch();
-  };
 
   if (isLoading) {
     return (
@@ -85,9 +77,12 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
     );
   }
 
+  const pendentes = data?.pendentes || [];
+  const aprovados = data?.aprovados || [];
+  const recusados = data?.recusados || [];
+
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
       <Card>
         <CardHeader className="pb-3 sm:pb-6">
           <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
@@ -96,7 +91,7 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
               <span className="text-base sm:text-lg">Aprovações do Conselho</span>
             </div>
             <Button
-              onClick={handleRefresh}
+              onClick={() => refetch()}
               variant="outline"
               size="sm"
               disabled={isLoading}
@@ -111,19 +106,19 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
           <div className="grid grid-cols-3 gap-3 sm:gap-4">
             <div className="text-center">
               <div className="text-lg sm:text-2xl font-bold text-yellow-600">
-                {pendingRequests?.filter(r => r.conselhoStatus === "pendente").length || 0}
+                {pendentes.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-500">Pendentes</div>
             </div>
             <div className="text-center">
               <div className="text-lg sm:text-2xl font-bold text-green-600">
-                {pendingRequests?.filter(r => r.conselhoStatus === "aprovado").length || 0}
+                {aprovados.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-500">Aprovados</div>
             </div>
             <div className="text-center">
               <div className="text-lg sm:text-2xl font-bold text-red-600">
-                {pendingRequests?.filter(r => r.conselhoStatus === "recusado").length || 0}
+                {recusados.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-500">Recusados</div>
             </div>
@@ -131,7 +126,6 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
         </CardContent>
       </Card>
 
-      {/* Pending Requests */}
       <Card>
         <CardHeader className="pb-3 sm:pb-6">
           <CardTitle className="flex items-center gap-2">
@@ -141,83 +135,135 @@ export default function ConselhoApprovalManager({ approverName }: ConselhoApprov
         </CardHeader>
         <CardContent className="pt-0">
           <div className="max-h-[60vh] overflow-y-auto">
-            {!pendingRequests || pendingRequests.filter(r => r.conselhoStatus === "pendente").length === 0 ? (
+            {pendentes.length === 0 ? (
               <div className="text-center py-8 sm:py-12">
                 <Clock className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500 text-sm sm:text-base">Nenhuma solicitação pendente</p>
                 <p className="text-xs sm:text-sm text-gray-400 mt-2 max-w-md mx-auto px-4">
-                  Todas as solicitações de acesso ao conselho foram processadas
+                  Quando alguém tentar entrar como conselho com um e-mail não cadastrado, a solicitação aparecerá aqui
                 </p>
               </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
-                {pendingRequests
-                  .filter(request => request.conselhoStatus === "pendente")
-                  .map((request) => (
-                    <div
-                      key={request.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border rounded-lg hover:bg-gray-50 transition-colors space-y-3 sm:space-y-0"
-                    >
-                      <div className="flex items-center space-x-3 sm:space-x-4">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <User className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-gray-900 text-sm sm:text-base truncate">
-                            {request.nome || "Nome não informado"}
-                          </h4>
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 text-xs sm:text-sm text-gray-500 mt-1">
-                            <div className="flex items-center gap-1">
-                              <Phone className="w-3 h-3 flex-shrink-0" />
-                              <span className="truncate">{request.telefone}</span>
-                            </div>
-                            {request.email && (
-                              <div className="flex items-center gap-1">
-                                <Mail className="w-3 h-3 flex-shrink-0" />
-                                <span className="truncate">{request.email}</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            Solicitado em: {new Date(request.createdAt).toLocaleString('pt-BR')}
-                          </div>
-                        </div>
+                {pendentes.map((request) => (
+                  <div
+                    key={request.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border rounded-lg hover:bg-gray-50 transition-colors space-y-3 sm:space-y-0"
+                  >
+                    <div className="flex items-center space-x-3 sm:space-x-4">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <User className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                       </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
-                        <Badge variant="outline" className="text-yellow-600 border-yellow-300 self-start sm:self-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          Pendente
-                        </Badge>
-                        <div className="flex space-x-2">
-                          <Button
-                            onClick={() => handleApprove(request.telefone)}
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 flex-1 sm:flex-none"
-                            disabled={approvalMutation.isPending}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            <span className="text-xs sm:text-sm">Aprovar</span>
-                          </Button>
-                          <Button
-                            onClick={() => handleReject(request.telefone)}
-                            size="sm"
-                            variant="destructive"
-                            className="flex-1 sm:flex-none"
-                            disabled={approvalMutation.isPending}
-                          >
-                            <XCircle className="w-4 h-4 mr-1" />
-                            <span className="text-xs sm:text-sm">Recusar</span>
-                          </Button>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-gray-900 text-sm sm:text-base truncate">
+                          {request.nome || "Nome não informado"}
+                        </h4>
+                        <div className="flex items-center gap-1 text-xs sm:text-sm text-gray-500 mt-1">
+                          <Mail className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">{request.email}</span>
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">
+                          Solicitado em: {new Date(request.createdAt).toLocaleString('pt-BR')}
                         </div>
                       </div>
                     </div>
-                  ))}
+
+                    <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+                      <Badge variant="outline" className="text-yellow-600 border-yellow-300 self-start sm:self-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Pendente
+                      </Badge>
+                      <div className="flex space-x-2">
+                        <Button
+                          onClick={() => approvalMutation.mutate({ email: request.email, action: "approve" })}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 flex-1 sm:flex-none"
+                          disabled={approvalMutation.isPending}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          <span className="text-xs sm:text-sm">Aprovar</span>
+                        </Button>
+                        <Button
+                          onClick={() => approvalMutation.mutate({ email: request.email, action: "reject" })}
+                          size="sm"
+                          variant="destructive"
+                          className="flex-1 sm:flex-none"
+                          disabled={approvalMutation.isPending}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" />
+                          <span className="text-xs sm:text-sm">Recusar</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
+
+      {aprovados.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3 sm:pb-6">
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+              <span className="text-base sm:text-lg">Conselheiros Aprovados ({aprovados.length})</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="max-h-[40vh] overflow-y-auto space-y-2">
+              {aprovados.map((c) => (
+                <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <User className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{c.nome || c.email}</p>
+                      <p className="text-xs text-gray-500 flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> {c.email}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-green-100 text-green-700 border-green-300">Ativo</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {recusados.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3 sm:pb-6">
+            <CardTitle className="flex items-center gap-2">
+              <XCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
+              <span className="text-base sm:text-lg">Recusados ({recusados.length})</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="max-h-[40vh] overflow-y-auto space-y-2">
+              {recusados.map((c) => (
+                <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                      <User className="w-4 h-4 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{c.nome || c.email}</p>
+                      <p className="text-xs text-gray-500 flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> {c.email}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-red-100 text-red-700 border-red-300">Recusado</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
