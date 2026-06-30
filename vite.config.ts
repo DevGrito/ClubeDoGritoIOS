@@ -51,7 +51,7 @@ export default defineConfig(async () => {
           ],
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           navigateFallback: "/index.html",
           globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,json,woff2}"],
           cleanupOutdatedCaches: true,
