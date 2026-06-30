@@ -2,6 +2,15 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
+// Suprimir erros do Firebase Messaging em contextos sem suporte (iframes, Firefox, etc.)
+// Deve rodar ANTES do Vite registrar seu próprio listener de unhandledrejection
+window.addEventListener('unhandledrejection', (event) => {
+  const msg = event.reason?.message || String(event.reason ?? '');
+  if (msg.includes('messaging/unsupported-browser') || event.reason?.code === 'messaging/unsupported-browser') {
+    event.preventDefault();
+  }
+}, true); // capture phase = antes dos listeners do Vite
+
 console.log('🚀 [main.tsx] INICIANDO - v5.0.0');
 
 // 🔒 FORÇA HTTPS em produção (previne Mixed Content)
@@ -9,15 +18,6 @@ if (window.location.hostname !== 'localhost' &&
     window.location.hostname !== '127.0.0.1' &&
     window.location.protocol === 'http:') {
   window.location.href = window.location.href.replace('http:', 'https:');
-}
-
-// Service Worker cleanup on startup
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(registrations => {
-    registrations.forEach(registration => {
-      registration.unregister();
-    });
-  });
 }
 
 const container = document.getElementById("root");

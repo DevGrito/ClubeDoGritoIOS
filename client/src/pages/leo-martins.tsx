@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import useEmblaCarousel from "embla-carousel-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import DashboardFinanceiro from "@/components/DashboardFinanceiro";
 import CoordenadorDashboard from "@/components/CoordenadorDashboard";
+import TabMarketing from "@/pages/dashboard-gestao-vista/TabMarketing";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -62,7 +63,14 @@ import {
   Eye,
   EyeOff,
   ShoppingBag,
-  Search
+  Store,
+  Scissors,
+  Search,
+  Wrench,
+  X,
+  Trash2,
+  Loader2,
+  Inbox
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -82,13 +90,22 @@ import {
 import { useLocation } from "wouter";
 import Logo from "@/components/logo";
 import { isLeoByRole } from "@shared/conselho";
+import { openPrivacyPreferences } from "@/lib/consentManager";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
+import { LgpdLegalHeaderButtons } from "@/components/LgpdLegalMenuSection";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useToast } from "@/hooks/use-toast";
 import { useDevAccess } from "@/hooks/useDevAccess";
 import favela3dLogo from "../app-assets/Logo_Favela3D_GF_positivoo_1754341182028.png";
 import { useIsMobile } from "@/hooks/use-mobile";
 import MetaRealizadoCard from "@/components/meta-realizado-card";
 import MetasIndicadoresForm from "@/components/MetasIndicadoresForm";
+import { GestaoKpiCard } from "@/components/GestaoKpiCard";
+import DashboardGestaoVista from "./dashboard-gestao-vista";
 import ConselhoApprovalManager from "@/components/conselho-approval-manager";
+import PrivacyConsentsAuditSection from "@/components/dev/PrivacyConsentsAuditSection";
+import ChamadaAuditoriaSection from "@/components/presenca/ChamadaAuditoriaSection";
+import AdminRopaSection from "@/components/admin/AdminRopaSection";
 import { 
   ResponsiveContainer, 
   BarChart, 
@@ -523,6 +540,219 @@ function MetricsCarousel({ mesSelecionadoDashboard, totalPatrocinadoresAtivos, c
   );
 }
 
+function SolicitacoesExclusaoPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "pendente" | "confirmado" | "rejeitado">("pendente");
+  const [filtroArea, setFiltroArea] = useState<"todas" | "pec" | "inclusao">("todas");
+  const [busca, setBusca] = useState("");
+  const [processandoId, setProcessandoId] = useState<number | null>(null);
+
+  const { data: solicitacoes = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/admin/solicitacoes-exclusao"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/solicitacoes-exclusao", { credentials: "include" });
+      if (!r.ok) throw new Error("Falha ao carregar");
+      return r.json();
+    },
+  });
+
+  const agir = async (id: number, acao: "confirmar" | "rejeitar") => {
+    setProcessandoId(id);
+    try {
+      const r = await fetch(`/api/admin/solicitacoes-exclusao/${id}/${acao}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || "Erro");
+      }
+      toast({
+        title: acao === "confirmar" ? "Chamada excluída!" : "Solicitação rejeitada.",
+        description: acao === "confirmar" ? "A chamada foi excluída com sucesso." : "A solicitação foi rejeitada.",
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/solicitacoes-exclusao"] });
+    } catch (e: any) {
+      toast({ title: "Erro", description: e.message || "Falha na operação.", variant: "destructive" });
+    } finally {
+      setProcessandoId(null);
+    }
+  };
+
+  const formatarDataHoraBrasilia = (isoString: string) => {
+    try {
+      const str = isoString.trim().replace(" ", "T");
+      const utcStr = str.endsWith("Z") || str.includes("+") ? str : str + "Z";
+      const d = new Date(utcStr);
+      return d.toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        day: "2-digit", month: "2-digit", year: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+    } catch {
+      return "-";
+    }
+  };
+
+  const buscaLower = busca.toLowerCase().trim();
+
+  const filtered = (solicitacoes as any[]).filter((s) => {
+    if (filtroStatus !== "todos" && s.status !== filtroStatus) return false;
+    if (filtroArea !== "todas" && s.tipo !== filtroArea) return false;
+    if (buscaLower) {
+      const turma = (s.turma_nome || "").toLowerCase();
+      const data = s.data_chamada ? new Date(s.data_chamada + "T12:00:00").toLocaleDateString("pt-BR") : "";
+      const area = s.tipo === "pec" ? "pec" : "inclusão produtiva inclusao";
+      if (!turma.includes(buscaLower) && !data.includes(buscaLower) && !area.includes(buscaLower)) return false;
+    }
+    return true;
+  });
+
+  const pendentes = (solicitacoes as any[]).filter((s) => s.status === "pendente").length;
+
+  const statusBadge = (status: string) => {
+    if (status === "pendente") return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">Pendente</Badge>;
+    if (status === "confirmado") return <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Confirmado</Badge>;
+    if (status === "rejeitado") return <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">Rejeitado</Badge>;
+    return <Badge variant="outline" className="text-xs">{status}</Badge>;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          Solicitações de Exclusão de Chamadas
+          {pendentes > 0 && <Badge className="bg-red-500 text-white ml-1">{pendentes}</Badge>}
+        </h2>
+        <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isLoading}>
+          <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Filtros e busca */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Buscar por turma, data ou área..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
+          />
+        </div>
+        <Select value={filtroStatus} onValueChange={(v) => setFiltroStatus(v as any)}>
+          <SelectTrigger className="w-full sm:w-44 bg-white">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos os status</SelectItem>
+            <SelectItem value="pendente">
+              Pendente {pendentes > 0 && `(${pendentes})`}
+            </SelectItem>
+            <SelectItem value="confirmado">Confirmado</SelectItem>
+            <SelectItem value="rejeitado">Rejeitado</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filtroArea} onValueChange={(v) => setFiltroArea(v as any)}>
+          <SelectTrigger className="w-full sm:w-48 bg-white">
+            <SelectValue placeholder="Área" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todas">Todas as áreas</SelectItem>
+            <SelectItem value="pec">PEC</SelectItem>
+            <SelectItem value="inclusao">Inclusão Produtiva</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-12 text-gray-500">
+          <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin text-gray-300" />
+          Carregando...
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12 text-gray-500">
+            <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+            <p className="font-medium">
+              {busca ? "Nenhum resultado para a busca" : filtroStatus === "pendente" ? "Nenhuma solicitação pendente" : "Nenhuma solicitação encontrada"}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((sol: any) => (
+            <Card key={sol.id} className={sol.status === "pendente" ? "border-amber-200" : ""}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="text-xs font-medium">
+                      {sol.tipo === "pec" ? "PEC" : "Inclusão Produtiva"}
+                    </Badge>
+                    {statusBadge(sol.status)}
+                  </div>
+                  <span className="text-xs text-gray-400 shrink-0">
+                    #{sol.id} · {sol.created_at ? formatarDataHoraBrasilia(sol.created_at) : "-"}
+                  </span>
+                </div>
+                <div className="space-y-1 text-sm mb-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="font-medium">
+                      {sol.data_chamada ? new Date(sol.data_chamada + "T12:00:00").toLocaleDateString("pt-BR") : "-"}
+                    </span>
+                    <span className="text-gray-400">—</span>
+                    <span className="truncate">{sol.turma_nome || `Turma ${sol.turma_id}`}</span>
+                  </div>
+                  <div className="text-gray-600 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-gray-400 shrink-0" />
+                    {sol.presentes}/{sol.total_participantes} presentes
+                  </div>
+                  <div className="text-gray-600 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-gray-400 shrink-0" />
+                    Solicitado por: <span className="font-medium">{sol.solicitado_por_nome || "—"}</span>
+                  </div>
+                  {sol.motivo && (
+                    <div className="bg-gray-50 rounded p-2 text-gray-600 text-xs break-words overflow-hidden">
+                      <span className="font-medium">Motivo:</span> {sol.motivo}
+                    </div>
+                  )}
+                </div>
+                {sol.status === "pendente" && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="flex-1"
+                      disabled={processandoId === sol.id}
+                      onClick={() => agir(sol.id, "confirmar")}
+                    >
+                      {processandoId === sol.id ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                      Confirmar Exclusão
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      disabled={processandoId === sol.id}
+                      onClick={() => agir(sol.id, "rejeitar")}
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Rejeitar
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -531,6 +761,27 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [isLeo, setIsLeo] = useState(false);
   const [activeSection, setActiveSection] = useState("dashboard");
   const [gestaoVistaData, setGestaoVistaData] = useState<any>(null);
+  const [showGestaoVista, setShowGestaoVista] = useState(false);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  const openGestaoVista = () => {
+    setIsDrawerOpen(false);
+    setShowGestaoVista(true);
+    try {
+      if ((screen.orientation as any)?.lock) {
+        (screen.orientation as any).lock('landscape').catch(() => {});
+      }
+    } catch (_) {}
+  };
+
+  const closeGestaoVista = () => {
+    setShowGestaoVista(false);
+    try {
+      if ((screen.orientation as any)?.unlock) {
+        (screen.orientation as any).unlock();
+      }
+    } catch (_) {}
+  };
   const [loading, setLoading] = useState(true);
   const [showFinanceiroData, setShowFinanceiroData] = useState(true);
   const [tempName, setTempName] = useState("");
@@ -544,19 +795,32 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const [mesSelecionadoEad, setMesSelecionadoEad] = useState<number>(0); // CURSOS EAD CGD
   const [dadosMensaisPsicossocial, setDadosMensaisPsicossocial] = useState<any>(null);
   const [mesSelecionadoPsicossocial, setMesSelecionadoPsicossocial] = useState<number>(0); // 0 = Jan, 11 = Dez
+  // Psico admin dashboard (igual coordenador-psico)
+  const [dashFiltroAnoPsicoadmin, setDashFiltroAnoPsicoadmin] = useState(new Date().getFullYear());
+  const [dashFiltroMesPsicoadmin, setDashFiltroMesPsicoadmin] = useState(0);
   const [dadosMensaisPEC, setDadosMensaisPEC] = useState<any>(null);
   const [mesSelecionadoPEC, setMesSelecionadoPEC] = useState<number>(0); // 0 = Jan, 11 = Dez
   const [dadosMensaisFavela3D, setDadosMensaisFavela3D] = useState<any>(null);
   const [mesSelecionadoFavela3D, setMesSelecionadoFavela3D] = useState<number>(0); // 0 = Jan, 11 = Dez
+  const [anoFavela3D, setAnoFavela3D] = useState<number>(new Date().getFullYear());
   const [expandedF3DSection, setExpandedF3DSection] = useState<string | null>(null);
   const [mesSelecionadoDashboard, setMesSelecionadoDashboard] = useState<number>(-1); // -1 = Todos os meses // 7 = Agosto - Dashboard geral
   const [marketingData, setMarketingData] = useState<any>(null);
-  const [anoPatrocinador, setAnoPatrocinador] = useState<number>(2026); // Ano selecionado para patrocinadores
+  const [anoPatrocinador, setAnoPatrocinador] = useState<number>(new Date().getFullYear()); // Ano selecionado para patrocinadores
   const [privacyPatrocinadores, setPrivacyPatrocinadores] = useState<boolean>(false); // Modo privacidade para patrocinadores
-  const [anoDoador, setAnoDoador] = useState<number>(2026); // Ano selecionado para doadores
-  const [anoIndicadores, setAnoIndicadores] = useState<number>(2026); // Ano selecionado para indicadores de programas
+  const [anoDoador, setAnoDoador] = useState<number>(new Date().getFullYear()); // Ano selecionado para doadores
+  const [anoIndicadores, setAnoIndicadores] = useState<number>(new Date().getFullYear()); // Ano selecionado para indicadores de programas
   const [mesSelecionadoFinanceiro, setMesSelecionadoFinanceiro] = useState<number | null>(null); // null = Ano todo
   const [mesSelecionadoMarketing, setMesSelecionadoMarketing] = useState<number | null>(null); // null = Ano todo
+  const [expandedNegocioCard, setExpandedNegocioCard] = useState<'outlet' | 'griffte' | null>(null);
+  const [expandedMktCard, setExpandedMktCard] = useState<'doadores' | 'seguidores' | null>(null);
+  const [expandedInclusaoAdminCard, setExpandedInclusaoAdminCard] = useState<string | null>(null); // Card expandido na seção Inclusão Produtiva do admin
+  const [expandedPECAdminCard, setExpandedPECAdminCard] = useState<string | null>(null); // Card expandido na seção PEC do admin
+  const [anoPsicoAdmin, setAnoPsicoAdmin] = useState<2025 | 2026>(new Date().getFullYear() as 2025 | 2026);
+  const [expandedPsicoCardAdmin, setExpandedPsicoCardAdmin] = useState<'atencao-social' | 'metodo-grito' | null>(null);
+  const [kpiInclusaoAno, setKpiInclusaoAno] = useState(String(new Date().getFullYear())); // Filtro ano para KPIs de Inclusão no admin
+  const [kpiInclusaoMes, setKpiInclusaoMes] = useState('todos'); // Filtro mês para KPIs de Inclusão no admin
+  const [kpiPecMes, setKpiPecMes] = useState('todos'); // Filtro mês para KPIs de PEC 2026 no admin
   const [dashInclusaoFiltroAno, setDashInclusaoFiltroAno] = useState(new Date().getFullYear());
   const [dashInclusaoFiltroMes, setDashInclusaoFiltroMes] = useState(0);
   const [dashPecFiltroAno, setDashPecFiltroAno] = useState(new Date().getFullYear());
@@ -584,6 +848,11 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
   // Total de patrocinadores (mesma lógica da página de Patrocinadores)
   const totalPatrocinadoresAtivos = patrocinadoresData?.totalPatrocinadores || 0;
+
+  // Resetar scroll ao trocar de seção
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeSection]);
 
   // Buscar dados de indicadores de Inclusão Produtiva
   useEffect(() => {
@@ -744,6 +1013,13 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     fetchDadosMensaisPEC();
   }, [anoIndicadores]);
 
+  // Favela 3D 2026 — novos blocos
+  const { data: favela3d2026 } = useQuery<any>({
+    queryKey: ['/api/gestao-vista/favela3d', 2026],
+    queryFn: () => fetch('/api/gestao-vista/favela3d?ano=2026').then(r => r.json()),
+    enabled: anoFavela3D === 2026,
+  });
+
   // Buscar dados mensais de Favela 3D
   useEffect(() => {
     const fetchDadosMensaisFavela3D = async () => {
@@ -863,13 +1139,114 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
   // Buscar doadores externos (doam fora do aplicativo)
   const { data: doadoresExternosData } = useQuery<any>({
-    queryKey: ['/api/doadores-externos', mesSelecionadoDashboard],
-    queryFn: () => fetch(`/api/doadores-externos?mes=${mesSelecionadoDashboard}`).then(r => r.json()),
+    queryKey: ['/api/doadores-externos'],
+    queryFn: () => fetch(`/api/doadores-externos`).then(r => r.json()),
     refetchInterval: 900000, // 15 minutos
     refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
+    staleTime: 0,
   });
 
   // Buscar dados de Negócios Sociais (Griffite e Outlet)
+  // Psico admin dashboard queries (idênticas às do coordenador-psico)
+  const { data: psicoDemogDataAdmin, isLoading: isPsicoDemogLoadingAdmin } = useQuery({
+    queryKey: ['/api/coordenador/dashboard-demografico-psico', dashFiltroAnoPsicoadmin, dashFiltroMesPsicoadmin],
+    queryFn: async () => {
+      const response = await fetch(`/api/coordenador/dashboard-demografico-psico?ano=${dashFiltroAnoPsicoadmin}&mes=${dashFiltroMesPsicoadmin}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Erro ao buscar dados psico admin');
+      return response.json();
+    },
+  });
+
+  const { data: psicoKpisAdmin } = useQuery({
+    queryKey: ['/api/psico/dashboard-kpis', dashFiltroAnoPsicoadmin, dashFiltroMesPsicoadmin],
+    queryFn: async () => {
+      const url = dashFiltroMesPsicoadmin > 0
+        ? `/api/psico/dashboard-kpis?ano=${dashFiltroAnoPsicoadmin}&mes=${dashFiltroMesPsicoadmin}`
+        : `/api/psico/dashboard-kpis?ano=${dashFiltroAnoPsicoadmin}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: atencaoSocialAdmin2025, isLoading: loadingAtencaoAdmin } = useQuery({
+    queryKey: ['/api/psico/indicadores/atencao-social', 2025],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/indicadores/atencao-social?ano=2025', { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: metodoGritoAdmin2025, isLoading: loadingMetodoAdmin } = useQuery({
+    queryKey: ['/api/psico/indicadores/metodo-grito', 2025],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/indicadores/metodo-grito?ano=2025', { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: atencaoSocialAdmin2026, isLoading: loadingAtencaoAdmin2026 } = useQuery({
+    queryKey: ['/api/psico/indicadores/atencao-social', 2026],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/indicadores/atencao-social?ano=2026', { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: metodoGritoAdmin2026, isLoading: loadingMetodoAdmin2026 } = useQuery({
+    queryKey: ['/api/psico/indicadores/metodo-grito', 2026],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/indicadores/metodo-grito?ano=2026', { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: intervencoesAdminCount } = useQuery<{ total: number }>({
+    queryKey: ['/api/psico/intervencoes/count', anoIndicadores],
+    queryFn: () => fetch(`/api/psico/intervencoes/count?ano=${anoIndicadores}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  const dashMergedPsicoAdmin = psicoDemogDataAdmin ? {
+    ...psicoDemogDataAdmin,
+    totalAlunos:           psicoKpisAdmin?.atendidos             ?? psicoDemogDataAdmin?.totalAlunos,
+    alunosAtivos:          psicoKpisAdmin?.atendidos             ?? psicoDemogDataAdmin?.alunosAtivos,
+    horasAula:             psicoKpisAdmin?.atendimentos          ?? psicoDemogDataAdmin?.horasAula,
+    atendimentos:          psicoKpisAdmin?.atendimentos          ?? psicoDemogDataAdmin?.atendimentos,
+    visitasDomiciliares:   psicoKpisAdmin?.visitas               ?? psicoDemogDataAdmin?.visitasDomiciliares,
+    atendimentosColetivos: psicoKpisAdmin?.atendimentosColetivos ?? psicoDemogDataAdmin?.atendimentosColetivos,
+    espacoOGrito:          psicoKpisAdmin?.espacoOGrito          ?? psicoDemogDataAdmin?.espacoOGrito,
+    demandasEspontaneas:   psicoKpisAdmin?.demandasEspontaneas   ?? psicoDemogDataAdmin?.demandasEspontaneas,
+    psicoFamilias:         psicoKpisAdmin?.familias              ?? psicoDemogDataAdmin?.psicoFamilias,
+    psicoCasos:            psicoKpisAdmin?.casosAtivos           ?? psicoDemogDataAdmin?.psicoCasos,
+    frequenciaMedia:       psicoKpisAdmin?.resolutividade        ?? psicoDemogDataAdmin?.frequenciaMedia,
+    alunosFormados:        psicoKpisAdmin?.casosEncerrados       ?? psicoDemogDataAdmin?.alunosFormados,
+    visitasFavela3d:       psicoKpisAdmin?.visitasFavela3d       ?? psicoDemogDataAdmin?.visitasFavela3d       ?? 0,
+    atendimentosFavela3d:  psicoKpisAdmin?.atendimentosFavela3d  ?? psicoDemogDataAdmin?.atendimentosFavela3d  ?? 0,
+  } : (psicoKpisAdmin ? {
+    totalAlunos:           psicoKpisAdmin.atendidos,
+    alunosAtivos:          psicoKpisAdmin.atendidos,
+    horasAula:             psicoKpisAdmin.atendimentos,
+    atendimentos:          psicoKpisAdmin.atendimentos,
+    visitasDomiciliares:   psicoKpisAdmin.visitas,
+    atendimentosColetivos: psicoKpisAdmin.atendimentosColetivos,
+    espacoOGrito:          psicoKpisAdmin.espacoOGrito,
+    demandasEspontaneas:   psicoKpisAdmin.demandasEspontaneas,
+    psicoFamilias:         psicoKpisAdmin.familias,
+    psicoCasos:            psicoKpisAdmin.casosAtivos,
+    frequenciaMedia:       psicoKpisAdmin.resolutividade,
+    alunosFormados:        psicoKpisAdmin.casosEncerrados,
+    visitasFavela3d:       psicoKpisAdmin.visitasFavela3d       ?? 0,
+    atendimentosFavela3d:  psicoKpisAdmin.atendimentosFavela3d  ?? 0,
+  } : undefined);
+
   const { data: negociosSociaisData, isLoading: loadingNegocios } = useQuery<{
     success: boolean;
     data: {
@@ -939,6 +1316,66 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     enabled: anoIndicadores === 2026,
   });
 
+  // KPI cards de Inclusão Produtiva no admin (filtro independente)
+  const { data: gvKpiInclusao } = useQuery<any>({
+    queryKey: ['/api/gestao-vista', kpiInclusaoAno, kpiInclusaoMes],
+    queryFn: () => {
+      const qp = kpiInclusaoMes === 'todos' ? `?ano=${kpiInclusaoAno}` : `?ano=${kpiInclusaoAno}&mes=${kpiInclusaoMes}`;
+      return fetch(`/api/gestao-vista${qp}`).then(r => r.json());
+    },
+    enabled: anoIndicadores === 2026,
+  });
+  const { data: resumoKpiInclusao } = useQuery<any>({
+    queryKey: ['/api/dashboard/inclusao/resumo', kpiInclusaoAno, kpiInclusaoMes],
+    queryFn: () => {
+      const start = kpiInclusaoMes !== 'todos' ? `${kpiInclusaoAno}-${String(kpiInclusaoMes).padStart(2,'0')}-01` : `${kpiInclusaoAno}-01-01`;
+      const end   = kpiInclusaoMes !== 'todos' ? `${kpiInclusaoAno}-${String(kpiInclusaoMes).padStart(2,'0')}-31` : `${kpiInclusaoAno}-12-31`;
+      return fetch(`/api/dashboard/inclusao/resumo?start=${start}&end=${end}`).then(r => r.json());
+    },
+    enabled: anoIndicadores === 2026,
+  });
+  const { data: metasKpiInclusao } = useQuery<any>({
+    queryKey: ['/api/metas-indicadores', kpiInclusaoAno, 'inclusao'],
+    queryFn: () => fetch(`/api/metas-indicadores?ano=${kpiInclusaoAno}&vertente=inclusao`).then(r => r.json()),
+    enabled: anoIndicadores === 2026,
+  });
+
+  // Dados reais de 2025 para o painel de Inclusão (usa Gestão à Vista que tem dado_mensal)
+  const { data: gvData2025 } = useQuery<any>({
+    queryKey: ['/api/gestao-vista', 2025, 'anual'],
+    queryFn: () => fetch('/api/gestao-vista?ano=2025').then(r => r.json()),
+    enabled: anoIndicadores === 2025,
+  });
+
+  const { data: resumoAnual2025 } = useQuery<any>({
+    queryKey: ['/api/inclusao-produtiva/resumo-anual', 2025],
+    queryFn: () => fetch('/api/inclusao-produtiva/resumo-anual?ano=2025').then(r => r.json()),
+    enabled: anoIndicadores === 2025,
+  });
+
+  // PEC 2026 — KPI cards + project cards (mesmos endpoints do TabPEC e welcome)
+  const pecKpiUrl2026 = kpiPecMes === 'todos' ? `/api/pec/dashboard-kpis?ano=2026` : `/api/pec/dashboard-kpis?ano=2026&mes=${kpiPecMes}`;
+  const { data: pecKpis2026 } = useQuery<any>({
+    queryKey: [pecKpiUrl2026],
+    enabled: activeSection === 'pec' && anoIndicadores === 2026,
+  });
+  const gvPecQp = kpiPecMes === 'todos' ? '?ano=2026' : `?ano=2026&mes=${kpiPecMes}`;
+  const { data: gvDataPec2026 } = useQuery<any>({
+    queryKey: ['/api/gestao-vista', '2026', kpiPecMes, 'pec'],
+    queryFn: () => fetch(`/api/gestao-vista${gvPecQp}`).then(r => r.json()),
+    enabled: activeSection === 'pec' && anoIndicadores === 2026,
+  });
+  const { data: metasPec2026 } = useQuery<any>({
+    queryKey: ['/api/metas-indicadores', '2026', 'pec'],
+    queryFn: () => fetch('/api/metas-indicadores?ano=2026&vertente=pec').then(r => r.json()),
+    staleTime: 60000,
+  });
+  const { data: dadosProgramasPec } = useQuery<any>({
+    queryKey: ['/api/pec/dados-programas', 2026],
+    queryFn: () => fetch('/api/pec/dados-programas?ano=2026').then(r => r.json()),
+    enabled: activeSection === 'pec' && anoIndicadores === 2026,
+  });
+
   const { data: dashPecData, isLoading: loadingDashPec } = useQuery<any>({
     queryKey: ['/api/coordenador/dashboard-demografico', dashPecFiltroAno, dashPecFiltroMes],
     queryFn: async () => {
@@ -961,6 +1398,12 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     refetchInterval: 300000,
     refetchOnMount: true,
   });
+
+  // Ref + drag-to-scroll para o carrossel demográfico (funciona no desktop também)
+  const demograficosRef = useRef<HTMLDivElement>(null);
+  const demograficosDrag = useRef({ active: false, startX: 0, scrollLeft: 0 });
+  const pizzaRef = useRef<HTMLDivElement>(null);
+  const pizzaDrag = useRef({ active: false, startX: 0, scrollLeft: 0 });
 
   // Buscar dados demográficos (Gênero, Raça/Cor, Idade)
   const { data: dadosDemograficos, isLoading: loadingDemograficos } = useQuery<{
@@ -1805,19 +2248,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   };
 
   useEffect(() => {
-    // Se for acesso via painel desenvolvedor, autorizar automaticamente
-    const urlParams = new URLSearchParams(window.location.search);
-    const devAccess = urlParams.get("dev_access") === "true";
-    const origin = urlParams.get("origin");
-    const isDevPanelAccess = devAccess && origin === "dev_panel";
-
-    if (isDevPanelAccess) {
-      console.log("Developer panel access granted to Leo Martins dashboard");
-      setUserName("Desenvolvedor - Acesso Total via Dev Panel");
-      setUserEmail("dev@clubedogrito.com");
-      setTempName("Desenvolvedor");
-      setTempPhone("+5531999999999");
-      setIsLeo(true); // Override: dar acesso total
+    // Desenvolvedor autenticado tem acesso total
+    const papelLocal = localStorage.getItem("userPapel") || "";
+    if (papelLocal === "dev" || papelLocal === "desenvolvedor" || papelLocal === "dev-admin" || papelLocal === "super_admin") {
+      setUserName("Desenvolvedor");
+      setUserEmail(localStorage.getItem("userEmail") || "dev@clubedogrito.com");
+      setTempName(localStorage.getItem("userName") || "Desenvolvedor");
+      setTempPhone(localStorage.getItem("userTelefone") || "");
+      setIsLeo(true);
       loadGestaoVistaData();
       return;
     }
@@ -1878,7 +2316,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     toast({
       title: "Logout realizado",
       description: "Você foi desconectado com sucesso.",
@@ -2021,6 +2459,34 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       color: "text-red-600",
     },
     {
+      id: "chamadas-auditoria",
+      label: "Auditoria Chamadas",
+      icon: ClipboardList,
+      section: "admin",
+      color: "text-orange-600",
+    },
+    {
+      id: "solicitacoes-exclusao",
+      label: "Exclusões Chamadas",
+      icon: Trash2,
+      section: "admin",
+      color: "text-red-500",
+    },
+    {
+      id: "lgpd-consentimentos",
+      label: "Auditoria LGPD",
+      icon: Shield,
+      section: "admin",
+      color: "text-indigo-600",
+    },
+    {
+      id: "lgpd-ropa",
+      label: "ROPA (LGPD)",
+      icon: FileText,
+      section: "admin",
+      color: "text-indigo-600",
+    },
+    {
       id: "favela3d",
       label: "Favela 3D",
       icon: "logo",
@@ -2064,10 +2530,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     },
     {
       id: "marketing",
-      label: "Marketing",
+      label: "Mkt e Tecnologia",
       icon: TrendingUp,
       section: "gestao",
-      color: "text-pink-600",
+      color: "text-yellow-600",
     },
     {
       id: "metas-indicadores",
@@ -2206,28 +2672,37 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   const renderDashboard = () => (
     <div className="space-y-6">
 
-      {/* Status de Doações Stripe - Linha própria */}
-      <Card className="border-purple-200">
+      {/* Total de Doadores (App + Externos) */}
+      <Card className="border-green-200">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-            <Target className="w-4 h-4 text-purple-600" />
-            Status de Doações
+            <Target className="w-4 h-4 text-green-600" />
+            Total de Doadores
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '8px' }}>
-            {[
-              { label: 'Ativas', value: doadoresData?.porStatus?.active || 0, bg: '#f0fdf4', color: '#16a34a', desc: 'Pagando normalmente' },
-              { label: 'Em Teste', value: doadoresData?.porStatus?.trialing || 0, bg: '#eff6ff', color: '#2563eb', desc: 'Período de trial' },
-              { label: 'Pendentes', value: doadoresData?.porStatus?.past_due || 0, bg: '#fefce8', color: '#ca8a04', desc: 'Pagamento atrasado' },
-              { label: 'Externos', value: doadoresExternosData?.totalDoadores || 0, bg: '#fff7ed', color: '#ea580c', desc: 'Doações fora do app' },
-            ].map((item) => (
-              <div key={item.label} style={{ background: item.bg, borderRadius: '8px', padding: isMobile ? '10px 6px' : '16px 8px', textAlign: 'center' }}>
-                <div style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: 700, color: item.color }}>{item.value}</div>
-                <div style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', color: '#4b5563' }}>{item.label}</div>
-                {!isMobile && <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{item.desc}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+            <div style={{ background: '#f5f3ff', borderRadius: '8px', padding: isMobile ? '10px 6px' : '16px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: 700, color: '#7c3aed' }}>
+                {(doadoresData?.porStatus?.active || 0) + (doadoresData?.porStatus?.trialing || 0)}
               </div>
-            ))}
+              <div style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', color: '#4b5563' }}>Aplicativo</div>
+              {!isMobile && <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Via Stripe</div>}
+            </div>
+            <div style={{ background: '#fff7ed', borderRadius: '8px', padding: isMobile ? '10px 6px' : '16px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: 700, color: '#ea580c' }}>
+                {doadoresExternosData?.totalDoadores || 0}
+              </div>
+              <div style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', color: '#4b5563' }}>Externos</div>
+              {!isMobile && <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Fora do app</div>}
+            </div>
+            <div style={{ background: '#f0fdf4', borderRadius: '8px', padding: isMobile ? '10px 6px' : '16px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: isMobile ? '1.5rem' : '1.875rem', fontWeight: 700, color: '#16a34a' }}>
+                {((doadoresData?.porStatus?.active || 0) + (doadoresData?.porStatus?.trialing || 0)) + (doadoresExternosData?.totalDoadores || 0)}
+              </div>
+              <div style={{ fontSize: isMobile ? '0.75rem' : '0.875rem', color: '#4b5563' }}>Total</div>
+              {!isMobile && <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Combinado</div>}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -2266,11 +2741,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </CardHeader>
         <CardContent>
           {(() => {
-            const ind = gvIndicadoresData?.indicadores;
             const programas = [
-              { nome: 'PEC', valor: ind?.criancasAtendidas?.valor || 0, meta: ind?.criancasAtendidas?.meta || 0, cor: 'bg-emerald-500' },
-              { nome: 'Inclusão Produtiva', valor: ind?.alunosEmFormacao?.valor || 0, meta: ind?.alunosEmFormacao?.meta || 0, cor: 'bg-blue-500' },
-              { nome: 'Psicossocial', valor: ind?.atendimentos?.valor || 0, meta: ind?.atendimentos?.meta || 0, cor: 'bg-amber-500' },
+              { nome: 'PEC', valor: gvIndicadoresData?.indicadores?.criancasAtendidas?.valor ?? 0, cor: 'bg-emerald-500' },
+              { nome: 'Inclusão Produtiva', valor: atendidosInclusaoData?.total ?? dashInclusaoData?.atendimentos ?? 0, cor: 'bg-blue-500' },
+              { nome: 'Psicossocial', valor: psicoKpisAdmin?.atendidos ?? dashMergedPsicoAdmin?.totalAlunos ?? 0, cor: 'bg-amber-500' },
             ];
             const total = programas.reduce((acc, p) => acc + p.valor, 0);
             return (
@@ -2295,9 +2769,34 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       </Card>
 
       {/* Gráficos Demográficos - Gênero e Raça/Cor */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div
+        ref={demograficosRef}
+        className="flex md:grid md:grid-cols-3 gap-4 overflow-x-auto snap-x snap-mandatory pb-2 md:pb-0 md:overflow-visible select-none cursor-grab"
+        onMouseDown={(e) => {
+          const el = demograficosRef.current; if (!el) return;
+          demograficosDrag.current = { active: true, startX: e.clientX, scrollLeft: el.scrollLeft };
+          el.style.scrollSnapType = 'none';
+          el.style.cursor = 'grabbing';
+        }}
+        onMouseMove={(e) => {
+          const d = demograficosDrag.current; const el = demograficosRef.current;
+          if (!d.active || !el) return;
+          e.preventDefault();
+          el.scrollLeft = d.scrollLeft - (e.clientX - d.startX) * 1.5;
+        }}
+        onMouseUp={() => {
+          const el = demograficosRef.current;
+          if (el) { el.style.scrollSnapType = ''; el.style.cursor = ''; }
+          demograficosDrag.current.active = false;
+        }}
+        onMouseLeave={() => {
+          const el = demograficosRef.current;
+          if (el) { el.style.scrollSnapType = ''; el.style.cursor = ''; }
+          demograficosDrag.current.active = false;
+        }}
+      >
         {/* Gráfico de Gênero */}
-        <Card>
+        <Card className="min-w-[82vw] md:min-w-0 snap-start flex-shrink-0 md:flex-shrink">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Users className="w-4 h-4 text-yellow-600" />
@@ -2339,7 +2838,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </Card>
 
         {/* Gráfico de Raça/Cor */}
-        <Card>
+        <Card className="min-w-[82vw] md:min-w-0 snap-start flex-shrink-0 md:flex-shrink">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Users className="w-4 h-4 text-orange-600" />
@@ -2381,7 +2880,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </Card>
 
         {/* Gráfico de Idade */}
-        <Card>
+        <Card className="min-w-[82vw] md:min-w-0 snap-start flex-shrink-0 md:flex-shrink">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600" />
@@ -2605,49 +3104,93 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </Button>
             </div>
 
+            {/* Total de Doadores (App + Externos) */}
+            <Card className="border-green-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-green-600" />
+                  Total de Doadores
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="text-center p-2 sm:p-4 bg-purple-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-purple-700">{porStatus.active + porStatus.trialing}</div>
+                    <p className="text-sm text-gray-600">Aplicativo</p>
+                    <p className="text-xs text-gray-400">Via Stripe</p>
+                  </div>
+                  <div className="text-center p-2 sm:p-4 bg-orange-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
+                    <p className="text-sm text-gray-600">Externos</p>
+                    <p className="text-xs text-gray-400">Fora do app</p>
+                  </div>
+                  <div className="text-center p-2 sm:p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-green-700">{(porStatus.active + porStatus.trialing) + (doadoresExternosData?.totalDoadores || 0)}</div>
+                    <p className="text-sm text-gray-600">Total</p>
+                    <p className="text-xs text-gray-400">Combinado</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Status de Doações */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Target className="w-5 h-5 text-purple-600" />
-                  Status de Doações - {anoDoador}
+                  Status de Doações do Aplicativo - {anoDoador}
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-5 gap-4">
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <div className="text-3xl font-bold text-green-600">{porStatus.active}</div>
+                <div className="grid grid-cols-3 gap-3 md:gap-4">
+                  <div className="text-center p-2 sm:p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-green-600">{porStatus.active + porStatus.trialing}</div>
                     <p className="text-sm text-gray-600">Ativas</p>
                     <p className="text-xs text-gray-400">Pagando normalmente</p>
                   </div>
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <div className="text-3xl font-bold text-blue-600">{porStatus.trialing}</div>
-                    <p className="text-sm text-gray-600">Em Teste</p>
-                    <p className="text-xs text-gray-400">Período de trial</p>
-                  </div>
-                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                    <div className="text-3xl font-bold text-yellow-600">{porStatus.past_due}</div>
+                  <div className="text-center p-2 sm:p-4 bg-yellow-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-yellow-600">{porStatus.past_due}</div>
                     <p className="text-sm text-gray-600">Pendentes</p>
                     <p className="text-xs text-gray-400">Pagamento atrasado</p>
                   </div>
-                  <div className="text-center p-4 bg-red-50 rounded-lg">
-                    <div className="text-3xl font-bold text-red-600">{porStatus.canceled}</div>
+                  <div className="text-center p-2 sm:p-4 bg-red-50 rounded-lg">
+                    <div className="text-2xl sm:text-3xl font-bold text-red-600">{porStatus.canceled}</div>
                     <p className="text-sm text-gray-600">Cancelados</p>
-                    <p className="text-xs text-gray-400">Cancelaram em {anoDoador}</p>
-                  </div>
-                  <div className="text-center p-4 bg-orange-50 rounded-lg">
-                    <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
-                    <p className="text-sm text-gray-600">Externos</p>
-                    <p className="text-xs text-gray-400">Doações fora do app</p>
+                    <p className="text-xs text-gray-400">Cancelados em {anoDoador}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Gráficos: Distribuição por Plano separados por status */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div
+              ref={pizzaRef}
+              className="flex lg:grid lg:grid-cols-3 gap-4 overflow-x-auto snap-x snap-mandatory pb-2 lg:pb-0 lg:overflow-visible select-none cursor-grab"
+              onMouseDown={(e) => {
+                const el = pizzaRef.current; if (!el) return;
+                pizzaDrag.current = { active: true, startX: e.clientX, scrollLeft: el.scrollLeft };
+                el.style.scrollSnapType = 'none';
+                el.style.cursor = 'grabbing';
+              }}
+              onMouseMove={(e) => {
+                const d = pizzaDrag.current; const el = pizzaRef.current;
+                if (!d.active || !el) return;
+                e.preventDefault();
+                el.scrollLeft = d.scrollLeft - (e.clientX - d.startX) * 1.5;
+              }}
+              onMouseUp={() => {
+                const el = pizzaRef.current;
+                if (el) { el.style.scrollSnapType = ''; el.style.cursor = ''; }
+                pizzaDrag.current.active = false;
+              }}
+              onMouseLeave={() => {
+                const el = pizzaRef.current;
+                if (el) { el.style.scrollSnapType = ''; el.style.cursor = ''; }
+                pizzaDrag.current.active = false;
+              }}
+            >
               {/* Ativos */}
-              <Card>
+              <Card className="min-w-[82vw] lg:min-w-0 snap-start flex-shrink-0 lg:flex-shrink">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <PieChart className="w-4 h-4 text-green-600" />
@@ -2689,7 +3232,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </Card>
 
               {/* Pendentes */}
-              <Card>
+              <Card className="min-w-[82vw] lg:min-w-0 snap-start flex-shrink-0 lg:flex-shrink">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <PieChart className="w-4 h-4 text-yellow-600" />
@@ -2731,7 +3274,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </Card>
 
               {/* Cancelados */}
-              <Card>
+              <Card className="min-w-[82vw] lg:min-w-0 snap-start flex-shrink-0 lg:flex-shrink">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <PieChart className="w-4 h-4 text-red-600" />
@@ -2783,25 +3326,29 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </CardHeader>
                 <CardContent>
                   {evolucaoMensal.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <ComposedChart data={evolucaoMensal}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="mes" />
-                        <YAxis yAxisId="left" />
-                        <YAxis yAxisId="right" orientation="right" />
-                        <Tooltip
-                          formatter={(value: any, name: string) => {
-                            if (name === "Valor Mensal (R$)") {
-                              return `R$ ${parseFloat(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
-                            }
-                            return value;
-                          }}
-                        />
-                        <Legend />
-                        <Bar yAxisId="left" dataKey="novosDoadores" fill="#f59e0b" name="Novos Doadores" />
-                        <Line yAxisId="right" type="monotone" dataKey="acumuladoDoadores" stroke="#3b82f6" strokeWidth={2} name="Acumulado" />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                    <div style={{ overflowX: 'scroll', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }} className="-mx-2 px-2 pb-1">
+                      <div style={{ minWidth: 380 }}>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <ComposedChart data={evolucaoMensal} margin={{ right: 16 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="mes" />
+                          <YAxis yAxisId="left" />
+                          <YAxis yAxisId="right" orientation="right" />
+                          <Tooltip
+                            formatter={(value: any, name: string) => {
+                              if (name === "Valor Mensal (R$)") {
+                                return `R$ ${parseFloat(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+                              }
+                              return value;
+                            }}
+                          />
+                          <Legend />
+                          <Bar yAxisId="left" dataKey="novosDoadores" fill="#f59e0b" name="Novos Doadores" />
+                          <Line yAxisId="right" type="monotone" dataKey="acumuladoDoadores" stroke="#3b82f6" strokeWidth={2} name="Acumulado" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex items-center justify-center h-[300px] text-gray-400">
                       Carregando dados...
@@ -2820,15 +3367,19 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </CardHeader>
               <CardContent>
                 {distribuicaoPorValor.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={distribuicaoPorValor}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="faixa" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="quantidade" fill="#6366f1" name="Doadores" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <div style={{ overflowX: 'scroll', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }} className="-mx-2 px-2 pb-1">
+                    <div style={{ minWidth: 340 }}>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={distribuicaoPorValor} margin={{ right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="faixa" />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="quantidade" fill="#6366f1" name="Doadores" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center h-[250px] text-gray-400">
                     Carregando dados...
@@ -2840,9 +3391,21 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             {/* Lista Individual de Doadores */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 flex-wrap">
                   <Users className="w-5 h-5 text-blue-600" />
                   Lista de Doadores Aplicativo - Dados em Tempo Real do Stripe
+                  <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                    {(() => {
+                      const filtrado = listaDoadores.filter((d: any) =>
+                        !searchDoadorTerm ||
+                        d.nome?.toLowerCase().includes(searchDoadorTerm.toLowerCase()) ||
+                        d.plano?.toLowerCase().includes(searchDoadorTerm.toLowerCase())
+                      ).length;
+                      return searchDoadorTerm
+                        ? `${filtrado} de ${listaDoadores.length}`
+                        : listaDoadores.length;
+                    })()}
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -2860,8 +3423,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     />
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div style={{ overflowX: "scroll", WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y" }} className="-mx-2 px-2 pb-1">
+                  <table className="w-full min-w-[480px]">
                     <thead>
                       <tr className="border-b-2 border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
@@ -2938,6 +3501,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     </div>
                   )}
                 </div>
+                <p className="text-xs text-gray-400 text-center mt-1 md:hidden">← arraste para ver mais →</p>
               </CardContent>
             </Card>
 
@@ -2954,13 +3518,11 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </p>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div style={{ overflowX: "scroll", WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y" }} className="-mx-2 px-2 pb-1">
+                  <table className="w-full min-w-[480px]">
                     <thead>
                       <tr className="border-b-2 border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
-                        <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
-                        <th className="text-center py-3 px-4 font-semibold text-gray-700">Periodicidade</th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">Observação</th>
                       </tr>
                     </thead>
@@ -2970,11 +3532,6 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                           <tr key={doador.id || index} className={`border-b border-gray-100 hover:bg-gray-50 ${doador.observacao === 'DOADOR ANJO' ? 'bg-yellow-50' : ''}`}>
                             <td className="py-3 px-4 text-gray-800">
                               {doador.nome}
-                            </td>
-                            <td className="py-3 px-4 text-right font-medium text-green-600">
-                              R$ {doador.valorMensal?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
-                            </td>
-                            <td className="py-3 px-4 text-center text-gray-600">{doador.periodicidade || "Mensal"}
                             </td>
                             <td className="py-3 px-4 text-center text-gray-600">
                               {doador.observacao === 'DOADOR ANJO' ? (
@@ -2993,6 +3550,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     </div>
                   )}
                 </div>
+                <p className="text-xs text-gray-400 text-center mt-1 md:hidden">← arraste para ver mais →</p>
               </CardContent>
             </Card>
           </div>
@@ -3265,8 +3823,8 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div style={{ overflowX: "scroll", WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y" }} className="-mx-2 px-2 pb-1">
+                  <table className="w-full min-w-[520px]">
                     <thead>
                       <tr className="border-b-2 border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-700">
@@ -3352,6 +3910,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     </tbody>
                   </table>
                 </div>
+                <p className="text-xs text-gray-400 text-center mt-1 md:hidden">← arraste para ver mais →</p>
               </CardContent>
             </Card>
           </div>
@@ -3422,6 +3981,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           ? (mesSelecionadoMarketing === null ? doadoresUltimoMes : (mesDataMkt?.doadores ?? doadoresUltimoMes))
           : doadoresAtivosVal;
         const metaDoadores = 1000;
+        const mktDoadoresEvadidos = doadoresStatsData?.porStatus?.canceled || 0;
 
 
         const MESES_MKT = [
@@ -3449,7 +4009,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 <Button
                   size="sm"
                   variant={anoIndicadores === 2025 ? "default" : "outline"}
-                  className={anoIndicadores === 2025 ? "bg-pink-600 hover:bg-pink-700" : ""}
+                  className={anoIndicadores === 2025 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
                   onClick={() => setAnoIndicadores(2025)}
                 >
                   2025
@@ -3457,74 +4017,141 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 <Button
                   size="sm"
                   variant={anoIndicadores === 2026 ? "default" : "outline"}
-                  className={anoIndicadores === 2026 ? "bg-pink-600 hover:bg-pink-700" : ""}
+                  className={anoIndicadores === 2026 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
                   onClick={() => setAnoIndicadores(2026)}
                 >
                   2026
                 </Button>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-600">Mês:</span>
-                <Select 
-                  value={mesSelecionadoMarketing === null ? "todos" : String(mesSelecionadoMarketing)} 
-                  onValueChange={(v) => setMesSelecionadoMarketing(v === "todos" ? null : parseInt(v))}
-                >
-                  <SelectTrigger className="w-[170px] text-sm h-9">
-                    <SelectValue placeholder="Mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MESES_MKT.map((mes) => (
-                      <SelectItem key={mes.value} value={mes.value}>
-                        {mes.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+
             </div>
 
-            {/* Marketing e Tecnologia - Light card with gauges */}
-            <div className="bg-white rounded-xl p-3 lg:p-6 border border-gray-200 shadow-sm">
-              <div className="flex items-center gap-2 lg:gap-3 mb-3 lg:mb-4 flex-wrap">
-                <div className="p-2 lg:p-3 bg-pink-500 rounded-xl">
-                  <Target className="w-4 h-4 lg:w-7 lg:h-7 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-900 font-bold text-sm lg:text-xl">Marketing e Tecnologia</p>
-                  <p className="text-gray-500 text-[10px] lg:text-sm">Indicadores de Crescimento - {anoIndicadores}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-gray-500 text-[10px] lg:text-sm">Total Seguidores</p>
-                  <p className="text-lg lg:text-3xl font-bold text-gray-900">{mktTotalSeguidores.toLocaleString('pt-BR')}</p>
-                  {is2026Mkt && (
-                    <p className="text-gray-400 text-[10px] lg:text-xs">Meta: {META_ANUAL_SEGUIDORES_2026.toLocaleString('pt-BR')}</p>
+            {/* 2026: accordion cards; 2025: gauge charts */}
+            {is2026Mkt ? (
+            <div className="space-y-4">
+              <p className="text-base font-semibold text-gray-900">Resultados Anuais por Segmento</p>
+              {/* Card Doadores */}
+              <div
+                className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                onClick={() => setExpandedMktCard(expandedMktCard === 'doadores' ? null : 'doadores')}
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                        <Heart className="w-5 h-5 text-white" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">Doadores</h3>
+                    </div>
+                    {expandedMktCard === 'doadores'
+                      ? <ChevronUp className="w-5 h-5 text-gray-600" />
+                      : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                  </div>
+                  {expandedMktCard === 'doadores' && (
+                    <div className="mt-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {mktDoadoresAtivos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Doadores Ativos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {mktDoadoresEvadidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Doadores Evadidos</p>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
-                <AdminGaugeChart 
-                  value={mktSeguidoresGanhos}
-                  meta={is2026Mkt ? metaSeguidoresGanhos2026 : (mktRef?.seguidores_ganhos_meta || 1)}
-                  label="Seguidores Ganhos"
-                />
-                <AdminGaugeChart 
-                  value={mktSeguidoresPerdidos}
-                  meta={is2026Mkt ? metaSeguidoresPerdidos2026 : (mktRef?.seguidores_perdidos_meta || 1)}
-                  label="Seguidores Perdidos"
-                  isInverse={true}
-                />
-                <AdminGaugeChart 
-                  value={mktDoadoresAtivos}
-                  meta={metaDoadores}
-                  label="Doadores Ativos"
-                />
-                <AdminGaugeChart 
-                  value={mktMateriaisDistribuidos}
-                  meta={is2026Mkt ? metaMateriaisDistribuidos2026 : (mktRef?.materiais_distribuidos_meta || 1)}
-                  label="Materiais Distribuídos"
-                />
+
+              {/* Card Seguidores */}
+              <div
+                className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                onClick={() => setExpandedMktCard(expandedMktCard === 'seguidores' ? null : 'seguidores')}
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                        <Users className="w-5 h-5 text-white" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">Seguidores</h3>
+                    </div>
+                    {expandedMktCard === 'seguidores'
+                      ? <ChevronUp className="w-5 h-5 text-gray-600" />
+                      : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                  </div>
+                  {expandedMktCard === 'seguidores' && (
+                    <div className="mt-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {mktTotalSeguidores.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Total de Seguidores</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {mktSeguidoresGanhos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Seguidores Ganhos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                            {mktSeguidoresPerdidos.toLocaleString('pt-BR')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Seguidores Perdidos</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+            ) : (
+              <div className="bg-white rounded-xl p-3 lg:p-6 border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-2 lg:gap-3 mb-3 lg:mb-4 flex-wrap">
+                  <div className="p-2 lg:p-3 bg-pink-500 rounded-xl">
+                    <Target className="w-4 h-4 lg:w-7 lg:h-7 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-gray-900 font-bold text-sm lg:text-xl">Marketing e Tecnologia</p>
+                    <p className="text-gray-500 text-[10px] lg:text-sm">Indicadores de Crescimento - {anoIndicadores}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-gray-500 text-[10px] lg:text-sm">Total Seguidores</p>
+                    <p className="text-lg lg:text-3xl font-bold text-gray-900">{mktTotalSeguidores.toLocaleString('pt-BR')}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
+                  <AdminGaugeChart
+                    value={mktSeguidoresGanhos}
+                    meta={mktRef?.seguidores_ganhos_meta || 1}
+                    label="Seguidores Ganhos"
+                  />
+                  <AdminGaugeChart
+                    value={mktSeguidoresPerdidos}
+                    meta={mktRef?.seguidores_perdidos_meta || 1}
+                    label="Seguidores Perdidos"
+                    isInverse={true}
+                  />
+                  <AdminGaugeChart
+                    value={mktDoadoresAtivos}
+                    meta={metaDoadores}
+                    label="Doadores Ativos"
+                  />
+                  <AdminGaugeChart
+                    value={mktMateriaisDistribuidos}
+                    meta={mktRef?.materiais_distribuidos_meta || 1}
+                    label="Materiais Distribuídos"
+                  />
+                </div>
+              </div>
+            )}
 
           </div>
         );
@@ -3534,6 +4161,14 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             <ConselhoApprovalManager approverName={userName} />
           </div>
         );
+      case "solicitacoes-exclusao":
+        return <SolicitacoesExclusaoPanel />;
+      case "chamadas-auditoria":
+        return <ChamadaAuditoriaSection />;
+      case "lgpd-consentimentos":
+        return <PrivacyConsentsAuditSection active />;
+      case "lgpd-ropa":
+        return <AdminRopaSection />;
       case "settings":
         return (
           <div className="space-y-6">
@@ -3595,35 +4230,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </CardContent>
             </Card>
 
-            {/* System Settings */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-gray-600" />
-                  Configurações do Sistema
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Modo Manutenção</span>
-                    <Badge variant="secondary">Desativado</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">
-                      Backup Automático
-                    </span>
-                    <Badge variant="secondary">Ativo</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">
-                      Versão do Sistema
-                    </span>
-                    <Badge variant="outline">v2.1.0</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <PushNotificationSettings variant="card" />
 
             {/* Navigation Links */}
             <Card>
@@ -3638,7 +4245,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   <Button
                     onClick={() =>
                       window.open(
-                        "https://752fc8b9-7492-4d12-ba75-184c28484d96-00-tmf0eszuoofn.worf.replit.dev/noticias",
+                        "https://clubedogrito.institutoogrito.com.br/noticias",
                         "_blank"
                       )
                     }
@@ -3651,7 +4258,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   <Button
                     onClick={() =>
                       window.open(
-                        "https://complaint-tracker-OGRITO.replit.app",
+                        "https://canaldetransparencia.institutoogrito.com.br",
                         "_blank"
                       )
                     }
@@ -3660,6 +4267,22 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   >
                     <ExternalLink className="w-4 h-4 mr-2" />
                     Canal de Transparência
+                  </Button>
+                  <Button
+                    onClick={() => setActiveSection("lgpd-consentimentos")}
+                    variant="outline"
+                    className="w-full justify-start border-indigo-300 text-indigo-900 hover:bg-indigo-50"
+                  >
+                    <Shield className="w-4 h-4 mr-2" />
+                    Auditoria de Consentimentos (LGPD)
+                  </Button>
+                  <Button
+                    onClick={() => setActiveSection("lgpd-ropa")}
+                    variant="outline"
+                    className="w-full justify-start"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    ROPA — Registro de Tratamento
                   </Button>
                 </div>
               </CardContent>
@@ -3691,9 +4314,114 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
       case "favela3d":
         return (
           <div className="space-y-6">
-            <p className="text-sm text-gray-500">Dados Anuais 2025</p>
+            {/* Seletor de Ano */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button
+                size="sm"
+                variant={anoFavela3D === 2025 ? "default" : "outline"}
+                className={anoFavela3D === 2025 ? "bg-purple-600 hover:bg-purple-700" : ""}
+                onClick={() => setAnoFavela3D(2025)}
+              >2025</Button>
+              <Button
+                size="sm"
+                variant={anoFavela3D === 2026 ? "default" : "outline"}
+                className={anoFavela3D === 2026 ? "bg-purple-600 hover:bg-purple-700" : ""}
+                onClick={() => setAnoFavela3D(2026)}
+              >2026</Button>
+            </div>
 
-            {!dadosMensaisFavela3D ? (
+            {anoFavela3D === 2026 ? (
+              <div className="space-y-4">
+                {/* Panorama Favela 3D — accordion card */}
+                <div
+                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedF3DSection(expandedF3DSection === 'panorama' ? null : 'panorama')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                          <Users className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
+                      </div>
+                      {expandedF3DSection === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedF3DSection === 'panorama' && (
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.familias ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Famílias</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.visitas ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Visitas</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Atendimentos Coletivos — accordion card */}
+                <div
+                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedF3DSection(expandedF3DSection === 'coletivos' ? null : 'coletivos')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                          <TrendingUp className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
+                      </div>
+                      {expandedF3DSection === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedF3DSection === 'coletivos' && (
+                      <div className="mt-4 space-y-3">
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : !dadosMensaisFavela3D ? (
               <div className="text-center py-8 text-gray-500">Carregando dados do Favela 3D...</div>
             ) : dadosMensaisFavela3D?.eixos ? (
               dadosMensaisFavela3D.eixos.map((eixo: any, index: number) => {
@@ -3787,40 +4515,289 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         }, 0) || 0;
         
         return (
-          <div className="space-y-6">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-medium text-gray-600">Ano:</span>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2025 ? "default" : "outline"}
-                className={anoIndicadores === 2025 ? "bg-green-600 hover:bg-green-700" : ""}
-                onClick={() => setAnoIndicadores(2025)}
-              >
-                2025
-              </Button>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2026 ? "default" : "outline"}
-                className={anoIndicadores === 2026 ? "bg-green-600 hover:bg-green-700" : ""}
-                onClick={() => setAnoIndicadores(2026)}
-              >
-                2026
-              </Button>
-            </div>
+          <div className="space-y-6" style={{ width: '100%', overflow: 'hidden' }}>
 
             {anoIndicadores === 2026 ? (
-              <CoordenadorDashboard
-                data={dashInclusaoData ? { ...dashInclusaoData, atendimentos: atendidosInclusaoData?.total ?? 0 } : undefined}
-                isLoading={loadingDashInclusao}
-                filtroAno={dashInclusaoFiltroAno}
-                filtroMes={dashInclusaoFiltroMes}
-                onFilterChange={(ano, mes) => {
-                  setDashInclusaoFiltroAno(ano);
-                  setDashInclusaoFiltroMes(mes);
-                }}
-                tipo="inclusao"
-                titleOverride="Painel Inclusão Produtiva"
-              />
+              (() => {
+                if (!indicadoresData) {
+                  return <div className="text-center py-8 text-gray-500">Carregando dados...</div>;
+                }
+                const projetos2026 = indicadoresData?.projetos || [];
+                const geracaoRenda2026 = indicadoresData?.geracaoRenda || { empregados: 0, empreendedores: 0 };
+                const npsGeral2026 = indicadoresData?.npsGeral ?? 0;
+
+                const projetoConfig: Record<string, { icon: any; iconColor: string; bgColor: string; textColor: string }> = {
+                  "LAB. VOZES DO FUTURO": { icon: <Briefcase className="w-5 h-5 text-white" />, iconColor: "bg-yellow-500", bgColor: "bg-yellow-50", textColor: "text-gray-900" },
+                  "CURSOS PRESENCIAIS": { icon: <GraduationCap className="w-5 h-5 text-white" />, iconColor: "bg-yellow-500", bgColor: "bg-yellow-50", textColor: "text-gray-900" },
+                  "CURSOS EAD CGD": { icon: <Target className="w-5 h-5 text-white" />, iconColor: "bg-yellow-500", bgColor: "bg-yellow-50", textColor: "text-gray-900" },
+                };
+
+                const npsColor = (nps: number) =>
+                  nps >= 75 ? "text-green-600" : nps >= 50 ? "text-yellow-600" : nps >= 0 ? "text-orange-600" : "text-red-600";
+
+                const indicadorLabel: Record<string, string> = {
+                  "Hora Aula": "Horas/Aula", "Atendimentos": "Atendimentos", "Lanche": "Lanches",
+                  "Frequência": "Frequência", "Atendidos": "Atendidos", "Evasão": "Evasão",
+                };
+
+                // ── Cálculo de metas (igual ao TabInclusao) ──────────────────────
+                const indKpi      = gvKpiInclusao?.indicadores || {};
+                const resumoKpi   = resumoKpiInclusao || gvKpiInclusao?.inclusaoData || {};
+                const metasDB     = metasKpiInclusao?.metas || {};
+                const mesAtualKpi = new Date().getMonth() + 1;
+                const mesNumRawKpi = Number(kpiInclusaoMes);
+                const mesNumKpi = (!kpiInclusaoMes || kpiInclusaoMes === 'todos' || isNaN(mesNumRawKpi) || mesNumRawKpi === 0)
+                  ? Math.max(0, mesAtualKpi - 1) : 1;
+
+                const META_EMP   = metasDB.pessoasEmpregadas ?? 1000;
+                const META_EMPR  = metasDB.empreendedores ?? 500;
+                const metaFormadosAnualKpi    = metasDB.alunosFormados ?? 2000;
+                const metaFrequenciaKpi       = metasDB.frequencia     ?? 85;
+                const metaEvasaoKpi           = metasDB.evasao         ?? 10;
+                const metaEmpProrated         = mesNumKpi > 0 ? Math.round(META_EMP  * mesNumKpi / 11) : 0;
+                const metaEmprProrated        = mesNumKpi > 0 ? Math.round(META_EMPR * mesNumKpi / 11) : 0;
+                const metaFormadosProrated    = mesNumKpi > 0 ? Math.round(metaFormadosAnualKpi * mesNumKpi / 11) : 0;
+
+                const getPct = (v: number, m: number, inv = false) => {
+                  if (!m) return 0;
+                  return Math.round(inv ? Math.max(0, (m - v) / m * 100) : Math.min(v / m * 100, 999));
+                };
+                const getBarColor = (pct: number) =>
+                  pct >= 85 ? '#16a34a' : pct >= 50 ? '#ca8a04' : '#dc2626';
+
+                const kpisCarrossel = [
+                  {
+                    label: 'Pessoas Empregadas',
+                    valor: indKpi.pessoasEmpregadas?.valor ?? 0,
+                    meta: metaEmpProrated || undefined,
+                    metaAnual: META_EMP,
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'Pessoas Empreendendo',
+                    valor: indKpi.empreendedores?.valor ?? 0,
+                    meta: metaEmprProrated || undefined,
+                    metaAnual: META_EMPR,
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'Pessoas Formadas',
+                    valor: indKpi.alunosFormados?.valor ?? 0,
+                    meta: metaFormadosProrated || undefined,
+                    metaAnual: metaFormadosAnualKpi,
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'Pessoas em Formação',
+                    valor: indKpi.alunosEmFormacao?.valor ?? resumoKpi.alunosAtivos ?? 0,
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'Frequência',
+                    valor: resumoKpi.frequencia ?? indKpi.frequencia?.valor ?? 0,
+                    meta: metaFrequenciaKpi,
+                    format: 'percent' as const,
+                  },
+                  {
+                    label: 'Evasão',
+                    valor: indKpi.evasao?.valor ?? 0,
+                    meta: metaEvasaoKpi,
+                    metaNote: undefined,
+                    inverse: true,
+                    format: 'percent' as const,
+                  },
+                  {
+                    label: 'Horas Aula',
+                    valor: Number((resumoKpi.horasAula ?? 0).toFixed(0)),
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'Atendimentos',
+                    valor: resumoKpi.atendimentos ?? 0,
+                    format: 'number' as const,
+                  },
+                  {
+                    label: 'NPS',
+                    valor: indKpi.nps?.valor ?? 0,
+                    meta: indKpi.nps?.meta ?? 90,
+                    format: 'number' as const,
+                  },
+                ];
+
+                const MESES_ADMIN = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+                return (
+                  <div className="space-y-4" style={{ width: '100%', minWidth: 0 }}>
+                    {/* Seção: Metas & Resultados */}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-gray-900">Metas & Resultados</h3>
+                        <select
+                          className="border rounded px-1 py-0.5 text-[10px] w-auto md:px-2 md:py-1 md:text-xs bg-white"
+                          value={kpiInclusaoMes}
+                          onChange={e => setKpiInclusaoMes(e.target.value)}
+                        >
+                          <option value="todos">Todos os meses</option>
+                          {MESES_ADMIN.slice(2).map((m, i) => <option key={i+2} value={String(i+2)}>{m}</option>)}
+                        </select>
+                      </div>
+                      <p className="text-xs text-gray-500">KPIs de 2026</p>
+                    </div>
+
+                    {/* Carrossel de KPIs — scroll horizontal sem barra visível */}
+                    <style>{`.kpi-carousel::-webkit-scrollbar{display:none}`}</style>
+                    <div
+                      className="kpi-carousel"
+                      style={{
+                        overflowX: 'auto',
+                        overflowY: 'hidden',
+                        width: '100%',
+                        maxWidth: '100%',
+                        WebkitOverflowScrolling: 'touch',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none',
+                        cursor: 'grab',
+                        paddingBottom: '4px',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const el = e.currentTarget;
+                        el.style.cursor = 'grabbing';
+                        const startX = e.clientX;
+                        const startScroll = el.scrollLeft;
+                        const onMove = (me: MouseEvent) => {
+                          el.scrollLeft = startScroll - (me.clientX - startX);
+                        };
+                        const onUp = () => {
+                          el.style.cursor = 'grab';
+                          window.removeEventListener('mousemove', onMove);
+                          window.removeEventListener('mouseup', onUp);
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '12px', width: 'max-content', padding: '2px 2px 2px 2px' }}>
+                        {kpisCarrossel.map((kpi, idx) => (
+                          <GestaoKpiCard
+                            key={idx}
+                            label={kpi.label}
+                            valor={kpi.valor}
+                            meta={kpi.meta}
+                            inverse={kpi.inverse}
+                            format={kpi.format}
+                            metaAnual={kpi.metaAnual}
+                            variant="light"
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Seção: Resultados Anuais por Vertente */}
+                    <div className="pt-2 border-t border-gray-200">
+                      <h3 className="text-base font-bold text-gray-900 mb-3">Resultados Anuais por Projeto</h3>
+                    </div>
+
+                    {projetos2026.map((projeto: any) => {
+                      const cfg = projetoConfig[projeto.nome] || { icon: <Briefcase className="w-5 h-5 text-white" />, iconColor: "bg-green-600", bgColor: "bg-green-50", textColor: "text-green-700" };
+                      const isOpen = expandedInclusaoAdminCard === projeto.nome;
+                      return (
+                        <div
+                          key={projeto.nome}
+                          className={`${cfg.bgColor} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
+                          onClick={() => setExpandedInclusaoAdminCard(isOpen ? null : projeto.nome)}
+                        >
+                          <div className="p-4">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 ${cfg.iconColor} rounded-xl flex items-center justify-center`}>
+                                  {cfg.icon}
+                                </div>
+                                <h3 className="text-base font-bold text-gray-800">{projeto.nome}</h3>
+                              </div>
+                              <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </div>
+
+                            {isOpen && (
+                              <div className="mt-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                  {projeto.indicadores
+                                    .filter((ind: any) => ind.nome !== "Evasão")
+                                    .map((ind: any, idx: number) => (
+                                      <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                        <div className="text-2xl font-bold text-gray-900 mb-1">
+                                          {ind.unidade === '%'
+                                            ? `${Math.round(ind.valor)}%`
+                                            : ind.nome === "Hora Aula"
+                                              ? `${Number(ind.valor).toFixed(0)}h`
+                                              : Math.round(ind.valor).toLocaleString('pt-BR')}
+                                        </div>
+                                        <p className="text-xs text-gray-600 font-medium">{indicadorLabel[ind.nome] || ind.nome}</p>
+                                      </div>
+                                    ))}
+                                  {/* NPS expandido em card próprio dentro */}
+                                  {projeto.nps !== undefined && (
+                                    <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                      <div className="text-2xl font-bold text-gray-900 mb-1">
+                                        {projeto.nps}
+                                      </div>
+                                      <p className="text-xs text-gray-600 font-medium">NPS</p>
+                                    </div>
+                                  )}
+                                  {/* Evasão separado */}
+                                  {projeto.indicadores.filter((i: any) => i.nome === "Evasão").map((ind: any, idx: number) => (
+                                    <div key={"ev" + idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                      <div className="text-2xl font-bold text-gray-900 mb-1">
+                                        {Math.round(ind.valor).toLocaleString('pt-BR')}
+                                      </div>
+                                      <p className="text-xs text-gray-600 font-medium">Evasão</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Card Geração de Renda */}
+                    <div
+                      className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                      onClick={() => setExpandedInclusaoAdminCard(expandedInclusaoAdminCard === 'geracaoRenda' ? null : 'geracaoRenda')}
+                    >
+                      <div className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                              <TrendingUp className="w-5 h-5 text-white" />
+                            </div>
+                            <h3 className="text-base font-bold text-gray-800">GERAÇÃO DE RENDA</h3>
+                          </div>
+                          <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${expandedInclusaoAdminCard === 'geracaoRenda' ? 'rotate-180' : ''}`} />
+                        </div>
+                        {expandedInclusaoAdminCard === 'geracaoRenda' && (
+                          <div className="mt-4 grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-gray-900 mb-1">
+                                {(geracaoRenda2026.empregados || 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-600 font-medium">Empregados</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-gray-900 mb-1">
+                                {(geracaoRenda2026.empreendedores || 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-600 font-medium">Empreendedores</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })()
             ) : (
             <>
             <div className="flex items-center gap-2 mb-4">
@@ -3846,136 +4823,160 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </select>
             </div>
             
-            {/* Resumo Geral - Acumulado */}
-            <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-green-700">
-                  <Briefcase className="w-5 h-5" />
-                  Inclusão Produtiva - Acumulado {anoIndicadores}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-green-600">{totalAtendidosInclusao.toLocaleString('pt-BR')}</p>
-                    <p className="text-sm text-gray-600">Atendidos</p>
-                  </div>
-                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-green-600">{totalHorasAulaInclusao.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-                    <p className="text-sm text-gray-600">Horas/Aula</p>
-                  </div>
-                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-green-600">{totalEmpregados}</p>
-                    <p className="text-sm text-gray-600">Empregados</p>
-                  </div>
-                  <div className="p-4 bg-white border border-green-200 rounded-lg text-center">
-                    <p className="text-3xl font-bold text-green-600">{totalEmpreendedores}</p>
-                    <p className="text-sm text-gray-600">Empreendedores</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Gráficos Comparativos */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Gráfico Atendidos */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-700">Atendidos por Projeto</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
-                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
-                      valor: p.indicadores?.find((i: any) => i.nome === "Atendidos")?.valor || 0
-                    }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-              
-              {/* Gráfico Frequência */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-700">Frequência por Projeto (%)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
-                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
-                      valor: p.indicadores?.find((i: any) => i.nome === "Frequência")?.valor || 0
-                    }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
-                      <YAxis domain={[0, 100]} />
-                      <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
-                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-              
-              {/* Gráfico Hora Aula */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-700">Horas/Aula por Projeto</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={indicadoresData?.projetos?.map((p: any) => ({
-                      nome: p.nome === "LAB. VOZES DO FUTURO" ? "LAB" : p.nome === "CURSOS PRESENCIAIS" ? "Presencial" : "EAD",
-                      valor: p.indicadores?.find((i: any) => i.nome === "Hora Aula")?.valor || 0
-                    }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
-                      <YAxis />
-                      <Tooltip formatter={(value: number) => value.toLocaleString('pt-BR')} />
-                      <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Cards por Projeto */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {indicadoresData?.projetos?.map((projeto: any, index: number) => {
-                const cores = inclusaoProjetoCores[projeto.nome] || { bg: "bg-gray-50", border: "border-l-gray-500", text: "text-gray-600", icon: "bg-gray-500" };
-                const icons = [<Briefcase key="1" className="w-5 h-5 text-white" />, <GraduationCap key="2" className="w-5 h-5 text-white" />, <Target key="3" className="w-5 h-5 text-white" />];
-                
-                return (
-                  <Card key={projeto.nome} className={`${cores.bg} border-l-4 ${cores.border}`}>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        <div className={`w-8 h-8 ${cores.icon} rounded-lg flex items-center justify-center`}>
-                          {icons[index % 3]}
+            {/* Resumo Geral - Acumulado 2025 (usa Gestão à Vista) */}
+            {(() => {
+              const gv25 = gvData2025?.indicadores || {};
+              const resumoCards = [
+                { label: 'Em Formação',    valor: (gv25.alunosEmFormacao?.valor ?? 0).toLocaleString('pt-BR') },
+                { label: 'Formados',       valor: (gv25.alunosFormados?.valor ?? 0).toLocaleString('pt-BR') },
+                { label: 'Frequência',     valor: `${gv25.frequencia?.valor ?? 0}%` },
+                { label: 'Evasão',         valor: (gv25.evasao?.valor ?? 0).toLocaleString('pt-BR') },
+                { label: 'NPS',            valor: String(gv25.nps?.valor ?? 0) },
+                { label: 'Visitas Domicílio', valor: (gv25.visitas?.valor ?? 0).toLocaleString('pt-BR') },
+              ];
+              return (
+                <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-green-700">
+                      <Briefcase className="w-5 h-5" />
+                      Inclusão Produtiva — Acumulado 2025
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                      {resumoCards.map((c, i) => (
+                        <div key={i} className="p-3 bg-white border border-green-200 rounded-lg text-center">
+                          <p className="text-2xl font-bold text-green-600">{c.valor}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{c.label}</p>
                         </div>
-                        <span className="text-gray-800">{projeto.nome === "LAB. VOZES DO FUTURO" ? "LAB - Vozes do Futuro" : projeto.nome === "CURSOS PRESENCIAIS" ? "Cursos Presenciais (30h)" : "Cursos EAD"}</span>
-                      </CardTitle>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Gráficos Comparativos — usa dadosMensaisInclusao (tem dados reais de 2025) */}
+            {(() => {
+              const getLastNonNull = (arr: any[]) => {
+                if (!arr) return 0;
+                for (let i = arr.length - 1; i >= 0; i--) {
+                  if (arr[i] !== null && arr[i] !== undefined) return arr[i];
+                }
+                return 0;
+              };
+              const projetoLabel = (nome: string) =>
+                nome?.includes('LAB') ? 'LAB' : nome?.includes('PRESENCIAL') ? 'Presencial' : 'EAD';
+              const projDados = dadosMensais?.projetos || [];
+              const chartAtivos = projDados.map((p: any) => ({
+                nome: projetoLabel(p.projeto || p.nome || ''),
+                valor: getLastNonNull(p.indicadores?.find((i: any) => i.nome === 'Alunos Ativos')?.mensal || []),
+              }));
+              const chartFreq = projDados.map((p: any) => ({
+                nome: projetoLabel(p.projeto || p.nome || ''),
+                valor: getLastNonNull(p.indicadores?.find((i: any) => i.nome === 'Frequência')?.mensal || []),
+              }));
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-700">Alunos Ativos por Projeto</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-2 gap-3">
-                        {projeto.indicadores?.slice(0, 6).map((indicador: any, idx: number) => (
-                          <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className={`text-2xl font-bold ${cores.text} mb-1`}>
-                              {indicador.unidade === "%" 
-                                ? `${indicador.valor.toFixed(1)}%` 
-                                : indicador.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
-                          </div>
-                        ))}
-                      </div>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={chartAtivos}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </CardContent>
                   </Card>
-                );
-              })}
-            </div>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-700">Frequência por Projeto (%)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={chartFreq}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
+                          <YAxis domain={[0, 100]} />
+                          <Tooltip formatter={(value: number) => `${value}%`} />
+                          <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
+
+            {/* Cards por Projeto — usa resumoAnual2025 (inclusao_produtiva_dados) */}
+            {(() => {
+              const projetosAnuais = [
+                {
+                  nome: "LAB. VOZES DO FUTURO",
+                  label: "LAB - Vozes do Futuro",
+                  dados: resumoAnual2025?.lab,
+                  cores: inclusaoProjetoCores["LAB. VOZES DO FUTURO"] || { bg: "bg-green-50", border: "border-l-green-500", text: "text-green-600", icon: "bg-green-500" },
+                  icon: <Briefcase className="w-5 h-5 text-white" />,
+                },
+                {
+                  nome: "CURSOS PRESENCIAIS",
+                  label: "Cursos Presenciais (30h)",
+                  dados: resumoAnual2025?.presencial,
+                  cores: inclusaoProjetoCores["CURSOS PRESENCIAIS"] || { bg: "bg-green-50", border: "border-l-emerald-500", text: "text-emerald-600", icon: "bg-emerald-500" },
+                  icon: <GraduationCap className="w-5 h-5 text-white" />,
+                },
+                {
+                  nome: "CURSOS EAD CGD",
+                  label: "Cursos EAD",
+                  dados: resumoAnual2025?.ead,
+                  cores: inclusaoProjetoCores["CURSOS EAD CGD"] || { bg: "bg-green-50", border: "border-l-teal-500", text: "text-teal-600", icon: "bg-teal-500" },
+                  icon: <Target className="w-5 h-5 text-white" />,
+                },
+              ];
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {projetosAnuais.map((p) => {
+                    const d = p.dados;
+                    const indicadores = d ? [
+                      { nome: "Hora Aula",      valor: d.horaAula,       unidade: "h" },
+                      { nome: "Atendimentos",   valor: d.atendimentos,   unidade: "" },
+                      { nome: "Lanche",         valor: d.lanche,         unidade: "" },
+                      { nome: "Frequência",     valor: d.frequencia,     unidade: "%" },
+                      { nome: "Atendidos",      valor: d.atendidos,      unidade: "" },
+                      { nome: "Evasão",         valor: d.evasao,         unidade: "" },
+                    ] : [];
+                    return (
+                      <Card key={p.nome} className={`${p.cores.bg} border-l-4 ${p.cores.border}`}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="flex items-center gap-2 text-lg">
+                            <div className={`w-8 h-8 ${p.cores.icon} rounded-lg flex items-center justify-center`}>{p.icon}</div>
+                            <span className="text-gray-800">{p.label}</span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 gap-3">
+                            {indicadores.map((ind, idx) => (
+                              <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                <div className={`text-2xl font-bold ${p.cores.text} mb-1`}>
+                                  {ind.unidade === "%" ? `${ind.valor.toFixed(1)}%` : ind.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                </div>
+                                <p className="text-xs text-gray-700 font-medium">{ind.nome}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* NOVA SEÇÃO: Cursos Detalhados por Área */}
             <Card>
@@ -4035,7 +5036,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             <div className="px-3 pb-3 space-y-2">
                               <div className="bg-yellow-50 rounded-lg p-3 mb-3">
                                 <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
-                                <div className="grid grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <div className="text-lg font-bold text-gray-600">
                                       {tecnologiaData?.data.presencial.cursos.length || 0}
@@ -4068,7 +5069,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 {tecnologiaData?.data.presencial.cursos.map((curso: any) => (
                                   <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                     <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                       <div>
                                         <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                       </div>
@@ -4114,7 +5115,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             <div className="px-3 pb-3 space-y-2">
                               <div className="bg-blue-50 rounded-lg p-3 mb-3">
                                 <h4 className="text-sm font-bold text-gray-800 mb-2">Totais EAD</h4>
-                                <div className="grid grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <div className="text-lg font-bold text-gray-600">
                                       {tecnologiaData?.data.ead.cursos.length || 0}
@@ -4147,7 +5148,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 {tecnologiaData?.data.ead.cursos.map((curso: any) => (
                                   <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                     <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                       <div>
                                         <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                       </div>
@@ -4219,7 +5220,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             <div className="px-3 pb-3 space-y-2">
                               <div className="bg-yellow-50 rounded-lg p-3 mb-3">
                                 <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
-                                <div className="grid grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <div className="text-lg font-bold text-gray-600">
                                       {belezaData?.data.presencial.cursos.length || 0}
@@ -4252,7 +5253,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 {belezaData?.data.presencial.cursos.map((curso: any) => (
                                   <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                     <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                       <div>
                                         <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                       </div>
@@ -4324,7 +5325,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                             <div className="px-3 pb-3 space-y-2">
                               <div className="bg-yellow-50 rounded-lg p-3 mb-3">
                                 <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
-                                <div className="grid grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                   <div className="text-center">
                                     <div className="text-lg font-bold text-gray-600">
                                       {gastronomiaData?.data.presencial.cursos.length || 0}
@@ -4357,7 +5358,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 {gastronomiaData?.data.presencial.cursos.map((curso: any) => (
                                   <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                     <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                    <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                       <div>
                                         <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                       </div>
@@ -4445,7 +5446,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 <div className="px-3 pb-3 space-y-2">
                                   <div className="bg-yellow-50 rounded-lg p-3 mb-3">
                                     <h4 className="text-sm font-bold text-gray-800 mb-2">Totais Presencial</h4>
-                                    <div className="grid grid-cols-4 gap-2">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                       <div className="text-center">
                                         <div className="text-lg font-bold text-gray-600">
                                           {area.data?.data.presencial.cursos.length || 0}
@@ -4478,7 +5479,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                     {area.data?.data.presencial.cursos.map((curso: any) => (
                                       <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                         <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                        <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                           <div>
                                             <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                           </div>
@@ -4523,7 +5524,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                 <div className="px-3 pb-3 space-y-2">
                                   <div className="bg-blue-50 rounded-lg p-3 mb-3">
                                     <h4 className="text-sm font-bold text-gray-800 mb-2">Totais EAD</h4>
-                                    <div className="grid grid-cols-4 gap-2">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                       <div className="text-center">
                                         <div className="text-lg font-bold text-gray-600">
                                           {area.data?.data.ead.cursos.length || 0}
@@ -4556,7 +5557,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                                     {area.data?.data.ead.cursos.map((curso: any) => (
                                       <div key={curso.id} className="bg-gray-50 rounded-lg p-2 text-xs">
                                         <div className="font-semibold text-gray-800 mb-1">{curso.curso}</div>
-                                        <div className="grid grid-cols-4 gap-1 text-gray-600">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-gray-600">
                                           <div>
                                             <span className="font-medium">Inscritos:</span> {curso.inscritos ?? '-'}
                                           </div>
@@ -4591,47 +5592,170 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         );
       }
       case "pec":
-        if (!dadosMensaisPEC) {
-          return <div className="p-6">Carregando dados do PEC...</div>;
-        }
         return (
           <div className="space-y-6">
-            {/* Seletor de Ano */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-medium text-gray-600">Ano:</span>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2025 ? "default" : "outline"}
-                className={anoIndicadores === 2025 ? "bg-orange-600 hover:bg-orange-700" : ""}
-                onClick={() => setAnoIndicadores(2025)}
-              >
-                2025
-              </Button>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2026 ? "default" : "outline"}
-                className={anoIndicadores === 2026 ? "bg-orange-600 hover:bg-orange-700" : ""}
-                onClick={() => setAnoIndicadores(2026)}
-              >
-                2026
-              </Button>
-            </div>
+            {anoIndicadores === 2026 ? (() => {
+              const mpec  = metasPec2026?.metas ?? {};
+              const gvInd = gvDataPec2026?.indicadores ?? {};
+              const gvPec = gvDataPec2026?.pecData ?? {};
+              const atendidosMeta = mpec.criancasAtendidas ?? gvPec?.atendidos_meta ?? 500;
+              const freqMeta      = mpec.frequencia        ?? 85;
+              const evasaoMeta    = mpec.evasao            ?? 10;
+              const npsMeta       = mpec.nps               ?? 90;
 
-            {anoIndicadores === 2026 ? (
-              <CoordenadorDashboard
-                data={dashPecData}
-                isLoading={loadingDashPec}
-                filtroAno={dashPecFiltroAno}
-                filtroMes={dashPecFiltroMes}
-                onFilterChange={(ano, mes) => {
-                  setDashPecFiltroAno(ano);
-                  setDashPecFiltroMes(mes);
-                }}
-                tipo="pec"
-                titleOverride="Painel PEC - Esporte e Cultura"
-                minAno={2026}
-              />
-            ) : (
+              const atendidos    = pecKpis2026?.atendidos    ?? gvInd?.criancasAtendidas?.valor ?? 0;
+              const freq         = pecKpis2026?.frequenciaMedia ?? gvInd?.frequencia?.valor       ?? 0;
+              const evasao       = pecKpis2026?.evasao       ?? gvInd?.evasao?.valor             ?? 0;
+              const nps          = pecKpis2026?.nps          ?? gvInd?.criterioSucesso?.valor     ?? 0;
+              const horasAula    = pecKpis2026?.horasAula    ?? 0;
+              const atendimentos = pecKpis2026?.atendimentos ?? 0;
+              const alimentacao  = pecKpis2026?.alimentacao  ?? 0;
+
+              const pecKpis = [
+                { label: 'Crianças Atendidas', valor: atendidos,    meta: atendidosMeta, inverse: false, fmt: 'n' },
+                { label: 'Frequência',          valor: freq,         meta: freqMeta,      inverse: false, fmt: '%' },
+                { label: 'Evasão',              valor: evasao,       meta: evasaoMeta,    inverse: true,  fmt: '%' },
+                { label: 'NPS',                 valor: nps,          meta: npsMeta,       inverse: false, fmt: 'n' },
+                { label: 'Horas Aula',          valor: horasAula,    meta: null,          inverse: false, fmt: 'n' },
+                { label: 'Atendimentos',        valor: atendimentos, meta: null,          inverse: false, fmt: 'n' },
+                { label: 'Alimentação',         valor: alimentacao,  meta: null,          inverse: false, fmt: 'n' },
+              ];
+
+              const projPec = dadosProgramasPec?.data ?? {};
+              const pecProjetosCores: Record<string, {bg:string;border:string;text:string;icon:string}> = {
+                casaSonhar:             { bg:'bg-orange-50', border:'border-l-orange-500',  text:'text-orange-600',  icon:'bg-orange-500'  },
+                programaEsporteCultura: { bg:'bg-amber-50',  border:'border-l-amber-600',   text:'text-amber-600',   icon:'bg-amber-600'   },
+                serenata:               { bg:'bg-yellow-50', border:'border-l-yellow-600',  text:'text-yellow-600',  icon:'bg-yellow-600'  },
+              };
+              const projetos = [
+                { key: 'casaSonhar',             label: 'Casa Sonhar' },
+                { key: 'programaEsporteCultura', label: 'Polo Esporte e Cultura' },
+                { key: 'serenata',               label: 'Sala Serenata' },
+              ];
+              const projIcons = [
+                <Users className="w-5 h-5 text-white" />,
+                <Target className="w-5 h-5 text-white" />,
+                <GraduationCap className="w-5 h-5 text-white" />,
+              ];
+
+              return (
+                <div className="space-y-6">
+                  {/* Título + filtro mês inline */}
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-gray-900">Metas & Resultados</h3>
+                    <select
+                      className="border rounded px-1 py-0.5 text-[10px] w-auto md:px-2 md:py-1 md:text-xs bg-white"
+                      value={kpiPecMes}
+                      onChange={e => setKpiPecMes(e.target.value)}
+                    >
+                      <option value="todos">Todos os meses</option>
+                      {['Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => <option key={i+2} value={String(i+2)}>{m}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500">KPIs de 2026</p>
+                  </div>
+
+                  {/* Carrossel de KPIs — mesmo padrão da Inclusão */}
+                  <style>{`.kpi-carousel-pec::-webkit-scrollbar{display:none}`}</style>
+                  <div
+                    className="kpi-carousel-pec"
+                    style={{
+                      overflowX: 'auto', overflowY: 'hidden',
+                      width: '100%', maxWidth: '100%',
+                      WebkitOverflowScrolling: 'touch',
+                      scrollbarWidth: 'none', msOverflowStyle: 'none',
+                      cursor: 'grab', paddingBottom: '4px',
+                    } as React.CSSProperties}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const el = e.currentTarget;
+                      el.style.cursor = 'grabbing';
+                      const startX = e.clientX;
+                      const startScroll = el.scrollLeft;
+                      const onMove = (me: MouseEvent) => { el.scrollLeft = startScroll - (me.clientX - startX); };
+                      const onUp = () => {
+                        el.style.cursor = 'grab';
+                        window.removeEventListener('mousemove', onMove);
+                        window.removeEventListener('mouseup', onUp);
+                      };
+                      window.addEventListener('mousemove', onMove);
+                      window.addEventListener('mouseup', onUp);
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '12px', width: 'max-content', padding: '2px' }}>
+                      {pecKpis.map((kpi, idx) => (
+                        <GestaoKpiCard
+                          key={idx}
+                          label={kpi.label}
+                          valor={kpi.valor}
+                          meta={kpi.meta}
+                          inverse={kpi.inverse}
+                          format={kpi.fmt === '%' ? 'percent' : 'number'}
+                          variant="light"
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Cards por Projeto — expansíveis, igual ao Welcome e Inclusão */}
+                  <div className="pt-2 border-t border-gray-200">
+                    <h3 className="text-base font-bold text-gray-900 mb-3">Resultados Anuais por Projeto</h3>
+                  </div>
+                  <div className="space-y-4">
+                    {projetos.map((p, idx) => {
+                      const d = projPec[p.key];
+                      const isOpen = expandedPECAdminCard === p.key;
+                      return (
+                        <div
+                          key={p.key}
+                          className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                          onClick={() => setExpandedPECAdminCard(isOpen ? null : p.key)}
+                        >
+                          <div className="p-4">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                                  {projIcons[idx]}
+                                </div>
+                                <h3 className="text-base font-bold text-gray-800">{p.label}</h3>
+                              </div>
+                              <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </div>
+                            {isOpen && (
+                              <div className="mt-4">
+                                {!d ? (
+                                  <p className="text-sm text-gray-400 text-center py-2">Sem dados disponíveis</p>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {[
+                                      { nome: 'Atendidos',    val: d.atendidos,        fmt: 'n' },
+                                      { nome: 'Atendimentos', val: d.atendimentos,     fmt: 'n' },
+                                      { nome: 'Horas Aula',   val: d.horaAula,         fmt: 'n' },
+                                      { nome: 'Alimentação',  val: d.alimentacao ?? 0, fmt: 'n' },
+                                      { nome: 'Frequência',   val: d.frequencia,       fmt: '%' },
+                                      { nome: 'Evasão',       val: d.evasao ?? 0,      fmt: 'n' },
+                                      { nome: 'NPS',          val: d.nps ?? 0,         fmt: 'n' },
+                                    ].map((ind, i) => (
+                                      <div key={i} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                        <div className="text-2xl font-bold text-gray-900 mb-1">
+                                          {ind.fmt === '%'
+                                            ? `${Number(ind.val).toFixed(1)}%`
+                                            : Number(ind.val).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                        </div>
+                                        <p className="text-xs text-gray-700 font-medium">{ind.nome}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })() : (!dadosMensaisPEC ? <div className="p-6">Carregando dados do PEC...</div> : (
             <>
             {/* Seletor de Mês PEC */}
             <div className="flex items-center gap-2 mb-4">
@@ -4808,412 +5932,365 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </CardContent>
             </Card>
           </>
-            )}
+            ))}
           </div>
         );
       case "psicossocial":
-        if (!dadosMensaisPsicossocial) {
-          return <div className="p-6">Carregando dados de Psicossocial...</div>;
-        }
         return (
           <div className="space-y-6">
-            {/* Seletor de Ano */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-medium text-gray-600">Ano:</span>
+            {/* Seletor de ano */}
+            <div className="flex gap-2">
               <Button
                 size="sm"
-                variant={anoIndicadores === 2025 ? "default" : "outline"}
-                className={anoIndicadores === 2025 ? "bg-blue-600 hover:bg-blue-700" : ""}
-                onClick={() => setAnoIndicadores(2025)}
-              >
-                2025
-              </Button>
+                variant={anoPsicoAdmin === 2025 ? "default" : "outline"}
+                className={anoPsicoAdmin === 2025 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
+                onClick={() => setAnoPsicoAdmin(2025)}
+              >2025</Button>
               <Button
                 size="sm"
-                variant={anoIndicadores === 2026 ? "default" : "outline"}
-                className={anoIndicadores === 2026 ? "bg-blue-600 hover:bg-blue-700" : ""}
-                onClick={() => setAnoIndicadores(2026)}
-              >
-                2026
-              </Button>
+                variant={anoPsicoAdmin === 2026 ? "default" : "outline"}
+                className={anoPsicoAdmin === 2026 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
+                onClick={() => setAnoPsicoAdmin(2026)}
+              >2026</Button>
             </div>
-            
-            {/* Seletor de Mês Psicossocial */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-medium text-gray-600">Mês:</span>
-              <select
-                className="border rounded px-2 py-1 text-sm"
-                value={mesSelecionadoPsicossocial}
-                onChange={(e) => setMesSelecionadoPsicossocial(parseInt(e.target.value))}
-              >
-                <option value="-1">Todos (Acumulado)</option>
-                <option value="0">Janeiro</option>
-                <option value="1">Fevereiro</option>
-                <option value="2">Março</option>
-                <option value="3">Abril</option>
-                <option value="4">Maio</option>
-                <option value="5">Junho</option>
-                <option value="6">Julho</option>
-                <option value="7">Agosto</option>
-                <option value="8">Setembro</option>
-                <option value="9">Outubro</option>
-                <option value="10">Novembro</option>
-                <option value="11">Dezembro</option>
-              </select>
-            </div>
-            
-            {/* Indicadores */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  Indicadores Psicossocial - {anoIndicadores}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {/* Resumo Geral */}
-                {dadosMensaisPsicossocial.resumo && (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-blue-700">
-                        {dadosMensaisPsicossocial.resumo.totalGeral?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Total Geral</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-purple-700">
-                        {dadosMensaisPsicossocial.resumo.totalRegistros?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Registros Confidenciais</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-green-700">
-                        {dadosMensaisPsicossocial.resumo.totalAtividades?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Relatos de Atividades</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-blue-700">
-                        {dadosMensaisPsicossocial.resumo.totalAtendimentos?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Atendimentos</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-orange-700">
-                        {dadosMensaisPsicossocial.resumo.totalVisitas?.toLocaleString('pt-BR') || 0}
-                      </p>
-                      <p className="text-xs text-gray-600">Visitas Domiciliares</p>
-                    </div>
-                  </div>
-                )}
 
-                {/* Registros Confidenciais */}
-                <h4 className="text-sm font-semibold mb-3 text-purple-700 border-b pb-2">Registros Confidenciais</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  {dadosMensaisPsicossocial.indicadores?.filter((i: any) => {
-                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
-                    return val > 0 || i.meta;
-                  }).map(
-                    (indicador: any) => (
-                      <div
-                        key={indicador.nome}
-                        className="p-4 border border-purple-100 rounded-lg hover:shadow-md transition-shadow bg-purple-50/30"
-                      >
-                        <p className="text-sm text-gray-600 mb-2">
-                          {indicador.nome}
-                        </p>
-                        <p className="text-2xl font-bold text-purple-600">
-                          {mesSelecionadoPsicossocial >= 0 
-                            ? (indicador.mensal?.[mesSelecionadoPsicossocial] ?? 0).toLocaleString('pt-BR')
-                            : (indicador.valor ?? 0).toLocaleString('pt-BR')}
-                        </p>
-                        {indicador.meta && (
-                          <div className="mt-2">
-                            <div className="flex justify-between text-xs text-gray-500 mb-1">
-                              <span>Meta: {indicador.meta}</span>
-                              <span className={indicador.percentual >= 80 ? 'text-green-600 font-semibold' : indicador.percentual >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                                {indicador.percentual}%
-                              </span>
+            {anoPsicoAdmin === 2026 ? (
+              <div className="space-y-4">
+                <p className="text-base font-bold text-gray-700">Dados Anuais por Seguimento</p>
+
+                {/* Card Atenção Social 2026 */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedPsicoCardAdmin(expandedPsicoCardAdmin === 'atencao-social' ? null : 'atencao-social')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Home className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Atenção Social</h3>
+                      </div>
+                      {expandedPsicoCardAdmin === 'atencao-social' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
+                    </div>
+                    {expandedPsicoCardAdmin === 'atencao-social' && (
+                      <div className="mt-4">
+                        {loadingAtencaoAdmin2026 ? (
+                          <div className="text-center py-4 text-gray-500">Carregando...</div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {atencaoSocialAdmin2026?.data?.visitasDomiciliares?.realizadas ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Visitas Domiciliares</p>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className={`h-2 rounded-full ${indicador.percentual >= 80 ? 'bg-green-500' : indicador.percentual >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                                style={{ width: `${Math.min(indicador.percentual || 0, 100)}%` }}
-                              />
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {atencaoSocialAdmin2026?.data?.atendimentosIndividuais?.realizados ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Acolhimento Individual</p>
                             </div>
                           </div>
                         )}
                       </div>
-                    )
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* Relatos de Atividades */}
-                <h4 className="text-sm font-semibold mb-3 text-green-700 border-b pb-2">Relatos de Atividades</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  {(dadosMensaisPsicossocial.relatosAtividades || []).filter((i: any) => {
-                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
-                    return val > 0;
-                  }).map(
-                    (indicador: any) => (
-                      <div
-                        key={indicador.nome}
-                        className="p-4 border border-green-100 rounded-lg hover:shadow-md transition-shadow bg-green-50/30"
-                      >
-                        <p className="text-sm text-gray-600 mb-2">
-                          {indicador.nome}
-                        </p>
-                        <p className="text-2xl font-bold text-green-600">
-                          {mesSelecionadoPsicossocial >= 0 
-                            ? (indicador.mensal?.[mesSelecionadoPsicossocial] ?? 0).toLocaleString('pt-BR')
-                            : (indicador.valor ?? 0).toLocaleString('pt-BR')}
-                        </p>
-                      </div>
-                    )
-                  )}
-                  {(dadosMensaisPsicossocial.relatosAtividades || []).filter((i: any) => {
-                    const val = mesSelecionadoPsicossocial >= 0 ? (i.mensal?.[mesSelecionadoPsicossocial] ?? 0) : (i.valor ?? 0);
-                    return val > 0;
-                  }).length === 0 && (
-                    <p className="text-sm text-gray-400 italic col-span-3">Nenhuma atividade registrada neste período</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      case "negocios": {
-        const outletDoacoes = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.doacoesRecebidas || 0;
-        const outletPecas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.pecasVendidas || 0;
-        const outletPessoas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.outlet?.vendasPessoasImpactadas || 0;
-        const grifftePecas = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.griffte?.pecasConfeccionadas || 0;
-        const griffteClientes = (anoIndicadores === 2026 ? negociosData : negociosSociaisData)?.data?.griffte?.clientesAtendidos || 0;
-        const mesesNegocios = [
-          { value: "todos", label: "Todos os Meses" },
-          { value: "1", label: "Janeiro" }, { value: "2", label: "Fevereiro" },
-          { value: "3", label: "Março" }, { value: "4", label: "Abril" },
-          { value: "5", label: "Maio" }, { value: "6", label: "Junho" },
-          { value: "7", label: "Julho" }, { value: "8", label: "Agosto" },
-          { value: "9", label: "Setembro" }, { value: "10", label: "Outubro" },
-          { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
-        ];
-        return (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <span className="text-sm font-medium text-gray-600">Ano:</span>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2025 ? "default" : "outline"}
-                className={anoIndicadores === 2025 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
-                onClick={() => setAnoIndicadores(2025)}
-              >
-                2025
-              </Button>
-              <Button
-                size="sm"
-                variant={anoIndicadores === 2026 ? "default" : "outline"}
-                className={anoIndicadores === 2026 ? "bg-yellow-600 hover:bg-yellow-700" : ""}
-                onClick={() => setAnoIndicadores(2026)}
-              >
-                2026
-              </Button>
-              {anoIndicadores === 2026 && (
-                <>
-                  <span className="text-sm font-medium text-gray-600 ml-2">Mês:</span>
-                  <select
-                    className="border rounded-md px-2 py-1 text-sm bg-white text-gray-800"
-                    value={mesSelecionadoMarketing === null ? "todos" : String(mesSelecionadoMarketing)}
-                    onChange={e => setMesSelecionadoMarketing(e.target.value === "todos" ? null : Number(e.target.value))}
-                  >
-                    {mesesNegocios.map(m => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                </>
-              )}
-            </div>
-
-            {loadingNegocios ? (
-              <div className="text-center py-8 text-gray-500">Carregando dados...</div>
-            ) : anoIndicadores === 2026 ? (
-              <div className="bg-white rounded-xl p-4 md:p-6 border-2 border-orange-500/30">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 md:p-3 bg-orange-500 rounded-xl">
-                    <Briefcase className="w-5 h-5 md:w-7 md:h-7 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-gray-900 font-bold text-lg md:text-xl">Negócios Sociais</p>
-                    <p className="text-gray-500 text-xs md:text-sm">Resultados do Período</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-xl p-3 md:p-5 border border-yellow-500/40">
-                    <p className="text-gray-900 font-bold text-base md:text-xl mb-3 text-center border-b border-yellow-500/30 pb-2 md:pb-3">IOG OUTLET</p>
-                    <div className="grid gap-2 md:gap-3">
-                      <div className="bg-gradient-to-r from-yellow-100 via-yellow-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-yellow-500 relative overflow-hidden">
-                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 md:w-4 md:h-4 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                          </svg>
+                {/* Card Método O Grito 2026 */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedPsicoCardAdmin(expandedPsicoCardAdmin === 'metodo-grito' ? null : 'metodo-grito')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Users className="w-5 h-5 text-white" />
                         </div>
-                        <p className="text-gray-600 text-xs md:text-sm">Doações Recebidas</p>
-                        <p className="text-yellow-600 font-bold text-2xl md:text-3xl">{outletDoacoes.toLocaleString('pt-BR')}</p>
+                        <h3 className="text-lg font-bold text-gray-800">Método O Grito</h3>
                       </div>
-                      <div className="bg-gradient-to-r from-orange-100 via-orange-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-orange-500 relative overflow-hidden">
-                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 md:w-4 md:h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-600 text-xs md:text-sm">Peças Vendidas</p>
-                        <p className="text-orange-600 font-bold text-2xl md:text-3xl">{outletPecas.toLocaleString('pt-BR')}</p>
-                      </div>
-                      <div className="bg-gradient-to-r from-amber-100 via-amber-50 to-transparent rounded-lg p-3 md:p-4 border-l-4 border-amber-500 relative overflow-hidden">
-                        <div className="absolute top-1 right-1 md:top-2 md:right-2 w-6 h-6 md:w-8 md:h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 md:w-4 md:h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-600 text-xs md:text-sm">Pessoas Impactadas</p>
-                        <p className="text-amber-600 font-bold text-2xl md:text-3xl">{outletPessoas.toLocaleString('pt-BR')}</p>
-                      </div>
+                      {expandedPsicoCardAdmin === 'metodo-grito' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
                     </div>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-3 md:p-5 border border-orange-500/40">
-                    <p className="text-gray-900 font-bold text-base md:text-xl mb-3 text-center border-b border-orange-500/30 pb-2 md:pb-3">IOG CONFECÇÃO</p>
-                    <div className="grid gap-3 md:gap-4">
-                      <div className="bg-gradient-to-r from-orange-100 via-orange-50 to-transparent rounded-lg p-3 md:p-5 border-l-4 border-orange-600 relative overflow-hidden">
-                        <div className="absolute top-1 right-1 md:top-3 md:right-3 w-6 h-6 md:w-10 md:h-10 rounded-full bg-orange-600/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 md:w-5 md:h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-600 text-xs md:text-base">Peças Confeccionadas</p>
-                        <p className="text-orange-600 font-bold text-2xl md:text-4xl">{grifftePecas.toLocaleString('pt-BR')}</p>
+                    {expandedPsicoCardAdmin === 'metodo-grito' && (
+                      <div className="mt-4">
+                        {loadingMetodoAdmin2026 ? (
+                          <div className="text-center py-4 text-gray-500">Carregando...</div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {(intervencoesAdminCount?.total ?? 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Intervenções</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {metodoGritoAdmin2026?.data?.espacosColetivos?.total ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">#EspaçoOGrito</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="bg-gradient-to-r from-red-100 via-red-50 to-transparent rounded-lg p-3 md:p-5 border-l-4 border-red-500 relative overflow-hidden">
-                        <div className="absolute top-1 right-1 md:top-3 md:right-3 w-6 h-6 md:w-10 md:h-10 rounded-full bg-red-500/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 md:w-5 md:h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-600 text-xs md:text-base">Clientes Atendidos</p>
-                        <p className="text-red-500 font-bold text-2xl md:text-4xl">{griffteClientes.toLocaleString('pt-BR')}</p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
             ) : (
-              <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-gray-700" />
-                      Negócios Sociais - {anoIndicadores}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <p className="text-3xl font-bold text-gray-800">
-                          {(outletDoacoes + outletPecas).toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-xs text-gray-600">Total Itens Movimentados</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-3xl font-bold text-gray-800">
-                          {outletPessoas.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-xs text-gray-600">Pessoas Impactadas (IOG Outlet)</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-3xl font-bold text-gray-800">
-                          {grifftePecas.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-xs text-gray-600">Produção IOG Confecção</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-3xl font-bold text-gray-800">
-                          {griffteClientes.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-xs text-gray-600">Clientes IOG Confecção</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-500">Dados Anuais 2025</p>
 
-                <Card className="border-l-4 border-l-yellow-500">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-yellow-500 rounded-xl flex items-center justify-center">
-                        <ShoppingBag className="w-6 h-6 text-white" />
+                {/* Card Atenção Social */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedPsicoCardAdmin(expandedPsicoCardAdmin === 'atencao-social' ? null : 'atencao-social')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Home className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Atenção Social</h3>
                       </div>
-                      <div>
-                        <span className="text-xl font-bold">IOG Outlet</span>
-                        <p className="text-sm text-gray-500 font-normal">Loja social de roupas e acessórios</p>
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
-                        <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {outletDoacoes.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-sm text-gray-700 font-medium">Doações Recebidas</p>
-                      </div>
-                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
-                        <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {outletPessoas.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-sm text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
-                      </div>
-                      <div className="bg-yellow-50 rounded-xl p-5 text-center">
-                        <p className="text-4xl font-bold text-yellow-600 mb-2">
-                          {outletPecas.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-sm text-gray-700 font-medium">Peças / Itens Vendidos</p>
-                      </div>
+                      {expandedPsicoCardAdmin === 'atencao-social' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
+                    {expandedPsicoCardAdmin === 'atencao-social' && (
+                      <div className="mt-4">
+                        {loadingAtencaoAdmin ? (
+                          <div className="text-center py-4 text-gray-500">Carregando...</div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {atencaoSocialAdmin2025?.data?.visitasDomiciliares?.realizadas ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Visitas Domiciliares</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {atencaoSocialAdmin2025?.data?.atendimentosIndividuais?.realizados ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Acolhimento Individual</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-                <Card className="border-l-4 border-l-rose-800">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-rose-800 rounded-xl flex items-center justify-center">
-                        <Star className="w-6 h-6 text-white" />
+                {/* Card Método O Grito */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedPsicoCardAdmin(expandedPsicoCardAdmin === 'metodo-grito' ? null : 'metodo-grito')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Users className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Método O Grito</h3>
                       </div>
-                      <div>
-                        <span className="text-xl font-bold">IOG Confecção</span>
-                        <p className="text-sm text-gray-500 font-normal">Ateliê de moda e confecção</p>
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-rose-50 rounded-xl p-5 text-center">
-                        <p className="text-4xl font-bold text-rose-800 mb-2">
-                          {grifftePecas.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-sm text-gray-700 font-medium">Peças Confeccionadas</p>
-                      </div>
-                      <div className="bg-rose-50 rounded-xl p-5 text-center">
-                        <p className="text-4xl font-bold text-rose-800 mb-2">
-                          {griffteClientes.toLocaleString('pt-BR')}
-                        </p>
-                        <p className="text-sm text-gray-700 font-medium">Clientes Atendidos</p>
-                      </div>
+                      {expandedPsicoCardAdmin === 'metodo-grito' ? (
+                        <ChevronUp className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
-              </>
+                    {expandedPsicoCardAdmin === 'metodo-grito' && (
+                      <div className="mt-4">
+                        {loadingMetodoAdmin ? (
+                          <div className="text-center py-4 text-gray-500">Carregando...</div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {(intervencoesAdminCount?.total ?? 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Intervenções</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {metodoGritoAdmin2025?.data?.espacosColetivos?.total ?? 0}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">#EspaçoOGrito</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+            case "negocios": {
+        const negData = (anoIndicadores === 2026 ? negociosData : negociosSociaisData);
+        const outletDoacoes     = negData?.data?.outlet?.doacoesRecebidas   || 0;
+        const outletPecas       = negData?.data?.outlet?.pecasVendidas      || 0;
+        const outletPessoas     = negData?.data?.outlet?.clientesAtendidos  || 0;
+        const outletCacambas    = negData?.data?.outlet?.cacambasDoBem      || 0;
+        const outletLives       = negData?.data?.outlet?.livesRealizadas    || 0;
+        const grifftePecas      = negData?.data?.griffte?.pecasConfeccionadas || 0;
+        const griffteClientes   = negData?.data?.griffte?.clientesAtendidos   || 0;
+        const grifftePedidos    = negData?.data?.griffte?.pedidosEntregues    || 0;
+
+        return (
+          <div className="space-y-6">
+            {/* Filtros */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="text-sm font-medium text-gray-600">Ano:</span>
+              <Button size="sm" variant={anoIndicadores === 2025 ? "default" : "outline"} className={anoIndicadores === 2025 ? "bg-yellow-600 hover:bg-yellow-700" : ""} onClick={() => setAnoIndicadores(2025)}>2025</Button>
+              <Button size="sm" variant={anoIndicadores === 2026 ? "default" : "outline"} className={anoIndicadores === 2026 ? "bg-yellow-600 hover:bg-yellow-700" : ""} onClick={() => setAnoIndicadores(2026)}>2026</Button>
+
+            </div>
+
+            {loadingNegocios ? (
+              <div className="text-center py-8 text-gray-500">Carregando dados...</div>
+            ) : (
+              <div className="space-y-4">
+                {anoIndicadores === 2026
+                  ? <p className="text-base font-semibold text-gray-900">Resultados Anuais por Negócio</p>
+                  : <p className="text-sm text-gray-500">Dados Anuais {anoIndicadores}</p>}
+
+                {/* Card IOG Outlet */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedNegocioCard(expandedNegocioCard === 'outlet' ? null : 'outlet')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Store className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">IOG Outlet</h3>
+                      </div>
+                      {expandedNegocioCard === 'outlet'
+                        ? <ChevronUp className="w-5 h-5 text-gray-600" />
+                        : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedNegocioCard === 'outlet' && (
+                      <div className="mt-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          {(anoIndicadores !== 2025 || outletDoacoes > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {outletDoacoes.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Itens Recebidos</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || outletCacambas > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {outletCacambas.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Caçambas do Bem</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || outletPessoas > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {outletPessoas.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Clientes Atendidos</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || outletPecas > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {outletPecas.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Itens Vendidos</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || outletLives > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {outletLives.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Lives Realizadas</p>
+                          </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Card IOG Confecção */}
+                <div
+                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedNegocioCard(expandedNegocioCard === 'griffte' ? null : 'griffte')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                          <Scissors className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">IOG Confecção</h3>
+                      </div>
+                      {expandedNegocioCard === 'griffte'
+                        ? <ChevronUp className="w-5 h-5 text-gray-600" />
+                        : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedNegocioCard === 'griffte' && (
+                      <div className="mt-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          {(anoIndicadores !== 2025 || griffteClientes > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {griffteClientes.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Clientes Atendidos</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || grifftePedidos > 0) && (
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {grifftePedidos.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Pedidos Entregues</p>
+                          </div>
+                          )}
+                          {(anoIndicadores !== 2025 || grifftePecas > 0) && (
+                          <div className={`bg-white rounded-lg p-3 text-center shadow-sm${(anoIndicadores !== 2025 || grifftePedidos > 0) ? ' col-span-2' : ''}`}>
+                            <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
+                              {grifftePecas.toLocaleString('pt-BR')}
+                            </div>
+                            <p className="text-xs text-gray-700 font-medium">Peças Produzidas</p>
+                          </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         );
       }
-      case "investimento":
+            case "investimento":
         return (
           <div className="space-y-6">
             {/* Seletor de Ano */}
@@ -5237,13 +6314,21 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
               </Button>
             </div>
             
-            <DashboardFinanceiro
-              filtrosPeriodo={{ mes: null, ano: anoIndicadores }}
-              showRefreshControls={true}
-              showData={showFinanceiroData}
-              onToggleShowData={() => setShowFinanceiroData(!showFinanceiroData)}
-              className="space-y-4"
-            />
+            {anoIndicadores === 2026 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center gap-4 bg-gray-100 rounded-2xl border border-gray-200">
+                <Wrench className="w-10 h-10 text-gray-500" />
+                <h3 className="text-lg font-bold text-gray-800">Em manutenção</h3>
+                <p className="text-sm text-gray-600 max-w-xs">Estamos organizando os indicadores de 2026. Em breve tudo estará disponível aqui.</p>
+              </div>
+            ) : (
+              <DashboardFinanceiro
+                filtrosPeriodo={{ mes: null, ano: anoIndicadores }}
+                showRefreshControls={true}
+                showData={showFinanceiroData}
+                onToggleShowData={() => setShowFinanceiroData(!showFinanceiroData)}
+                className="space-y-4"
+              />
+            )}
           </div>
         );
       case "metas-indicadores":
@@ -5324,6 +6409,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
   // Mobile version - optimized layout with Drawer Menu
   if (isMobile) {
     return (
+      <>
       <div className="min-h-screen bg-gray-50">
         {/* Overlay when drawer is open */}
         {isDrawerOpen && (
@@ -5335,7 +6421,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
         {/* Side Drawer Menu */}
         <div
-          className={`fixed top-0 left-0 h-full w-72 bg-white z-50 shadow-2xl transform transition-transform duration-300 ease-in-out ${
+          className={`fixed top-0 left-0 h-full w-72 bg-white z-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${
             isDrawerOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -5360,14 +6446,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 ✕
               </Button>
             </div>
-            <Badge className="bg-transparent border-2 border-black text-black text-xs px-2 py-1">
-              <Crown className="w-3 h-3 mr-1" />
-              Acesso Total
-            </Badge>
           </div>
 
           {/* Drawer Content - Scrollable */}
-          <div className="overflow-y-auto h-[calc(100%-180px)]">
+          <div className="flex-1 overflow-y-auto">
             {/* Dashboard */}
             <div className="p-4 border-b">
               <button
@@ -5378,7 +6460,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                 className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${
                   activeSection === "dashboard"
                     ? "bg-yellow-400 text-black font-semibold"
-                    : "hover:bg-gray-100 text-gray-700"
+                    : "hover:bg-gray-100 text-gray-900"
                 }`}
               >
                 <Home className="w-5 h-5 mr-3" />
@@ -5414,7 +6496,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
                         activeSection === item.id
                           ? "bg-yellow-400 text-black font-semibold"
-                          : "hover:bg-gray-100 text-gray-700"
+                          : "hover:bg-gray-100 text-gray-900"
                       }`}
                     >
                       {item.id === "favela3d" ? (
@@ -5426,7 +6508,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       ) : (
                         <item.icon className="w-5 h-5 mr-3" />
                       )}
-                      <span className="text-sm">{item.label}</span>
+                      <span className="text-sm whitespace-nowrap">{item.label}</span>
                     </button>
                   ))}
               </div>
@@ -5454,13 +6536,11 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
                         activeSection === item.id
                           ? "bg-yellow-400 text-black font-semibold"
-                          : item.id === "patrocinador"
-                          ? "bg-amber-100 hover:bg-amber-200 text-gray-800 border border-amber-200"
-                          : "hover:bg-gray-100 text-gray-700"
+                          : "hover:bg-gray-100 text-gray-900"
                       }`}
                     >
                       <item.icon className="w-5 h-5 mr-3" />
-                      <span className="text-sm">{item.label}</span>
+                      <span className="text-sm whitespace-nowrap">{item.label}</span>
                     </button>
                   ))}
               </div>
@@ -5479,12 +6559,68 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   }}
                   className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
                     activeSection === "conselho"
-                      ? "bg-red-100 text-red-700 font-semibold border border-red-300"
-                      : "hover:bg-gray-100 text-gray-700"
+                      ? "bg-yellow-400 text-black font-semibold"
+                      : "hover:bg-gray-100 text-gray-900"
                   }`}
                 >
                   <Shield className="w-5 h-5 mr-3" />
                   <span className="text-sm">Conselho</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSection("chamadas-auditoria");
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
+                    activeSection === "chamadas-auditoria"
+                      ? "bg-yellow-400 text-black font-semibold"
+                      : "hover:bg-gray-100 text-gray-900"
+                  }`}
+                >
+                  <ClipboardList className="w-5 h-5 mr-3 text-orange-600" />
+                  <span className="text-sm whitespace-nowrap">Auditoria Chamadas</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSection("solicitacoes-exclusao");
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
+                    activeSection === "solicitacoes-exclusao"
+                      ? "bg-yellow-400 text-black font-semibold"
+                      : "hover:bg-gray-100 text-gray-900"
+                  }`}
+                >
+                  <Trash2 className="w-5 h-5 mr-3 text-gray-900" />
+                  <span className="text-sm whitespace-nowrap">Exclusões Chamadas</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSection("lgpd-consentimentos");
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
+                    activeSection === "lgpd-consentimentos"
+                      ? "bg-yellow-400 text-black font-semibold"
+                      : "hover:bg-gray-100 text-gray-900"
+                  }`}
+                >
+                  <Shield className="w-5 h-5 mr-3 text-indigo-700" />
+                  <span className="text-sm whitespace-nowrap">Auditoria LGPD</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSection("lgpd-ropa");
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
+                    activeSection === "lgpd-ropa"
+                      ? "bg-yellow-400 text-black font-semibold"
+                      : "hover:bg-gray-100 text-gray-900"
+                  }`}
+                >
+                  <FileText className="w-5 h-5 mr-3 text-indigo-700" />
+                  <span className="text-sm whitespace-nowrap">ROPA (LGPD)</span>
                 </button>
                 <button
                   onClick={() => {
@@ -5494,7 +6630,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   className={`flex items-center w-full px-4 py-2.5 rounded-lg transition-colors ${
                     activeSection === "settings"
                       ? "bg-yellow-400 text-black font-semibold"
-                      : "hover:bg-gray-100 text-gray-700"
+                      : "hover:bg-gray-100 text-gray-900"
                   }`}
                 >
                   <Settings className="w-5 h-5 mr-3" />
@@ -5505,34 +6641,45 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </div>
 
           {/* Drawer Footer - Fixed Actions */}
-          <div className="absolute bottom-0 left-0 right-0 bg-white border-t p-4">
+          <div className="flex-shrink-0 bg-white border-t p-3">
+            <button
+              type="button"
+              onClick={() => {
+                openPrivacyPreferences();
+                setIsDrawerOpen(false);
+              }}
+              className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900 mb-1.5"
+            >
+              <Shield className="w-5 h-5 mr-3 text-yellow-600" />
+              <span className="text-sm font-medium">Privacidade e cookies</span>
+            </button>
             <button
               onClick={() => {
                 sessionStorage.removeItem("preferAdminView");
                 setLocation("/tdoador");
               }}
-              className="flex items-center w-full px-4 py-2.5 rounded-lg hover:bg-red-50 text-red-600 mb-2"
+              className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900 mb-1.5"
             >
               <Heart className="w-5 h-5 mr-3" />
               <span className="text-sm font-medium">Modo Doador</span>
             </button>
             <button
-              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
-              className="flex items-center w-full px-4 py-2.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-black mb-2"
+              onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')}
+              className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900 mb-1.5"
             >
               <ExternalLink className="w-5 h-5 mr-3" />
               <span className="text-sm font-medium">Canal de Transparência</span>
             </button>
             <button
-              onClick={() => window.open('https://clubedogrito.institutoogrito.com.br/dashboard/gestao/vista', '_blank')}
-              className="flex items-center w-full px-4 py-2.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-black mb-2"
+              onClick={openGestaoVista}
+              className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900 mb-1.5"
             >
-              <ExternalLink className="w-5 h-5 mr-3" />
+              <BarChart3 className="w-5 h-5 mr-3" />
               <span className="text-sm font-medium">Dashboard Gestão à Vista</span>
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center w-full px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white mb-2">
+                <button className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900 mb-1.5">
                   <ClipboardList className="w-5 h-5 mr-3" />
                   <span className="text-sm font-medium">Plano de Ação</span>
                   <ChevronDown className="w-4 h-4 ml-auto" />
@@ -5557,7 +6704,7 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
             </DropdownMenu>
             <button
               onClick={handleLogout}
-              className="flex items-center w-full px-4 py-2.5 rounded-lg hover:bg-gray-100 text-gray-700"
+              className="flex items-center w-full px-4 py-2 rounded-lg hover:bg-gray-100 text-gray-900"
             >
               <LogOut className="w-5 h-5 mr-3" />
               <span className="text-sm font-medium">Sair</span>
@@ -5590,27 +6737,28 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </div>
         )}
 
-        {/* Clean Mobile Header with Hamburger */}
-        <header className="bg-yellow-400 px-4 py-4 shadow-lg sticky top-0 z-30">
+        {/* Clean Mobile Header */}
+        <header className="bg-white px-4 py-2 border-b border-gray-200 sticky top-0 z-30">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Button
-                onClick={() => setIsDrawerOpen(true)}
-                variant="ghost"
-                size="sm"
-                className="text-black hover:bg-yellow-500 p-2"
-                data-testid="button-menu-hamburger"
-              >
-                <Menu className="w-6 h-6" />
-              </Button>
-              <Logo size="sm" />
+            <div className="flex items-center">
               <div>
-                <h2 className="text-lg font-bold text-black">
-                  {(sidebarItems.find((item) => item.id === activeSection)?.label || "Dashboard") + (activeSection === "colaborador" ? " - 2026" : "")}
-                </h2>
-                <p className="text-xs text-black/70">
-                  {devAccess.hasDevAccess ? "Dev Mode" : "Admin"}
-                </p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-black whitespace-nowrap">
+                      {(sidebarItems.find((item) => item.id === activeSection)?.label || "Dashboard") + (activeSection === "colaborador" ? " - 2026" : "")}
+                    </h2>
+                    {(activeSection === "inclusao" || activeSection === "pec") && (
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: new Date().getFullYear() - 2024 }, (_, i) => 2025 + i).map(ano => (
+                          <Button key={ano} size="sm" variant={anoIndicadores === ano ? "default" : "outline"} className={`text-xs px-2 py-0.5 h-6 ${anoIndicadores === ano ? ("bg-yellow-500 hover:bg-yellow-600 text-white") : "text-black border-black/30"}`} onClick={() => setAnoIndicadores(ano)}>{ano}</Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-black/70">
+                    {devAccess.hasDevAccess ? "Dev Mode" : "Admin"}
+                  </p>
+                </div>
               </div>
             </div>
             {demoMode && (
@@ -5627,51 +6775,56 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
         </main>
 
         {/* Mobile Bottom Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 bg-black z-30" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           <div className="flex">
             <button
+              onClick={() => setIsDrawerOpen(true)}
+              className="flex-1 flex flex-col items-center gap-0.5 pt-2 pb-3 transition-colors text-white/50"
+            >
+              <Menu className="w-5 h-5" />
+              <span className="text-[9px] font-medium leading-tight">Menu</span>
+            </button>
+            <button
               onClick={() => setActiveSection("dashboard")}
-              className={`flex-1 py-3 px-2 text-center ${
+              className={`flex-1 flex flex-col items-center gap-0.5 pt-2 pb-3 transition-colors ${
                 activeSection === "dashboard"
-                  ? "text-yellow-600"
-                  : "text-gray-400"
+                  ? "text-yellow-400"
+                  : "text-white/50"
               }`}
             >
-              <BarChart3 className="w-6 h-6 mx-auto mb-1" />
-              <span className="text-xs">Dashboard</span>
+              <BarChart3 className="w-5 h-5" />
+              <span className="text-[9px] font-medium leading-tight">Dashboard</span>
             </button>
             <button
               onClick={() => {
-                // Marcar preferência para não ir automaticamente para admin
                 sessionStorage.removeItem("preferAdminView");
                 setLocation("/tdoador");
               }}
-              className="flex-1 py-3 px-2 text-center text-red-500"
+              className="flex-1 flex flex-col items-center gap-0.5 pt-2 pb-3 transition-colors text-white/50"
             >
-              <Heart className="w-6 h-6 mx-auto mb-1" />
-              <span className="text-xs">Doador</span>
-            </button>
-            <button
-              onClick={() => setActiveSection("settings")}
-              className={`flex-1 py-3 px-2 text-center ${
-                activeSection === "settings"
-                  ? "text-yellow-600"
-                  : "text-gray-400"
-              }`}
-            >
-              <Settings className="w-6 h-6 mx-auto mb-1" />
-              <span className="text-xs">Config</span>
+              <Heart className="w-5 h-5" />
+              <span className="text-[9px] font-medium leading-tight">Doador</span>
             </button>
             <button
               onClick={handleLogout}
-              className="flex-1 py-3 px-2 text-center text-gray-400"
+              className="flex-1 flex flex-col items-center gap-0.5 pt-2 pb-3 transition-colors text-white/50"
             >
-              <LogOut className="w-6 h-6 mx-auto mb-1" />
-              <span className="text-xs">Sair</span>
+              <LogOut className="w-5 h-5" />
+              <span className="text-[9px] font-medium leading-tight">Sair</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Gestão à Vista — Overlay Fullscreen (mobile) */}
+      {showGestaoVista && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#0f172a" }}>
+          <div className="gestao-vista-landscape-wrapper">
+            <DashboardGestaoVista onClose={closeGestaoVista} />
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 
@@ -5845,17 +6998,9 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     className="w-6 h-6 mr-3"
                   />
                 ) : (
-                  <item.icon
-                    className={`w-6 h-6 mr-3 ${
-                      activeSection === item.id ? "text-black" : item.color
-                    }`}
-                  />
+                  <item.icon className="w-6 h-6 mr-3 text-gray-900" />
                 )}
-                <span
-                  className={
-                    activeSection === item.id ? "text-black" : item.color
-                  }
-                >
+                <span className="text-gray-900">
                   {item.label}
                 </span>
               </button>
@@ -5890,17 +7035,9 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                     className="w-6 h-6 mr-3"
                   />
                 ) : (
-                  <item.icon
-                    className={`w-6 h-6 mr-3 ${
-                      activeSection === item.id ? "text-black" : item.color
-                    }`}
-                  />
+                  <item.icon className={`w-6 h-6 mr-3 ${item.color || "text-gray-900"}`} />
                 )}
-                <span
-                  className={
-                    activeSection === item.id ? "text-black" : item.color
-                  }
-                >
+                <span className="text-gray-900">
                   {item.label}
                 </span>
               </button>
@@ -5928,7 +7065,16 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </button>
 
           <button
-            onClick={() => window.open("https://complaint-tracker-OGRITO.replit.app", "_blank")}
+            type="button"
+            onClick={() => openPrivacyPreferences()}
+            className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors text-black hover:bg-gray-100"
+          >
+            <Shield className="w-6 h-6 mr-3 text-yellow-600" />
+            Privacidade e cookies
+          </button>
+
+          <button
+            onClick={() => window.open("https://canaldetransparencia.institutoogrito.com.br", "_blank")}
             className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors bg-white hover:bg-gray-50 text-black"
           >
             <ExternalLink className="w-6 h-6 mr-3 text-yellow-500" />
@@ -5936,10 +7082,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
           </button>
 
           <button
-            onClick={() => window.open("https://clubedogrito.institutoogrito.com.br/dashboard/gestao/vista", "_blank")}
+            onClick={openGestaoVista}
             className="w-full flex items-center px-6 py-3 text-sm font-medium transition-colors bg-white hover:bg-gray-50 text-black"
           >
-            <ExternalLink className="w-6 h-6 mr-3 text-yellow-500" />
+            <BarChart3 className="w-6 h-6 mr-3 text-yellow-500" />
             Dashboard Gestão à Vista
           </button>
 
@@ -5975,17 +7121,24 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
 
       {/* Main Content */}
       <div
-        className={`flex-1 flex flex-col ml-64 ${
+        className={`flex-1 flex flex-col ml-64 min-w-0 overflow-x-hidden ${
           devAccess.hasDevAccess ? "mt-10" : ""
         }`}
       >
         {/* Top Bar */}
         <header className="bg-white shadow-sm border-b border-gray-200">
           <div className="flex items-center justify-between px-6 py-4">
-            <div>
+            <div className="flex items-center gap-4">
               <h1 className="text-2xl font-bold text-gray-900">
                 {(sidebarItems.find((item) => item.id === activeSection)?.label || "Dashboard") + (activeSection === "colaborador" ? " - 2026" : "")}
               </h1>
+              {(activeSection === "inclusao" || activeSection === "pec") && (
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: new Date().getFullYear() - 2024 }, (_, i) => 2025 + i).map(ano => (
+                    <Button key={ano} size="sm" variant={anoIndicadores === ano ? "default" : "outline"} className={anoIndicadores === ano ? ("bg-yellow-500 hover:bg-yellow-600 text-white") : ""} onClick={() => setAnoIndicadores(ano)}>{ano}</Button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               {devAccess.hasDevAccess && (
@@ -6010,13 +7163,32 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                   })}
                 </span>
               </div>
+              <LgpdLegalHeaderButtons />
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleLogout}
+                className="flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Sair
+              </Button>
             </div>
           </div>
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 p-6">{renderSectionContent()}</main>
+        <main className="flex-1 p-6 overflow-x-hidden">{renderSectionContent()}</main>
       </div>
+
+      {/* Gestão à Vista — Overlay Fullscreen */}
+      {showGestaoVista && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#0f172a" }}>
+          <div className="gestao-vista-landscape-wrapper">
+            <DashboardGestaoVista onClose={closeGestaoVista} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

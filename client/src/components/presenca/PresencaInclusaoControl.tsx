@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+const ScannerPresencaModal = lazy(() => import("@/components/presenca/ScannerPresencaModal"));
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +27,16 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
-  Utensils
+  Utensils,
+  Filter,
+  Trash2,
+  AlertTriangle,
+  Loader2
 } from "lucide-react";
-import { getDiasAulaParaTurma, getBrazilDateString, type DiaAula } from "@/lib/class-days";
+import { getDiasAulaParaTurma, getBrazilDateString, aplicarExcecoesNoCalendarioDeChamada, pickChamadaDataPreferencial, toYMDString, type DiaAula } from "@/lib/class-days";
+import { ChamadaPresencaNavButtons } from "@/components/presenca/ChamadaPresencaNavButtons";
+import { chamadaEstaPendente, chamadaOcupaDataLancamento, chamadaTemFotoComprovante } from "@shared/chamada-presenca";
+import { excluirChamadaPendente } from "@/lib/excluirChamadaPendente";
 
 interface PresencaItem {
   participanteId: number;
@@ -44,7 +52,7 @@ interface PresencaInclusaoControlProps {
   turmasData: any[];
   activeSection: string;
   fetchHistorico: () => Promise<any[]>;
-  fetchParticipantes: (turmaId: string) => Promise<any[]>;
+  fetchParticipantes: (turmaId: string, date?: string) => Promise<any[]>;
   savePresenca: (payload: {
     turmaId: number;
     data: string;
@@ -70,13 +78,11 @@ interface PresencaInclusaoControlProps {
   uploadFoto: (formData: FormData) => Promise<any>;
   historyQueryKey: any[];
   requireFoto?: boolean;
+  canSolicitarExclusao?: boolean;
+  origemManual?: string;
 }
 
-const normalizeToYMD = (v: any) => {
-  if (!v) return "";
-  const s = String(v);
-  return s.includes("T") ? s.split("T")[0] : s;
-};
+const normalizeToYMD = toYMDString;
 
 export default function PresencaInclusaoControl({
   turmasData,
@@ -88,6 +94,8 @@ export default function PresencaInclusaoControl({
   uploadFoto,
   historyQueryKey,
   requireFoto = true,
+  canSolicitarExclusao = false,
+  origemManual = "monitor",
 }: PresencaInclusaoControlProps) {
   const { toast } = useToast();
 
@@ -96,17 +104,24 @@ export default function PresencaInclusaoControl({
   const [diasAulaDisponiveis, setDiasAulaDisponiveis] = useState<DiaAula[]>([]);
   const [presencas, setPresencas] = useState<PresencaItem[]>([]);
   const [showHistoricoChamadas, setShowHistoricoChamadas] = useState(false);
-  const [fotoFile, setFotoFile] = useState<File | null>(null);
+  const [fotoFiles, setFotoFiles] = useState<File[]>([]);
+  const fotoFilesRef = useRef<File[]>([]);
   const [existingFotoUrl, setExistingFotoUrl] = useState<string | null>(null);
   const [editingChamadaId, setEditingChamadaId] = useState<number | null>(null);
   const [editingTeveAlimentacao, setEditingTeveAlimentacao] = useState<boolean | null>(null);
   const [historicoFiltroTurma, setHistoricoFiltroTurma] = useState('');
-  const [historicoFiltroDataInicio, setHistoricoFiltroDataInicio] = useState('');
-  const [historicoFiltroDataFim, setHistoricoFiltroDataFim] = useState('');
+  const [historicoFiltroDia, setHistoricoFiltroDia] = useState('');
+  const [presencaTurmaBusca, setPresencaTurmaBusca] = useState('');
+  const [historicoTurmaBusca, setHistoricoTurmaBusca] = useState('');
   const [historicoExpandido, setHistoricoExpandido] = useState<number | null>(null);
+  const [historicoTab, setHistoricoTab] = useState<'finalizadas' | 'pendentes'>('finalizadas');
+  const [soFaltasMap, setSoFaltasMap] = useState<Record<number, boolean>>({});
   const [catracaApplied, setCatracaApplied] = useState(false);
   const [modoManual, setModoManual] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [catracaConnected, setCatracaConnected] = useState(false);
+  const [fotosGaleriaDialog, setFotosGaleriaDialog] = useState<{ turmaId: string; data: string; urls: string[] } | null>(null);
+  const [fotosGaleriaLoading, setFotosGaleriaLoading] = useState(false);
 
   const [showJustificativaModal, setShowJustificativaModal] = useState(false);
   const [modalJustItems, setModalJustItems] = useState<{participanteId: number; nome: string; motivo: string; obs: string; contaComoPresenca?: boolean}[]>([]);
@@ -121,12 +136,61 @@ export default function PresencaInclusaoControl({
   const [pinManual, setPinManual] = useState('');
   const [pinError, setPinError] = useState('');
 
+  // Solicitar exclusão de chamada (inclusão)
+  const [solicitarExclusaoDialog, setSolicitarExclusaoDialog] = useState<{
+    turmaId: string; turmaNome: string; data: string; presentes: number; total: number;
+  } | null>(null);
+  const [motivoExclusao, setMotivoExclusao] = useState('');
+
+  const solicitarExclusaoMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const r = await fetch('/api/chamadas/solicitar-exclusao', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error('Falha ao enviar solicitação');
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Solicitação enviada!', description: 'A solicitação de exclusão foi enviada para o administrador.' });
+      setSolicitarExclusaoDialog(null);
+      setMotivoExclusao('');
+    },
+    onError: () => {
+      toast({ title: 'Erro', description: 'Não foi possível enviar a solicitação.', variant: 'destructive' });
+    },
+  });
+
   const hoje = getBrazilDateString();
 
   const { data: historicoChamadas = [], isLoading: historicoLoading, refetch: refetchHistorico } = useQuery({
     queryKey: historyQueryKey,
     queryFn: fetchHistorico,
     enabled: activeSection === 'presenca',
+  });
+
+  const pendentesChamadaCount = useMemo(
+    () => historicoChamadas.filter((c: any) => chamadaEstaPendente(c)).length,
+    [historicoChamadas]
+  );
+
+  const abrirHistoricoChamadas = (tab: "finalizadas" | "pendentes") => {
+    setHistoricoTab(tab);
+    setShowHistoricoChamadas(true);
+    refetchHistorico();
+  };
+
+  const { data: excecoesData = [] } = useQuery<any[]>({
+    queryKey: ['/api/turmas-inclusao/excecoes', chamadaTurmaId],
+    queryFn: async () => {
+      if (!chamadaTurmaId) return [];
+      const r = await fetch(`/api/turmas-inclusao/${chamadaTurmaId}/excecoes`, { credentials: 'include' });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!chamadaTurmaId && activeSection === 'presenca',
   });
 
   const { data: catracaLog, refetch: refetchCatracaLog } = useQuery<{ data: string; entradas: any[]; total: number }>({
@@ -177,21 +241,66 @@ export default function PresencaInclusaoControl({
     enabled: !!chamadaTurmaId && !!chamadaData && activeSection === 'presenca' && !editingChamadaId,
   });
 
+  const { data: existingPhotosData } = useQuery<{ urls: string[] }>({
+    queryKey: ['/api/presencas-inclusao/fotos', chamadaTurmaId, chamadaData],
+    queryFn: async () => {
+      const res = await fetch(`/api/presencas-inclusao/fotos/${chamadaTurmaId}/${chamadaData}`, { credentials: 'include' });
+      if (!res.ok) return { urls: [] };
+      return res.json();
+    },
+    enabled: !!(editingChamadaId && chamadaTurmaId && chamadaData && existingFotoUrl),
+    staleTime: 0,
+  });
+  const existingPhotoUrls: string[] = existingPhotosData?.urls || [];
+
   const prevTurmaIdRef = useRef<string>('');
   useEffect(() => {
     if (chamadaTurmaId && turmasData) {
       const turma = turmasData.find((t: any) => t.id.toString() === chamadaTurmaId);
       if (turma) {
-        const todosDias = getDiasAulaParaTurma(turma);
+        const todosDias = aplicarExcecoesNoCalendarioDeChamada(
+          getDiasAulaParaTurma(turma),
+          excecoesData
+        );
         const datasComChamada = new Set(
           (historicoChamadas || [])
-            .filter((c: any) => String(c.grupoId || c.turmaId) === String(chamadaTurmaId))
+            .filter(
+              (c: any) =>
+                String(c.grupoId || c.turmaId) === String(chamadaTurmaId) &&
+                chamadaOcupaDataLancamento(c)
+            )
             .map((c: any) => normalizeToYMD(c.dataAtividade || c.data))
         );
 
+        // Datas bloqueadas por exceções (cancelamento ou data_original de remanejamento)
+        const datasExcecao = new Set<string>(
+          (excecoesData as any[]).map((exc: any) => {
+            const d = exc.data_original ?? exc.dataOriginal;
+            return d instanceof Date ? d.toISOString().slice(0, 10) : String(d ?? '').slice(0, 10);
+          }).filter(Boolean)
+        );
+
+        // Novas datas de remanejamentos que precisam ser adicionadas à lista
+        const novasDatasRemanejamento: DiaAula[] = (excecoesData as any[])
+          .filter((exc: any) => exc.tipo === 'remanejamento')
+          .map((exc: any) => {
+            const nd = exc.nova_data ?? exc.novaData;
+            if (!nd) return null;
+            const ymd = nd instanceof Date ? nd.toISOString().slice(0, 10) : String(nd).slice(0, 10);
+            return { date: ymd, label: new Date(ymd + 'T12:00:00').toLocaleDateString('pt-BR'), dayOfWeek: 'Remanejado' };
+          })
+          .filter((d): d is DiaAula => d !== null);
+
         if (editingChamadaId && chamadaData) {
           const editingDate = chamadaData;
-          const dias = todosDias.filter(d => !datasComChamada.has(d.date) || d.date === editingDate);
+          let dias = todosDias.filter(d => (!datasComChamada.has(d.date) && !datasExcecao.has(d.date)) || d.date === editingDate);
+          // Adiciona novas datas de remanejamento que ainda não têm chamada
+          for (const nd of novasDatasRemanejamento) {
+            if (!dias.some(d => d.date === nd.date) && !datasComChamada.has(nd.date)) {
+              dias = [nd, ...dias];
+            }
+          }
+          dias = dias.sort((a, b) => b.date.localeCompare(a.date));
           if (!dias.some(d => d.date === editingDate)) {
             const diaEditando = { date: editingDate, label: new Date(editingDate + 'T12:00:00').toLocaleDateString('pt-BR'), dayOfWeek: '' };
             setDiasAulaDisponiveis([diaEditando, ...dias]);
@@ -199,37 +308,33 @@ export default function PresencaInclusaoControl({
             setDiasAulaDisponiveis(dias);
           }
         } else {
-          let dias = todosDias.filter(d => !datasComChamada.has(d.date));
-
-          const hojeJaExiste = dias.some(d => d.date === hoje);
-          const hojeJaTemChamada = datasComChamada.has(hoje);
-          if (!hojeJaExiste && !hojeJaTemChamada) {
-            const hojeDate = new Date(hoje + 'T12:00:00');
-            const diasSemanaLabels = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-            dias = [{
-              date: hoje,
-              label: hojeDate.toLocaleDateString('pt-BR'),
-              dayOfWeek: diasSemanaLabels[hojeDate.getDay()]
-            }, ...dias];
+          let diasSemChamada = todosDias.filter(d => !datasComChamada.has(d.date) && !datasExcecao.has(d.date));
+          // Adiciona novas datas de remanejamento que ainda não têm chamada
+          for (const nd of novasDatasRemanejamento) {
+            if (!diasSemChamada.some(d => d.date === nd.date) && !datasComChamada.has(nd.date)) {
+              diasSemChamada = [nd, ...diasSemChamada];
+            }
           }
+          const diasPassadosAbertos = diasSemChamada.filter(d => d.date < hoje);
+          const diaHojeAberto = diasSemChamada.find(d => d.date === hoje);
+          const proximaAulaAberta = diasSemChamada.find(d => d.date > hoje);
+          const dias = [
+            ...diasPassadosAbertos,
+            ...(diaHojeAberto ? [diaHojeAberto] : proximaAulaAberta ? [proximaAulaAberta] : []),
+          ];
 
           setDiasAulaDisponiveis(dias);
           const turmaChanged = prevTurmaIdRef.current !== chamadaTurmaId;
+          const dataPreferencial = pickChamadaDataPreferencial(
+            diasSemChamada,
+            hoje,
+            turma.dataInicio ?? turma.data_inicio
+          );
           if (turmaChanged) {
             prevTurmaIdRef.current = chamadaTurmaId;
-            if (dias.some(d => d.date === hoje)) {
-              setChamadaData(hoje);
-            } else if (dias.length > 0) {
-              setChamadaData(dias[0].date);
-            } else {
-              setChamadaData('');
-            }
+            setChamadaData(dataPreferencial);
           } else if (chamadaData && !dias.some(d => d.date === chamadaData)) {
-            if (dias.length > 0) {
-              setChamadaData(dias[0].date);
-            } else {
-              setChamadaData('');
-            }
+            setChamadaData(dataPreferencial);
           }
         }
       }
@@ -238,13 +343,13 @@ export default function PresencaInclusaoControl({
       setChamadaData('');
       prevTurmaIdRef.current = '';
     }
-  }, [chamadaTurmaId, turmasData, historicoChamadas, editingChamadaId]);
+  }, [chamadaTurmaId, turmasData, historicoChamadas, editingChamadaId, excecoesData]);
 
 
   const { data: alunosChamada = [], isLoading: alunosChamadaLoading } = useQuery({
-    queryKey: ['presenca-inclusao-participantes', chamadaTurmaId],
-    queryFn: () => fetchParticipantes(chamadaTurmaId),
-    enabled: !!chamadaTurmaId && activeSection === 'presenca',
+    queryKey: ['presenca-inclusao-participantes', chamadaTurmaId, chamadaData],
+    queryFn: () => fetchParticipantes(chamadaTurmaId, chamadaData),
+    enabled: !!chamadaTurmaId && !!chamadaData && activeSection === 'presenca',
   });
 
   useEffect(() => {
@@ -322,6 +427,30 @@ export default function PresencaInclusaoControl({
     setPresencas(updated);
   }, [presencasExistentes, presencas.length, editingChamadaId]);
 
+  useEffect(() => {
+    if (!editingChamadaId) return;
+    if (presencas.length === 0) return;
+    if (catracaNomesSet.size === 0) return;
+
+    setPresencas((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        if (p.presente === true) return p;
+        if (p.viaCatraca === true || catracaNomesSet.has(p.nome)) {
+          changed = true;
+          return {
+            ...p,
+            presente: true,
+            viaCatraca: true,
+            justificativa: undefined,
+          };
+        }
+        return p;
+      });
+      return changed ? next : prev;
+    });
+  }, [editingChamadaId, catracaNomesSet, presencas.length]);
+
   const MOTIVOS_FALTA = [
     { label: 'Atestado médico', contaComoPresenca: true },
     { label: 'Doença', contaComoPresenca: true },
@@ -342,8 +471,8 @@ export default function PresencaInclusaoControl({
       if (!chamadaTurmaId || !chamadaData) {
         throw new Error("Selecione uma turma e data");
       }
-      if (requireFoto && !fotoFile && !editingChamadaId) {
-        throw new Error("É obrigatório enviar a foto comprovante para finalizar a chamada.");
+      if (requireFoto && fotoFiles.length === 0 && !existingFotoUrl) {
+        throw new Error("É obrigatório enviar ao menos uma foto comprovante para finalizar a chamada.");
       }
       const presencasPayload = presencas.map(p => {
         const pendingJust = pendingJustRef.current[p.participanteId];
@@ -379,17 +508,19 @@ export default function PresencaInclusaoControl({
       }
     },
     onSuccess: async () => {
-      if (fotoFile && chamadaTurmaId && chamadaData) {
+      const filesToUpload = fotoFilesRef.current;
+      if (filesToUpload.length > 0 && chamadaTurmaId && chamadaData) {
         try {
           const formData = new FormData();
-          formData.append('foto', fotoFile);
+          for (const f of filesToUpload) formData.append('foto', f);
           formData.append('turmaId', chamadaTurmaId);
           formData.append('data', chamadaData);
           await uploadFoto(formData);
         } catch (e) {
-          console.error('Erro ao enviar foto comprovante:', e);
+          console.error('Erro ao enviar fotos comprovante:', e);
         }
-        setFotoFile(null);
+        fotoFilesRef.current = [];
+        setFotoFiles([]);
       }
       queryClient.invalidateQueries({ queryKey: historyQueryKey });
       toast({ title: editingChamadaId ? "Chamada atualizada!" : "Chamada finalizada!", description: "Presenças registradas com sucesso." });
@@ -410,34 +541,32 @@ export default function PresencaInclusaoControl({
   return (
     <>
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-green-500" />
+      <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2 pb-3">
+        <CardTitle className="flex items-center gap-2 flex-wrap text-base">
+          <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
           Controle de Presença
           {catracaConnected ? (
-            <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 text-[10px] px-1.5 py-0 ml-1">
+            <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 text-[10px] px-1.5 py-0">
               <Wifi className="w-3 h-3 mr-0.5 inline" />
               Catraca Online
             </Badge>
           ) : (
-            <Badge variant="outline" className="text-gray-400 border-gray-200 text-[10px] px-1.5 py-0 ml-1">
+            <Badge variant="outline" className="text-gray-400 border-gray-200 text-[10px] px-1.5 py-0">
               <WifiOff className="w-3 h-3 mr-0.5 inline" />
               Catraca Offline
             </Badge>
           )}
         </CardTitle>
-        <Button
-          variant="outline"
-          onClick={() => {
-            setShowHistoricoChamadas(!showHistoricoChamadas);
-            if (!showHistoricoChamadas) {
-              refetchHistorico();
-            }
+        <ChamadaPresencaNavButtons
+          modoHistorico={showHistoricoChamadas}
+          pendentesCount={pendentesChamadaCount}
+          onNovaChamada={() => {
+            setShowHistoricoChamadas(false);
+            setEditingChamadaId(null);
           }}
-        >
-          <Clock className="w-4 h-4 mr-2" />
-          {showHistoricoChamadas ? 'Nova Chamada' : 'Ver Histórico'}
-        </Button>
+          onVerHistorico={() => abrirHistoricoChamadas("finalizadas")}
+          onVerPendentes={() => abrirHistoricoChamadas("pendentes")}
+        />
       </CardHeader>
       <CardContent>
         {!showHistoricoChamadas ? (
@@ -450,9 +579,24 @@ export default function PresencaInclusaoControl({
                     <SelectValue placeholder="Selecione a turma" />
                   </SelectTrigger>
                   <SelectContent>
+                    <div className="px-2 pb-1 pt-1 sticky top-0 bg-white z-10" onKeyDown={e => e.stopPropagation()}>
+                      <input
+                        className="w-full rounded border border-gray-200 px-2 py-1 text-sm outline-none focus:border-blue-400"
+                        placeholder="Pesquisar turma..."
+                        value={presencaTurmaBusca}
+                        onChange={e => setPresencaTurmaBusca(e.target.value)}
+                        onKeyDown={e => e.stopPropagation()}
+                      />
+                    </div>
                     {turmasData && turmasData.length > 0 ? (
                       turmasData
-                        .filter((t: any) => t.status !== 'inativo')
+                        .filter((t: any) => {
+                          const s = (t.status || '').toLowerCase();
+                          const ativa = s === 'emandamento' || s === 'em_andamento' || s === 'em andamento' || s === 'em-andamento' || s === 'ativo' || s === 'ativa';
+                          if (!ativa) return false;
+                          if (presencaTurmaBusca) return (t.nome || '').toLowerCase().includes(presencaTurmaBusca.toLowerCase());
+                          return true;
+                        })
                         .map((turma: any) => {
                           const temCatraca = turma.temCatraca || catracaLog?.entradas?.some(e => e.turma === turma.nome && e.vertente === 'inclusao');
                           return (
@@ -499,33 +643,59 @@ export default function PresencaInclusaoControl({
               {chamadaTurmaId && (
                 <div className="flex items-center gap-2 flex-wrap">
                   {editingChamadaId ? (
-                    existingFotoUrl ? (
-                      <div className="flex items-center gap-2">
-                        <img src={existingFotoUrl} alt="Foto comprovante" className="w-10 h-10 rounded object-cover border" />
-                        <span className="text-xs text-gray-500">Foto comprovante (somente leitura)</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Camera className="w-4 h-4 text-gray-400" />
-                        <span className="text-xs text-gray-500">Sem foto comprovante</span>
-                      </div>
-                    )
-                  ) : (
-                    <>
-                      <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">
-                        <Camera className="w-4 h-4 text-gray-500" />
-                        <span className="text-gray-600">{fotoFile ? fotoFile.name : 'Foto comprovante'}</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => setFotoFile(e.target.files?.[0] || null)}
-                        />
-                      </label>
-                      {fotoFile && (
-                        <img src={URL.createObjectURL(fotoFile)} alt="Preview" className="w-10 h-10 rounded object-cover border" />
+                    <div className="flex flex-col gap-2 w-full">
+                      {existingPhotoUrls.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-500">{existingPhotoUrls.length} foto(s) salva(s):</span>
+                          <div className="flex gap-1 flex-wrap">
+                            {existingPhotoUrls.map((url, i) => (
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                <img src={url} alt={`Foto ${i+1}`} className="w-14 h-14 rounded object-cover border hover:opacity-80 transition-opacity" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                    </>
+                      {existingFotoUrl && existingPhotoUrls.length === 0 && (
+                        <div className="flex items-center gap-1">
+                          <img src={existingFotoUrl} alt="Foto" className="w-10 h-10 rounded object-cover border" />
+                          <span className="text-xs text-gray-500">Foto atual</span>
+                        </div>
+                      )}
+                      {fotoFiles.length > 0 && (
+                        <div className="flex gap-1 flex-wrap">
+                          {fotoFiles.map((f, i) => (
+                            <div key={i} className="relative">
+                              <img src={URL.createObjectURL(f)} alt={`Foto ${i+1}`} className="w-10 h-10 rounded object-cover border" />
+                              <button onClick={() => setFotoFiles(prev => { const next = prev.filter((_, idx) => idx !== i); fotoFilesRef.current = next; return next; })} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 w-fit">
+                        <Camera className="w-4 h-4 text-gray-500" />
+                        <span className="text-gray-600">{fotoFiles.length > 0 ? `${fotoFiles.length} nova(s) — adicionar mais` : existingFotoUrl ? 'Adicionar mais fotos' : 'Adicionar fotos comprovante'}</span>
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { const sel = Array.from(e.target.files || []); setFotoFiles(prev => { const next = [...prev, ...sel]; fotoFilesRef.current = next; return next; }); e.target.value = ''; }} />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2 w-full">
+                      {fotoFiles.length > 0 && (
+                        <div className="flex gap-1 flex-wrap">
+                          {fotoFiles.map((f, i) => (
+                            <div key={i} className="relative">
+                              <img src={URL.createObjectURL(f)} alt={`Foto ${i+1}`} className="w-10 h-10 rounded object-cover border" />
+                              <button onClick={() => setFotoFiles(prev => { const next = prev.filter((_, idx) => idx !== i); fotoFilesRef.current = next; return next; })} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50 w-fit">
+                        <Camera className="w-4 h-4 text-gray-500" />
+                        <span className="text-gray-600">{fotoFiles.length > 0 ? `${fotoFiles.length} foto(s) — adicionar mais` : 'Fotos comprovante *'}</span>
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { const sel = Array.from(e.target.files || []); setFotoFiles(prev => { const next = [...prev, ...sel]; fotoFilesRef.current = next; return next; }); e.target.value = ''; }} />
+                      </label>
+                    </div>
                   )}
                 </div>
               )}
@@ -593,7 +763,8 @@ export default function PresencaInclusaoControl({
                     setChamadaTurmaId('');
                     setChamadaData('');
                     setPresencas([]);
-                    setFotoFile(null);
+                    fotoFilesRef.current = [];
+                    setFotoFiles([]);
                     setExistingFotoUrl(null);
                     setCatracaApplied(false);
                     setModoManual(false);
@@ -606,17 +777,17 @@ export default function PresencaInclusaoControl({
             </div>
 
             {chamadaTurmaId && (
-              <div className="flex items-center justify-between p-3 rounded-lg border bg-gray-50">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-lg border bg-gray-50">
+                <div className="flex items-center gap-2 flex-1 flex-wrap">
                   {modoManual ? (
                     <>
-                      <Hand className="w-4 h-4 text-orange-500" />
+                      <Hand className="w-4 h-4 text-orange-500 shrink-0" />
                       <span className="text-sm font-medium text-orange-700">Modo Manual</span>
                       <span className="text-xs text-gray-500">- Marque presença manualmente</span>
                     </>
                   ) : (
                     <>
-                      <ScanFace className="w-4 h-4 text-blue-500" />
+                      <ScanFace className="w-4 h-4 text-blue-500 shrink-0" />
                       <span className="text-sm font-medium text-blue-700">Chamada Facial / Catraca</span>
                       {presencasExistentes && presencasExistentes.some(p => p.viaCatraca) && (
                         <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5">
@@ -627,32 +798,78 @@ export default function PresencaInclusaoControl({
                     </>
                   )}
                 </div>
-                <Button
-                  variant={modoManual ? "default" : "outline"}
-                  size="sm"
-                  className={modoManual ? "bg-orange-500 hover:bg-orange-600" : ""}
-                  onClick={() => {
-                    if (modoManual) {
-                      setModoManual(false);
-                    } else {
-                      setMotivoManual('');
-                      setShowModoManualDialog(true);
-                    }
-                  }}
-                >
-                  {modoManual ? (
-                    <>
-                      <ScanFace className="w-4 h-4 mr-1" />
-                      Voltar p/ Facial
-                    </>
-                  ) : (
-                    <>
-                      <Hand className="w-4 h-4 mr-1" />
-                      Chamada Manual
-                    </>
-                  )}
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    className="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold"
+                    onClick={() => setShowScanner(true)}
+                  >
+                    <ScanFace className="w-4 h-4 mr-1" />
+                    Chamada O Grito
+                  </Button>
+                  <Button
+                    variant={modoManual ? "default" : "outline"}
+                    size="sm"
+                    className={modoManual ? "bg-orange-500 hover:bg-orange-600 text-white" : "text-black hover:bg-gray-100 hover:text-black"}
+                    onClick={() => {
+                      if (modoManual) {
+                        setModoManual(false);
+                      } else {
+                        setMotivoManual('');
+                        setShowModoManualDialog(true);
+                      }
+                    }}
+                  >
+                    {modoManual ? (
+                      <>
+                        <ScanFace className="w-4 h-4 mr-1" />
+                        Voltar p/ Facial
+                      </>
+                    ) : (
+                      <>
+                        <Hand className="w-4 h-4 mr-1" />
+                        Chamada Manual
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
+            )}
+
+            {showScanner && chamadaTurmaId && chamadaData && (
+              <Suspense fallback={
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center">
+                  <div className="bg-slate-900 rounded-2xl border border-slate-700 p-8 flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-slate-300 text-sm">Iniciando scanner...</p>
+                  </div>
+                </div>
+              }>
+                <ScannerPresencaModal
+                  turmaId={chamadaTurmaId}
+                  tipo="inclusao"
+                  data={chamadaData}
+                  onClose={() => setShowScanner(false)}
+                  onFinalize={() => {
+                    setCatracaApplied(false);
+                    refetchCatracaLog();
+                    queryClient.invalidateQueries({ queryKey: ['/api/presencas-inclusao/por-turma-data', chamadaTurmaId, chamadaData] });
+                  }}
+                  onPresencaRegistrada={(cpf: string) => {
+                    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const cpfNorm = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+                    setPresencas((prev) =>
+                      prev.map((p) =>
+                        cpfNorm(p.cpf) === cpfNorm(cpf)
+                          ? { ...p, presente: true, viaCatraca: true, hora }
+                          : p
+                      )
+                    );
+                    setCatracaApplied(false);
+                    queryClient.invalidateQueries({ queryKey: ['/api/presencas-inclusao/por-turma-data', chamadaTurmaId, chamadaData] });
+                  }}
+                />
+              </Suspense>
             )}
 
             {chamadaTurmaId && (
@@ -661,6 +878,8 @@ export default function PresencaInclusaoControl({
                   const selectedTurma = turmasData?.find((t: any) => t.id.toString() === chamadaTurmaId);
                   const turmaEntries = catracaLog?.entradas?.filter((e: any) => selectedTurma ? e.turma === selectedTurma.nome && e.vertente === 'inclusao' : false) || [];
                   const totalCatracaEntries = turmaEntries.length;
+                  const countScanner = turmaEntries.filter((e: any) => e.fonte === 'scanner').length;
+                  const countCatraca = turmaEntries.filter((e: any) => e.fonte !== 'scanner').length;
                   return (
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-semibold flex items-center gap-2">
@@ -670,10 +889,18 @@ export default function PresencaInclusaoControl({
                       </h3>
                       {totalCatracaEntries > 0 && (
                         <div className="flex items-center gap-2">
-                          <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs px-2 py-0.5">
-                            <Zap className="w-3 h-3 mr-1 inline" />
-                            {totalCatracaEntries} entrada{totalCatracaEntries !== 1 ? 's' : ''} via catraca
-                          </Badge>
+                          {countScanner > 0 && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs px-2 py-0.5">
+                              <Zap className="w-3 h-3 mr-1 inline" />
+                              {countScanner} via scanner
+                            </Badge>
+                          )}
+                          {countCatraca > 0 && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs px-2 py-0.5">
+                              <Zap className="w-3 h-3 mr-1 inline" />
+                              {countCatraca} via catraca
+                            </Badge>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -819,38 +1046,95 @@ export default function PresencaInclusaoControl({
           </div>
         ) : (
           <div className="space-y-4">
-            <h3 className="font-semibold">Histórico de Chamadas</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Histórico de Chamadas</h3>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+            {/* Abas Finalizadas / Pendentes */}
+            {(() => {
+              const totalFinalizadas = (historicoChamadas || []).filter((r: any) =>
+                r.fotoComprovante || r.foto_comprovante || (r.presencas || []).some((p: any) => p.fotoComprovante)
+              ).length;
+              const totalPendentes = (historicoChamadas || []).filter((r: any) =>
+                !r.fotoComprovante && !r.foto_comprovante && !(r.presencas || []).some((p: any) => p.fotoComprovante)
+              ).length;
+              return (
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setHistoricoTab('finalizadas')}
+                    className={`flex-1 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-1.5 ${historicoTab === 'finalizadas' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Finalizadas
+                    {totalFinalizadas > 0 && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full text-[10px]">{totalFinalizadas}</span>}
+                  </button>
+                  <button
+                    onClick={() => setHistoricoTab('pendentes')}
+                    className={`flex-1 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center justify-center gap-1.5 ${historicoTab === 'pendentes' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    Pendentes
+                    {totalPendentes > 0 && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-[10px]">{totalPendentes}</span>}
+                  </button>
+                </div>
+              );
+            })()}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
               <div>
                 <label className="text-sm font-medium">Turma</label>
-                <Select value={historicoFiltroTurma} onValueChange={setHistoricoFiltroTurma}>
+                <Select value={historicoFiltroTurma} onValueChange={(v) => { setHistoricoFiltroTurma(v); setHistoricoTurmaBusca(''); setHistoricoFiltroDia(''); }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Todas as turmas" />
                   </SelectTrigger>
                   <SelectContent>
+                    <div className="px-2 pb-1 pt-1 sticky top-0 bg-white z-10" onKeyDown={e => e.stopPropagation()}>
+                      <input
+                        className="w-full rounded border border-gray-200 px-2 py-1 text-sm outline-none focus:border-blue-400"
+                        placeholder="Pesquisar turma..."
+                        value={historicoTurmaBusca}
+                        onChange={e => setHistoricoTurmaBusca(e.target.value)}
+                        onKeyDown={e => e.stopPropagation()}
+                      />
+                    </div>
                     <SelectItem value="todas">Todas as turmas</SelectItem>
-                    {turmasData.map((turma: any) => (
-                      <SelectItem key={turma.id} value={turma.nome}>{turma.nome}</SelectItem>
-                    ))}
+                    {(turmasData || [])
+                      .filter((t: any) => !historicoTurmaBusca || (t.nome || '').toLowerCase().includes(historicoTurmaBusca.toLowerCase()))
+                      .map((turma: any) => (
+                        <SelectItem key={turma.id} value={turma.nome}>{turma.nome}</SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Data Início</label>
-                <Input
-                  type="date"
-                  value={historicoFiltroDataInicio}
-                  onChange={(e) => setHistoricoFiltroDataInicio(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Data Fim</label>
-                <Input
-                  type="date"
-                  value={historicoFiltroDataFim}
-                  onChange={(e) => setHistoricoFiltroDataFim(e.target.value)}
-                />
+                <label className="text-sm font-medium">Dia de Aula</label>
+                <Select
+                  value={historicoFiltroDia}
+                  onValueChange={setHistoricoFiltroDia}
+                  disabled={!historicoFiltroTurma || historicoFiltroTurma === 'todas'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={(!historicoFiltroTurma || historicoFiltroTurma === 'todas') ? 'Selecione uma turma primeiro' : 'Todos os dias'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os dias</SelectItem>
+                    {Array.from(new Set(
+                      (historicoChamadas || [])
+                        .filter((r: any) => {
+                          const tn = r.turmaNome || r.turma || r.grupo || '';
+                          return !historicoFiltroTurma || historicoFiltroTurma === 'todas' || tn === historicoFiltroTurma;
+                        })
+                        .map((r: any) => normalizeToYMD(r.dataAtividade || r.data))
+                        .filter(Boolean)
+                    ))
+                      .sort()
+                      .map((dia: string) => (
+                        <SelectItem key={dia} value={dia}>
+                          {new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -867,15 +1151,15 @@ export default function PresencaInclusaoControl({
                   .filter((registro: any) => {
                     const turmaNome = registro.turmaNome || registro.turma || registro.grupo || '';
                     const dataAtividade = normalizeToYMD(registro.dataAtividade || registro.data);
+                    const temFoto = !!(registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).some((p: any) => p.fotoComprovante));
 
+                    if (historicoTab === 'finalizadas' && !temFoto) return false;
+                    if (historicoTab === 'pendentes' && temFoto) return false;
                     if (historicoFiltroTurma && historicoFiltroTurma !== 'todas' && turmaNome !== historicoFiltroTurma) {
                       return false;
                     }
-                    if (historicoFiltroDataInicio && dataAtividade) {
-                      if (dataAtividade < historicoFiltroDataInicio) return false;
-                    }
-                    if (historicoFiltroDataFim && dataAtividade) {
-                      if (dataAtividade > historicoFiltroDataFim) return false;
+                    if (historicoFiltroDia && historicoFiltroDia !== 'todos' && dataAtividade !== historicoFiltroDia) {
+                      return false;
                     }
                     return true;
                   })
@@ -886,96 +1170,181 @@ export default function PresencaInclusaoControl({
                     return (
                       <div key={registro.id} className="border rounded-lg overflow-hidden">
                         <div
-                          className="p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 flex items-center justify-between"
+                          className="p-3 bg-gray-50 cursor-pointer hover:bg-gray-100"
                           onClick={() => setHistoricoExpandido(historicoExpandido === registro.id ? null : registro.id)}
                         >
-                          <div className="flex items-center gap-3">
-                            <Calendar className="w-4 h-4 text-gray-500" />
-                            <span className="font-medium">
-                              {dataAtividade ? new Date(dataAtividade + 'T12:00:00').toLocaleDateString('pt-BR') : 'Sem data'}
-                            </span>
-                            <span className="text-gray-500">-</span>
-                            <span>{registro.turmaNome || registro.turma || registro.grupo}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm text-green-600 font-medium">
-                              {presentes}/{total} presentes
-                            </span>
-                            {registro.teveAlimentacao === true && (
-                              <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs">
-                                <Utensils className="w-3 h-3 mr-1" />
-                                Alimentação
-                              </Badge>
-                            )}
-                            {(registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).some((p: any) => p.fotoComprovante)) && (
-                              <a
-                                href={`/api/presencas-inclusao/foto-serve/${registro.grupoId || registro.turmaId}/${dataAtividade}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
-                                title="Ver foto comprovante"
-                              >
-                                <Camera className="w-3.5 h-3.5" />
-                                Foto
-                              </a>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2"
-                              onClick={(e) => {
-                                e.stopPropagation();
-
-                                const turmaId = registro.grupoId || registro.turmaId; // ✅ só uma vez
-                                setChamadaTurmaId(String(turmaId));
-                                setChamadaData(dataAtividade || '');
-                                setEditingChamadaId(registro.id);
-                                setCatracaApplied(false);
-                                setEditingTeveAlimentacao(registro.teveAlimentacao ?? null);
-
-                                if (registro.presencas && registro.presencas.length > 0) {
-                                  setPresencas(registro.presencas.map((p: any) => ({
-                                    participanteId: p.participanteId || p.alunoId || p.id,
-                                    nome: p.alunoNome || p.nome || '',
-                                    cpf: p.cpf || p.alunoCpf || '',
-                                    presente: p.presente === true || p.status === 'presente',
-                                    justificativa: p.justificativa || undefined,
-                                  })));
-                                }
-
-                              const hasFoto = !!(
-                                registro.fotoComprovante ||
-                                registro.foto_comprovante ||
-                                (registro.presencas || []).find((p: any) => p.fotoComprovante)?.fotoComprovante
-                              );
-
-                              const fotoUrl = hasFoto ? `/api/presencas-inclusao/foto-serve/${turmaId}/${dataAtividade}` : null;
-                              setExistingFotoUrl(fotoUrl);
-
-                              setFotoFile(null);
-                              setShowHistoricoChamadas(false);
-                            }}
-                            >
-                              <Pencil className="w-3.5 h-3.5 mr-1" />
-                              Editar
-                            </Button>
+                          {/* Linha 1: data + turma + chevron */}
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Calendar className="w-4 h-4 text-gray-500 shrink-0" />
+                              <span className="font-medium text-sm shrink-0">
+                                {dataAtividade ? new Date(dataAtividade + 'T12:00:00').toLocaleDateString('pt-BR') : 'Sem data'}
+                              </span>
+                              <span className="text-gray-400 text-sm shrink-0">-</span>
+                              <span className="text-sm truncate">{registro.turmaNome || registro.turma || registro.grupo}</span>
+                            </div>
                             {historicoExpandido === registro.id ? (
-                              <ChevronUp className="w-4 h-4 text-gray-500" />
+                              <ChevronUp className="w-4 h-4 text-gray-500 shrink-0" />
                             ) : (
-                              <ChevronDown className="w-4 h-4 text-gray-500" />
+                              <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
                             )}
+                          </div>
+                          {/* Linha 2: contadores + ações */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm text-green-600 font-medium">
+                                {presentes}/{total} presentes
+                              </span>
+                              {registro.teveAlimentacao === true && (
+                                <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-xs">
+                                  <Utensils className="w-3 h-3 mr-1" />
+                                  Alimentação
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {(registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).some((p: any) => p.fotoComprovante)) && (() => {
+                                const rawFoto = registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).find((p: any) => p.fotoComprovante)?.fotoComprovante || '';
+                                let fotoCount = 1;
+                                try { const arr = JSON.parse(rawFoto); if (Array.isArray(arr)) fotoCount = arr.length; } catch {}
+                                const turmaId = String(registro.grupoId || registro.turmaId);
+                                return (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      setFotosGaleriaLoading(true);
+                                      try {
+                                        const r = await fetch(`/api/presencas-inclusao/fotos/${turmaId}/${dataAtividade}`, { credentials: 'include' });
+                                        const d = await r.json();
+                                        setFotosGaleriaDialog({ turmaId, data: dataAtividade, urls: d.urls || [] });
+                                      } catch { setFotosGaleriaDialog({ turmaId, data: dataAtividade, urls: [] }); }
+                                      setFotosGaleriaLoading(false);
+                                    }}
+                                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                                    title="Ver fotos comprovante"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                    {fotoCount > 1 ? `${fotoCount} fotos` : 'Foto'}
+                                  </button>
+                                );
+                              })()}
+                              {(() => {
+                                const temFoto = !!(registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).some((p: any) => p.fotoComprovante));
+                                const isPendente = !temFoto;
+                                return (
+                                  <Button
+                                    variant={isPendente ? "default" : "ghost"}
+                                    size="sm"
+                                    className={isPendente ? "h-7 px-2 bg-amber-500 hover:bg-amber-600 text-white text-xs" : "h-7 px-2 text-xs"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const turmaId = registro.grupoId || registro.turmaId;
+                                      setChamadaTurmaId(String(turmaId));
+                                      setChamadaData(dataAtividade || '');
+                                      setEditingChamadaId(registro.id);
+                                      setCatracaApplied(false);
+                                      setEditingTeveAlimentacao(registro.teveAlimentacao ?? null);
+                                      if (registro.presencas && registro.presencas.length > 0) {
+                                        setPresencas(registro.presencas.map((p: any) => {
+                                          const nome = p.alunoNome || p.nome || '';
+                                          const marcouCatraca = p.viaCatraca === true || catracaNomesSet.has(nome);
+                                          return {
+                                          participanteId: p.participanteId || p.alunoId || p.id,
+                                          nome,
+                                          cpf: p.cpf || p.alunoCpf || '',
+                                          presente: marcouCatraca || p.presente === true || p.status === 'presente',
+                                          justificativa: p.justificativa || undefined,
+                                          viaCatraca: marcouCatraca,
+                                          };
+                                        }));
+                                      }
+                                      const hasFoto = !!(registro.fotoComprovante || registro.foto_comprovante || (registro.presencas || []).find((p: any) => p.fotoComprovante)?.fotoComprovante);
+                                      const fotoUrl = hasFoto ? `/api/presencas-inclusao/foto-serve/${turmaId}/${dataAtividade}` : null;
+                                      setExistingFotoUrl(fotoUrl);
+                                      fotoFilesRef.current = [];
+                                      setFotoFiles([]);
+                                      setShowHistoricoChamadas(false);
+                                    }}
+                                  >
+                                    {isPendente ? (
+                                      <>
+                                        <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                        Finalizar
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Pencil className="w-3.5 h-3.5 mr-1" />
+                                        Editar
+                                      </>
+                                    )}
+                                  </Button>
+                                );
+                              })()}
+                              {canSolicitarExclusao && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const turmaId = String(registro.grupoId || registro.turmaId);
+                                    const temFoto = chamadaTemFotoComprovante(registro);
+                                    if (!temFoto) {
+                                      if (!confirm(`Excluir a chamada pendente de ${dataAtividade ? new Date(dataAtividade + 'T12:00:00').toLocaleDateString('pt-BR') : 'esta data'}?`)) return;
+                                      try {
+                                        await excluirChamadaPendente({
+                                          tipo: "inclusao",
+                                          turmaId: Number(turmaId),
+                                          data: dataAtividade,
+                                        });
+                                        toast({ title: "Chamada excluída", description: "O registro pendente foi removido." });
+                                        refetchHistorico();
+                                        queryClient.invalidateQueries({ queryKey: historyQueryKey });
+                                      } catch (err: any) {
+                                        toast({
+                                          title: "Erro ao excluir",
+                                          description: err.message || "Não foi possível excluir.",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                      return;
+                                    }
+                                    setSolicitarExclusaoDialog({
+                                      turmaId,
+                                      turmaNome: registro.turmaNome || registro.turma || registro.grupo || '',
+                                      data: dataAtividade,
+                                      presentes: registro.totalPresentes ?? 0,
+                                      total: registro.totalAlunos ?? 0,
+                                    });
+                                    setMotivoExclusao('');
+                                  }}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                  Excluir
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         {historicoExpandido === registro.id && registro.presencas && (
                           <div className="p-3 border-t bg-white">
-                            <div className="text-sm font-medium mb-2 text-gray-600">
-                              Lista de Presença ({registro.presencas.length} participantes):
+                            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                              <div className="text-sm font-medium text-gray-600">
+                                Lista ({registro.presencas.length} participantes):
+                              </div>
+                              <button
+                                onClick={() => setSoFaltasMap(prev => ({ ...prev, [registro.id]: !prev[registro.id] }))}
+                                className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors shrink-0 ${soFaltasMap[registro.id] ? 'bg-red-100 text-red-700 border-red-300 font-semibold' : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'}`}
+                              >
+                                <Filter className="w-3 h-3" />
+                                {soFaltasMap[registro.id] ? 'Ver todos' : 'Só faltas'}
+                              </button>
                             </div>
                             <div className="grid gap-1.5">
                               {[...registro.presencas]
                                 .sort((a: any, b: any) => (a.alunoNome || a.nome || '').localeCompare(b.alunoNome || b.nome || '', 'pt-BR'))
+                                .filter((p: any) => soFaltasMap[registro.id] ? !p.presente : true)
                                 .map((p: any, idx: number) => {
                                 const justif = p.justificativa || p.justificativaMotivo;
                                 const isFaltaJustificada = !p.presente && justif && justif !== 'Sem justificativa';
@@ -993,6 +1362,9 @@ export default function PresencaInclusaoControl({
                                   </div>
                                 );
                               })}
+                              {soFaltasMap[registro.id] && registro.presencas.filter((p: any) => !p.presente).length === 0 && (
+                                <div className="text-center py-3 text-sm text-gray-500">Nenhuma falta registrada nesta aula.</div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1133,25 +1505,22 @@ export default function PresencaInclusaoControl({
             </Select>
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido</label>
+            <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido <span className="text-red-500">*</span></label>
             <Textarea
-              placeholder="Descreva brevemente o ocorrido (opcional)..."
+              placeholder="Descreva brevemente o ocorrido..."
               value={descManual}
               onChange={(e) => setDescManual(e.target.value)}
               className="h-20 resize-none"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">PIN de acesso <span className="text-red-500">*</span></label>
+            <label className="text-sm font-medium text-gray-700">Senha do coordenador <span className="text-red-500">*</span></label>
             <input
               type="password"
-              maxLength={4}
-              inputMode="numeric"
-              pattern="[0-9]*"
               value={pinManual}
-              onChange={(e) => { setPinManual(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
-              placeholder="••••"
-              className={`w-full border rounded-md px-3 py-2 text-sm text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400 ${pinError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+              onChange={(e) => { setPinManual(e.target.value); setPinError(''); }}
+              placeholder="Senha alfanumérica"
+              className={`w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${pinError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
             />
             {pinError && <p className="text-xs text-red-600">{pinError}</p>}
           </div>
@@ -1162,7 +1531,7 @@ export default function PresencaInclusaoControl({
           </Button>
           <Button
             className="bg-orange-500 hover:bg-orange-600"
-            disabled={!motivoManual || pinManual.length < 4 || savingMotivoManual}
+            disabled={!motivoManual || !descManual.trim() || !pinManual.trim() || savingMotivoManual}
             onClick={async () => {
               setSavingMotivoManual(true);
               setPinError('');
@@ -1171,22 +1540,24 @@ export default function PresencaInclusaoControl({
                   method: 'POST',
                   credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ pin: pinManual }),
+                  body: JSON.stringify({ senha: pinManual, vertente: 'inclusao' }),
                 });
                 if (!pinRes.ok) {
-                  setPinError('PIN incorreto. Verifique e tente novamente.');
+                  setPinError('Senha incorreta ou expirada. Verifique com o coordenador.');
                   setSavingMotivoManual(false);
                   return;
                 }
-                const motivoFinal = descManual.trim() ? `${motivoManual} — ${descManual.trim()}` : motivoManual;
                 await fetch('/api/chamada-manual-log', {
                   method: 'POST',
                   credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    turmaId: chamadaTurmaId ? parseInt(chamadaTurmaId) : null,
+                    turmaId: chamadaTurmaId ? parseInt(chamadaTurmaId, 10) : null,
                     data: chamadaData || new Date().toISOString().slice(0, 10),
-                    motivo: motivoFinal,
+                    motivo: motivoManual,
+                    observacao: descManual.trim(),
+                    vertente: 'inclusao',
+                    origem: origemManual,
                   }),
                 });
                 setShowModoManualDialog(false);
@@ -1242,6 +1613,93 @@ export default function PresencaInclusaoControl({
             Não teve lanche
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* Dialog: Solicitar Exclusão de Chamada (Inclusão) */}
+    <Dialog open={!!solicitarExclusaoDialog} onOpenChange={(o) => { if (!o) { setSolicitarExclusaoDialog(null); setMotivoExclusao(''); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <AlertTriangle className="w-5 h-5" />
+            Solicitar Exclusão de Chamada
+          </DialogTitle>
+        </DialogHeader>
+        {solicitarExclusaoDialog && (
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1 text-sm">
+              <div><span className="font-medium">Turma:</span> {solicitarExclusaoDialog.turmaNome}</div>
+              <div><span className="font-medium">Data:</span> {solicitarExclusaoDialog.data ? new Date(solicitarExclusaoDialog.data + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</div>
+              <div><span className="font-medium">Presenças:</span> {solicitarExclusaoDialog.presentes}/{solicitarExclusaoDialog.total}</div>
+            </div>
+            <p className="text-sm text-gray-600">
+              Esta solicitação será enviada para o administrador, que deverá confirmar a exclusão definitiva da chamada.
+            </p>
+            <div>
+              <label className="text-sm font-medium block mb-1">Motivo <span className="text-red-500">*</span></label>
+              <Textarea
+                value={motivoExclusao}
+                onChange={(e) => setMotivoExclusao(e.target.value)}
+                placeholder="Descreva o motivo da exclusão..."
+                className={`min-h-[80px] ${!motivoExclusao.trim() ? 'border-red-300' : ''}`}
+              />
+              {!motivoExclusao.trim() && (
+                <p className="text-xs text-red-500 mt-1">O motivo é obrigatório.</p>
+              )}
+            </div>
+          </div>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => { setSolicitarExclusaoDialog(null); setMotivoExclusao(''); }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={solicitarExclusaoMutation.isPending || !motivoExclusao.trim()}
+            onClick={() => {
+              if (!solicitarExclusaoDialog) return;
+              solicitarExclusaoMutation.mutate({
+                tipo: 'inclusao',
+                referenciaId: null,
+                turmaId: Number(solicitarExclusaoDialog.turmaId),
+                dataChamada: solicitarExclusaoDialog.data,
+                turmaNome: solicitarExclusaoDialog.turmaNome,
+                presentes: solicitarExclusaoDialog.presentes,
+                totalParticipantes: solicitarExclusaoDialog.total,
+                motivo: motivoExclusao || null,
+              });
+            }}
+          >
+            {solicitarExclusaoMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+            Enviar Solicitação
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Galeria de fotos comprovante */}
+    <Dialog open={!!fotosGaleriaDialog} onOpenChange={(o) => { if (!o) setFotosGaleriaDialog(null); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Camera className="w-4 h-4" />
+            Fotos Comprovante
+          </DialogTitle>
+        </DialogHeader>
+        {fotosGaleriaLoading ? (
+          <div className="flex justify-center py-8 text-gray-500">Carregando fotos...</div>
+        ) : fotosGaleriaDialog?.urls.length === 0 ? (
+          <div className="flex justify-center py-8 text-gray-400">Nenhuma foto encontrada.</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto py-2">
+            {(fotosGaleriaDialog?.urls || []).map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block">
+                <img src={url} alt={`Foto ${i + 1}`} className="w-full rounded-lg object-cover border hover:opacity-90 transition-opacity" style={{ maxHeight: 300 }} />
+                <span className="text-xs text-gray-400 mt-1 block text-center">Foto {i + 1}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
     </>

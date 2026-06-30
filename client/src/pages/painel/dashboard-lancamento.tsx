@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,7 +21,7 @@ export default function DashboardLancamento() {
   const [, setLocation] = useLocation();
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     setLocation("/dev/login");
   };

@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
+import { authFetch } from '@/lib/queryClient';
 
 const VERIFY_INTERVAL = 2 * 60 * 1000; // 2 minutos
 
@@ -27,7 +28,7 @@ export function useSubscriptionVerify() {
       'desenvolvedor', 'developer', 'dev',
       'monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico',
       'professor', 'professor_pec', 'professor_inclusao', 'professor_psico', 'professor_lider', 'lider',
-      'coordenador', 'coordenador_pec', 'coordenador_inclusao', 'coordenador_psico',
+      'coordenador', 'coordenador_pec', 'coordenador_inclusao', 'coordenador_psico', 'tecnica_psico',
       'admin', 'super_admin', 'leo',
       'conselho', 'conselheiro',
       'marketing', 'gestor_setor', 'gestor_projeto',
@@ -56,7 +57,11 @@ export function useSubscriptionVerify() {
     try {
       console.log('🔍 [VERIFY] Verificando assinatura na Stripe para:', phone);
       
-      const response = await fetch(`/api/subscription/verify?phone=${encodeURIComponent(phone)}`);
+      const response = await authFetch(
+        `/api/subscription/verify?phone=${encodeURIComponent(phone)}`,
+        undefined,
+        { on401: "returnResponse" }
+      );
       
       if (!response.ok) {
         console.log('⚠️ [VERIFY] Erro HTTP na verificação, mantendo sessão:', response.status);

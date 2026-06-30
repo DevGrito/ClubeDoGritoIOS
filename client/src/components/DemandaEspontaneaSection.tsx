@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, authFetch } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -72,7 +72,7 @@ export default function DemandaEspontaneaSection({ userId, userRole }: Props) {
   const { data: demandas = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/demandas-espontaneas"],
     queryFn: async () => {
-      const res = await fetch("/api/demandas-espontaneas", { credentials: "include" });
+      const res = await authFetch("/api/demandas-espontaneas");
       if (!res.ok) throw new Error("Erro ao carregar");
       return res.json();
     },
@@ -160,11 +160,7 @@ export default function DemandaEspontaneaSection({ userId, userRole }: Props) {
     const nameMatch = name.toLowerCase().includes(listSearch.toLowerCase());
     const cpfMatch = grouped[name].some((d: any) => d.cpf_atendido && d.cpf_atendido.replace(/\D/g, "").includes(lSearch));
     return nameMatch || cpfMatch;
-  }).sort((a, b) => {
-    const la = grouped[a][0]?.data_atendimento || "";
-    const lb = grouped[b][0]?.data_atendimento || "";
-    return lb.localeCompare(la);
-  });
+  }).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 
   // Autocomplete: nomes únicos
   const uniqueNames = Array.from(new Set(demandas.map((d: any) => d.nome_atendido).filter(Boolean)));
@@ -206,7 +202,7 @@ export default function DemandaEspontaneaSection({ userId, userRole }: Props) {
     <div className="space-y-4">
       {/* Cabeçalho */}
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800">Demanda Espontânea</h2>
+        <h2 className="text-xl font-bold text-gray-800">Atendidos Comunidade</h2>
         <Button onClick={() => { setShowForm(!showForm); setForm({ ...EMPTY_FORM }); setNameSearch(""); }} size="sm"
           className={showForm ? "bg-gray-500 hover:bg-gray-600" : ""}>
           {showForm ? <><X className="w-4 h-4 mr-1" />Cancelar</> : <><Plus className="w-4 h-4 mr-1" />Nova Demanda</>}
@@ -217,7 +213,7 @@ export default function DemandaEspontaneaSection({ userId, userRole }: Props) {
       {showForm && (
         <Card className="border-blue-200 bg-blue-50/30">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-blue-700">Nova Demanda Espontânea</CardTitle>
+            <CardTitle className="text-base text-blue-700">Novo Atendimento Comunidade</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
 
@@ -447,7 +443,7 @@ export default function DemandaEspontaneaSection({ userId, userRole }: Props) {
         ) : filteredPeople.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center text-gray-500">
-              {listSearch ? "Nenhum resultado encontrado para a busca." : "Nenhuma demanda espontânea registrada ainda."}
+              {listSearch ? "Nenhum resultado encontrado para a busca." : "Nenhum atendimento de comunidade registrado ainda."}
             </CardContent>
           </Card>
         ) : (

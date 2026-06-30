@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +12,11 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Calendar, CheckCircle, GraduationCap, Palette } from "lucide-react";
+import { Calendar, CheckCircle, GraduationCap, Palette, BookOpen } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { CORES_DISPONIVEIS, ICONES_DISPONIVEIS } from "@/components/VincularProfessoresTurma";
+import { parseDateLocal } from "@/lib/class-days";
 
 interface TurmaInclusaoFormProps {
   open: boolean;
@@ -36,7 +37,7 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
   const [horaInicio, setHoraInicio] = useState("");
   const [horaFim, setHoraFim] = useState("");
   const [local, setLocal] = useState("");
-  const [status, setStatus] = useState("planejado");
+  const [status, setStatus] = useState("emandamento");
   const [descricao, setDescricao] = useState("");
   const [diasSemana, setDiasSemana] = useState<string[]>([]);
   const [openCalendarInicio, setOpenCalendarInicio] = useState(false);
@@ -54,7 +55,31 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
     { value: "sabado", label: "Sábado" },
     { value: "domingo", label: "Domingo" },
   ];
-  
+
+  const DIA_MAP: Record<string, number> = {
+    domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6,
+  };
+
+  const cargaHoraria = useMemo(() => {
+    if (!dataInicio || !dataFim || diasSemana.length === 0 || !horaInicio || !horaFim) return null;
+    const [hE, mE] = horaInicio.split(":").map(Number);
+    const [hS, mS] = horaFim.split(":").map(Number);
+    const duracaoMin = (hS * 60 + mS) - (hE * 60 + mE);
+    if (duracaoMin <= 0) return null;
+    const diasNums = diasSemana.map(d => DIA_MAP[d.toLowerCase()]).filter(d => d !== undefined);
+    let count = 0;
+    // Usa local noon para evitar shift de UTC→local que muda o dia da semana
+    const toLocalNoon = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+    const cur = toLocalNoon(dataInicio);
+    const end = toLocalNoon(dataFim);
+    while (cur <= end) {
+      if (diasNums.includes(cur.getDay())) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    const totalHoras = count * (duracaoMin / 60);
+    return { count, duracaoMin, totalHoras };
+  }, [dataInicio, dataFim, diasSemana, horaInicio, horaFim]);
+
   const { data: programasData = [], isLoading: programasLoading } = useQuery<any[]>({
     queryKey: ['/api/programas-inclusao'],
     enabled: open
@@ -99,8 +124,8 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
       setNumeroVagas(turma.numeroVagas || turma.numero_vagas || 20);
       const diVal = turma.dataInicio || turma.data_inicio;
       const dfVal = turma.dataFim || turma.data_fim;
-      const di = diVal ? new Date(diVal) : undefined;
-      const df = dfVal ? new Date(dfVal) : undefined;
+      const di = parseDateLocal(diVal) ?? undefined;
+      const df = parseDateLocal(dfVal) ?? undefined;
       setDataInicio(di);
       setDataFim(df);
       setDataInicioText(di ? format(di, "dd/MM/yyyy", { locale: ptBR }) : "");
@@ -111,7 +136,11 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
         setHoraFim(hf || "");
       }
       setLocal(turma.local || "");
-      setStatus(turma.status || "planejado");
+      const normalizeStatus = (s: string) => {
+        if (s === 'ativo' || s === 'em_andamento' || s === 'em andamento' || s === 'em-andamento' || s === 'andamento') return 'emandamento';
+        return s;
+      };
+      setStatus(normalizeStatus(turma.status || "emandamento"));
       setDescricao(turma.descricao || "");
       setDiasSemana(turma.dias_semana || turma.diasSemana || []);
     } else {
@@ -141,7 +170,7 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
     setHoraInicio("");
     setHoraFim("");
     setLocal("");
-    setStatus("planejado");
+    setStatus("ativo");
     setDescricao("");
     setDiasSemana([]);
     setProfessorSelections([]);
@@ -153,7 +182,7 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
       const dia = parseInt(limpo.substring(0, 2));
       const mes = parseInt(limpo.substring(2, 4)) - 1;
       const ano = parseInt(limpo.substring(4, 8));
-      const data = new Date(ano, mes, dia);
+      const data = new Date(ano, mes, dia, 12, 0, 0);
       if (!isNaN(data.getTime()) && dia >= 1 && dia <= 31 && mes >= 0 && mes <= 11) {
         return data;
       }
@@ -468,6 +497,18 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
             <p className="text-xs text-gray-500 mt-1">Selecione os dias em que a turma acontece</p>
           </div>
 
+          {cargaHoraria && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+              <BookOpen className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Carga Horária Calculada</p>
+                <p className="text-sm text-blue-700">
+                  {cargaHoraria.count} aula{cargaHoraria.count !== 1 ? "s" : ""} × {cargaHoraria.duracaoMin / 60 % 1 === 0 ? cargaHoraria.duracaoMin / 60 : (cargaHoraria.duracaoMin / 60).toFixed(1)}h por aula = <strong>{cargaHoraria.totalHoras % 1 === 0 ? cargaHoraria.totalHoras : cargaHoraria.totalHoras.toFixed(1)}h no total</strong>
+                </p>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium mb-1">Local</label>
             <Input 
@@ -485,7 +526,7 @@ export function TurmaInclusaoForm({ open, onClose, turma, monitorUserId }: Turma
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="planejado">Planejado</SelectItem>
-                <SelectItem value="ativo">Em andamento</SelectItem>
+                <SelectItem value="emandamento">Em andamento</SelectItem>
                 <SelectItem value="concluido">Concluído</SelectItem>
               </SelectContent>
             </Select>

@@ -1,10 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { getPct, getColor, SectorCard, MESES_PT } from "./shared";
+import {
+  getPct, getColor, SectorCard, buildQp, appendPeriodoParams,
+  type PeriodoFiltro, metaFnPeriodo, periodoMesesLista,
+} from "./shared";
 
-interface Props { ano: string; mes: string; }
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+/** Meta anual 10: 1 por mês de fev a nov (jan e dez sem meta prevista) */
+const MESES_COM_META_ESPACO = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+
+function metaEspacoGritoPeriodo(periodo: PeriodoFiltro): number {
+  if (periodo === 'todos') {
+    const mesLimite = new Date().getMonth() + 1;
+    return [...MESES_COM_META_ESPACO].filter(m => m <= mesLimite).length;
+  }
+  return periodoMesesLista(periodo).filter(m => MESES_COM_META_ESPACO.has(m)).length;
+}
 
 /* ── Card com meta ───────────────────────────────────────────────────── */
 function SsKpiCard({ label, valor, meta, format = 'number' as 'number' | 'percent', note }: {
@@ -48,12 +62,22 @@ function SimpleKpiCard({ label, valor, sub }: { label: string; valor: number; su
 }
 
 /* ── Tab principal ───────────────────────────────────────────────────── */
-export default function TabPsico({ ano, mes }: Props) {
-  const qp = mes === 'todos' ? `?ano=${ano}` : `?ano=${ano}&mes=${mes}`;
+export default function TabPsico({ ano, periodo }: Props) {
+  const qp = buildQp(ano, periodo);
 
-  const { data: gv } = useQuery<any>({
-    queryKey: ['/api/gestao-vista', ano, mes],
-    queryFn: () => fetch(`/api/gestao-vista${qp}`).then(r => r.json()),
+  const { data: psicoKpis } = useQuery<any>({
+    queryKey: ['/api/psico/dashboard-kpis', ano, periodo],
+    queryFn: () => fetch(`/api/psico/dashboard-kpis${qp}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  const { data: intervencoesCount } = useQuery<any>({
+    queryKey: ['/api/psico/intervencoes/count', ano, periodo],
+    queryFn: () => {
+      const params = new URLSearchParams({ ano: String(ano) });
+      appendPeriodoParams(params, periodo);
+      return fetch(`/api/psico/intervencoes/count?${params}`).then(r => r.json());
+    },
     refetchInterval: 60000,
   });
 
@@ -65,7 +89,7 @@ export default function TabPsico({ ano, mes }: Props) {
 
   const { data: metodoGrito } = useQuery<any>({
     queryKey: ['/api/psico/indicadores/metodo-grito', ano],
-    queryFn: () => fetch('/api/psico/indicadores/metodo-grito').then(r => r.json()),
+    queryFn: () => fetch(`/api/psico/indicadores/metodo-grito?ano=${ano}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
@@ -76,20 +100,23 @@ export default function TabPsico({ ano, mes }: Props) {
   });
   const metasAdm = metasDB?.metas ?? {};
 
-  const ind = gv?.indicadores || {};
   const mg  = metodoGrito?.data || {};
 
-  const mesNumRaw = mes === 'todos' ? NaN : parseInt(mes);
-  const mesNum    = isNaN(mesNumRaw) || mesNumRaw <= 0 ? new Date().getMonth() + 1 : mesNumRaw;
-  const mesLabel  = MESES_PT[mesNum - 1];
+  const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
 
-  const anualAcolhimento = metasAdm.atendimentos ?? ind?.atendimentos?.meta ?? 250;
-  const anualVisitas     = metasAdm.visitas      ?? ind?.visitas?.meta      ?? 250;
+  const anualAcolhimento = metasAdm.atendimentos ?? 250;
+  const anualVisitas     = metasAdm.visitas      ?? 250;
   const anualEspaco      = mg?.espacosColetivos?.meta || 10;
 
-  const metaAcolhimento = Math.round(anualAcolhimento * mesNum / 12);
-  const metaVisitas     = Math.round(anualVisitas * mesNum / 12);
-  const metaEspaco      = Math.round(anualEspaco * Math.max(0, mesNum - 1) / 11);
+  const metaAcolhimento = metaFn(anualAcolhimento);
+  const metaVisitas     = metaFn(anualVisitas);
+  const metaEspaco      = metaEspacoGritoPeriodo(periodo);
+
+  // Valores canônicos do endpoint unificado
+  const valorAtendimentos = (psicoKpis?.atendimentos ?? 0) + (psicoKpis?.demandasEspontaneas ?? 0);
+  const valorVisitas      = psicoKpis?.visitas               ?? 0;
+  const valorColetivos    = intervencoesCount?.total ?? 0;
+  const valorEspaco       = psicoKpis?.espacoOGrito ?? 0;
 
   const lineData = (evolucao?.dados || MESES_LABELS.map(m => ({ mes: m, visitas: 0, atendimentos: 0 }))).map(
     (d: any) => ({ ...d, total: (d.visitas || 0) + (d.atendimentos || 0) })
@@ -98,31 +125,36 @@ export default function TabPsico({ ano, mes }: Props) {
   return (
     <div className="flex flex-col md:grid md:grid-cols-12 gap-3 md:h-full md:min-h-0">
 
-      {/* ── Esquerda: 5 KPI cards ── */}
+      {/* ── Esquerda: 4 KPI cards ── */}
       <div className="md:col-span-7 flex flex-col md:min-h-0">
         <SectorCard title="" accent="#f97316" className="md:flex-1">
           <div className="grid grid-cols-2 gap-2">
             <SsKpiCard
-              label="Acolhimento Psicossociais"
-              valor={ind?.atendimentos?.valor || 0}
+              label="Acolhimento Individual"
+              valor={valorAtendimentos}
               meta={metaAcolhimento}
-              note={`Meta até ${mesLabel}: ${metaAcolhimento.toLocaleString('pt-BR')} (Anual: ${anualAcolhimento.toLocaleString('pt-BR')})`}
+              note={`Meta anual: ${anualAcolhimento.toLocaleString('pt-BR')}`}
             />
             <SsKpiCard
               label="Visitas Domiciliares"
-              valor={ind?.visitas?.valor || 0}
+              valor={valorVisitas}
               meta={metaVisitas}
-              note={`Meta até ${mesLabel}: ${metaVisitas.toLocaleString('pt-BR')} (Anual: ${anualVisitas.toLocaleString('pt-BR')})`}
+              note={`Meta anual: ${anualVisitas.toLocaleString('pt-BR')}`}
             />
             <SimpleKpiCard
-              label="Acolhimentos Coletivos"
-              valor={ind?.atendimentosColetivos?.valor || 0}
+              label="Intervenções"
+              valor={valorColetivos}
             />
             <SsKpiCard
-              label="#EspaçoOgrito"
-              valor={mg?.espacosColetivos?.total || 0}
+              label="#EspaçoOGrito"
+              valor={valorEspaco}
               meta={metaEspaco}
-              note={`Meta até ${mesLabel}: ${metaEspaco.toLocaleString('pt-BR')} (Anual: ${anualEspaco.toLocaleString('pt-BR')})`}
+              note={`Meta anual: ${anualEspaco.toLocaleString('pt-BR')}`}
+            />
+            <SimpleKpiCard
+              label="Casas Mapeadas"
+              valor={psicoKpis?.casasMapeadas ?? 0}
+              sub="Mapeamento de território"
             />
           </div>
         </SectorCard>

@@ -1,10 +1,15 @@
+const isBenignClientNoise = (message: string) =>
+  message.includes("ResizeObserver loop");
+
 // Global error handler for uncaught errors and unhandled promise rejections
 export function setupGlobalErrorHandling() {
   // Capturar erros JavaScript não tratados
   window.addEventListener('error', (event) => {
+    const message = event.error?.message || event.message || "";
+    if (isBenignClientNoise(message)) return;
     logClientError({
       type: 'javascript-error',
-      message: event.error?.message || event.message,
+      message,
       stack: event.error?.stack,
       filename: event.filename,
       lineno: event.lineno,
@@ -17,9 +22,18 @@ export function setupGlobalErrorHandling() {
 
   // Capturar promises rejeitadas não tratadas
   window.addEventListener('unhandledrejection', (event) => {
+    const msg = event.reason?.message || String(event.reason);
+    // Ignorar erros esperados do Firebase Messaging em contextos sem suporte (iframes, Firefox, etc.)
+    if (
+      msg.includes('messaging/unsupported-browser') ||
+      event.reason?.code === 'messaging/unsupported-browser'
+    ) {
+      event.preventDefault(); // impede o overlay do Vite de capturar
+      return;
+    }
     logClientError({
       type: 'unhandled-promise-rejection',
-      message: event.reason?.message || String(event.reason),
+      message: msg,
       stack: event.reason?.stack,
       userAgent: navigator.userAgent,
       url: window.location.href,

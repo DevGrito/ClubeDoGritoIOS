@@ -1,25 +1,61 @@
 import express, { type Request, type Response, type NextFunction } from "express";
+import compression from "compression";
+import helmet from "helmet";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
 
 import { registerRoutes } from "./routes";
 import { setupVite, log } from "./vite";
-import { testDatabaseConnection, runAutoMigrations } from "./db";
+import { testDatabaseConnection, runAutoMigrations, pool } from "./db";
 import { checkDevAccess } from "./middleware/devAccess";
 import { healthRouter } from "./health";
+import { toClientError } from "./lib/safeError";
+import { conditionalJsonParser, conditionalUrlencodedParser } from "./middleware/bodyLimit";
+
+// Late-bound: preenchido após registerRoutes para alertas de crash
+let _crashAlertFn: ((g: string, e: any, ctx: any) => void) | null = null;
 
 process.on("uncaughtException", (err) => {
   console.error("🔴 [CRASH] uncaughtException:", err?.message, err?.stack);
+  try { if (_crashAlertFn) _crashAlertFn("erro_critico_sistema", err, { integracao: "Sistema", origem: "uncaughtException", severidade: "alta" }); } catch { }
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("🔴 [CRASH] unhandledRejection:", reason);
+  try { if (_crashAlertFn) _crashAlertFn("erro_critico_sistema", reason, { integracao: "Sistema", origem: "unhandledRejection", severidade: "alta" }); } catch { }
 });
 
 const app = express();
+
+// SEC-025: headers de segurança (CSP progressiva — unsafe-inline ainda necessário no SPA)
+const isProd = process.env.NODE_ENV === "production";
+app.use(
+  helmet({
+    contentSecurityPolicy: isProd
+      ? {
+        directives: {
+          defaultSrc: ["'self'"],
+          baseUri: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "https://js.stripe.com", "https://www.googletagmanager.com"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          imgSrc: ["'self'", "data:", "blob:", "https:"],
+          connectSrc: ["'self'", "https:", "wss:"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+          frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+          objectSrc: ["'none'"],
+        },
+      }
+      : false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// Compressão gzip para todos os assets e respostas
+app.use(compression());
 
 // estamos atrás de proxy (Traefik/nginx)
 app.set("trust proxy", 1);
@@ -43,114 +79,272 @@ const ALLOW_LIST = [
   process.env.CORS_ORIGIN,
 ].filter(Boolean) as string[];
 
-app.use(
-  cors({
-    origin(origin, cb) {
-      // iOS WebView/TestFlight muitas vezes vem sem Origin -> permitir
+const NATIVE_ORIGINS = new Set([
+  "capacitor://localhost",
+  "ionic://localhost",
+])
+
+function isServerToServerPath(path: string): boolean {
+  return (
+    path.startsWith("/api/webhook") ||
+    path.startsWith("webhook") ||
+    path.startsWith("/api/paymente/webhook") ||
+    path.startsWith("/api/typeform/webhook") ||
+    path === "/health"
+  );
+}
+
+
+const corsOptions = {
+  origin(origin, cb) {
+    const isProd = process.env.NODE_ENV === "production";
+
+    // DEV: Flexivel
+    if (!isProd) {
       if (!origin) return cb(null, true);
-
-      // Permitir todos os domínios do Replit (dev e produção)
-      if (origin.endsWith(".replit.dev") || origin.endsWith(".repl.co")) {
-        return cb(null, true);
-      }
-
+      if (origin.startsWith("http://localhost")) return cb(null, true);
       if (ALLOW_LIST.includes(origin)) return cb(null, true);
-      if (ALLOW_LIST.some((o) => origin.startsWith(o))) return cb(null, true);
-
       return cb(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
-    // ✅ inclui X-User-Id pra compatibilidade (mesmo usando sessão)
-    allowedHeaders:
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Dev-Access, X-User-Id",
-  })
-);
+    }
 
-// responde rápido preflight
-app.options("*", cors());
+    // iOS WebView/TestFlight muitas vezes vem sem Origin -> permitir
+    if (!origin) return cb(null, true);
 
-// ✅ SESSÃO (precisa vir antes das rotas /api/*)
+    if (NATIVE_ORIGINS.has(origin)) return cb(null, true);
+    if (ALLOW_LIST.includes(origin)) return cb(null, true);
+
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: "GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS",
+  allowedHeaders: "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+}
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+// SEC-010 + SEC-014: secrets obrigatórios em produção
+if (process.env.NODE_ENV === "production") {
+
+  const corsOrigin = process.env.CORS_ORIGIN?.trim() ?? "";
+  if (!corsOrigin) {
+    console.error("FATAL [SECURITY]: CORS_ORIGIN obrigatório em produção (SEC-016).");
+    process.exit(1);
+  }
+
+  const secret = process.env.SESSION_SECRET?.trim() ?? "";
+  if (
+    !secret ||
+    secret.length < 32 ||
+    secret === "dev_secret_change_me"
+  ) {
+    console.error(
+      "FATAL [SECURITY]: SESSION_SECRET ausente, curto ou é o valor de desenvolvimento. " +
+      "Defina um secret aleatório com pelo menos 32 caracteres."
+    );
+    process.exit(1);
+  }
+
+  for (const key of ["STRIPE_WEBHOOK_SECRET", "CATRACA_WEBHOOK_TOKEN"] as const) {
+    if (key === "CATRACA_WEBHOOK_TOKEN") {
+      const catraca =
+        process.env.CATRACA_WEBHOOK_TOKEN?.trim() ||
+        process.env.WEBHOOK_PRESENCA_SECRET?.trim();
+      if (!catraca) {
+        console.error(
+          "FATAL [SECURITY]: CATRACA_WEBHOOK_TOKEN ou WEBHOOK_PRESENCA_SECRET obrigatório em produção (SEC-014)."
+        );
+        process.exit(1);
+      }
+      continue;
+    }
+    if (!process.env[key]?.trim()) {
+      console.error(`FATAL [SECURITY]: ${key} obrigatório em produção (SEC-014).`);
+      process.exit(1);
+    }
+  }
+}
+
+// ✅ SESSÃO com PostgreSQL store (persistente, sobrevive a reinicializações)
+const PgSession = connectPgSimple(session);
 app.use(
   session({
     name: "og.sid",
     secret: process.env.SESSION_SECRET || "dev_secret_change_me",
     resave: false,
     saveUninitialized: false,
-    proxy: true, // importante atrás de proxy
+    proxy: true,
+    store: new PgSession({
+      pool,
+      tableName: "session",
+      createTableIfMissing: false,
+      pruneSessionInterval: 60 * 60, // limpa sessões expiradas a cada 1h
+    }),
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production", // true em prod (https)
+      secure: process.env.NODE_ENV === "production",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
     },
   })
 );
 
-// 👇 Webhook Stripe precisa do raw body
-app.use("/api/webhook/stripe", express.raw({ type: "application/json" }));
+// 👇 Webhooks com verificação de assinatura precisam do raw body
+const RAW_BODY_PREFIXES = [
+  "/api/webhook/stripe",
+  "/api/stripe/webhook",
+  "/api/typeform/webhook",
+];
 
-// 👇 Para todas as outras rotas, usa JSON normalmente
-app.use((req, res, next) => {
-  if (req.originalUrl.startsWith("/api/webhook/stripe")) {
-    return next(); // não aplicar express.json aqui
+for (const prefix of RAW_BODY_PREFIXES) {
+  app.use(prefix, express.raw({ type: "application/json" }));
+}
+
+// 👇 Para todas as outras rotas, usa JSON com limite padrão 2mb (SEC-022)
+app.use(conditionalJsonParser());
+app.use(conditionalUrlencodedParser());
+
+// Payload acima do limite
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err && typeof err === "object" && (err as { type?: string }).type === "entity.too.large") {
+    return res.status(413).json({ error: "Payload muito grande" });
   }
-  return express.json({ limit: "50mb" })(req, res, next);
+  next(err);
 });
 
-app.use((req, res, next) => {
-  if (req.originalUrl.startsWith("/api/webhook/stripe")) {
-    return next(); // não aplicar urlencoded aqui também
-  }
-  return express.urlencoded({ extended: false, limit: "50mb" })(req, res, next);
-});
-
-// estáticos — uploads (persistentes no volume)
-app.use(
-  "/uploads",
-  express.static(path.resolve(process.cwd(), "uploads"), {
-    fallthrough: false,
-    etag: true,
-    maxAge: "7d",
-  })
-);
-
-// estáticos — attached_assets (bind mount do host -> container)
-app.use(
-  "/attached_assets",
-  express.static(path.resolve(process.cwd(), "attached_assets"), {
-    fallthrough: false,
-    etag: true,
-    maxAge: "7d",
-    setHeaders: (res, filePath) => {
-      res.setHeader("Cache-Control", "public, max-age=604800, immutable");
-      if (/\.(png)$/i.test(filePath)) res.setHeader("Content-Type", "image/png");
-      if (/\.(jpe?g)$/i.test(filePath))
-        res.setHeader("Content-Type", "image/jpeg");
-      if (/\.webp$/i.test(filePath)) res.setHeader("Content-Type", "image/webp");
-      if (/\.svg$/i.test(filePath))
-        res.setHeader("Content-Type", "image/svg+xml");
-      if (/\.json$/i.test(filePath))
-        res.setHeader("Content-Type", "application/json");
-    },
-  })
-);
-
-app.get("/sw.js", (req, res) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
+// SEC-017: /uploads servido com auth em server/routes.ts (não expor estático aqui)
+// Service workers precisam ser servidos com Content-Type correto — antes do Vite em dev
+app.get("/firebase-messaging-sw.js", (req, res) => {
+  const swPath = process.env.NODE_ENV === "production"
+    ? path.resolve(process.cwd(), "dist", "public", "firebase-messaging-sw.js")
+    : path.resolve(process.cwd(), "client", "public", "firebase-messaging-sw.js");
   res.setHeader("Content-Type", "application/javascript");
-  res.send(`
-    self.addEventListener('install', () => self.skipWaiting());
-    self.addEventListener('activate', (event) => {
-      event.waitUntil(
-        caches.keys().then(names => Promise.all(names.map(name => caches.delete(name))))
-          .then(() => self.clients.matchAll())
-          .then(clients => clients.forEach(client => client.navigate(client.url)))
-      );
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.sendFile(swPath);
+});
+
+// /sw.js — serve o Workbox SW com Firebase Messaging integrado.
+// O Workbox SW usa skipWaiting() e fica sempre ativo (o Firebase SW fica em "waiting" e nunca
+// recebe push events). Solução: embutir o Firebase Messaging diretamente no sw.js ativo.
+app.get("/sw.js", async (req, res) => {
+  try {
+    const swPath = process.env.NODE_ENV === "production"
+      ? path.resolve(process.cwd(), "dist", "public", "sw.js")
+      : path.resolve(process.cwd(), "dist", "public", "sw.js"); // dev também usa o build
+    const fs = await import("fs/promises");
+    let swContent = "";
+    try {
+      swContent = await fs.readFile(swPath, "utf-8");
+    } catch {
+      // Se não existir ainda (ex: antes do primeiro build), deixa vazio
+    }
+
+    // Firebase compat SDK integrado ao Workbox SW.
+    // O Firebase SDK no SW é necessário para que getToken() no cliente funcione
+    // (o SDK do cliente envia postMessages ao SW para coordenar o token).
+    // O firebase.messaging() no SW NÃO cria push subscriptions — só registra listeners.
+    const firebaseMessagingAppend = `
+// ── Firebase Messaging integrado ao Workbox SW ───────────────────────────────
+// importScripts em try-catch para não bloquear instalação do SW se CDN falhar
+try {
+  importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+} catch(importErr) {
+  console.warn('[SW/FCM] Falha ao carregar Firebase SDK (CDN indisponível?):', importErr);
+}
+
+function pushClickAbsoluteUrl(urlToOpen) {
+  if (!urlToOpen || urlToOpen === '/') return self.location.origin + '/';
+  if (/^https?:\\/\\//i.test(urlToOpen)) return urlToOpen;
+  return self.location.origin + (urlToOpen.startsWith('/') ? urlToOpen : '/' + urlToOpen);
+}
+
+function openPushClickUrl(urlToOpen) {
+  var url = pushClickAbsoluteUrl(urlToOpen);
+  return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
+    for (var i = 0; i < windowClients.length; i++) {
+      var c = windowClients[i];
+      if (!c.url.startsWith(self.location.origin)) continue;
+      if ('focus' in c) c.focus();
+      if ('navigate' in c) {
+        try {
+          return c.navigate(url);
+        } catch (e) {
+          console.warn('[SW/FCM] navigate falhou:', e);
+        }
+      }
+    }
+    if (clients.openWindow) return clients.openWindow(url);
+  });
+}
+
+(function() {
+  try {
+    if (typeof firebase === 'undefined') {
+      console.warn('[SW/FCM] Firebase SDK não carregado — notificações background desativadas.');
+      return;
+    }
+    if (!firebase.apps.length) {
+      firebase.initializeApp({
+        apiKey: "AIzaSyDKdcqxJj1qoSFpY1bLT2JloeJDfxDG_x8",
+        authDomain: "clube-do-grito.firebaseapp.com",
+        projectId: "clube-do-grito",
+        storageBucket: "clube-do-grito.firebasestorage.app",
+        messagingSenderId: "579937692596",
+        appId: "1:579937692596:web:9c2dd3f21e94d3230ca0e1"
+      });
+    }
+    var fcm = firebase.messaging();
+    fcm.onBackgroundMessage(function(payload) {
+      var notif = payload.notification || {};
+      var data  = payload.data || {};
+      var title = notif.title || data.title || 'Clube do Grito';
+      var body  = notif.body  || data.body  || '';
+      var url   = data.url ? pushClickAbsoluteUrl(data.url) : undefined;
+      return self.registration.showNotification(title, {
+        body: body,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        data: url ? { url: url } : {},
+        vibrate: [200, 100, 200],
+      });
     });
-  `);
+    console.log('[SW/FCM] Firebase Messaging inicializado no Workbox SW.');
+  } catch(e) {
+    console.error('[SW/FCM] Erro ao inicializar:', e);
+  }
+})();
+
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  if (event.action === 'close') return;
+  var urlToOpen = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(openPushClickUrl(urlToOpen));
+});
+// Fallback: handler push nativo caso Firebase SDK não tenha carregado
+if (typeof firebase === 'undefined') {
+  self.addEventListener('push', function(event) {
+    if (!event.data) return;
+    try {
+      var p = event.data.json();
+      var n = p.notification || {}; var d = p.data || {};
+      var url = d.url ? pushClickAbsoluteUrl(d.url) : undefined;
+      event.waitUntil(self.registration.showNotification(n.title || d.title || 'Clube do Grito', {
+        body: n.body || d.body || '', icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png', data: url ? { url: url } : {},
+      }));
+    } catch(e) { console.error('[SW/push] Erro:', e); }
+  });
+}
+// ── fim Firebase Messaging ────────────────────────────────────────────────────
+`;
+
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.send(swContent + "\n" + firebaseMessagingAppend);
+  } catch (err) {
+    console.error("[SW] Erro ao servir sw.js:", err);
+    res.status(500).send("// erro interno ao servir sw.js");
+  }
 });
 
 app.get("/index.html", (req, res, next) => {
@@ -194,7 +388,7 @@ app.use((req, res, next) => {
     if (captured !== undefined) {
       try {
         line += ` :: ${JSON.stringify(captured)}`;
-      } catch {}
+      } catch { }
     }
     if (line.length > 80) line = line.slice(0, 79) + "…";
     log(line);
@@ -213,7 +407,7 @@ app.use((req, res, next) => {
       await import("./jobs/subscriptions");
     startSubscriptionReconciliation();
     startAutomaticDunning();
-    
+
     // Iniciar outros jobs (sincronização Stripe, atualização automática de turmas)
     const { initCronJobs } = await import("./jobs/cronJobs");
     initCronJobs();
@@ -287,11 +481,16 @@ app.use((req, res, next) => {
 
   const server = await registerRoutes(app);
 
+  // Conectar handler de crash ao fireTechnicalAlert (disponível após registerRoutes)
+  _crashAlertFn = (app as any)._fireTechnicalAlert ?? null;
+
   // handler de erro central — não relança depois de responder
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err?.status ?? err?.statusCode ?? 500;
-    const message = err?.message ?? "Internal Server Error";
-    if (process.env.LOG_LEVEL === "debug") console.error("[ERROR]", err);
+    if (status >= 500) console.error("[ERROR]", err);
+    const message = status >= 500
+      ? toClientError(err, "Erro interno do servidor")
+      : (err?.message ?? "Requisição inválida");
     if (!res.headersSent) res.status(status).json({ message });
   });
 
@@ -299,9 +498,13 @@ app.use((req, res, next) => {
   const distPath = path.resolve(process.cwd(), "dist", "public");
   const frontendBuildExists = fs.existsSync(distPath);
 
-  // Se frontend buildado existe, sempre usa ele (desenvolvimento ou produção)
-  // Se não existe, usa Vite em desenvolvimento
-  if (frontendBuildExists) {
+  const isDevRuntime = app.get("env") === "development" || process.env.NODE_ENV === "development" || !process.env.NODE_ENV;
+
+  // Em desenvolvimento, prioriza sempre o Vite (HMR), mesmo com dist/public existente.
+  if (isDevRuntime) {
+    log("⚡ Using Vite dev server");
+    await setupVite(app, server);
+  } else if (frontendBuildExists) {
     log("🚀 Serving built frontend from " + distPath);
 
     // Serve arquivos estáticos do build
@@ -325,9 +528,6 @@ app.use((req, res, next) => {
       res.setHeader("Pragma", "no-cache");
       res.sendFile(path.resolve(distPath, "index.html"));
     });
-  } else if (app.get("env") === "development" || !process.env.NODE_ENV) {
-    log("⚡ Using Vite dev server (no build found)");
-    await setupVite(app, server);
   } else {
     log("❌ Frontend build not found at " + distPath);
     log("Run 'npm run build' to generate the frontend build");

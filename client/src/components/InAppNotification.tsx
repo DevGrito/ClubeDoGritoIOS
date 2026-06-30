@@ -80,7 +80,9 @@ export function InAppNotification() {
   });
   
   // Usar email do backend (mais confiável) ou do localStorage como fallback
-  const userEmail = backendUserData?.email || parsedUserData?.email || null;
+  // temp@temp.com é placeholder — tratar como sem email
+  const _rawEmail = backendUserData?.email || parsedUserData?.email || null;
+  const userEmail = _rawEmail && _rawEmail !== 'temp@temp.com' ? _rawEmail : null;
   
   const userPapel = localStorage.getItem('userPapel');
   const isVerified = localStorage.getItem('isVerified') === 'true';
@@ -223,7 +225,7 @@ export function InAppNotification() {
     location === route || location.startsWith(route + '/')
   );
   
-  if (isEmailRequired && userEmail && userEmail.trim() !== '') {
+  if (isEmailRequired && userEmail && userEmail.trim() !== '' && userEmail !== 'temp@temp.com') {
     return null;
   }
   

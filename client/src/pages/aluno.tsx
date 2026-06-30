@@ -1,1826 +1,1613 @@
-import React, { useState, useEffect } from 'react';
-import { formatCPF } from "@/lib/utils";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useLocation } from "wouter";
-import { useToast } from "@/hooks/use-toast";
-import { useDevAccess } from "@/hooks/useDevAccess";
-import logoClube from "../app-assets/LOGO_CLUBE-05_1752081350082.png";
-import { 
-  Calendar, 
-  BookOpen, 
-  MessageSquare, 
-  User, 
-  Home,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  TrendingUp,
-  Users,
-  Quote,
-  CalendarDays,
-  ChevronRight,
-  Menu,
-  X,
-  Target,
-  Star,
-  Award,
-  Settings,
-  LogOut,
-  Plus,
-  Bell,
-  ChevronLeft,
-  ChevronRight as ChevronRightIcon,
-  Brain,
-  Mail,
-  CheckSquare,
-  Calendar as CalendarIcon,
-  FileText,
-  BarChart3,
-  Edit3,
-  Phone,
-  MessageCircle,
-  Code
-} from "lucide-react";
+import React, { useState, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
+import {
+  LayoutDashboard, BookOpen, Calendar, Clock, BarChart3,
+  Star, Settings, LogOut, ChevronLeft, ChevronRight, FileText,
+  Menu, X, CheckCircle2, XCircle, AlertCircle, User, Shield,
+  MapPin, Phone, Mail, GraduationCap,
+  CalendarDays, Loader2, AlertTriangle, Eye, EyeOff, ImageIcon
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest, authFetch } from '@/lib/queryClient';
+import { logoutAndClearSession } from '@/lib/auth-session';
+import { useAuthSession } from '@/hooks/useAuthSession';
+import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from '@/components/AreaConsentGate';
+import { openPrivacyPreferences } from '@/lib/consentManager';
+import { LgpdMeusDadosSettingsPanel } from '@/components/LgpdLegalMenuSection';
+import { PushNotificationSettings } from '@/components/PushNotificationSettings';
+import logoOGrito from '../app-assets/logo_ogrito_1773942740072.png';
 
-const AlunoPage = () => {
-  const [location, setLocation] = useLocation();
-  const { toast } = useToast();
-  const devAccess = useDevAccess();
-  const [activeSection, setActiveSection] = useState('painel');
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  
-  // Estados dos dados do aluno
-  const [studentData, setStudentData] = useState({
-    name: "João Silva",
-    phone: "(11) 99999-9999",
-    cpf: "123.456.789-00",
-    birthDate: "2000-05-15",
-    subscriptionPlan: "Grito",
-    presencePercentage: 85,
-    isReturningAfterAbsence: false,
-    lastClass: {
-      name: "Matemática Aplicada",
-      date: "2025-01-15",
-      competency: "Resolução de problemas"
-    },
-    nextClass: {
-      name: "Comunicação Digital",
-      date: "2025-01-20",
-      time: "14:00"
-    },
-    competencies: [
-      { name: "Comunicação", progress: 75, feedback: "Excelente evolução na expressão oral!" },
-      { name: "Pensamento Crítico", progress: 60, feedback: "Continue praticando a análise de problemas." },
-      { name: "Colaboração", progress: 90, feedback: "Você é um exemplo de trabalho em equipe!" },
-      { name: "Criatividade", progress: 45, feedback: "Explore mais sua imaginação nas atividades." }
-    ],
-    weeklyGoal: "Melhorar frequência e completar 3 tarefas pendentes"
-  });
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
-  // Dados para benefícios
-  const benefits = [
-    "Você aprende o que a escola não ensina.",
-    "Oficinas, vivências, certificados e desenvolvimento pessoal.",
-    "Conexão com oportunidades reais de futuro."
-  ];
-
-  // Depoimentos
-  const testimonials = [
-    {
-      name: "Ana Paula",
-      course: "Comunicação Digital",
-      comment: "O projeto mudou minha vida. Hoje trabalho na área que sempre sonhei!"
-    },
-    {
-      name: "Carlos Eduardo",
-      course: "Empreendedorismo",
-      comment: "Aprendi a ter confiança e hoje tenho meu próprio negócio."
-    },
-    {
-      name: "Mariana Santos",
-      course: "Tecnologia",
-      comment: "As competências que desenvolvi aqui me abriram portas incríveis."
-    }
-  ];
-
-  // Classes recentes
-  const recentClasses = [
-    { name: "Matemática Aplicada", date: "2025-01-15", status: "presente", content: "Funções e gráficos" },
-    { name: "Comunicação Digital", date: "2025-01-12", status: "presente", content: "Redes sociais e marketing" },
-    { name: "Empreendedorismo", date: "2025-01-10", status: "ausente", content: "Plano de negócios" },
-    { name: "Pensamento Crítico", date: "2025-01-08", status: "presente", content: "Análise de problemas" }
-  ];
-
-  // Próximas aulas
-  const upcomingClasses = [
-    { name: "Comunicação Digital", date: "2025-01-20", time: "14:00" },
-    { name: "Matemática Aplicada", date: "2025-01-22", time: "10:00" },
-    { name: "Empreendedorismo", date: "2025-01-24", time: "16:00" }
-  ];
-
-  // Tarefas do aluno
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      title: "Entregar trabalho de Matemática",
-      description: "Exercícios sobre funções quadráticas",
-      dueDate: "2025-01-25",
-      status: "pendente" as const,
-      priority: "alta" as const,
-      subject: "Matemática Aplicada"
-    },
-    {
-      id: 2,
-      title: "Participar da oficina de comunicação",
-      description: "Workshop sobre apresentações em público",
-      dueDate: "2025-01-28",
-      status: "pendente" as const,
-      priority: "media" as const,
-      subject: "Comunicação Digital"
-    },
-    {
-      id: 3,
-      title: "Responder questionário de feedback",
-      description: "Avaliação sobre as aulas do mês",
-      dueDate: "2025-01-30",
-      status: "concluido" as const,
-      priority: "baixa" as const,
-      subject: "Geral"
-    }
-  ]);
-
-  // Recados
-  const messages = [
-    {
-      id: 1,
-      sender: "Prof. Maria",
-      message: "Lembrete: Próxima aula teremos atividade prática. Tragam caderno!",
-      date: "2025-01-18",
-      read: false
-    },
-    {
-      id: 2,
-      sender: "Coordenação",
-      message: "Reunião de pais marcada para 25/01. Confirmem presença.",
-      date: "2025-01-17",
-      read: true
-    }
-  ];
-
-  // Estados para a seção de configurações
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedName, setEditedName] = useState(studentData.name);
-  const [editedPhone, setEditedPhone] = useState(studentData.phone);
-  const [editedEmail, setEditedEmail] = useState('');
-
-  // Estados para o calendário
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [showEventModal, setShowEventModal] = useState(false);
-  const [showReminderModal, setShowReminderModal] = useState(false);
-  const [events, setEvents] = useState([
-    {
-      id: 1,
-      title: "Feira de Competências",
-      date: "2025-01-25",
-      time: "09:00",
-      type: "evento" as const,
-      description: "Apresentação dos projetos desenvolvidos pelos alunos",
-      location: "Auditório Principal"
-    },
-    {
-      id: 2,
-      title: "Workshop de Comunicação", 
-      date: "2025-01-28",
-      time: "14:00",
-      type: "workshop" as const,
-      description: "Técnicas avançadas de apresentação e comunicação",
-      location: "Sala de Treinamento 2"
-    }
-  ]);
-  const [reminders, setReminders] = useState([
-    {
-      id: 1,
-      title: "Estudar para prova de Matemática",
-      date: "2025-01-24",
-      time: "10:00",
-      description: "Revisar funções e gráficos"
-    },
-    {
-      id: 2,
-      title: "Entrega do projeto",
-      date: "2025-01-26", 
-      time: "23:59",
-      description: "Projeto final de Comunicação Digital"
-    }
-  ]);
-
-  // Estados para formulários
-  const [newEvent, setNewEvent] = useState<{
-    title: string;
-    date: string;
-    time: string;
-    type: 'evento' | 'workshop' | 'reuniao';
-    description: string;
-    location: string;
-  }>({
-    title: '',
-    date: '',
-    time: '',
-    type: 'evento',
-    description: '',
-    location: ''
-  });
-  
-  const [newReminder, setNewReminder] = useState({
-    title: '',
-    date: '',
-    time: '',
-    description: ''
-  });
-
-  const handleLogout = () => {
-    localStorage.clear();
-    toast({
-      title: "Logout realizado",
-      description: "Você foi desconectado com sucesso.",
-    });
-    setLocation("/");
+function fmtData(d: string | null) {
+  if (!d) return '—';
+  const dateOnly = d.split('T')[0];
+  const [y, m, day] = dateOnly.split('-');
+  if (!y || !m || !day) return '—';
+  return `${day}/${m}/${y}`;
+}
+function fmtDiaSemana(d: string | null) {
+  if (!d) return '';
+  const dateOnly = d.split('T')[0];
+  const [y, m, day] = dateOnly.split('-');
+  if (!y || !m || !day) return '';
+  const dt = new Date(parseInt(y), parseInt(m) - 1, parseInt(day));
+  return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][dt.getDay()];
+}
+function fmtHora(h: string | null) {
+  if (!h) return '';
+  return h.slice(0, 5);
+}
+function initials(nome: string) {
+  return nome.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase();
+}
+function diaSemanaLabel(d: string) {
+  const map: Record<string, string> = {
+    segunda: 'Seg', terca: 'Ter', quarta: 'Qua',
+    quinta: 'Qui', sexta: 'Sex', sabado: 'Sáb', domingo: 'Dom',
   };
-
-  const markMessageAsRead = (messageId: number) => {
-    // Implementar lógica para marcar como lida
-    toast({
-      title: "Mensagem marcada como lida",
-      description: "Obrigado pela confirmação!",
-    });
+  return map[d] || d;
+}
+function turnoLabel(t: string | null) {
+  if (!t) return '';
+  const map: Record<string, string> = { matutino: 'Manhã', vespertino: 'Tarde', noturno: 'Noite' };
+  return map[t] || t;
+}
+function statusColor(s: string) {
+  if (s === 'ativo' || s === 'emandamento') return 'bg-green-100 text-green-800 border-green-200';
+  if (s === 'concluido') return 'bg-gray-100 text-gray-600 border-gray-200';
+  if (s === 'evadido') return 'bg-red-100 text-red-700 border-red-200';
+  return 'bg-blue-100 text-blue-700 border-blue-200';
+}
+function statusLabel(s: string) {
+  const map: Record<string, string> = {
+    ativo: 'Ativo', emandamento: 'Em Andamento',
+    concluido: 'Concluído', evadido: 'Evadido',
+    planejado: 'Planejado',
   };
+  return map[s] || s;
+}
+function presencaIcon(s: string) {
+  if (s === 'presente') return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+  if (s === 'falta') return <XCircle className="w-4 h-4 text-red-500" />;
+  return <AlertCircle className="w-4 h-4 text-yellow-500" />;
+}
+function areaTag(area: string) {
+  return area === 'pec'
+    ? <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">PEC</span>
+    : <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">Inclusão</span>;
+}
 
-  const handleSaveProfile = () => {
-    // Aqui seria feita a chamada para a API para salvar as alterações
-    console.log('Salvando perfil:', { editedName, editedPhone, editedEmail });
-    setIsEditing(false);
-    toast({
-      title: "Perfil atualizado",
-      description: "Suas informações foram salvas com sucesso.",
-    });
-  };
+// ─── NPS colors ───────────────────────────────────────────────────────────────
 
-  // Funções do calendário
-  const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
+function npsColor(n: number) {
+  if (n >= 9) return 'bg-green-500 text-white hover:bg-green-600';
+  if (n >= 7) return 'bg-yellow-400 text-gray-900 hover:bg-yellow-500';
+  return 'bg-red-400 text-white hover:bg-red-500';
+}
+function npsLabel(n: number | null) {
+  if (n === null) return '';
+  if (n >= 9) return 'Obrigado pelo carinho!';
+  if (n >= 7) return 'Como podemos melhorar?';
+  return 'Sentimos muito. Nos ajude a melhorar.';
+}
 
-  const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
+// ─── Calendário ───────────────────────────────────────────────────────────────
 
-  const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
+const DIAS_SEMANA_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-  const getEventsForDate = (date: string) => {
-    const dateEvents = events.filter(event => event.date === date);
-    const dateReminders = reminders.filter(reminder => reminder.date === date);
-    const classesForDate = upcomingClasses.filter(classe => classe.date === date);
-    
-    return {
-      events: dateEvents,
-      reminders: dateReminders,
-      classes: classesForDate
-    };
-  };
+const DIA_SEMANA_NUM: Record<string, number> = {
+  domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6,
+};
+const SEMANA_UTIL = [1, 2, 3, 4, 5];
 
-  const handleAddEvent = () => {
-    if (!newEvent.title || !newEvent.date || !newEvent.time) {
-      toast({
-        title: "Erro",
-        description: "Preencha todos os campos obrigatórios.",
-        variant: "destructive"
-      });
-      return;
-    }
+function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
+  cursos: any[];
+  mes: number;
+  ano: number;
+  onMudarMes: (delta: number) => void;
+}) {
+  const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-    const event = {
-      id: Date.now(),
-      ...newEvent
-    };
+  const primeiroDia = new Date(ano, mes - 1, 1).getDay();
+  const diasNoMes   = new Date(ano, mes, 0).getDate();
+  const hojeStr     = new Date().toISOString().split('T')[0];
+  const hojeNum     = parseInt(hojeStr.split('-')[2]);
+  const ehMesAtual  = new Date().getFullYear() === ano && new Date().getMonth() + 1 === mes;
 
-    setEvents([...events, event]);
-    setNewEvent({
-      title: '',
-      date: '',
-      time: '',
-      type: 'evento',
-      description: '',
-      location: ''
-    });
-    setShowEventModal(false);
-    
-    toast({
-      title: "Evento adicionado",
-      description: "Seu evento foi criado com sucesso.",
-    });
-  };
+  const cursosAtivos = (cursos || []).filter(c => c.status === 'ativo' || c.status === 'emandamento');
 
-  const handleAddReminder = () => {
-    if (!newReminder.title || !newReminder.date || !newReminder.time) {
-      toast({
-        title: "Erro", 
-        description: "Preencha todos os campos obrigatórios.",
-        variant: "destructive"
-      });
-      return;
-    }
+  function temAulaNodia(dia: number): { temAula: boolean; cursosDia: any[] } {
+    const data = new Date(ano, mes - 1, dia);
+    const dow  = data.getDay();
+    const dataStr = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
 
-    const reminder = {
-      id: Date.now(),
-      ...newReminder
-    };
+    const cursosDia = cursosAtivos.filter(c => {
+      const inicio = c.dataInicio ? c.dataInicio : null;
+      const fim    = c.dataFim    ? c.dataFim    : null;
+      if (inicio && dataStr < inicio) return false;
+      if (fim    && dataStr > fim)    return false;
 
-    setReminders([...reminders, reminder]);
-    setNewReminder({
-      title: '',
-      date: '',
-      time: '',
-      description: ''
-    });
-    setShowReminderModal(false);
-    
-    toast({
-      title: "Lembrete adicionado",
-      description: "Seu lembrete foi criado com sucesso.",
-    });
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(newDate.getMonth() - 1);
-      } else {
-        newDate.setMonth(newDate.getMonth() + 1);
+      if (c.diasSemana?.length > 0) {
+        return c.diasSemana.some((d: string) => DIA_SEMANA_NUM[d] === dow);
       }
-      return newDate;
+      // se tem turno mas não tem diasSemana → assume seg-sex
+      if (c.turno) return SEMANA_UTIL.includes(dow);
+      return false;
     });
-  };
 
-  // Menu items reorganizado
-  const menuItems = [
-    { id: "painel", label: "Painel do Aluno", icon: BarChart3 },
-    { id: "agenda", label: "Agenda", icon: CalendarIcon },
-    { id: "aulas", label: "Minhas Aulas", icon: BookOpen },
-    { id: "competencias", label: "Minhas Competências", icon: Brain },
-    { id: "recados", label: "Recados", icon: Mail },
-    { id: "perfil", label: "Meu Perfil", icon: User },
-    { id: "configuracoes", label: "Configurações", icon: Settings },
-    { id: "sair", label: "Sair", icon: LogOut }
-  ];
+    return { temAula: cursosDia.length > 0, cursosDia };
+  }
 
-  const getSectionTitle = (sectionId: string) => {
-    const section = menuItems.find(item => item.id === sectionId);
-    return section ? section.label : 'Dashboard';
-  };
+  const celulas: (number | null)[] = [];
+  for (let i = 0; i < primeiroDia; i++) celulas.push(null);
+  for (let d = 1; d <= diasNoMes; d++) celulas.push(d);
+  // Sempre 42 células (6 linhas × 7 colunas) para altura fixa
+  while (celulas.length < 42) celulas.push(null);
 
-  const handleMenuClick = (sectionId: string) => {
-    if (sectionId === 'sair') {
-      handleLogout();
-    } else {
-      setActiveSection(sectionId);
-      setShowMoreMenu(false);
-    }
-  };
+  const [diaVer, setDiaVer] = useState<number | null>(null);
 
-  // Função para obter mensagem contextual
-  const getContextualMessage = () => {
-    if (studentData.isReturningAfterAbsence) {
-      return "Que bom te ver de volta! Vamos recuperar o ritmo juntos?";
-    }
-    if (studentData.presencePercentage >= 90) {
-      return "Sua dedicação é inspiradora! Continue assim!";
-    }
-    if (studentData.presencePercentage < 70) {
-      return "Vamos melhorar sua frequência? Cada aula é importante!";
-    }
-    return "Pronto pra mais um passo rumo ao seu futuro?";
-  };
-
-  // Função para marcar tarefa como concluída
-  const toggleTaskStatus = (taskId: number) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, status: task.status === 'pendente' ? 'concluido' : 'pendente' }
-        : task
-    ));
-    
-    toast({
-      title: "Tarefa atualizada",
-      description: "Status da tarefa foi alterado com sucesso.",
-    });
-  };
-
-  // Renderizar seção ativa
-  const renderActiveSection = () => {
-    switch (activeSection) {
-      case 'painel':
-        return renderPainel();
-      case 'agenda':
-        return renderAgenda();
-      case 'aulas':
-        return renderAulas();
-      case 'competencias':
-        return renderCompetencias();
-      case 'recados':
-        return renderRecados();
-      case 'perfil':
-        return renderPerfil();
-      case 'configuracoes':
-        return renderConfiguracoes();
-      default:
-        return renderPainel();
-    }
-  };
-
-  const renderPainel = () => (
-    <div className="space-y-6">
-      {/* Saudação - seguindo padrão do professor */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Olá, {studentData.name}! Que bom te ver por aqui.
-        </h1>
-        <p className="text-gray-600 mt-1">{getContextualMessage()}</p>
-        
-        {/* Meta da semana */}
-        {studentData.weeklyGoal && (
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-medium text-blue-800">Meta da Semana:</span>
-            </div>
-            <p className="text-sm text-blue-700 mt-1">{studentData.weeklyGoal}</p>
-          </div>
-        )}
+  return (
+    <div className="space-y-5">
+      {/* Navegação mês */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => { setDiaVer(null); onMudarMes(-1); }}
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
+        </button>
+        <span className="text-base font-bold text-gray-900">
+          {mesesNomes[mes - 1]} {ano}
+        </span>
+        <button
+          onClick={() => { setDiaVer(null); onMudarMes(1); }}
+          className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+        >
+          <ChevronRight className="w-5 h-5 text-gray-600" />
+        </button>
       </div>
 
-      {/* Cards Dashboard - Desktop: Grid 2x2, Mobile: Empilhados verticalmente */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Card 1 - Presença no Mês */}
-        <Card className="bg-white border-green-200 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-3 text-lg text-gray-800">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Target className="w-5 h-5 text-green-600" />
-              </div>
-              Presença no Mês
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="text-3xl font-bold text-green-600">{studentData.presencePercentage}%</div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-green-500 h-2 rounded-full transition-all duration-300" style={{ width: `${studentData.presencePercentage}%` }}></div>
-              </div>
-              <p className="text-sm text-gray-600">
-                {studentData.presencePercentage >= 80 ? "Excelente frequência!" : "Vamos melhorar?"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 2 - Última Aula */}
-        <Card className="bg-white border-blue-200 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-3 text-lg text-gray-800">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <BookOpen className="w-5 h-5 text-blue-600" />
-              </div>
-              Última Aula
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="font-medium text-blue-600">{studentData.lastClass.name}</div>
-              <div className="text-sm text-gray-500">{studentData.lastClass.date}</div>
-              <div className="text-xs text-gray-400">{studentData.lastClass.competency}</div>
-              <Button variant="outline" size="sm" className="mt-2 w-full">
-                Ver detalhes
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 3 - Próxima Aula */}
-        <Card className="bg-white border-orange-200 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-3 text-lg text-gray-800">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Clock className="w-5 h-5 text-orange-600" />
-              </div>
-              Próxima Aula
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="font-medium text-orange-600">{studentData.nextClass.name}</div>
-              <div className="text-sm text-gray-500 flex items-center">
-                <CalendarDays className="h-4 w-4 mr-1" />
-                {studentData.nextClass.date} às {studentData.nextClass.time}
-              </div>
-              <Button variant="outline" size="sm" className="mt-2 w-full">
-                Adicionar lembrete
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 4 - Minha Evolução */}
-        <Card className="bg-white border-purple-200 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-3 text-lg text-gray-800">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Award className="w-5 h-5 text-purple-600" />
-              </div>
-              Minha Evolução
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {studentData.competencies.slice(0, 2).map((comp, idx) => (
-                <div key={idx}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="font-medium">{comp.name}</span>
-                    <span className="text-purple-600 font-semibold">{comp.progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-purple-500 h-2 rounded-full transition-all duration-300" style={{ width: `${comp.progress}%` }}></div>
-                  </div>
-                </div>
-              ))}
-              <Button variant="outline" size="sm" className="mt-2 w-full">
-                Ver todas competências
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Benefícios */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <TrendingUp className="h-5 w-5 mr-2 text-yellow-500" />
-            Benefícios de estudar aqui
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {benefits.map((benefit, idx) => (
-              <div key={idx} className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-700">{benefit}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Depoimentos */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Quote className="h-5 w-5 mr-2 text-blue-500" />
-            Depoimentos de ex-alunos
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {testimonials.map((testimonial, idx) => (
-              <div key={idx} className="p-4 border rounded-lg">
-                <div className="flex items-center mb-2">
-                  <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
-                    <Users className="h-4 w-4 text-yellow-600" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-sm">{testimonial.name}</div>
-                    <div className="text-xs text-gray-500">{testimonial.course}</div>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600">{testimonial.comment}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderAulas = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Minhas Aulas</h2>
-      
-      <div className="grid gap-4">
-        {recentClasses.map((classe, idx) => (
-          <Card key={idx}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="font-medium">{classe.name}</div>
-                  <div className="text-sm text-gray-500">{classe.date}</div>
-                  <div className="text-xs text-gray-400">{classe.content}</div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Badge 
-                    variant={classe.status === 'presente' ? 'default' : 'destructive'}
-                    className={classe.status === 'presente' ? 'bg-green-100 text-green-800' : ''}
-                  >
-                    {classe.status}
-                  </Badge>
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Grade */}
+      <div className="grid grid-cols-7 gap-y-1 text-center">
+        {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d => (
+          <div key={d} className="text-xs font-semibold text-gray-400 pb-2">{d}</div>
         ))}
-      </div>
-    </div>
-  );
+        {celulas.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const { temAula, cursosDia } = temAulaNodia(d);
+          const isHoje = ehMesAtual && d === hojeNum;
 
-  const renderCompetencias = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Minhas Competências</h2>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {studentData.competencies.map((competency, idx) => (
-          <Card key={idx} className="border-l-4 border-purple-500">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-5 h-5 text-purple-600" />
-                  <span className="text-lg">{competency.name}</span>
-                </div>
-                <Badge variant="outline" className="font-bold text-purple-600">
-                  {competency.progress}%
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {/* Barra de progresso */}
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div 
-                    className="bg-gradient-to-r from-purple-500 to-purple-600 h-3 rounded-full transition-all duration-500" 
-                    style={{ width: `${competency.progress}%` }}
-                  ></div>
-                </div>
-                
-                {/* Feedback textual */}
-                {competency.feedback && (
-                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <MessageCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-purple-800">{competency.feedback}</p>
-                    </div>
-                  </div>
+          return (
+            <div
+              key={i}
+              onClick={() => temAula ? setDiaVer(diaVer === d ? null : d) : undefined}
+              className={`flex items-center justify-center mx-auto rounded-full text-sm font-medium transition-all select-none
+                w-9 h-9
+                ${temAula && diaVer === d ? 'bg-yellow-400 text-gray-900 cursor-pointer' :
+                  temAula ? 'bg-yellow-100 text-yellow-800 cursor-pointer hover:bg-yellow-300' :
+                  isHoje  ? 'ring-2 ring-yellow-400 text-gray-900' :
+                  'text-gray-600'}
+                ${isHoje && temAula ? 'ring-2 ring-yellow-500' : ''}
+              `}
+            >
+              {d}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Detalhe do dia clicado */}
+      {diaVer && (
+        <div className="space-y-2 pt-1">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            {String(diaVer).padStart(2,'0')}/{String(mes).padStart(2,'0')}/{ano}
+          </p>
+          {temAulaNodia(diaVer).cursosDia.map((c, i) => (
+            <div key={i} className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2.5">
+              <div className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{c.nome}</p>
+                {c.horarioEntrada && (
+                  <p className="text-xs text-gray-600">{fmtHora(c.horarioEntrada)} – {fmtHora(c.horarioSaida)}</p>
                 )}
-                
-                {/* Nível da competência */}
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>Iniciante</span>
-                  <span>Intermediário</span>
-                  <span>Avançado</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      
-      {/* Resumo geral */}
-      <Card className="bg-gradient-to-r from-purple-50 to-blue-50 border-purple-200">
-        <CardHeader>
-          <CardTitle className="flex items-center text-purple-800">
-            <Award className="w-5 h-5 mr-2" />
-            Resumo do Desenvolvimento
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">
-                {Math.round(studentData.competencies.reduce((acc, comp) => acc + comp.progress, 0) / studentData.competencies.length)}%
-              </div>
-              <div className="text-sm text-purple-700">Progresso Médio</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">
-                {studentData.competencies.filter(comp => comp.progress >= 75).length}
-              </div>
-              <div className="text-sm text-green-700">Competências Avançadas</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">
-                {studentData.competencies.filter(comp => comp.progress < 60).length}
-              </div>
-              <div className="text-sm text-blue-700">Em Desenvolvimento</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  // Nova função para renderizar Agenda (substituindo renderCalendario)
-  const renderAgenda = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Agenda - Calendário, Aulas e Tarefas</h2>
-      
-      {/* Próximas aulas */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <BookOpen className="h-5 w-5 mr-2 text-blue-500" />
-            Próximas Aulas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {upcomingClasses.map((classe, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div>
-                  <div className="font-medium text-blue-900">{classe.name}</div>
-                  <div className="text-sm text-blue-600">{classe.date} às {classe.time}</div>
-                </div>
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Calendar className="w-4 h-4 text-blue-600" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Tarefas do Aluno */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
-              <CheckSquare className="h-5 w-5 mr-2 text-green-500" />
-              Minhas Tarefas
-            </div>
-            <Badge variant="outline" className="text-xs">
-              {tasks.filter(t => t.status === 'pendente').length} pendentes
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {tasks.map((task) => (
-              <div key={task.id} className={`p-4 border rounded-lg ${task.status === 'concluido' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3 flex-1">
-                    <Checkbox
-                      checked={task.status === 'concluido'}
-                      onCheckedChange={() => toggleTaskStatus(task.id)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className={`font-medium ${task.status === 'concluido' ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                        {task.title}
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">{task.description}</div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" size="sm">{task.subject}</Badge>
-                        <div className="text-xs text-gray-500">Prazo: {task.dueDate}</div>
-                        <Badge 
-                          variant={task.priority === 'alta' ? 'destructive' : task.priority === 'media' ? 'default' : 'secondary'}
-                          size="sm"
-                        >
-                          {task.priority}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Eventos e Workshops */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Star className="h-5 w-5 mr-2 text-yellow-500" />
-            Eventos e Workshops
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {events.map((event) => (
-              <div key={event.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-yellow-900">{event.title}</div>
-                    <div className="text-sm text-yellow-700">{event.date} às {event.time}</div>
-                    <div className="text-xs text-yellow-600 mt-1">{event.location}</div>
-                  </div>
-                  <Badge variant="outline" className="text-yellow-700 border-yellow-300">
-                    {event.type}
-                  </Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Lembretes pessoais */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Bell className="h-5 w-5 mr-2 text-purple-500" />
-              Meus Lembretes
-            </div>
-            <Dialog open={showReminderModal} onOpenChange={setShowReminderModal}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Adicionar
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Novo Lembrete</DialogTitle>
-                  <DialogDescription>
-                    Adicione um lembrete pessoal
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="reminderTitle">Título</Label>
-                    <Input
-                      id="reminderTitle"
-                      value={newReminder.title}
-                      onChange={(e) => setNewReminder({...newReminder, title: e.target.value})}
-                      placeholder="Ex: Estudar para prova"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="reminderDate">Data</Label>
-                    <Input
-                      id="reminderDate"
-                      type="date"
-                      value={newReminder.date}
-                      onChange={(e) => setNewReminder({...newReminder, date: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="reminderTime">Horário</Label>
-                    <Input
-                      id="reminderTime"
-                      type="time"
-                      value={newReminder.time}
-                      onChange={(e) => setNewReminder({...newReminder, time: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="reminderDescription">Descrição</Label>
-                    <Textarea
-                      id="reminderDescription"
-                      value={newReminder.description}
-                      onChange={(e) => setNewReminder({...newReminder, description: e.target.value})}
-                      placeholder="Detalhes do lembrete..."
-                    />
-                  </div>
-                  <Button onClick={handleAddReminder} className="w-full">
-                    Adicionar Lembrete
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {reminders.map((reminder) => (
-              <div key={reminder.id} className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-purple-900">{reminder.title}</div>
-                    <div className="text-sm text-purple-700">{reminder.date} às {reminder.time}</div>
-                    {reminder.description && (
-                      <div className="text-xs text-purple-600 mt-1">{reminder.description}</div>
-                    )}
-                  </div>
-                  <Bell className="w-4 h-4 text-purple-600" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderCalendario = () => {
-    const daysInMonth = getDaysInMonth(currentDate);
-    const firstDayOfMonth = getFirstDayOfMonth(currentDate);
-    const today = new Date();
-    const isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
-    
-    const monthNames = [
-      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-    ];
-    
-    const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-
-    // Gerar array de dias para o calendário
-    const calendarDays = [];
-    
-    // Adicionar espaços vazios para os dias antes do primeiro dia do mês
-    for (let i = 0; i < firstDayOfMonth; i++) {
-      calendarDays.push(null);
-    }
-    
-    // Adicionar os dias do mês
-    for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-      const dateString = formatDate(date);
-      const dayEvents = getEventsForDate(dateString);
-      
-      calendarDays.push({
-        day,
-        date: dateString,
-        isToday: isCurrentMonth && day === today.getDate(),
-        events: dayEvents.events,
-        reminders: dayEvents.reminders,
-        classes: dayEvents.classes,
-        hasItems: dayEvents.events.length > 0 || dayEvents.reminders.length > 0 || dayEvents.classes.length > 0
-      });
-    }
-
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Calendário e Eventos</h2>
-          <div className="flex gap-2">
-            <Dialog open={showEventModal} onOpenChange={setShowEventModal}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Adicionar Evento
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Novo Evento</DialogTitle>
-                  <DialogDescription>
-                    Adicione um novo evento ao seu calendário
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div>
-                    <Label htmlFor="event-title">Título *</Label>
-                    <Input
-                      id="event-title"
-                      value={newEvent.title}
-                      onChange={(e) => setNewEvent({...newEvent, title: e.target.value})}
-                      placeholder="Nome do evento"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="event-date">Data *</Label>
-                      <Input
-                        id="event-date"
-                        type="date"
-                        value={newEvent.date}
-                        onChange={(e) => setNewEvent({...newEvent, date: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="event-time">Horário *</Label>
-                      <Input
-                        id="event-time"
-                        type="time"
-                        value={newEvent.time}
-                        onChange={(e) => setNewEvent({...newEvent, time: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="event-type">Tipo</Label>
-                    <Select value={newEvent.type} onValueChange={(value: 'evento' | 'workshop' | 'reuniao') => setNewEvent({...newEvent, type: value})}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="evento">Evento</SelectItem>
-                        <SelectItem value="workshop">Workshop</SelectItem>
-                        <SelectItem value="reuniao">Reunião</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="event-location">Local</Label>
-                    <Input
-                      id="event-location"
-                      value={newEvent.location}
-                      onChange={(e) => setNewEvent({...newEvent, location: e.target.value})}
-                      placeholder="Local do evento"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="event-description">Descrição</Label>
-                    <Textarea
-                      id="event-description"
-                      value={newEvent.description}
-                      onChange={(e) => setNewEvent({...newEvent, description: e.target.value})}
-                      placeholder="Descrição do evento"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShowEventModal(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleAddEvent}>
-                    Criar Evento
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={showReminderModal} onOpenChange={setShowReminderModal}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Bell className="h-4 w-4" />
-                  Adicionar Lembrete
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Novo Lembrete</DialogTitle>
-                  <DialogDescription>
-                    Adicione um lembrete pessoal
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div>
-                    <Label htmlFor="reminder-title">Título *</Label>
-                    <Input
-                      id="reminder-title"
-                      value={newReminder.title}
-                      onChange={(e) => setNewReminder({...newReminder, title: e.target.value})}
-                      placeholder="Nome do lembrete"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="reminder-date">Data *</Label>
-                      <Input
-                        id="reminder-date"
-                        type="date"
-                        value={newReminder.date}
-                        onChange={(e) => setNewReminder({...newReminder, date: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="reminder-time">Horário *</Label>
-                      <Input
-                        id="reminder-time"
-                        type="time"
-                        value={newReminder.time}
-                        onChange={(e) => setNewReminder({...newReminder, time: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="reminder-description">Descrição</Label>
-                    <Textarea
-                      id="reminder-description"
-                      value={newReminder.description}
-                      onChange={(e) => setNewReminder({...newReminder, description: e.target.value})}
-                      placeholder="Descrição do lembrete"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShowReminderModal(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleAddReminder}>
-                    Criar Lembrete
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
-
-        {/* Calendário Visual */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-blue-600" />
-                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-              </CardTitle>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" onClick={() => navigateMonth('prev')}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => navigateMonth('next')}>
-                  <ChevronRightIcon className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* Cabeçalho dos dias da semana */}
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {dayNames.map((day) => (
-                <div key={day} className="p-2 text-center text-sm font-medium text-gray-500">
-                  {day}
-                </div>
-              ))}
-            </div>
-            
-            {/* Grade do calendário */}
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map((dayData, index) => {
-                if (!dayData) {
-                  return <div key={index} className="p-2 h-20"></div>;
-                }
-                
-                return (
-                  <div
-                    key={dayData.day}
-                    className={`p-2 h-20 border rounded-lg cursor-pointer transition-colors hover:bg-gray-50 ${
-                      dayData.isToday ? 'bg-blue-50 border-blue-200' : 'border-gray-200'
-                    } ${dayData.hasItems ? 'bg-yellow-50 border-yellow-200' : ''}`}
-                    onClick={() => setSelectedDate(new Date(dayData.date))}
-                  >
-                    <div className={`text-sm font-medium ${dayData.isToday ? 'text-blue-600' : 'text-gray-900'}`}>
-                      {dayData.day}
-                    </div>
-                    
-                    {/* Indicadores de eventos */}
-                    <div className="mt-1 space-y-1">
-                      {dayData.classes.length > 0 && (
-                        <div className="w-full h-1 bg-blue-400 rounded-full"></div>
-                      )}
-                      {dayData.events.length > 0 && (
-                        <div className="w-full h-1 bg-green-400 rounded-full"></div>
-                      )}
-                      {dayData.reminders.length > 0 && (
-                        <div className="w-full h-1 bg-orange-400 rounded-full"></div>
-                      )}
-                    </div>
-                    
-                    {/* Contador de itens */}
-                    {dayData.hasItems && (
-                      <div className="text-xs text-gray-600 mt-1">
-                        {dayData.classes.length + dayData.events.length + dayData.reminders.length} item(s)
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Legenda */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Legenda</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-2 bg-blue-400 rounded-full"></div>
-                <span className="text-sm text-gray-600">Aulas</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-sm text-gray-600">Eventos</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-2 bg-orange-400 rounded-full"></div>
-                <span className="text-sm text-gray-600">Lembretes</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Próximas Atividades */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Próximas Aulas */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-blue-600" />
-                Próximas Aulas
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {upcomingClasses.slice(0, 3).map((classe, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 border rounded-lg">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <BookOpen className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{classe.name}</div>
-                      <div className="text-xs text-gray-500">{classe.date} às {classe.time}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Meus Lembretes */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5 text-orange-600" />
-                Meus Lembretes
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {reminders.slice(0, 3).map((reminder) => (
-                  <div key={reminder.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                    <div className="p-2 bg-orange-100 rounded-lg">
-                      <Bell className="h-4 w-4 text-orange-600" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{reminder.title}</div>
-                      <div className="text-xs text-gray-500">{reminder.date} às {reminder.time}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  };
-
-  const renderRecados = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Recados e Avisos</h2>
-      
-      <div className="space-y-4">
-        {messages.map((message) => (
-          <Card key={message.id} className={message.read ? 'opacity-75' : ''}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className="font-medium">{message.sender}</span>
-                    <span className="text-xs text-gray-500">{message.date}</span>
-                    {!message.read && (
-                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                        Novo
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-gray-700">{message.message}</p>
-                </div>
-                {!message.read && (
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => markMessageAsRead(message.id)}
-                  >
-                    Confirmar leitura
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderPerfil = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Meu Perfil</h2>
-      
-      {/* Card com Foto e Dados Pessoais */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Dados Pessoais</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Foto do Perfil */}
-          <div className="flex flex-col items-center space-y-4">
-            <Avatar className="h-24 w-24">
-              <AvatarImage src="" alt={studentData.name} />
-              <AvatarFallback className="text-xl bg-yellow-100 text-yellow-700">
-                {studentData.name.split(' ').map(n => n[0]).join('')}
-              </AvatarFallback>
-            </Avatar>
-            <div className="text-center">
-              <h3 className="font-semibold text-lg text-gray-900">{studentData.name}</h3>
-              <p className="text-gray-500">Aluno do Clube do Grito</p>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Informações Pessoais */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-600">CPF</label>
-              <div className="text-gray-900">{formatCPF(studentData.cpf)}</div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Telefone</label>
-              <div className="text-gray-900">{studentData.phone}</div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Data de Nascimento</label>
-              <div className="text-gray-900">{studentData.birthDate}</div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Plano</label>
-              <div className="text-gray-900">{studentData.subscriptionPlan}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Card Progresso Geral */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Progresso Geral</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {studentData.competencies.map((comp, idx) => (
-            <div key={idx}>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">{comp.name}</span>
-                <span className="text-blue-600 font-semibold">{comp.progress}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                  style={{ width: `${comp.progress}%` }}
-                ></div>
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      {/* Card Sessão */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Sessão</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button 
-            variant="destructive" 
-            onClick={handleLogout}
-            className="w-full"
-          >
-            Sair da Conta
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Legenda */}
+      <div className="flex items-center gap-4 text-xs text-gray-500 pt-1 border-t border-gray-100">
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-yellow-300 inline-block" />
+          Dia com aula
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full border-2 border-yellow-400 inline-block" />
+          Hoje
+        </span>
+      </div>
     </div>
   );
+}
 
-  const renderConfiguracoes = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Configurações</h2>
-      
-      {/* Notificações */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Bell className="h-5 w-5 mr-2 text-blue-500" />
-            Preferências de Notificação
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium">Lembrete de aulas</div>
-              <div className="text-sm text-gray-500">Receber notificações sobre próximas aulas</div>
-            </div>
-            <input type="checkbox" defaultChecked className="rounded" />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium">Novos recados</div>
-              <div className="text-sm text-gray-500">Ser notificado sobre novos recados dos professores</div>
-            </div>
-            <input type="checkbox" defaultChecked className="rounded" />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium">Tarefas pendentes</div>
-              <div className="text-sm text-gray-500">Lembrete sobre tarefas próximas ao prazo</div>
-            </div>
-            <input type="checkbox" defaultChecked className="rounded" />
-          </div>
-        </CardContent>
-      </Card>
+// ─── Seções ───────────────────────────────────────────────────────────────────
 
-      {/* Contato com coordenação */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <MessageCircle className="h-5 w-5 mr-2 text-green-500" />
-            Precisa de Ajuda?
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-gray-600">
-            Entre em contato com nossa coordenação para esclarecer dúvidas ou relatar problemas.
-          </p>
-          <div className="flex gap-3">
-            <Button variant="outline" className="flex items-center gap-2">
-              <Phone className="w-4 h-4" />
-              Ligar para Coordenação
-            </Button>
-            <Button className="flex items-center gap-2 bg-green-600 hover:bg-green-700">
-              <MessageCircle className="w-4 h-4" />
-              WhatsApp
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+function SecaoDashboard({ perfil, proxAula, frequencia, cursos, foto }: any) {
+  const percentual = frequencia?.percentualGeral ?? 0;
+  const cursosAtivos = (cursos || []).filter((c: any) => c.status === 'ativo' || c.status === 'emandamento');
 
-      {/* Informações do sistema */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Settings className="h-5 w-5 mr-2 text-gray-500" />
-            Informações do Sistema
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Versão do App:</span>
-            <span>1.2.3</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Último Backup:</span>
-            <span>05/01/2025 14:30</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Status:</span>
-            <Badge variant="outline" className="text-green-600 border-green-300">Online</Badge>
-          </div>
-        </CardContent>
-      </Card>
+  const freqCor = percentual >= 90
+    ? 'text-green-600'
+    : percentual >= 75
+    ? 'text-yellow-500'
+    : 'text-red-500';
 
-      {/* Card Editar Perfil */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <User className="w-5 h-5 text-blue-600" />
-            </div>
-            Editar Perfil
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-            {/* Foto de Perfil */}
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-              <Avatar className="h-20 w-20 flex-shrink-0">
-                <AvatarImage src="" alt={studentData.name} />
-                <AvatarFallback className="text-lg bg-yellow-100 text-yellow-700">
-                  {studentData.name.split(' ').map(n => n[0]).join('')}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 space-y-2">
-                <p className="text-sm text-gray-600">Foto do perfil</p>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    Alterar foto
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
-                    Remover
-                  </Button>
-                </div>
+  const freqBarCor = percentual >= 90
+    ? 'bg-green-500'
+    : percentual >= 75
+    ? 'bg-yellow-400'
+    : 'bg-red-500';
+
+  return (
+    <div className="space-y-4">
+      {/* Boas vindas */}
+      <div className="flex items-center gap-3 py-2">
+        <Avatar className="w-12 h-12 border-2 border-gray-200 shrink-0">
+          <AvatarImage className="object-cover" src={foto || perfil?.foto || ''} />
+          <AvatarFallback className="bg-gray-100 text-gray-400 flex items-center justify-center">
+            <ImageIcon className="w-6 h-6" />
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="text-xs text-gray-500">Bem-vindo(a) de volta</p>
+          <h2 className="text-base font-bold text-gray-900 leading-tight truncate">{perfil?.nome || '—'}</h2>
+        </div>
+      </div>
+
+      {/* Próxima aula */}
+      {proxAula && (
+        <Card className="border border-yellow-200 bg-yellow-50 shadow-none">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <CalendarDays className="w-4 h-4 text-yellow-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs text-yellow-700 font-semibold uppercase tracking-wide mb-0.5">Próxima Aula</p>
+                <p className="text-sm font-bold text-gray-900">{proxAula.nome}</p>
+                <p className="text-xs text-gray-700 mt-0.5">
+                  {fmtDiaSemana(proxAula.data) && `${fmtDiaSemana(proxAula.data)}, `}{fmtData(proxAula.data)}{proxAula.horario ? ` às ${fmtHora(proxAula.horario)}` : ''}
+                  {proxAula.local ? ` · ${proxAula.local}` : ''}
+                </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <Separator />
+      {/* Cards de métricas */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Frequência */}
+        <Card className="col-span-2 border border-gray-200 shadow-none">
+          <CardContent className="p-4">
+            <p className="text-xs text-gray-700 font-medium mb-1">Frequência Geral</p>
+            <p className={`text-4xl font-bold ${freqCor}`}>{percentual}%</p>
+            <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${freqBarCor}`} style={{ width: `${percentual}%` }} />
+            </div>
+            <div className="flex justify-between mt-2">
+              <span className="text-xs text-gray-700">{frequencia?.totalPresente ?? 0} presenças</span>
+              <span className="text-xs text-gray-700">{frequencia?.totalFalta ?? 0} faltas</span>
+            </div>
+          </CardContent>
+        </Card>
 
-            {/* Campos de Edição */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Nome Completo */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Nome Completo</label>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    value={editedName}
-                    onChange={(e) => setEditedName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                ) : (
-                  <div className="px-3 py-2 bg-gray-50 rounded-md text-gray-900">{studentData.name}</div>
+        {/* Cursos Ativos */}
+        <Card className="border border-gray-200 shadow-none">
+          <CardContent className="p-4">
+            <p className="text-xs text-gray-700 font-medium mb-1">Cursos e Oficinas Ativos</p>
+            <p className="text-3xl font-bold text-gray-900">{cursosAtivos.length}</p>
+            <p className="text-xs text-gray-600 mt-1">{(cursos || []).length} no total</p>
+          </CardContent>
+        </Card>
+
+        {/* Próxima aula horário */}
+        <Card className="border border-gray-200 shadow-none">
+          <CardContent className="p-4">
+            <p className="text-xs text-gray-700 font-medium mb-1">Próxima Aula</p>
+            {proxAula ? (
+              <>
+                <p className="text-sm font-bold text-gray-900">{fmtHora(proxAula.horario) || '—'}</p>
+                <p className="text-xs text-gray-600 mt-1 truncate">
+                  {fmtDiaSemana(proxAula.data) ? `${fmtDiaSemana(proxAula.data)}, ${fmtData(proxAula.data)}` : fmtData(proxAula.data)}
+                </p>
+                {proxAula.local && <p className="text-xs text-gray-500 truncate">{proxAula.local}</p>}
+              </>
+            ) : (
+              <p className="text-sm text-gray-600">—</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cursos em andamento */}
+      {cursosAtivos.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Cursos ou Oficinas em Andamento</p>
+          <div className="space-y-2">
+            {cursosAtivos.map((c: any, i: number) => (
+              <div key={i} className="border-l-[3px] border-l-yellow-400 border border-gray-200 bg-white rounded-lg px-3 py-2.5">
+                <p className="text-sm font-semibold text-gray-800 leading-tight">{c.nome}</p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  {c.diasSemana?.length > 0 ? c.diasSemana.map(diaSemanaLabel).join(' · ') : (c.turno ? turnoLabel(c.turno) : '')}
+                  {c.horarioEntrada ? ` · ${fmtHora(c.horarioEntrada)}–${fmtHora(c.horarioSaida)}` : ''}
+                  {c.local ? ` · ${c.local}` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SecaoCursos({ cursos }: { cursos: any[] }) {
+  const [aba, setAba] = useState<'andamento' | 'concluidos'>('andamento');
+  const ativos   = (cursos || []).filter(c => c.status === 'ativo' || c.status === 'emandamento' || c.status === 'planejado');
+  const concluidos = (cursos || []).filter(c => c.status === 'concluido' || c.status === 'evadido');
+  const lista = aba === 'andamento' ? ativos : concluidos;
+
+  return (
+    <div className="space-y-4">
+      {/* Abas */}
+      <div className="flex border-b border-gray-200">
+        {(['andamento', 'concluidos'] as const).map(a => (
+          <button
+            key={a}
+            onClick={() => setAba(a)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors relative
+              ${aba === a ? 'text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}
+          >
+            {a === 'andamento' ? `Em Andamento (${ativos.length})` : `Concluídos (${concluidos.length})`}
+            {aba === a && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-yellow-400 rounded-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Lista */}
+      {lista.length === 0 ? (
+        <p className="text-sm text-gray-500 text-center py-12">
+          {aba === 'andamento' ? 'Nenhum curso ou oficina em andamento.' : 'Nenhum curso ou oficina concluído.'}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {lista.map((c, i) => (
+            <div key={i} className="border-l-[3px] border-l-yellow-400 border border-gray-200 bg-white rounded-lg p-4">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <p className="font-semibold text-gray-900 leading-snug">{c.nome}</p>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {c.area === 'pec' ? 'PEC' : 'Inclusão'}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {c.horarioEntrada && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <Clock className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {fmtHora(c.horarioEntrada)} – {fmtHora(c.horarioSaida)}
+                  </div>
                 )}
-              </div>
-
-              {/* Telefone */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Telefone</label>
-                {isEditing ? (
-                  <input
-                    type="tel"
-                    value={editedPhone}
-                    onChange={(e) => setEditedPhone(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                ) : (
-                  <div className="px-3 py-2 bg-gray-50 rounded-md text-gray-900">{studentData.phone}</div>
+                {c.turno && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <Clock className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {turnoLabel(c.turno)}
+                  </div>
                 )}
-              </div>
-
-              {/* Email */}
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">E-mail</label>
-                {isEditing ? (
-                  <input
-                    type="email"
-                    value={editedEmail}
-                    onChange={(e) => setEditedEmail(e.target.value)}
-                    placeholder="Digite seu e-mail"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                ) : (
-                  <div className="px-3 py-2 bg-gray-50 rounded-md text-gray-900">
-                    {editedEmail || 'Não informado'}
+                {c.diasSemana?.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <CalendarDays className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {c.diasSemana.map(diaSemanaLabel).join(' · ')}
+                  </div>
+                )}
+                {c.dataInicio && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <CalendarDays className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {fmtData(c.dataInicio)}{c.dataFim ? ` → ${fmtData(c.dataFim)}` : ''}
+                  </div>
+                )}
+                {c.local && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <MapPin className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {c.local}
                   </div>
                 )}
               </div>
             </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-            {/* Botões de Ação */}
-            <div className="flex gap-3 pt-4">
-              {isEditing ? (
-                <>
-                  <Button onClick={handleSaveProfile} className="bg-blue-600 hover:bg-blue-700">
-                    Salvar alterações
-                  </Button>
-                  <Button variant="outline" onClick={() => setIsEditing(false)}>
-                    Cancelar
-                  </Button>
-                </>
-              ) : (
-                <Button onClick={() => setIsEditing(true)} className="bg-blue-600 hover:bg-blue-700">
-                  Editar perfil
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+function SecaoCalendario({ cursos }: { cursos: any[] }) {
+  const hoje = new Date();
+  const [mes, setMes] = useState(hoje.getMonth() + 1);
+  const [ano, setAno] = useState(hoje.getFullYear());
 
-        {/* Card Sair do Sistema */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <LogOut className="w-5 h-5 text-red-600" />
-              </div>
-              Sair do Sistema
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600 mb-4">
-              Clique no botão abaixo para fazer logout e retornar à tela de login.
-            </p>
-            <Button 
-              variant="destructive" 
-              onClick={handleLogout}
-              className="w-full md:w-auto"
-            >
-              Sair da conta
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+  const mudarMes = (delta: number) => {
+    let nm = mes + delta;
+    let na = ano;
+    if (nm > 12) { nm = 1; na++; }
+    if (nm < 1) { nm = 12; na--; }
+    setMes(nm);
+    setAno(na);
+  };
+
+  // ── Aulas da Semana ──────────────────────────────────────────────────────
+  const DIAS_SEMANA_SEQ = ['segunda','terca','quarta','quinta','sexta','sabado','domingo'];
+  const DIAS_LABEL: Record<string, string> = {
+    segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta',
+    sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo',
+  };
+  const DIAS_SHORT: Record<string, string> = {
+    segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui',
+    sexta: 'Sex', sabado: 'Sáb', domingo: 'Dom',
+  };
+
+  // Segunda-feira da semana atual
+  const inicioSemana = new Date(hoje);
+  const dow = hoje.getDay(); // 0=Dom
+  inicioSemana.setDate(hoje.getDate() - (dow === 0 ? 6 : dow - 1));
+
+  const cursosAtivos = (cursos || []).filter(c =>
+    c.status === 'ativo' || c.status === 'emandamento'
   );
 
+  // Para cada dia Seg–Dom, calcula a data real e verifica quais cursos ocorrem
+  const aulasSemanais = DIAS_SEMANA_SEQ.map((diaKey, idx) => {
+    const data = new Date(inicioSemana);
+    data.setDate(inicioSemana.getDate() + idx);
+    const dateStr = `${data.getFullYear()}-${String(data.getMonth()+1).padStart(2,'0')}-${String(data.getDate()).padStart(2,'0')}`;
+    const isHoje = dateStr === `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
+
+    const lista = cursosAtivos.filter(c => {
+      if (!c.diasSemana?.includes(diaKey)) return false;
+      const inicio = c.dataInicio ? c.dataInicio.split('T')[0] : null;
+      const fim    = c.dataFim    ? c.dataFim.split('T')[0]    : null;
+      if (inicio && dateStr < inicio) return false;
+      if (fim    && dateStr > fim)    return false;
+      return true;
+    });
+
+    return { diaKey, dateStr, data, isHoje, lista };
+  }).filter(d => d.lista.length > 0);
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-
-      {/* Menu Lateral - Desktop */}
-      <div className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 md:bg-white md:border-r md:shadow-sm">
-        {/* Header do Menu - Logo */}
-        <div className="flex items-center h-16 flex-shrink-0 px-4 border-b bg-white">
-          <img 
-            src={logoClube} 
-            alt="Clube do Grito" 
-            className="h-10 w-auto mr-3"
-          />
-          <span className="text-lg font-bold text-yellow-600">
-            {devAccess.hasDevAccess ? "Desenvolvedor - Aluno Dashboard" : "Clube do Grito"}
-          </span>
-        </div>
-
-        {/* Navegação Desktop */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          <ul className="space-y-1">
-            {menuItems.filter(item => item.id !== 'sair').map((item) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.id}>
-                  <button
-                    onClick={() => handleMenuClick(item.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
-                      activeSection === item.id
-                        ? "bg-yellow-50 text-yellow-700 border-l-4 border-yellow-500 shadow-sm"
-                        : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                    }`}
-                  >
-                    <Icon className="w-5 h-5 flex-shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <CalendarioMini cursos={cursos} mes={mes} ano={ano} onMudarMes={mudarMes} />
       </div>
 
-      {/* Área Principal */}
-      <div className={`flex-1 overflow-auto pb-24 md:pb-0 md:ml-64 ${devAccess.hasDevAccess ? 'pt-10' : ''}`}>
-        {/* Banner de desenvolvedor mobile */}
-        {devAccess.hasDevAccess && (
-          <div className="md:hidden bg-blue-600 text-white px-4 py-2 text-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Code className="w-4 h-4" />
-                <span>Modo Desenvolvedor</span>
-              </div>
-              {devAccess.shouldShowBackButton && (
-                <Button
-                  onClick={() => {
-                    sessionStorage.setItem('dev_returning', 'true');
-                    setLocation('/dev');
-                  }}
-                  variant="ghost"
-                  size="sm"
-                  className="text-white hover:bg-blue-700 p-1"
-                >
-                  ← Dev
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {/* Header Mobile - Logo e Info do Aluno */}
-        <div className="md:hidden bg-white border-b px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 flex-1">
-              <Avatar className="h-10 w-10 flex-shrink-0">
-                <AvatarImage src="" alt={studentData.name} />
-                <AvatarFallback className="text-sm bg-yellow-100 text-yellow-700">
-                  {studentData.name.split(' ').map(n => n[0]).join('')}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <h3 className="font-semibold text-sm text-gray-900 truncate">{studentData.name}</h3>
-                <p className="text-xs text-gray-500">Aluno</p>
-              </div>
-            </div>
-            <img 
-              src={logoClube} 
-              alt="Clube do Grito" 
-              className="h-14 w-auto flex-shrink-0 ml-4"
-            />
-          </div>
-        </div>
-
-        {/* Header Mobile - Título da Seção */}
-        <div className="md:hidden bg-white border-b px-4 py-3">
-          <h2 className="font-semibold text-lg text-gray-900">{getSectionTitle(activeSection)}</h2>
-        </div>
-
-        {/* Saudação Fixa - Desktop */}
-        <div className="hidden md:block bg-white border-b px-6 py-4">
-          <h1 className="text-xl font-semibold text-gray-900">
-            Olá, {studentData.name}!
-          </h1>
-        </div>
-
-        {/* Conteúdo Dinâmico */}
-        <div className="p-3 md:p-6 space-y-4">
-          {renderActiveSection()}
-        </div>
-      </div>
-
-      {/* Menu de Rodapé - Mobile */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-50">
-        <div className="flex items-stretch px-2 py-3">
-          {/* Botões principais do menu mobile */}
-          {(() => {
-            const mobileMenuItems = [
-              { ...menuItems.find(item => item.id === "dashboard"), mobileLabel: "Início" },
-              { ...menuItems.find(item => item.id === "aulas"), mobileLabel: "Aulas" },
-              { ...menuItems.find(item => item.id === "calendario"), mobileLabel: "Calendário" },
-              { ...menuItems.find(item => item.id === "recados"), mobileLabel: "Recados" },
-            ];
-            
-            return mobileMenuItems.filter(item => item && item.icon && item.id).map((item) => {
-              const Icon = item.icon!;
-              const itemId = item.id!;
-              return (
-                <button
-                  key={itemId}
-                  onClick={() => handleMenuClick(itemId)}
-                  className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-xl transition-all duration-200 min-h-[48px] ${
-                    activeSection === itemId
-                      ? "text-yellow-700 bg-yellow-50 shadow-sm"
-                      : "text-gray-600 hover:bg-gray-100"
-                  }`}
-                  style={{ flex: 1 }}
-                >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-xs font-medium leading-tight text-center">{item.mobileLabel}</span>
-                </button>
-              );
-            });
-          })()}
-          
-          {/* Menu "Mais" para itens restantes */}
-          <div className="relative" style={{ flex: 1 }}>
-            <button
-              onClick={() => setShowMoreMenu(!showMoreMenu)}
-              className="flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-xl transition-all duration-200 text-gray-600 hover:bg-gray-100 w-full min-h-[48px]"
-            >
-              <Settings className="w-5 h-5 flex-shrink-0" />
-              <span className="text-xs font-medium leading-tight">Mais</span>
-            </button>
-            
-            {showMoreMenu && (
-              <div className="absolute bottom-full right-0 mb-2 bg-white border rounded-lg shadow-lg min-w-[280px] z-60">
-                <div className="space-y-4 p-4">
-                  {menuItems.filter(item => !['painel', 'agenda', 'aulas', 'recados'].includes(item.id)).map((item, index) => {
-                    const Icon = item.icon;
-                    const filteredItems = menuItems.filter(item => !['painel', 'agenda', 'aulas', 'recados'].includes(item.id));
-                    return (
-                      <div key={item.id}>
-                        <div
-                          className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                          onClick={() => {
-                            handleMenuClick(item.id);
-                            setShowMoreMenu(false);
-                          }}
-                        >
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            item.id === 'sair' ? 'bg-white' : 'bg-yellow-400'
-                          }`}>
-                            <Icon className="w-6 h-6 text-black" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                              {item.label}
-                            </h3>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                        </div>
-                        {index < filteredItems.length - 1 && (
-                          <div className="border-b border-gray-100 mx-4"></div>
+      {/* Card Aulas da Semana */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+          Aulas da Semana
+        </p>
+        {aulasSemanais.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">Nenhuma aula esta semana.</p>
+        ) : (
+          <div className="space-y-3">
+            {aulasSemanais.map(({ diaKey, dateStr, isHoje, lista }) => (
+              <div key={diaKey}>
+                {/* Cabeçalho do dia */}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isHoje ? 'bg-yellow-400 text-gray-900' : 'bg-gray-100 text-gray-600'}`}>
+                    {DIAS_SHORT[diaKey]}
+                  </span>
+                  <span className="text-xs text-gray-400">{fmtData(dateStr)}</span>
+                  {isHoje && <span className="text-xs text-yellow-600 font-medium">hoje</span>}
+                </div>
+                {/* Cursos do dia */}
+                <div className="space-y-1.5 pl-1">
+                  {lista.map((c: any, i: number) => (
+                    <div key={i} className="border-l-[3px] border-l-yellow-400 bg-gray-50 rounded-r-lg px-3 py-2">
+                      <p className="text-sm font-semibold text-gray-900 leading-tight">{c.nome}</p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                        {c.horarioEntrada && (
+                          <span className="text-xs text-yellow-700 font-medium">
+                            {fmtHora(c.horarioEntrada)}–{fmtHora(c.horarioSaida)}
+                          </span>
+                        )}
+                        {c.local && (
+                          <span className="text-xs text-gray-500 flex items-center gap-0.5">
+                            <MapPin className="w-3 h-3 shrink-0" />{c.local}
+                          </span>
                         )}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
+}
+
+function SecaoHorarios({ cursos }: { cursos: any[] }) {
+  const DIAS = [
+    { key: 'segunda', label: 'Segunda', short: 'Seg' },
+    { key: 'terca',   label: 'Terça',   short: 'Ter' },
+    { key: 'quarta',  label: 'Quarta',  short: 'Qua' },
+    { key: 'quinta',  label: 'Quinta',  short: 'Qui' },
+    { key: 'sexta',   label: 'Sexta',   short: 'Sex' },
+    { key: 'sabado',  label: 'Sábado',  short: 'Sáb' },
+    { key: 'domingo', label: 'Domingo', short: 'Dom' },
+  ];
+
+  const cursosAtivos = (cursos || []).filter(c =>
+    c.status === 'ativo' || c.status === 'emandamento'
+  );
+
+  // Para cada dia, lista os cursos que ocorrem naquele dia
+  function cursosNoDia(diaKey: string) {
+    return cursosAtivos.filter(c => {
+      if (c.diasSemana?.length > 0) return c.diasSemana.includes(diaKey);
+      // Sem diasSemana mas com turno → seg a sex
+      if (c.turno && ['segunda','terca','quarta','quinta','sexta'].includes(diaKey)) return true;
+      return false;
+    });
+  }
+
+  const diasComAula = DIAS.filter(d => cursosNoDia(d.key).length > 0);
+
+  if (cursosAtivos.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-400">
+        <Clock className="w-10 h-10 mx-auto mb-3 opacity-40" />
+        <p className="text-sm">Nenhum horário registrado para seus cursos ativos.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {/* Cabeçalho */}
+      <div className="grid grid-cols-[80px_1fr] gap-x-4 px-3 pb-2 border-b border-gray-200">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Dia</span>
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Horário · Turma · Local</span>
+      </div>
+
+      {diasComAula.map(({ key, label }) => {
+        const lista = cursosNoDia(key);
+        return (
+          <div key={key} className="grid grid-cols-[80px_1fr] gap-x-4 items-start py-3 px-3 border-b border-gray-100 last:border-0">
+            {/* Dia */}
+            <div className="flex items-center gap-2 pt-0.5">
+              <span className="w-1 h-8 rounded-full bg-yellow-400 shrink-0" />
+              <span className="text-sm font-bold text-gray-900">{label}</span>
+            </div>
+
+            {/* Cursos do dia */}
+            <div className="space-y-2">
+              {lista.map((c, i) => (
+                <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 space-y-0.5">
+                  {/* Horário em destaque no topo */}
+                  {c.horarioEntrada && (
+                    <span className="text-xs font-bold text-yellow-600 tabular-nums">
+                      {fmtHora(c.horarioEntrada)} – {fmtHora(c.horarioSaida)}
+                    </span>
+                  )}
+                  {/* Nome do curso */}
+                  <p className="text-sm font-semibold text-gray-900 leading-tight">{c.nome}</p>
+                  {/* Local / turno */}
+                  {(c.local || c.turno) && (
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      {c.local && <><MapPin className="w-3 h-3 shrink-0" /><span>{c.local}</span></>}
+                      {c.turno && !c.local && <><Clock className="w-3 h-3 shrink-0" /><span>{turnoLabel(c.turno)}</span></>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SecaoFrequencia({ frequencia }: { frequencia: any }) {
+  if (!frequencia) return (
+    <div className="text-center py-12 text-gray-400">
+      <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-40" />
+      <p>Nenhuma frequência registrada.</p>
+    </div>
+  );
+
+  const { percentualGeral, totalPresente, totalFalta, turmas, historico } = frequencia;
+
+  // Barra de progresso com cor dinâmica por frequência
+  function BarraFrequencia({ valor }: { valor: number }) {
+    const cor = valor >= 90 ? 'bg-green-500' : valor >= 75 ? 'bg-yellow-400' : 'bg-red-500';
+    return (
+      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${cor} rounded-full transition-all`}
+          style={{ width: `${Math.min(valor, 100)}%` }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Card geral */}
+      <div className="bg-gray-50 rounded-xl px-5 py-4 border border-gray-200">
+        <div className="flex items-end justify-between mb-3">
+          <div>
+            <span className="text-4xl font-black text-gray-900">{percentualGeral}%</span>
+            <span className="text-sm text-gray-400 ml-2">de frequência geral</span>
+          </div>
+          <div className="text-right text-xs text-gray-400 space-y-0.5">
+            <div><span className="font-semibold text-gray-700">{totalPresente}</span> presenças</div>
+            <div><span className="font-semibold text-gray-700">{totalFalta}</span> faltas</div>
+          </div>
+        </div>
+        <BarraFrequencia valor={percentualGeral} />
+      </div>
+
+      {/* Por curso */}
+      {turmas?.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Por curso ou oficina</p>
+          <div className="space-y-1">
+            {turmas.map((t: any, i: number) => (
+              <div key={i} className="border-b border-gray-100 last:border-0 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-semibold text-gray-800 flex-1 truncate mr-3">{t.turma}</p>
+                  <span className="text-sm font-bold text-gray-900 tabular-nums shrink-0">{t.percentual}%</span>
+                </div>
+                <BarraFrequencia valor={t.percentual} />
+                <div className="flex gap-4 mt-1.5 text-xs text-gray-400">
+                  <span>{t.presencas} presenças</span>
+                  <span>{t.faltas} faltas</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Histórico */}
+      {historico?.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Histórico recente</p>
+          <div className="space-y-0">
+            {historico.slice(0, 20).map((h: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                {/* Bolinha de status */}
+                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  h.status === 'presente' ? 'bg-yellow-400' :
+                  h.status === 'falta'    ? 'bg-gray-300'   : 'bg-gray-200'
+                }`} />
+                <span className="text-xs text-gray-400 w-20 shrink-0 tabular-nums">{fmtData(h.data)}</span>
+                <span className="text-sm text-gray-700 flex-1 truncate">{h.turma}</span>
+                <span className={`text-xs font-medium shrink-0 ${
+                  h.status === 'presente' ? 'text-gray-500' : 'text-gray-400'
+                }`}>
+                  {h.status === 'presente' ? 'Presente' : h.status === 'falta' ? 'Falta' : 'Justificada'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SecaoNPS({ cpf }: { cpf: string }) {
+  const [pesquisaAtual, setPesquisaAtual] = useState<any | null>(null);
+  const [respostas, setRespostas] = useState<Record<number, { valorNumerico: number | null; valorTexto: string; evidenciaUrl?: string }>>({});
+  const [visitados, setVisitados] = useState<number[]>([]); // ordered list of visited pergunta IDs
+  const [stepId, setStepId] = useState<number | null>(null); // current pergunta ID
+  const [enviado, setEnviado] = useState(false);
+  const [uploadingEv, setUploadingEv] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: pendentes = [], isLoading } = useQuery<any[]>({
+    queryKey: ['/api/aluno-portal/nps-pendente', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/nps-pendente`);
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!cpf,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      // Only send answers for visited questions
+      const payload = visitados.map(id => {
+        const val = respostas[id] || { valorNumerico: null, valorTexto: '' };
+        return {
+          perguntaId: id,
+          valorNumerico: val.valorNumerico ?? null,
+          valorTexto: val.valorTexto || null,
+          evidenciaUrl: val.evidenciaUrl || null,
+        };
+      });
+      const r = await authFetch('/api/nps/respostas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pesquisaId: pesquisaAtual.id, cpf, respostas: payload }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error);
+    },
+    onSuccess: () => {
+      setEnviado(true);
+      queryClient.invalidateQueries({ queryKey: ['/api/aluno-portal/nps-pendente', cpf] });
+      toast({ title: 'Obrigado pelo seu feedback!' });
+    },
+    onError: (e: any) => toast({ title: 'Erro ao enviar', description: e.message, variant: 'destructive' }),
+  });
+
+  const iniciarPesquisa = (p: any) => {
+    setPesquisaAtual(p);
+    setRespostas({});
+    const firstId = p.perguntas?.[0]?.id ?? null;
+    setStepId(firstId);
+    setVisitados(firstId ? [firstId] : []);
+    setEnviado(false);
+  };
+
+  const resetPesquisa = () => {
+    setPesquisaAtual(null);
+    setRespostas({});
+    setStepId(null);
+    setVisitados([]);
+  };
+
+  // Compute the next pergunta ID using skip logic
+  const computeNextId = (perguntas: any[], currentId: number, resp: typeof respostas): number | null => {
+    const sorted = [...perguntas].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+    const BLOCO_DEFAULT_RULE_KEY = "__bloco_padrao__";
+    const normalize = (v: any) => String(v || "").trim().toLowerCase();
+    const parseLogica = (lc: any) => {
+      if (!lc) return {};
+      if (typeof lc === "object" && !Array.isArray(lc)) return lc;
+      if (typeof lc === "string") {
+        try { return JSON.parse(lc); } catch { return {}; }
+      }
+      return {};
+    };
+    const currentIdx = sorted.findIndex((p: any) => p.id === currentId);
+    if (currentIdx === -1) return null;
+    const p = sorted[currentIdx];
+
+    // Apply skip logic for multipla_unica
+    if (p.tipo === 'multipla_unica' && p.logica_condicional) {
+      const lc = parseLogica(p.logica_condicional);
+      const selectedOption = resp[currentId]?.valorTexto;
+      if (selectedOption && lc[selectedOption]) {
+        const regra = lc[selectedOption];
+        if (regra.tipo === 'fim') return null;
+        if (regra.tipo === 'pergunta' && regra.ordem) {
+          const target = sorted.find((q: any) => q.ordem === regra.ordem);
+          if (target) return target.id;
+        }
+        if (regra.tipo === 'bloco' && regra.bloco_nome) {
+          const blocoTarget = normalize(regra.bloco_nome);
+          const target = sorted.find((q: any) => normalize(q.bloco_nome) === blocoTarget);
+          if (target) return target.id;
+        }
+      }
+    }
+
+    const blocoAtual = normalize(p.bloco_nome);
+    if (blocoAtual) {
+      const proximaNoMesmoBloco = sorted.slice(currentIdx + 1).find((q: any) => normalize(q.bloco_nome) === blocoAtual);
+      if (proximaNoMesmoBloco) return proximaNoMesmoBloco.id;
+
+      const primeiraDoBloco = sorted.find((q: any) => normalize(q.bloco_nome) === blocoAtual);
+      const regraPadraoBloco = primeiraDoBloco ? parseLogica(primeiraDoBloco.logica_condicional)?.[BLOCO_DEFAULT_RULE_KEY] : null;
+      if (regraPadraoBloco) {
+        if (regraPadraoBloco.tipo === "fim") return null;
+        if (regraPadraoBloco.tipo === "pergunta" && regraPadraoBloco.ordem) {
+          const target = sorted.find((q: any) => q.ordem === regraPadraoBloco.ordem);
+          if (target) return target.id;
+        }
+        if (regraPadraoBloco.tipo === "bloco" && regraPadraoBloco.bloco_nome) {
+          const blocoTarget = normalize(regraPadraoBloco.bloco_nome);
+          const target = sorted.find((q: any) => normalize(q.bloco_nome) === blocoTarget);
+          if (target) return target.id;
+        }
+      }
+    }
+
+    // Default global: next in sequence
+    const next = sorted[currentIdx + 1];
+    return next ? next.id : null;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <Loader2 className="w-8 h-8 animate-spin text-yellow-400 mb-3" />
+        <p className="text-sm text-gray-400">Verificando pesquisas...</p>
+      </div>
+    );
+  }
+
+  if (enviado) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-16 h-16 rounded-full bg-yellow-400 flex items-center justify-center mb-4">
+          <CheckCircle2 className="w-8 h-8 text-white" />
+        </div>
+        <h3 className="text-xl font-bold text-gray-900">Obrigado pelo feedback!</h3>
+        <p className="text-gray-500 text-sm mt-2 max-w-xs">Sua avaliação foi registrada com sucesso.</p>
+        <Button variant="outline" className="mt-6" onClick={() => { setEnviado(false); resetPesquisa(); }}>
+          Ver outras pesquisas
+        </Button>
+      </div>
+    );
+  }
+
+  // Formulário passo a passo
+  if (pesquisaAtual && stepId !== null) {
+    const sorted = [...(pesquisaAtual.perguntas || [])].sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0));
+    const p = sorted.find((q: any) => q.id === stepId);
+    if (!p) return null;
+
+    const stepNum = visitados.length;
+    const totalEstimado = sorted.length;
+    const progresso = Math.round((stepNum / totalEstimado) * 100);
+    const opcoes: string[] = (() => { try { return Array.isArray(p.opcoes) ? p.opcoes : JSON.parse(p.opcoes || '[]'); } catch { return []; } })();
+
+    const nextId = computeNextId(sorted, stepId, respostas);
+    const isLast = nextId === null;
+
+    const perguntaRespondida = () => {
+      const r = respostas[p.id];
+      if (p.tipo === 'escala') return r?.valorNumerico !== null && r?.valorNumerico !== undefined;
+      if (p.tipo === 'multipla_unica') return !!r?.valorTexto;
+      if (p.tipo === 'multipla_multipla') { try { return JSON.parse(r?.valorTexto || '[]').length > 0; } catch { return false; } }
+      if (p.tipo === 'evidencia') return !!r?.evidenciaUrl;
+      return true; // texto livre é opcional
+    };
+
+    const handleNext = () => {
+      if (isLast) {
+        mutation.mutate();
+        return;
+      }
+      const nId = computeNextId(sorted, stepId, respostas);
+      if (nId !== null) {
+        setStepId(nId);
+        setVisitados(prev => prev.includes(nId) ? prev : [...prev, nId]);
+      }
+    };
+
+    const handleBack = () => {
+      const prevList = visitados.slice(0, -1);
+      const prevId = prevList[prevList.length - 1];
+      if (prevId !== undefined) {
+        setStepId(prevId);
+        setVisitados(prevList);
+      } else {
+        resetPesquisa();
+      }
+    };
+
+    const uploadEvidencia = async (file: File) => {
+      setUploadingEv(true);
+      try {
+        const fd = new FormData();
+        fd.append('arquivo', file);
+        fd.append('pesquisaId', String(pesquisaAtual.id));
+        fd.append('perguntaId', String(p.id));
+        fd.append('cpf', cpf);
+        const r = await authFetch('/api/nps/evidencia-upload', { method: 'POST', body: fd });
+        if (!r.ok) throw new Error((await r.json()).error);
+        const { url } = await r.json();
+        setRespostas(prev => ({ ...prev, [p.id]: { ...prev[p.id], valorNumerico: null, valorTexto: file.name, evidenciaUrl: url } }));
+        toast({ title: 'Arquivo enviado!' });
+      } catch (e: any) {
+        toast({ title: 'Erro ao enviar arquivo', description: e.message, variant: 'destructive' });
+      } finally {
+        setUploadingEv(false);
+      }
+    };
+
+    return (
+      <div className="space-y-5">
+        {/* Cabeçalho */}
+        <div className="flex items-center gap-3">
+          <button onClick={handleBack} className="p-1.5 rounded-lg hover:bg-gray-100">
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gray-400">Minha Voz</p>
+            <p className="text-sm font-bold text-gray-900 truncate">{pesquisaAtual.titulo}</p>
+          </div>
+          <span className="text-xs text-gray-400 shrink-0">{stepNum} / {totalEstimado}</span>
+        </div>
+
+        {/* Barra de progresso */}
+        <div className="w-full bg-gray-100 rounded-full h-1.5">
+          <div className="bg-yellow-400 h-1.5 rounded-full transition-all duration-300" style={{ width: `${progresso}%` }} />
+        </div>
+
+        {/* Nome do bloco */}
+        {p.bloco_nome && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg">
+            <span className="text-xs font-semibold text-purple-600">📦 {p.bloco_nome}</span>
+          </div>
+        )}
+
+        {/* Pergunta atual */}
+        <div className="space-y-4">
+          <p className="text-base font-semibold text-gray-900 leading-snug">{p.texto}</p>
+
+          {p.tipo === 'escala' && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-11 gap-1">
+                {Array.from({ length: 11 }, (_, n) => {
+                  const sel = respostas[p.id]?.valorNumerico === n;
+                  return (
+                    <button key={n}
+                      onClick={() => setRespostas(prev => ({ ...prev, [p.id]: { ...prev[p.id], valorNumerico: n, valorTexto: prev[p.id]?.valorTexto || '' } }))}
+                      className={`aspect-square rounded-lg text-sm font-bold transition-all ${sel ? npsColor(n) + ' scale-110 shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+              {respostas[p.id]?.valorNumerico !== null && respostas[p.id]?.valorNumerico !== undefined && (
+                <p className="text-center text-sm font-medium text-gray-700">{npsLabel(respostas[p.id].valorNumerico!)}</p>
+              )}
+              <div className="flex justify-between text-xs text-gray-400 px-1">
+                <span>Nada provável</span><span>Extremamente provável</span>
+              </div>
+            </div>
+          )}
+
+          {p.tipo === 'texto' && (
+            <Textarea
+              value={respostas[p.id]?.valorTexto || ''}
+              onChange={e => setRespostas(prev => ({ ...prev, [p.id]: { ...prev[p.id], valorNumerico: null, valorTexto: e.target.value } }))}
+              placeholder="Escreva sua resposta aqui... (opcional)"
+              className="resize-none border-gray-200 focus:border-yellow-400"
+              rows={4}
+            />
+          )}
+
+          {p.tipo === 'multipla_unica' && (
+            <div className="space-y-2">
+              {opcoes.map((op: string) => {
+                const sel = respostas[p.id]?.valorTexto === op;
+                return (
+                  <button key={op} onClick={() => setRespostas(prev => ({ ...prev, [p.id]: { valorNumerico: null, valorTexto: op } }))}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm font-medium text-left transition-all ${sel ? 'border-yellow-400 bg-yellow-50 text-gray-900' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
+                    <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${sel ? 'border-yellow-500 bg-yellow-400' : 'border-gray-300'}`}>
+                      {sel && <div className="w-2 h-2 rounded-full bg-white" />}
+                    </div>
+                    {op}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {p.tipo === 'multipla_multipla' && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Selecione todas que se aplicam</p>
+              {opcoes.map((op: string) => {
+                const sels: string[] = (() => { try { return JSON.parse(respostas[p.id]?.valorTexto || '[]'); } catch { return []; } })();
+                const sel = sels.includes(op);
+                const toggle = () => {
+                  const next = sel ? sels.filter(s => s !== op) : [...sels, op];
+                  setRespostas(prev => ({ ...prev, [p.id]: { valorNumerico: null, valorTexto: JSON.stringify(next) } }));
+                };
+                return (
+                  <button key={op} onClick={toggle}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm font-medium text-left transition-all ${sel ? 'border-yellow-400 bg-yellow-50 text-gray-900' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
+                    <div className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${sel ? 'border-yellow-500 bg-yellow-400' : 'border-gray-300'}`}>
+                      {sel && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>}
+                    </div>
+                    {op}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {p.tipo === 'evidencia' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">Envie um arquivo como evidência (foto, PDF, etc.)</p>
+              {respostas[p.id]?.evidenciaUrl ? (
+                <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-800 truncate">{respostas[p.id]?.valorTexto || 'Arquivo enviado'}</p>
+                    <p className="text-xs text-green-600">Evidência registrada com sucesso</p>
+                  </div>
+                  <button onClick={() => setRespostas(prev => ({ ...prev, [p.id]: { valorNumerico: null, valorTexto: '', evidenciaUrl: undefined } }))}
+                    className="text-red-400 hover:text-red-600 text-xs">Remover</button>
+                </div>
+              ) : (
+                <label className={`w-full flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl py-8 cursor-pointer transition-colors ${uploadingEv ? 'border-yellow-300 bg-yellow-50' : 'border-gray-300 hover:border-yellow-400 hover:bg-yellow-50'}`}>
+                  {uploadingEv ? (
+                    <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
+                  ) : (
+                    <ImageIcon className="w-8 h-8 text-gray-300" />
+                  )}
+                  <span className="text-sm text-gray-500">{uploadingEv ? 'Enviando...' : 'Toque para selecionar o arquivo'}</span>
+                  <input type="file" className="hidden" disabled={uploadingEv}
+                    accept="image/*,.pdf,.doc,.docx"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadEvidencia(f); }} />
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Botão Próxima / Enviar */}
+        <Button
+          className="w-full font-semibold py-3"
+          style={{ background: isLast ? '#000' : '#EAB308', color: isLast ? '#fff' : '#000' }}
+          disabled={!perguntaRespondida() || mutation.isPending || uploadingEv}
+          onClick={handleNext}
+        >
+          {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+          {isLast ? 'Enviar pesquisa' : 'Próxima →'}
+        </Button>
+      </div>
+    );
+  }
+
+  // Lista de pesquisas pendentes
+  if (pendentes.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+        <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+          <Star className="w-7 h-7 text-gray-300" />
+        </div>
+        <p className="text-sm font-semibold text-gray-500">Sem pesquisas de satisfação pendentes no momento.</p>
+        <p className="text-xs text-gray-400 mt-1.5 max-w-xs">
+          Quando o setor responsável enviar uma, ela aparecerá aqui automaticamente.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pesquisas pendentes ({pendentes.length})</p>
+      {pendentes.map((p: any) => (
+        <button
+          key={p.id}
+          onClick={() => iniciarPesquisa(p)}
+          className="w-full flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3.5 text-left hover:bg-yellow-100 transition-colors group"
+        >
+          <Star className="w-5 h-5 text-yellow-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 truncate">{p.titulo}</p>
+            <p className="text-xs text-gray-500">{p.perguntas?.length} pergunta(s)</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-yellow-500 transition-colors" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SecaoConfiguracoes({ perfil, fotoAtual, onSair }: {
+  perfil: any; fotoAtual: string | null; onSair: () => void;
+}) {
+  const { toast } = useToast();
+
+  // Mudar senha
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmar, setConfirmar] = useState('');
+  const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+
+  async function handleSenha() {
+    if (!senhaAtual || !novaSenha || !confirmar) {
+      toast({ title: 'Preencha todos os campos', variant: 'destructive' }); return;
+    }
+    if (novaSenha !== confirmar) {
+      toast({ title: 'As senhas não coincidem', variant: 'destructive' }); return;
+    }
+    const senhaOk = novaSenha.length >= 6 && /[A-Z]/.test(novaSenha) && /[a-z]/.test(novaSenha) && /[0-9]/.test(novaSenha);
+    if (!senhaOk) {
+      toast({ title: 'Senha fraca', description: 'A nova senha deve ter ao menos 6 caracteres, uma letra maiúscula, uma minúscula e um número.', variant: 'destructive' }); return;
+    }
+    setSalvandoSenha(true);
+    try {
+      const res = await authFetch('/api/aluno-portal/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: perfil?.cpf, senhaAtual, novaSenha }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data?.error === 'Senha atual incorreta' ? 'Senha atual incorreta.' : (data?.error || 'Erro ao salvar.');
+        toast({ title: 'Não foi possível alterar', description: msg, variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Senha alterada com sucesso!' });
+      setSenhaAtual(''); setNovaSenha(''); setConfirmar('');
+    } catch {
+      toast({ title: 'Erro de conexão ao salvar senha', variant: 'destructive' });
+    } finally {
+      setSalvandoSenha(false);
+    }
+  }
+
+  const info = [
+    { label: 'Nome',      value: perfil?.nome,     icon: User },
+    { label: 'Telefone',  value: perfil?.telefone,  icon: Phone },
+    { label: 'E-mail',    value: perfil?.email,     icon: Mail },
+    { label: 'Endereço',  value: [perfil?.logradouro, perfil?.numero, perfil?.bairro, perfil?.cidade].filter(Boolean).join(', '), icon: MapPin },
+  ].filter(c => c.value);
+
+  return (
+    <div className="space-y-6">
+
+      {/* Foto de perfil */}
+      <div className="max-w-md">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Foto de perfil</p>
+        <div className="flex items-center gap-5">
+          <Avatar className="w-20 h-20 border-2 border-gray-200 shrink-0">
+            <AvatarImage className="object-cover" src={fotoAtual || ''} />
+            <AvatarFallback className="bg-yellow-400 text-black font-bold text-2xl flex items-center justify-center">
+              {(perfil?.nome || 'A').split(' ').slice(0,2).map((n: string) => n[0]).join('').toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="text-sm font-medium text-gray-700">Foto cadastrada pela equipe</p>
+            <p className="text-xs text-gray-400 mt-0.5">A alteração da foto é feita pelo coordenador ou monitor do instituto.</p>
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Informações + Mudar Senha — lado a lado no desktop, empilhado no mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1px_1fr] gap-8">
+
+        {/* Informações (somente leitura) */}
+        <div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Informações</p>
+
+          <div className="space-y-3">
+            {info.map((c, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="bg-gray-100 rounded-lg p-2 shrink-0">
+                  <c.icon className="w-4 h-4 text-gray-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">{c.label}</p>
+                  <p className="text-sm font-medium text-gray-800">{c.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Divisor vertical (desktop only) */}
+        <div className="hidden lg:block bg-gray-200" />
+
+        <div className="space-y-8">
+          <LgpdMeusDadosSettingsPanel />
+
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Notificações push</p>
+            <PushNotificationSettings variant="inline" />
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Mudar senha</p>
+            <div className="space-y-3">
+            <div>
+              <Label className="text-xs text-gray-500">Senha atual</Label>
+              <div className="relative mt-1">
+                <Input
+                  type={mostrarSenha ? 'text' : 'password'}
+                  value={senhaAtual}
+                  onChange={e => setSenhaAtual(e.target.value)}
+                  className="border-gray-200 pr-10"
+                  placeholder="••••••"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setMostrarSenha(v => !v)}
+                >
+                  {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Nova senha</Label>
+              <Input
+                type={mostrarSenha ? 'text' : 'password'}
+                value={novaSenha}
+                onChange={e => setNovaSenha(e.target.value)}
+                className="border-gray-200 mt-1"
+                placeholder="••••••"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Confirmar nova senha</Label>
+              <Input
+                type={mostrarSenha ? 'text' : 'password'}
+                value={confirmar}
+                onChange={e => setConfirmar(e.target.value)}
+                className="border-gray-200 mt-1"
+                placeholder="••••••"
+              />
+            </div>
+            <Button
+              className="w-full bg-black hover:bg-gray-900 text-white font-semibold"
+              disabled={salvandoSenha}
+              onClick={handleSenha}
+            >
+              {salvandoSenha ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Salvar nova senha
+            </Button>
+          </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+// ─── Menu config ──────────────────────────────────────────────────────────────
+
+const MENU = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'cursos', label: 'Cursos e Oficinas', icon: BookOpen },
+  { id: 'calendario', label: 'Calendário', icon: Calendar },
+  { id: 'horarios', label: 'Horários', icon: Clock },
+  { id: 'frequencia', label: 'Frequência', icon: BarChart3 },
+  { id: 'avaliacao', label: 'Minha Voz', icon: Star },
+  { id: 'configuracoes', label: 'Configurações', icon: Settings },
+];
+
+const BOTTOM_NAV = ['dashboard', 'cursos', 'frequencia', 'avaliacao', 'configuracoes'];
+
+// ─── Dados de exemplo (preview sem CPF) ──────────────────────────────────────
+
+const MOCK_PERFIL = {
+  tipo: 'pec', cpf: '', nome: 'Maria da Silva Santos', foto: null,
+  dataNascimento: '2005-03-12', genero: 'Feminino', email: 'maria@exemplo.com',
+  telefone: '(11) 98765-4321', status: 'ativo', area: 'pec',
+  bairro: 'Vila Madalena', cidade: 'São Paulo', escolaridade: 'Ensino Médio',
+  matricula: 'PEC-2025-001',
 };
 
-export default AlunoPage;
+const MOCK_CURSOS = [
+  {
+    nome: 'Contraturno Manhã — Turma A', area: 'pec', turno: 'matutino',
+    horarioEntrada: '08:00', horarioSaida: '10:00', dataInicio: '2025-02-01',
+    dataFim: '2025-11-30', local: 'Casa Sonhar', status: 'ativo',
+  },
+  {
+    nome: 'Comunicação Digital — Turma B', area: 'inclusao', turno: null,
+    horarioEntrada: '14:00', horarioSaida: '17:00',
+    diasSemana: ['segunda', 'quarta', 'sexta'],
+    dataInicio: '2025-03-01', dataFim: '2025-09-30',
+    local: 'Sede Instituto', status: 'ativo',
+  },
+  {
+    nome: 'Empreendedorismo Jovem', area: 'pec', turno: 'vespertino',
+    horarioEntrada: '14:00', horarioSaida: '16:00', dataInicio: '2024-02-01',
+    dataFim: '2024-11-30', status: 'concluido',
+  },
+];
+
+const MOCK_FREQUENCIA = {
+  percentualGeral: 87,
+  totalPresente: 52,
+  totalFalta: 8,
+  turmas: [
+    { turma: 'Contraturno Manhã — Turma A', area: 'pec', presencas: 34, faltas: 4, percentual: 89 },
+    { turma: 'Comunicação Digital — Turma B', area: 'inclusao', presencas: 18, faltas: 4, percentual: 82 },
+  ],
+  historico: [
+    { data: '2025-03-18', turma: 'Contraturno Manhã — Turma A', area: 'pec', status: 'presente' },
+    { data: '2025-03-17', turma: 'Comunicação Digital — Turma B', area: 'inclusao', status: 'presente' },
+    { data: '2025-03-15', turma: 'Contraturno Manhã — Turma A', area: 'pec', status: 'presente' },
+    { data: '2025-03-12', turma: 'Comunicação Digital — Turma B', area: 'inclusao', status: 'falta' },
+    { data: '2025-03-11', turma: 'Contraturno Manhã — Turma A', area: 'pec', status: 'presente' },
+    { data: '2025-03-10', turma: 'Comunicação Digital — Turma B', area: 'inclusao', status: 'presente' },
+  ],
+};
+
+const MOCK_PROX_AULA = {
+  nome: 'Contraturno Manhã — Turma A', data: '2025-03-20',
+  horario: '08:00', local: 'Casa Sonhar', area: 'pec',
+};
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
+export default function AlunoPage() {
+  const [location, setLocation] = useLocation();
+  const [secao, setSecao] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [fotoPortal, setFotoPortal] = useState<string | null>(null);
+
+  const { data: authSession, isLoading: loadingAuth, isFetched: authFetched } = useAuthSession();
+  const cpfFromSession = (() => {
+    if (authSession?.actorType !== 'aluno_portal') {
+      return sessionStorage.getItem('aluno_cpf') || '';
+    }
+    const fromCpf = String(authSession.cpf || '').replace(/\D/g, '');
+    if (fromCpf.length === 11) return fromCpf;
+    const fromId = String(authSession.id ?? '').replace(/\D/g, '');
+    if (fromId.length === 11) return fromId;
+    return sessionStorage.getItem('aluno_cpf') || '';
+  })();
+  const cpf = cpfFromSession.replace(/\D/g, '');
+  const autenticado =
+    authSession?.actorType === 'aluno_portal' && cpf.length === 11;
+
+  const { ready: consentReady, checking: consentChecking, markReady: markConsentReady } =
+    useAreaConsentReady('students', { enabled: autenticado });
+
+  React.useEffect(() => {
+    if (authFetched && !loadingAuth && !autenticado) setLocation('/login/aluno');
+  }, [autenticado, authFetched, loadingAuth, setLocation]);
+
+  const usarDemoData = false;
+
+  const { data: perfilReal, isLoading: loadingPerfil, error: errPerfil } = useQuery<any>({
+    queryKey: ['/api/aluno-portal/perfil', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/perfil`);
+      if (!r.ok) throw new Error('Não encontrado');
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+    retry: false,
+  });
+
+  const { data: cursosReal = [], isLoading: loadingCursos } = useQuery<any[]>({
+    queryKey: ['/api/aluno-portal/cursos', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/cursos`);
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+  });
+
+  const { data: frequenciaReal, isLoading: loadingFreq } = useQuery<any>({
+    queryKey: ['/api/aluno-portal/frequencia', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/frequencia`);
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+  });
+
+  const { data: proxAulaReal } = useQuery<any>({
+    queryKey: ['/api/aluno-portal/proxima-aula', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/proxima-aula`);
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+  });
+
+  const perfil     = usarDemoData ? MOCK_PERFIL     : perfilReal;
+  const cursos     = usarDemoData ? MOCK_CURSOS     : cursosReal;
+  const frequencia = usarDemoData ? MOCK_FREQUENCIA : frequenciaReal;
+  const proxAula   = usarDemoData ? MOCK_PROX_AULA  : proxAulaReal;
+
+  // Sincroniza fotoPortal sempre que a foto do perfil mudar (ex: após novo upload)
+  React.useEffect(() => {
+    if (perfil?.foto) setFotoPortal(perfil.foto);
+  }, [perfil?.foto]);
+
+  const sair = async () => {
+    await logoutAndClearSession();
+    setLocation('/login/aluno');
+  };
+  const isLoading = !usarDemoData && (loadingPerfil || loadingCursos || loadingFreq);
+
+  if (!authFetched || loadingAuth || !autenticado) return null;
+  if (consentChecking) return <AreaConsentLoading />;
+  if (!consentReady) {
+    return (
+      <AreaConsentGate
+        area="students"
+        onAccept={() => markConsentReady()}
+        onNavigate={setLocation}
+      />
+    );
+  }
+  const tituloSecao = MENU.find(m => m.id === secao)?.label || '';
+
+  const renderConteudo = () => {
+    if (isLoading) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-3" />
+          <p className="text-sm text-gray-400">Carregando dados...</p>
+        </div>
+      );
+    }
+    if (errPerfil) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <AlertTriangle className="w-10 h-10 text-red-400 mb-3" />
+          <p className="text-gray-600 font-medium">Aluno não encontrado para o CPF informado.</p>
+        </div>
+      );
+    }
+    switch (secao) {
+      case 'dashboard':     return <SecaoDashboard perfil={perfil} proxAula={proxAula} frequencia={frequencia} cursos={cursos} foto={fotoPortal} />;
+      case 'cursos':        return <SecaoCursos cursos={cursos} />;
+      case 'calendario':    return <SecaoCalendario cursos={cursos} />;
+      case 'horarios':      return <SecaoHorarios cursos={cursos} />;
+      case 'frequencia':    return <SecaoFrequencia frequencia={frequencia} />;
+      case 'avaliacao':     return <SecaoNPS cpf={cpf} />;
+      case 'configuracoes': return <SecaoConfiguracoes perfil={perfil} fotoAtual={fotoPortal} onSair={sair} />;
+      default:              return null;
+    }
+  };
+
+  return (
+    <div className="h-screen bg-gray-50 flex overflow-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-black flex flex-col
+        transform transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:static lg:translate-x-0
+      `}>
+        <div className="relative flex flex-col items-center justify-center px-5 py-2 pb-3 border-b border-white/10">
+          <img src={logoOGrito} alt="O Grito" className="h-28 object-contain" />
+          <span className="text-white/50 text-xs font-medium tracking-widest uppercase -mt-1">Área do Aluno</span>
+          <button className="absolute right-4 top-4 text-white/60 hover:text-white lg:hidden" onClick={() => setSidebarOpen(false)}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {perfil && (
+          <div className="flex items-center gap-3 px-5 py-3.5 border-b border-white/10">
+            <Avatar className="w-9 h-9 shrink-0">
+              <AvatarImage className="object-cover" src={fotoPortal || ''} />
+              <AvatarFallback className="bg-yellow-400 text-black font-bold text-sm flex items-center justify-center">
+                {(perfil?.nome || 'A').split(' ').slice(0,2).map((n: string) => n[0]).join('').toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <p className="text-white font-semibold text-sm truncate">{perfil?.nome?.split(' ')[0]}</p>
+              <div className="flex gap-1 flex-wrap mt-0.5">
+                {(() => {
+                  const areas = [...new Set((cursos || []).map((c: any) => c.area))];
+                  if (areas.length === 0) areas.push(perfil?.area || 'pec');
+                  const labels = areas.map((a: any) => a === 'pec' ? 'PEC' : 'Inclusão Produtiva');
+                  return (
+                    <span className="text-xs text-white/50">{labels.join(' & ')}</span>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <nav className="flex-1 overflow-y-auto py-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          {MENU.map(item => {
+            const Icon = item.icon;
+            const ativo = secao === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setSecao(item.id);
+                  setSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-colors
+                  ${ativo ? 'bg-white/10 text-white border-r-2 border-yellow-400' : 'text-white/50 hover:text-white hover:bg-white/10'}
+                `}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="p-4 border-t border-white/10">
+          <button
+            onClick={sair}
+            className="w-full flex items-center gap-2 text-white/50 hover:text-white text-sm px-2 py-2 rounded hover:bg-white/10 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sair
+          </button>
+        </div>
+      </aside>
+
+      {/* Área principal */}
+      <div className="flex-1 flex flex-col min-w-0 lg:p-6">
+        <div className="flex-1 flex flex-col min-w-0 lg:bg-white lg:rounded-2xl lg:border lg:border-gray-200 lg:shadow-sm lg:overflow-hidden">
+          <header className="sticky top-0 z-30 bg-white border-b border-gray-200 flex items-center gap-3 px-4 py-3 lg:px-6">
+            <button className="lg:hidden p-1 rounded hover:bg-gray-100" onClick={() => setSidebarOpen(true)}>
+              <Menu className="w-5 h-5 text-gray-600" />
+            </button>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <h1 className="text-base font-bold text-gray-800">{tituloSecao}</h1>
+            </div>
+            {perfil && (
+              <Avatar className="w-8 h-8 border border-gray-200 shrink-0">
+                <AvatarImage className="object-cover" src={fotoPortal || ''} />
+                <AvatarFallback className="bg-yellow-400 text-black font-bold text-xs flex items-center justify-center">
+                  {(perfil?.nome || 'A').split(' ').slice(0,2).map((n: string) => n[0]).join('').toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            )}
+          </header>
+
+          <main className="flex-1 overflow-y-auto p-4 pb-24 lg:pb-6 lg:p-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            {renderConteudo()}
+          </main>
+        </div>
+
+        {/* Bottom nav (mobile) */}
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-black z-30">
+          <div className="grid grid-cols-5">
+            {BOTTOM_NAV.map(id => {
+              const item = MENU.find(m => m.id === id)!;
+              const Icon = item.icon;
+              const ativo = secao === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setSecao(id)}
+                  className={`flex flex-col items-center gap-0.5 pt-2 pb-3 transition-colors
+                    ${ativo ? 'text-yellow-400' : 'text-white/50'}`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="text-[9px] font-medium leading-tight text-center w-full truncate px-0.5">{item.label.split(' ')[0]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+    </div>
+  );
+}

@@ -156,8 +156,17 @@ export default function SubscriptionManagement({
     setIsReactivating(true);
     
     try {
-      // Buscar payment methods do usuário
-      const pmResponse = await fetch('/api/payment-methods');
+      const userId =
+        localStorage.getItem("userId") || sessionStorage.getItem("userId");
+      if (!userId) {
+        window.location.href = "/change-plan";
+        return;
+      }
+
+      const pmResponse = await fetch(
+        `/api/users/${userId}/payment-methods`,
+        { credentials: "include" }
+      );
       const pmData = await pmResponse.json();
       
       if (!pmData.paymentMethods || pmData.paymentMethods.length === 0) {

@@ -264,13 +264,13 @@ export default function Register() {
         <div className="text-center mt-8">
           <p className="text-xs text-gray-500">
             Ao continuar, você concorda com nossos{" "}
-            <a href="#" className="text-brand-yellow hover:underline">
+            <button onClick={() => window.location.href = '/termos-de-uso'} className="text-brand-yellow hover:underline">
               Termos de Uso
-            </a>{" "}
+            </button>{" "}
             e{" "}
-            <a href="#" className="text-brand-yellow hover:underline">
+            <button onClick={() => window.location.href = '/politica-de-privacidade'} className="text-brand-yellow hover:underline">
               Política de Privacidade
-            </a>
+            </button>
           </p>
         </div>
       </main>

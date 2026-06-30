@@ -102,13 +102,10 @@ export default function ChangePlan() {
 
   const loadUserData = async () => {
     try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const isDevAccess = urlParams.get('dev_access') === 'true';
-      const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
       const devSession = sessionStorage.getItem('dev_session') === 'active';
       const userPapel = localStorage.getItem('userPapel');
       
-      if (isDevAccess || isFromDevPanel || devSession || userPapel === 'desenvolvedor') {
+      if (devSession || userPapel === 'desenvolvedor' || userPapel === 'dev') {
         setCurrentUser({
           id: 999,
           nome: "Desenvolvedor - Modo Demo",
@@ -154,13 +151,10 @@ export default function ChangePlan() {
 
   const handlePlanSelect = (planId: string) => {
     // Verificar modo desenvolvedor
-    const urlParams = new URLSearchParams(window.location.search);
-    const isDevAccess = urlParams.get('dev_access') === 'true';
-    const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
     const devSession = sessionStorage.getItem('dev_session') === 'active';
     const userPapel = localStorage.getItem('userPapel');
     
-    if (isDevAccess || isFromDevPanel || devSession || userPapel === 'desenvolvedor') {
+    if (devSession || userPapel === 'desenvolvedor' || userPapel === 'dev') {
       toast({
         title: "Modo Desenvolvedor",
         description: `Simulação: Plano alterado para ${planDetails[planId as keyof typeof planDetails]?.name}. Esta é uma demonstração.`,
@@ -469,10 +463,13 @@ export default function ChangePlan() {
           <Button
             variant="ghost"
             onClick={() => {
-              const urlParams = new URLSearchParams(window.location.search);
-              const isDevAccess = urlParams.get('dev_access') === 'true';
-              const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
-              if (isDevAccess || isFromDevPanel) {
+              const devSession = sessionStorage.getItem('dev_session') === 'active';
+              const userPapel = localStorage.getItem('userPapel');
+              if (
+                devSession ||
+                userPapel === 'desenvolvedor' ||
+                userPapel === 'dev'
+              ) {
                 window.close();
               } else {
                 setLocation("/welcome");

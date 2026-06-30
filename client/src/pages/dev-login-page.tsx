@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Lock, User, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { authFetch } from "@/lib/queryClient";
+import { syncAuthSessionAfterLogin, clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
+import { getPostLoginPath } from "@/lib/post-login-redirect";
 import girlImage from "../app-assets/image_1769199255257.png";
 
 export default function DevLoginPage() {
@@ -27,17 +29,21 @@ export default function DevLoginPage() {
       return;
     }
 
-    // ✅ LIMPAR TUDO ANTES DO LOGIN
-    localStorage.clear();
-    sessionStorage.clear();
-
     setLoading(true);
 
     try {
-      const response = await apiRequest("/api/dev/login", {
+      const res = await authFetch("/api/dev/login", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usuario, senha }),
-      }) as {
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Credenciais inválidas");
+      }
+
+      const response = await res.json() as {
         success: boolean;
         developer: {
           id: number;
@@ -51,33 +57,30 @@ export default function DevLoginPage() {
       if (response.success && response.developer) {
         // Determinar o papel baseado no tipo do desenvolvedor
         const tipo = response.developer.tipo || "dev";
-        const userPapel = tipo === "admin" ? "dev-admin" : (tipo === "marketing" ? "dev-marketing" : "dev");
-        
-        // Salvar dados na sessão (localStorage para compartilhar entre abas)
-        localStorage.setItem("userPapel", userPapel);
-        localStorage.setItem("isVerified", "true");
-        localStorage.setItem("userId", response.developer.id.toString());
-        localStorage.setItem("userName", response.developer.nome);
-        localStorage.setItem("dev_auth", "true"); // ✅ MUDADO: localStorage ao invés de sessionStorage
+
+        clearLocalStoragePreservingLgpd();
+        sessionStorage.clear();
+        const session = await syncAuthSessionAfterLogin();
+        if (!session) {
+          throw new Error("Sessão de desenvolvedor não foi criada");
+        }
+        localStorage.setItem("dev_auth", "true");
 
         toast({
           title: "Login realizado!",
           description: `Bem-vindo, ${response.developer.nome}`,
         });
 
-        // Redirecionar baseado no tipo/usuário do desenvolvedor
         if (response.developer.usuario === "dashboard_lancamento") {
           setLocation("/painel/estrategico/lancamento");
-        } else if (tipo === "admin") {
-          setLocation("/dev");
-        } else if (tipo === "marketing") {
-          setLocation("/dev/marketing");
         } else {
-          setLocation("/dev");
+          setLocation(getPostLoginPath(session));
         }
       }
     } catch (error: any) {
       console.error("Erro no login:", error);
+      setSenha("");
+      setUsuario("");
       toast({
         title: "Erro no login",
         description: error.message || "Credenciais inválidas",

@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { SessionExpiredAlert } from "@/components/SessionExpiredAlert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Mail, Lock, Eye, EyeOff, BookOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
+import { getPostLoginPath } from "@/lib/post-login-redirect";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function ProfessorLogin() {
@@ -44,16 +47,14 @@ export default function ProfessorLogin() {
 
       sessionStorage.setItem("professor_auth", "true");
       sessionStorage.setItem("professor_data", JSON.stringify(data.professor));
-      
-      localStorage.setItem("userId", data.userId.toString());
-      localStorage.setItem("professorId", data.professor.id.toString());
-      localStorage.setItem("userPapel", data.professor.role || "professor");
-      localStorage.setItem("userName", data.professor.nome || "Professor");
-      localStorage.setItem("isVerified", "true");
 
-      console.log("✅ Login professor bem-sucedido:", data.professor, "userId:", data.userId);
+      const session = await syncAuthSessionAfterLogin();
+      if (!session?.id) {
+        throw new Error("Sessão não foi criada. Tente novamente.");
+      }
 
-      setLocation(data.professor.redirectPath || "/professor");
+      const target = getPostLoginPath(session);
+      setLocation(target);
 
     } catch (error: any) {
       console.error("Erro ao fazer login:", error);
@@ -86,6 +87,7 @@ export default function ProfessorLogin() {
 
         {/* Container com título e card */}
         <div className="w-full max-w-md relative z-10 space-y-4">
+          <SessionExpiredAlert />
           {/* Título Principal */}
           <h1 className="text-3xl md:text-4xl text-black text-center drop-shadow-lg">
             <span className="font-bold">Impacto</span> <span className="italic">Social</span>

@@ -6,11 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
-import { 
-  CalendarIcon, 
-  X, 
-  Plus, 
-  Users, 
+import { parseDateLocal } from '@/lib/class-days';
+import {
+  CalendarIcon,
+  X,
+  Plus,
+  Users,
   Settings,
   MapPin,
   Clock
@@ -98,8 +99,8 @@ export function ActivityInstanceForm({
     })) || []
   );
 
-  const [startMonth, setStartMonth] = useState<Date>(instance?.occurrence_start ? new Date(instance.occurrence_start) : new Date());
-const [endMonth, setEndMonth] = useState<Date>(instance?.occurrence_end ? new Date(instance.occurrence_end) : new Date());
+  const [startMonth, setStartMonth] = useState<Date>(parseDateLocal(instance?.occurrence_start) ?? new Date());
+const [endMonth, setEndMonth] = useState<Date>(parseDateLocal(instance?.occurrence_end) ?? new Date());
 
   const form = useForm({
     resolver: zodResolver(activityInstanceSchema),
@@ -112,8 +113,8 @@ const [endMonth, setEndMonth] = useState<Date>(instance?.occurrence_end ? new Da
       period_label: instance.period_label || 'matutino',
       age_min: instance.age_min || 6,
       age_max: instance.age_max || 17,
-      occurrence_start: instance.occurrence_start ? new Date(instance.occurrence_start) : new Date(),
-      occurrence_end: instance.occurrence_end ? new Date(instance.occurrence_end) : new Date(),
+      occurrence_start: parseDateLocal(instance.occurrence_start) ?? new Date(),
+      occurrence_end: parseDateLocal(instance.occurrence_end) ?? new Date(),
       expected_total_hours: instance.expected_total_hours || 0,
       notes: instance.notes || '',
       staff_assignments: []

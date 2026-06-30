@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,26 +28,27 @@ import logoGrito from "../app-assets/logo-clube-grito-waves_1759419898299.png";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
 import StoriesViewer from "@/components/StoriesViewer";
 import { useQuery } from '@tanstack/react-query';
+import AreaConsentGate, { useAreaConsentReady } from "@/components/AreaConsentGate";
+import { LgpdLegalDrawerGroup } from "@/components/LgpdLegalMenuSection";
 
 
 
 
 export default function Conselho() {
   const [, setLocation] = useLocation();
+  const { ready: consentReady, checking: consentChecking, markReady: setConsentReady } =
+    useAreaConsentReady("council");
   const [userName, setUserName] = useState<string>("");
   
   // Verificação inicial rápida do localStorage para evitar flash de "Acesso Restrito"
   const getInitialAuth = () => {
     if (typeof window === 'undefined') return false;
     const userPapel = localStorage.getItem("userPapel");
-    const urlParams = new URLSearchParams(window.location.search);
-    const devAccessParam = urlParams.get('dev_access') === 'true';
     return userPapel === "conselho" || 
            userPapel === "conselheiro" || 
            userPapel === "desenvolvedor" || 
            userPapel === "admin" || 
-           userPapel === "leo" ||
-           devAccessParam;
+           userPapel === "leo";
   };
   
   const [authorized, setAuthorized] = useState(getInitialAuth);
@@ -68,7 +70,8 @@ export default function Conselho() {
     return `${ano}-${mes}`;
   };
   
-  const [kpiPeriod, setKpiPeriod] = useState(getMesAnterior());
+  const [kpiPeriod, setKpiPeriod] = useState('2026'); // '2026' = anual, '2026-04' = mensal
+  const [kpiAno, setKpiAno] = useState<string>('2026');
   
   // Estados para Histórias que Inspiram
   const [showStories, setShowStories] = useState(false);
@@ -380,6 +383,18 @@ export default function Conselho() {
     );
   }
 
+  if (consentChecking) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500" />
+      </div>
+    );
+  }
+
+  if (!consentReady) {
+    return <AreaConsentGate area="council" onAccept={() => setConsentReady()} onNavigate={setLocation} />;
+  }
+
   return (
     <div className="min-h-screen bg-white pb-20">
       {/* Header - Mesmo estilo das telas do doador */}
@@ -515,30 +530,7 @@ export default function Conselho() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
-              {/* Termos de Uso */}
-              <div>
-                <div
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                  onClick={() => {
-                    setShowMenu(false);
-                    setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
-                  }}
-                >
-                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <BookOpen className="w-6 h-6 text-black" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-base">
-                      Termos de Uso
-                    </h3>
-                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                      Segurança e clareza em cada passo.
-                    </p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </div>
-                <div className="border-b border-gray-100 mx-4"></div>
-              </div>
+              <LgpdLegalDrawerGroup onAfterClick={() => setShowMenu(false)} />
 
               {/* Canal de Transparência */}
               <div>
@@ -546,7 +538,7 @@ export default function Conselho() {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowMenu(false);
-                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                    window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -573,7 +565,7 @@ export default function Conselho() {
                     setShowMenu(false);
                     // Limpar localStorage e redirecionar para login
                     setTimeout(() => {
-                      localStorage.clear();
+                      clearLocalStoragePreservingLgpd();
                       setLocation("/entrar");
                     }, 150);
                   }}
@@ -632,41 +624,55 @@ export default function Conselho() {
                     <Filter className="w-4 h-4" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-48 p-2" align="end">
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-700 px-2 py-1">Período</p>
-                    <div className="space-y-1">
-                      {[
-                        { value: '2025-01', label: 'Janeiro 2025' },
-                        { value: '2025-02', label: 'Fevereiro 2025' },
-                        { value: '2025-03', label: 'Março 2025' },
-                        { value: '2025-04', label: 'Abril 2025' },
-                        { value: '2025-05', label: 'Maio 2025' },
-                        { value: '2025-06', label: 'Junho 2025' },
-                        { value: '2025-07', label: 'Julho 2025' },
-                        { value: '2025-08', label: 'Agosto 2025' },
-                        { value: '2025-09', label: 'Setembro 2025' },
-                        { value: '2025-10', label: 'Outubro 2025' },
-                        { value: '2025-11', label: 'Novembro 2025' },
-                        { value: '2025-12', label: 'Dezembro 2025' },
-                      ].map((period) => (
-                        <button
-                          key={period.value}
-                          onClick={() => {
-                            setKpiPeriod(period.value);
-                            setShowFilterPopover(false);
-                          }}
-                          className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                            kpiPeriod === period.value
-                              ? 'bg-blue-50 text-blue-700 font-medium'
-                              : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                        >
-                          {period.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                <PopoverContent className="w-52 p-3" align="end">
+                  {(() => {
+                    const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+                    const hoje = new Date();
+                    const anoAtual = hoje.getFullYear();
+                    const mesAnteriorNum = hoje.getMonth() === 0 ? 12 : hoje.getMonth();
+                    const anoMesAnterior = hoje.getMonth() === 0 ? anoAtual - 1 : anoAtual;
+                    // 2026: Anual + Fevereiro até mês atual
+                    const mesAtualNum = hoje.getMonth() + 1;
+                    const opcoes: { value: string; label: string }[] = [
+                      { value: '2026', label: 'Anual' },
+                    ];
+                    for (let m = 2; m <= mesAtualNum; m++) {
+                      opcoes.push({ value: `2026-${String(m).padStart(2,'0')}`, label: mesesNomes[m-1] });
+                    }
+                    return (
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 mb-1.5">Ano</p>
+                          <div className="flex gap-1">
+                            <button className="flex-1 py-1.5 text-xs rounded-md font-medium bg-blue-600 text-white">
+                              2026
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 mb-1.5">Período</p>
+                          <div className="space-y-0.5">
+                            {opcoes.map(op => (
+                              <button
+                                key={op.value}
+                                onClick={() => {
+                                  setKpiPeriod(op.value);
+                                  setShowFilterPopover(false);
+                                }}
+                                className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                                  kpiPeriod === op.value
+                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                    : 'text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                {op.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </PopoverContent>
               </Popover>
               

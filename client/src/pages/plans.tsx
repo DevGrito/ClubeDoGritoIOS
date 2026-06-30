@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Crown, Star, Menu, Calendar, Check, CreditCard, QrCode, Sparkles } from "lucide-react";
+import { Crown, Star, Menu, Calendar, Check, CreditCard, QrCode, Sparkles, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,6 +13,7 @@ import useEmblaCarousel from 'embla-carousel-react';
 import { planDetails, planPrices, periodicityLabels } from "@/lib/stripe";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { marketingFetch } from "@/lib/marketingFetch";
 
 import { getPlanImage } from "@/lib/plan-utils";
 import diamondIcon from "../app-assets/image_1755634986577.png";
@@ -54,9 +55,19 @@ export default function Plans() {
       // Registrar clique na API (apenas uma vez por sessão)
       const clickKey = `ref_click_${refCode}`;
       if (!sessionStorage.getItem(clickKey)) {
-        sessionStorage.setItem(clickKey, "1");
-        fetch(`/api/mkt/track-click/${refCode}`, { method: "POST" })
-          .then(() => console.log(`✅ [PLANS] Clique registrado para: ${refCode}`))
+        marketingFetch(
+          `/api/mkt/track-click/${refCode}`,
+          { method: "POST" },
+          () => {
+            console.log("⛔ [LGPD] Tracking de marketing bloqueado: consentimento não concedido.");
+          }
+        )
+          .then((response) => {
+            if (response) {
+              sessionStorage.setItem(clickKey, "1");
+              console.log(`✅ [PLANS] Clique registrado para: ${refCode}`);
+            }
+          })
           .catch((err) => console.error(`❌ [PLANS] Erro ao registrar clique:`, err));
       }
     }
@@ -943,6 +954,60 @@ export default function Plans() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Rodapé ─────────────────────────────────────────────── */}
+      <footer className="bg-gray-100 border-t border-gray-200 px-6 py-6 mt-8">
+        <div className="max-w-lg mx-auto text-center space-y-3">
+          <p className="text-xs text-gray-500" style={{ fontFamily: 'Inter' }}>
+            © {new Date().getFullYear()} Instituto O Grito. Todos os direitos reservados.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <button
+              onClick={() => setLocation('/termos-de-uso')}
+              className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-black transition-colors"
+              style={{ fontFamily: 'Inter' }}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Termos de Uso
+            </button>
+            <button
+              onClick={() => setLocation('/politica-de-privacidade')}
+              className="text-xs text-gray-600 hover:text-black transition-colors underline"
+              style={{ fontFamily: 'Inter' }}
+            >
+              Política de Privacidade
+            </button>
+            <button
+              onClick={() => setLocation('/politica-de-cookies')}
+              className="text-xs text-gray-600 hover:text-black transition-colors underline"
+              style={{ fontFamily: 'Inter' }}
+            >
+              Política de Cookies
+            </button>
+            <button
+              onClick={() => setLocation('/politica-de-uso-de-imagem')}
+              className="text-xs text-gray-600 hover:text-black transition-colors underline"
+              style={{ fontFamily: 'Inter' }}
+            >
+              Uso de Imagem
+            </button>
+            <button
+              onClick={() => setLocation('/direitos-do-titular')}
+              className="text-xs text-gray-600 hover:text-black transition-colors underline"
+              style={{ fontFamily: 'Inter' }}
+            >
+              Direitos do Titular
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("openCookiePreferences"))}
+              className="text-xs text-gray-600 hover:text-black transition-colors underline"
+              style={{ fontFamily: 'Inter' }}
+            >
+              Preferências de privacidade
+            </button>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );

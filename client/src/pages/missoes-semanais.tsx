@@ -784,31 +784,31 @@ export default function MissoesSemanais() {
                   id: 1,
                   nome: "Aliado do Grito",
                   gritos: 0,
-                  imagem: "attached_assets/image_1756491369207.png"
+                  imagem: "/assets/migrated/image_1756491369207.png"
                 },
                 {
                   id: 2,
                   nome: "Eco do Bem", 
                   gritos: 300,
-                  imagem: "attached_assets/image_1756491440300.png"
+                  imagem: "/assets/migrated/image_1756491440300.png"
                 },
                 {
                   id: 3,
                   nome: "Voz Ativa",
                   gritos: 600, 
-                  imagem: "attached_assets/image_1756491479690.png"
+                  imagem: "/assets/migrated/image_1756491479690.png"
                 },
                 {
                   id: 4,
                   nome: "Transformador",
                   gritos: 1000,
-                  imagem: "attached_assets/image_1756491507581.png"
+                  imagem: "/assets/migrated/image_1756491507581.png"
                 },
                 {
                   id: 5,
                   nome: "Guerreiro do Grito",
                   gritos: 1500,
-                  imagem: "attached_assets/image_1756491533634.png"
+                  imagem: "/assets/migrated/image_1756491533634.png"
                 }
               ].map((nivel, index) => {
                 const gritosUsuario = userData?.gritosTotal || 0;

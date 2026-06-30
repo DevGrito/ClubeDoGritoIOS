@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { SessionExpiredAlert } from "@/components/SessionExpiredAlert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function MarketingLogin() {
@@ -82,14 +84,11 @@ export default function MarketingLogin() {
 
       sessionStorage.setItem("marketing_auth", "true");
       sessionStorage.setItem("marketing_data", JSON.stringify(data.user));
-      
-      localStorage.setItem("userId", data.user.id.toString());
-      localStorage.setItem("userPapel", data.user.role || "marketing");
-      localStorage.setItem("userName", data.user.nome || "Marketing");
-      localStorage.setItem("userEmail", data.user.email || "");
-      localStorage.setItem("isVerified", "true");
 
-      console.log("✅ Login bem-sucedido:", data.user);
+      const session = await syncAuthSessionAfterLogin();
+      if (!session?.id) {
+        throw new Error("Sessão não foi criada. Tente novamente.");
+      }
 
       setLocation(data.redirectPath || "/rbac/marketing");
 
@@ -124,6 +123,7 @@ export default function MarketingLogin() {
 
         {/* Container com título e card */}
         <div className="w-full max-w-md relative z-10 space-y-6">
+          <SessionExpiredAlert />
           {/* Título Principal */}
           <h1 className="text-4xl md:text-5xl text-black text-center drop-shadow-lg">
             <span className="font-bold">Marketing</span> <span className="italic">Social</span>

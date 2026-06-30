@@ -17,6 +17,11 @@
   body {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  /* Todos os headers semânticos sticky/fixed respeitam o notch automaticamente */
+  header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem) !important;
+  }
 }
 
 /* Classe utilitária para safe-area no topo (quando precisar de mais espaço) */
@@ -71,8 +76,8 @@
   --primary-foreground: hsl(0, 0%, 100%);
   --secondary: hsl(217, 91%, 60%);
   --secondary-foreground: hsl(0, 0%, 6%);
-  --accent: hsl(0, 85%, 55%);
-  --accent-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(0, 0%, 93%);
+  --accent-foreground: hsl(0, 0%, 10%);
   --destructive: hsl(0, 84%, 60%);
   --destructive-foreground: hsl(0, 0%, 98%);
   --ring: hsl(0, 85%, 55%);
@@ -854,4 +859,11 @@ details[open] > summary > span:first-child {
 details > summary > span:first-child {
   display: inline-block;
   transition: transform 0.15s ease;
+}
+
+/* ——— Gestão à Vista: overlay fullscreen simples ——— */
+.gestao-vista-landscape-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }

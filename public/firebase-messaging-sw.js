@@ -4,7 +4,6 @@
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
 
-// Configuração do Firebase (mesma do app)
 firebase.initializeApp({
   apiKey: "AIzaSyDKdcqxJj1qoSFpY1bLT2JloeJDfxDG_x8",
   authDomain: "clube-do-grito.firebaseapp.com",
@@ -16,56 +15,37 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Handle background messages
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message:', payload);
-  
-  const notificationTitle = payload.notification?.title || 'Clube do Grito';
-  const notificationOptions = {
-    body: payload.notification?.body || '',
-    icon: '/icon-192.png',
-    badge: '/icon-72.png',
-    tag: payload.data?.tag || 'default',
-    data: payload.data,
-    actions: [
-      { action: 'open', title: 'Abrir' },
-      { action: 'close', title: 'Fechar' }
-    ],
-    vibrate: [200, 100, 200]
-  };
+  if (payload.notification) return;
 
-  return self.registration.showNotification(notificationTitle, notificationOptions);
+  const title = payload.data?.title || 'Clube do Grito';
+  const url   = payload.data?.url;
+
+  return self.registration.showNotification(title, {
+    body:    payload.data?.body || '',
+    icon:    '/icons/icon-192.png',
+    badge:   '/icons/badge-96.png',
+    data:    url ? { url } : {},
+    vibrate: [200, 100, 200],
+  });
 });
 
-// Handle notification click
 self.addEventListener('notificationclick', (event) => {
-  console.log('[firebase-messaging-sw.js] Notification click received:', event);
-  
   event.notification.close();
-  
-  if (event.action === 'close') {
-    return;
-  }
-  
-  // Get the URL to open from notification data
+  if (event.action === 'close') return;
+
   const urlToOpen = event.notification.data?.url || '/';
-  
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Check if there's already a window/tab open
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus();
-          if (urlToOpen !== '/') {
-            client.navigate(urlToOpen);
-          }
+          if (urlToOpen !== '/') client.navigate(urlToOpen);
           return;
         }
       }
-      // If no window is open, open a new one
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
+      if (clients.openWindow) return clients.openWindow(urlToOpen);
     })
   );
 });

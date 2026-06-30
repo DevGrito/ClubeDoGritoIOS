@@ -9,7 +9,7 @@ import successIcon from "../app-assets/image_1756315503638.png";
 import errorIcon from "../app-assets/image_1756315535596.png";
 import Logo from "@/components/logo";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, authFetch } from "@/lib/queryClient";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -21,6 +21,8 @@ import {
 } from "@stripe/react-stripe-js";
 import { useStripeKeysStatus } from "@/hooks/useStripeKeys";
 import { planDetails, planPrices } from "@/lib/stripe";
+import { getReferralCodeIfConsented } from "@/lib/marketingFetch";
+import { syncStoredPrivacyConsentAfterAuth } from "@/lib/syncPrivacyConsentAfterAuth";
 
 //TRECHO ADICIONADO
 const isValidClientSecret = (s?: string) =>
@@ -113,7 +115,11 @@ export default function DonationFlow() {
       console.log(`🔄 [POLLING] Tentativa ${attempt}/${MAX_ATTEMPTS} - Buscando clientSecret para subscription ${subscriptionId}`);
       
       try {
-        const response = await apiRequest(`/api/subscriptions/${subscriptionId}/client-secret`, {
+        const uid = localStorage.getItem("userId");
+        const secretUrl = uid
+          ? `/api/subscriptions/${subscriptionId}/client-secret?userId=${encodeURIComponent(uid)}`
+          : `/api/subscriptions/${subscriptionId}/client-secret`;
+        const response = await apiRequest(secretUrl, {
           method: "GET",
         });
 
@@ -149,16 +155,12 @@ export default function DonationFlow() {
   const stepParam = urlParams.get("step");
 
   useEffect(() => {
-    // Allow dev access without plan parameter
-    const isDevAccess = urlParams.get("dev_access") === "true";
-    const isFromDevPanel = urlParams.get("origin") === "dev_panel";
-
     // Try to get plan from localStorage if not in URL
     const savedPlan = localStorage.getItem("selectedPlan");
     const effectivePlanId = planId || savedPlan;
 
     // ✅ CORREÇÃO: Não redirecionar se pagamento foi completado
-    if (!effectivePlanId && !isDevAccess && !isFromDevPanel && !paymentCompleted && !paymentWasSuccessful) {
+    if (!effectivePlanId && !paymentCompleted && !paymentWasSuccessful) {
       console.log(
         `❌ [DONATION FLOW DEBUG] Redirecionando para /plans - nenhum plano encontrado`
       );
@@ -169,15 +171,7 @@ export default function DonationFlow() {
     // Set plan information
     let planData: PlanInfo;
 
-    // For dev access without plan, use default
-    if (!effectivePlanId && (isDevAccess || isFromDevPanel)) {
-      planData = {
-        id: "demo",
-        name: "Demo (Dev Access)",
-        value: 9.9,
-        displayValue: "R$ 9,90",
-      };
-    } else if (effectivePlanId === "platinum") {
+    if (effectivePlanId === "platinum") {
       const monthlyAmount = customAmount ? parseFloat(customAmount) : 50;
       
       // Obter periodicidade e calcular valor total do período
@@ -650,7 +644,7 @@ export default function DonationFlow() {
       // Obter periodicidade escolhida pelo usuário
       const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
       
-      const referralCode = localStorage.getItem("referralCode") || "";
+      const referralCode = getReferralCodeIfConsented();
       
       const result = await apiRequest("/api/donation/create", {
         method: "POST",
@@ -718,6 +712,19 @@ export default function DonationFlow() {
       localStorage.setItem("userPhone", phone);
       localStorage.setItem("userPlan", donationData.plan);
 
+      // LGPD — salvar aceite dos termos no banco + prefs de privacidade
+      if (result.userId && termsAccepted) {
+        apiRequest("/api/aceitar-termos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: result.userId, versao: "2026-04-01", tipo: "doador" }),
+        }).catch(() => {});
+        void syncStoredPrivacyConsentAfterAuth({
+          consentArea: "donors",
+          source: "donation_flow",
+        });
+      }
+
       setTimeout(() => {
         setAnimationKey((k) => k + 1);
         setCurrentStep(4); // passo de pagamento
@@ -754,7 +761,7 @@ export default function DonationFlow() {
       // Obter periodicidade escolhida pelo usuário
       const selectedPeriodicity = localStorage.getItem('selectedPeriodicity') || 'mensal';
 
-      const referralCode = localStorage.getItem("referralCode") || "";
+      const referralCode = getReferralCodeIfConsented();
       
       // 🎯 Usar rota existente create-for-new-user
       const result = await apiRequest("/api/payments/create-for-new-user", {
@@ -782,6 +789,19 @@ export default function DonationFlow() {
         localStorage.setItem("userName", donationData.nome);
         localStorage.setItem("userPhone", phone);
         localStorage.setItem("userPlan", donationData.plan);
+
+        // LGPD — salvar aceite dos termos no banco + prefs de privacidade
+        if (result.userId && termsAccepted) {
+          apiRequest("/api/aceitar-termos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: result.userId, versao: "2026-04-01", tipo: "doador" }),
+          }).catch(() => {});
+          void syncStoredPrivacyConsentAfterAuth({
+            consentArea: "donors",
+            source: "donation_flow",
+          });
+        }
         
         // Salvar stripeCustomerId para atualização de email antes do pagamento
         const existingCustomerId = result.stripeCustomerId || result.customerId;
@@ -1103,7 +1123,7 @@ export default function DonationFlow() {
     setIsLoading(true);
     setIsPreparingPayment(true);
     try {
-      const referralCode = localStorage.getItem("referralCode") || "";
+      const referralCode = getReferralCodeIfConsented();
       
       // Create donation and payment intent
       const result = await apiRequest("/api/donation/create", {
@@ -1314,12 +1334,13 @@ export default function DonationFlow() {
               
               if (setupIntent?.status === 'succeeded' && subscriptionId) {
                 console.log('💳 [APPLE/GOOGLE PAY] Pagando invoice com email:', payerEmail);
-                const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+                const payResponse = await authFetch(`/api/subscriptions/${subscriptionId}/pay`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ 
                     paymentMethodId: setupIntent.payment_method,
-                    email: payerEmail || localEmailRef.current || null
+                    email: payerEmail || localEmailRef.current || null,
+                    userId: localStorage.getItem("userId") || undefined,
                   })
                 });
 
@@ -1504,12 +1525,13 @@ export default function DonationFlow() {
             console.log('🔍 [SETUP] Usando subscriptionId:', subscriptionId);
             
             // Chamar endpoint para pagar invoice
-            const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+            const payResponse = await authFetch(`/api/subscriptions/${subscriptionId}/pay`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 paymentMethodId: setupIntent.payment_method,
-                email: localEmailRef.current || null
+                email: localEmailRef.current || null,
+                userId: localStorage.getItem("userId") || undefined,
               })
             });
 
@@ -2282,7 +2304,7 @@ export default function DonationFlow() {
                     {/* Usar a imagem exata fornecida pelo usuário */}
                     <div className="flex-1 flex flex-col justify-center items-center">
                       <img
-                        src="/attached_assets/image_1758819895383.png"
+                        src="/assets/migrated/image_1758819895383.png"
                         alt="Que bom ter você por aqui!"
                         className="w-full max-w-md h-auto"
                       />
@@ -2393,7 +2415,7 @@ export default function DonationFlow() {
                       {/* Error Icon */}
                       <div className="mb-8">
                         <img
-                          src="attached_assets/OPPS_Prancheta 1 1_1756924526569.png"
+                          src="/assets/migrated/OPPS_Prancheta 1 1_1756924526569.png"
                           alt="Ops! Algo não deu certo"
                           className="w-44 h-44 mx-auto"
                         />
@@ -2749,7 +2771,7 @@ export default function DonationFlow() {
                             <span
                               className="text-blue-600 underline cursor-pointer hover:text-blue-700"
                               onClick={() => {
-                                setLocation("/termos-servicos");
+                                setLocation("/termos-de-uso");
                               }}
                             >
                               Termos e Condições
@@ -2758,7 +2780,7 @@ export default function DonationFlow() {
                             <span
                               className="text-blue-600 underline cursor-pointer hover:text-blue-700"
                               onClick={() => {
-                                setLocation("/termos-servicos");
+                                setLocation("/politica-de-privacidade");
                               }}
                             >
                               Política de Privacidade

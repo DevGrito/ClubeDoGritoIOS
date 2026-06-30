@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,7 +96,7 @@ export default function AlterarSenha({ open, onOpenChange, onSuccess }: AlterarS
       
       // Forçar reautenticação: fazer logout
       setTimeout(() => {
-        localStorage.clear();
+        clearLocalStoragePreservingLgpd();
         sessionStorage.clear();
         window.location.href = "/login/coordenador";
       }, 1500);

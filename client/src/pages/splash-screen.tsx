@@ -30,7 +30,7 @@ export default function SplashScreen() {
         // ⚡ LIMPEZA AGRESSIVA: Para usuários novos (sem QR code access), sempre limpar
         // Detecção: se não há query params de acesso específico, é usuário novo
         const urlParams = new URLSearchParams(window.location.search);
-        const hasSpecificAccess = urlParams.get('dev_access') || urlParams.get('origen') || urlParams.get('user_id');
+        const hasSpecificAccess = urlParams.get('origen') || urlParams.get('user_id');
         
         console.log('🔍 [DEBUG] URL Params:', Object.fromEntries(urlParams.entries()));
         console.log('🔍 [DEBUG] hasSpecificAccess:', hasSpecificAccess);
@@ -45,7 +45,7 @@ export default function SplashScreen() {
             'isVerified', 'hasActiveSubscription', 'hasDoadorRole', 'firstTimeAccess',
             'primeiraEntradaCompleta', 'termsAccepted', 'selectedPlan', 'selectedPeriodicity',
             'paymentIntentId', 'donationUserId', 'tempUserPhone', 'phoneVerified',
-            'dev_session', 'dev_access', 'dev_returning', 'justCompletedDonation'
+            'dev_session', 'dev_returning', 'justCompletedDonation'
           ];
           
           sessionKeys.forEach(key => {

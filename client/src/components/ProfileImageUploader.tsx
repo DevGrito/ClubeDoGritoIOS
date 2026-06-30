@@ -12,10 +12,10 @@ interface ProfileImageUploaderProps {
   onUploadSuccess?: () => void;
 }
 
-export function ProfileImageUploader({ 
-  userId, 
-  currentImage, 
-  size = "md", 
+export function ProfileImageUploader({
+  userId,
+  currentImage,
+  size = "md",
   className = "",
   onUploadSuccess
 }: ProfileImageUploaderProps) {
@@ -27,7 +27,7 @@ export function ProfileImageUploader({
   // Tamanhos do componente
   const sizeClasses = {
     sm: "w-16 h-16",
-    md: "w-24 h-24", 
+    md: "w-24 h-24",
     lg: "w-32 h-32"
   };
 
@@ -70,6 +70,7 @@ export function ProfileImageUploader({
       const response = await fetch("/api/profile/upload-file", {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       // Lê o JSON apenas UMA vez
@@ -140,7 +141,7 @@ export function ProfileImageUploader({
   const handleRemoveImage = async () => {
     try {
       setIsUploading(true);
-      
+
       // Remover do banco
       await apiRequest(`/api/users/${userId}/profile-image`, {
         method: "PUT",
@@ -153,7 +154,7 @@ export function ProfileImageUploader({
       // Forçar atualização da imagem
       updateProfileImage();
       setPreviewUrl(null);
-      
+
       toast({
         title: "Foto removida",
         description: "Foto de perfil removida com sucesso.",
@@ -175,9 +176,9 @@ export function ProfileImageUploader({
       <div className={`${sizeClasses[size]} rounded-full border-2 border-gray-200 overflow-hidden bg-gray-100 flex items-center justify-center relative group cursor-pointer`}>
         {/* Imagem ou placeholder */}
         {previewUrl ? (
-          <img 
-            src={previewUrl} 
-            alt="Foto de perfil" 
+          <img
+            src={previewUrl}
+            alt="Foto de perfil"
             className="w-full h-full object-cover"
           />
         ) : (

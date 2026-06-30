@@ -193,7 +193,7 @@ export default function GerenciarProfessores({ programa }: GerenciarProfessoresP
                     <span className="text-xs text-gray-500 font-medium">Turmas vinculadas:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {prof.turmas.map((t: any, idx: number) => (
-                        <Badge key={idx} variant="secondary" className="text-xs">
+                        <Badge key={idx} className="text-xs bg-blue-500 text-white hover:bg-blue-600">
                           <Users className="w-3 h-3 mr-1" />
                           {t.turma_nome || `Turma #${t.turma_id}`}
                         </Badge>

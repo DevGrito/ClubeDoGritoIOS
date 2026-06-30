@@ -1,5 +1,9 @@
 import pkg from "pg";
-const { Pool } = pkg;
+const { Pool, types } = pkg;
+
+// Retorna o tipo date (OID 1082) como string pura (ex: "2026-04-01")
+// sem converter para Date UTC — evita o deslocamento de -3h (fuso BR)
+types.setTypeParser(1082, (val: string) => val);
 
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
@@ -190,7 +194,11 @@ export async function runAutoMigrations() {
       ALTER TABLE instance_enrollments
       ADD COLUMN IF NOT EXISTS evadido BOOLEAN DEFAULT false,
       ADD COLUMN IF NOT EXISTS motivo_evasao TEXT,
-      ADD COLUMN IF NOT EXISTS data_evasao TIMESTAMP;
+      ADD COLUMN IF NOT EXISTS data_evasao TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ativo';
+    `);
+    await pool.query(`
+      UPDATE instance_enrollments SET status = 'ativo' WHERE status IS NULL;
     `);
 
     await pool.query(`
@@ -213,6 +221,7 @@ export async function runAutoMigrations() {
     await pool.query(`
       ALTER TABLE registros_confidenciais
       ADD COLUMN IF NOT EXISTS participante_cpf TEXT,
+      ADD COLUMN IF NOT EXISTS participante_origem TEXT,
       ADD COLUMN IF NOT EXISTS participante_data_nascimento TEXT;
     `);
 
@@ -318,6 +327,32 @@ export async function runAutoMigrations() {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS marketing_metricas_custom (
+        id SERIAL PRIMARY KEY,
+        ano INTEGER NOT NULL,
+        nome TEXT NOT NULL,
+        categoria TEXT NOT NULL DEFAULT 'geral',
+        unidade TEXT NOT NULL DEFAULT 'numero',
+        realizado NUMERIC(14,2) NOT NULL DEFAULT 0,
+        meta NUMERIC(14,2) NOT NULL DEFAULT 0,
+        ordem INTEGER NOT NULL DEFAULT 0,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(ano, nome)
+      );
+    `);
+
+    await pool.query(`
+      ALTER TABLE marketing_metricas_custom
+      ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'geral',
+      ADD COLUMN IF NOT EXISTS unidade TEXT NOT NULL DEFAULT 'numero',
+      ADD COLUMN IF NOT EXISTS ordem INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS created_by INTEGER,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+    `);
+
+    await pool.query(`
       ALTER TABLE marketing_seguidores_mensal ADD COLUMN IF NOT EXISTS doadores_ativos INTEGER NOT NULL DEFAULT 0;
     `);
 
@@ -381,7 +416,181 @@ export async function runAutoMigrations() {
       ALTER TABLE responsaveis ALTER COLUMN cpf DROP NOT NULL;
     `);
 
+    // Alinha tipos de pergunta NPS aceitos no banco com frontend/backend.
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'nps_perguntas'
+        ) THEN
+          IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conrelid = 'nps_perguntas'::regclass
+              AND conname = 'nps_perguntas_tipo_check'
+          ) THEN
+            ALTER TABLE nps_perguntas DROP CONSTRAINT nps_perguntas_tipo_check;
+          END IF;
+
+          ALTER TABLE nps_perguntas
+          ADD CONSTRAINT nps_perguntas_tipo_check
+          CHECK (tipo IN ('escala', 'texto', 'multipla_unica', 'multipla_multipla', 'evidencia'));
+        END IF;
+      END
+      $$;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inclusao_evasoes (
+        id SERIAL PRIMARY KEY,
+        participante_turma_id INTEGER REFERENCES participantes_turmas(id) ON DELETE SET NULL,
+        participante_id INTEGER NOT NULL REFERENCES participantes_inclusao(id) ON DELETE CASCADE,
+        turma_id INTEGER NOT NULL REFERENCES turmas_inclusao(id) ON DELETE CASCADE,
+        data_desligamento DATE NOT NULL,
+        registrado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+        revertido_em TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pec_evasoes (
+        id SERIAL PRIMARY KEY,
+        enrollment_id INTEGER REFERENCES instance_enrollments(id) ON DELETE SET NULL,
+        activity_instance_id INTEGER NOT NULL REFERENCES activity_instances(id) ON DELETE CASCADE,
+        student_cpf TEXT NOT NULL,
+        data_desligamento DATE NOT NULL,
+        registrado_em TIMESTAMP NOT NULL DEFAULT NOW(),
+        revertido_em TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_inclusao_evasoes_ativa
+        ON inclusao_evasoes (participante_id, turma_id)
+        WHERE revertido_em IS NULL;
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pec_evasoes_ativa
+        ON pec_evasoes (activity_instance_id, student_cpf)
+        WHERE revertido_em IS NULL;
+    `);
+
+    // Migra evasões legadas (Desistência ou status evadido) para inclusao_evasoes
+    await pool.query(`
+      INSERT INTO inclusao_evasoes (participante_turma_id, participante_id, turma_id, data_desligamento, registrado_em)
+      SELECT pt.id, pt.participante_id, pt.turma_id,
+        COALESCE(pt.data_desligamento::date, pt.data_inscricao::date, CURRENT_DATE),
+        COALESCE(pt.data_desligamento::timestamp, pt.created_at, NOW())
+      FROM participantes_turmas pt
+      WHERE (
+        pt.motivo_desligamento = 'Desistência'
+        OR lower(COALESCE(pt.status, '')) = 'evadido'
+      )
+        AND NOT EXISTS (
+          SELECT 1 FROM inclusao_evasoes ev
+          WHERE ev.participante_id = pt.participante_id
+            AND ev.turma_id = pt.turma_id
+            AND ev.revertido_em IS NULL
+        );
+    `);
+
+    await pool.query(`
+      UPDATE participantes_turmas
+      SET status = 'evadido', motivo_desligamento = NULL, data_desligamento = NULL
+      WHERE motivo_desligamento = 'Desistência'
+        OR lower(COALESCE(status, '')) = 'evadido';
+    `);
+
+    await pool.query(`
+      INSERT INTO pec_evasoes (enrollment_id, activity_instance_id, student_cpf, data_desligamento, registrado_em)
+      SELECT ie.id, ie.activity_instance_id, ie.student_cpf,
+        COALESCE(ie.data_evasao::date, CURRENT_DATE),
+        COALESCE(ie.data_evasao, NOW())
+      FROM instance_enrollments ie
+      WHERE ie.evadido IS TRUE
+        AND COALESCE(ie.motivo_evasao, '') <> 'Transição para Inclusão Produtiva'
+        AND NOT EXISTS (
+          SELECT 1 FROM pec_evasoes pe
+          WHERE pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
+        );
+    `);
+
+    await pool.query(`
+      UPDATE participantes_turmas pt
+      SET status = 'reprovado'
+      FROM turmas_inclusao t
+      WHERE pt.turma_id = t.id
+        AND lower(COALESCE(t.status, '')) IN ('concluido', 'concluida', 'finalizado', 'encerrado', 'encerrada')
+        AND lower(COALESCE(pt.status, '')) = 'evadido'
+        AND COALESCE(pt.motivo_desligamento, '') <> 'Desistência'
+        AND NOT EXISTS (
+          SELECT 1 FROM inclusao_evasoes ev
+          WHERE ev.participante_id = pt.participante_id
+            AND ev.turma_id = pt.turma_id
+            AND ev.revertido_em IS NULL
+        );
+    `);
+
     console.log("✅ Migrações automáticas concluídas");
+
+    const { rows: enumRows } = await pool.query<{ enumlabel: string }>(`
+      SELECT e.enumlabel FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = 'coord_setor'
+    `);
+    const coordSetores = new Set(enumRows.map((r) => r.enumlabel));
+    for (const value of ["negocios_sociais", "almoxarifado"]) {
+      if (!coordSetores.has(value)) {
+        await pool.query(`ALTER TYPE coord_setor ADD VALUE '${value}'`);
+      }
+    }
+
+    await pool.query(`
+      UPDATE coordenadores
+      SET email = 'almoxarifado@institutoogrito.org'
+      WHERE lower(email) = 'almoxarifado@institutoogrito.com.br';
+    `);
+
+    await pool.query(`
+      DELETE FROM coordenadores d
+      WHERE lower(d.email) = 'almoxarifado@institutoogrito.org'
+        AND d.id > (
+          SELECT min(c.id) FROM coordenadores c
+          WHERE lower(c.email) = 'almoxarifado@institutoogrito.org'
+        );
+    `);
+
+    await pool.query(`
+      INSERT INTO coordenadores (nome, email, password_hash, setor, redirect_path, ativo, primeiro_acesso)
+      SELECT v.nome, v.email, v.password_hash, v.setor::coord_setor, v.redirect_path, v.ativo, v.primeiro_acesso
+      FROM (VALUES
+        (
+          'Almoxarifado',
+          'almoxarifado@institutoogrito.org',
+          '$2a$10$M7ziitztb3wRuNVg4WwO0ulDBmo.yeyzHBYgKIBQXZJdXWkw1K5KC',
+          'almoxarifado',
+          '/coordenador/almoxarifado',
+          true,
+          false
+        ),
+        (
+          'Negócios Sociais',
+          'negocios@institutoogrito.com.br',
+          '$2a$10$bBmMrIOXlQwk/SPSNzF4T.lZ2cCQ3PZcMwrbMJk0xIKjA/10kZCny',
+          'negocios_sociais',
+          '/coordenador/negocios-sociais',
+          true,
+          false
+        )
+      ) AS v(nome, email, password_hash, setor, redirect_path, ativo, primeiro_acesso)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM coordenadores c WHERE lower(c.email) = lower(v.email)
+      );
+    `);
   } catch (error) {
     console.error(
       "⚠️ Erro nas migrações automáticas (pode ser ignorado se colunas já existem):",

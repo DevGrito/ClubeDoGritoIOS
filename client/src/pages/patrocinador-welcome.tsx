@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import {
   FileText,
   Package,
   LogOut,
+  Shield,
   Building2,
   Users,
   MapPin,
@@ -22,6 +24,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { motion, AnimatePresence } from "framer-motion";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 
 interface ImpactMetrics {
   vidasImpactadas: number;
@@ -145,7 +148,7 @@ export default function PatrocinadorWelcome() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     setLocation("/entrar");
   };
 
@@ -209,6 +212,18 @@ export default function PatrocinadorWelcome() {
       >
         <Package className="w-5 h-5 mr-3" />
         Recursos
+      </Button>
+      <Button
+        variant="ghost"
+        className="w-full justify-start text-gray-700 hover:bg-gray-100"
+        onClick={() => {
+          openPrivacyPreferences();
+          onItemClick?.();
+        }}
+        data-testid="menu-privacidade"
+      >
+        <Shield className="w-5 h-5 mr-3" />
+        Privacidade e cookies
       </Button>
       <Button
         variant="ghost"
@@ -439,16 +454,17 @@ export default function PatrocinadorWelcome() {
                     Faça o download do relatório anual para acompanhar a prestação de contas.
                   </p>
                   <div className="space-y-2 mt-4">
-                    <a href="/relatorio-anual-2024.pdf" download="Relatório Anual - 2024.pdf">
+                    <a href="/relatorio-anual-2025.pdf" download="Relatório Anual - 2025.pdf">
                       <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
                         <Download className="w-4 h-4 mr-2" />
-                        Relatório Anual - 2024
+                        Relatório Anual - 2025
                       </Button>
                     </a>
                   </div>
                 </CardContent>
               </Card>
 
+              {/* KIT DE MÍDIA — NÃO APAGAR. Reativar quando o link do kit estiver disponível.
               <Card>
                 <CardContent className="pt-6">
                   <Package className="w-10 h-10 text-purple-600 mb-4" />
@@ -464,6 +480,7 @@ export default function PatrocinadorWelcome() {
                   </Button>
                 </CardContent>
               </Card>
+              */}
             </div>
           </div>
 

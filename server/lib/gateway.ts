@@ -5,6 +5,8 @@
  * Nunca transita PAN/CSC no backend - usa token seguro do SDK da Rede
  */
 
+import { toClientError } from "./safeError";
+
 interface CreateChargeRedeParams {
   orderId: string;
   amount: number; // Valor em centavos
@@ -157,7 +159,7 @@ export async function createChargeRede(params: CreateChargeRedeParams): Promise<
     return {
       ok: false,
       status: 'DECLINED',
-      message: error.message || 'Erro ao conectar com o gateway'
+      message: toClientError(error, "Erro ao conectar com o gateway"),
     };
   }
 }
@@ -170,12 +172,20 @@ export async function createChargeRede(params: CreateChargeRedeParams): Promise<
  * @returns true se válido, false caso contrário
  */
 export function validateWebhookSignature(payload: string, signature: string): boolean {
-  // Webhook secret é opcional - se não configurado, aceita todos os webhooks
   const GATEWAY_WEBHOOK_SECRET = process.env.GATEWAY_WEBHOOK_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
 
   if (!GATEWAY_WEBHOOK_SECRET) {
-    console.warn('⚠️ [WEBHOOK] Secret não configurado - aceitando webhook sem validação (não recomendado em produção)');
-    return true; // Aceita webhook sem validação se não tiver secret
+    if (isProd) {
+      console.error('❌ [WEBHOOK] GATEWAY_WEBHOOK_SECRET não configurado em produção');
+      return false;
+    }
+    console.warn('⚠️ [WEBHOOK] GATEWAY_WEBHOOK_SECRET ausente — aceito só em dev');
+    return true;
+  }
+
+  if (!signature?.trim()) {
+    return false;
   }
 
   try {
@@ -185,10 +195,12 @@ export function validateWebhookSignature(payload: string, signature: string): bo
       .update(payload)
       .digest('hex');
 
-    // Comparação segura contra timing attacks
+    const normalized = signature.startsWith('sha256=') ? signature : `sha256=${signature}`;
+    const expected = `sha256=${expectedSignature}`;
+
     return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(`sha256=${expectedSignature}`)
+      Buffer.from(normalized),
+      Buffer.from(expected)
     );
   } catch (error) {
     console.error('❌ [WEBHOOK] Erro ao validar assinatura:', error);

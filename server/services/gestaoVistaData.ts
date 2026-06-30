@@ -210,26 +210,75 @@ import { pool, db } from '../db';
 import { participantesInclusao } from '../../shared/schema';
 import { sql } from 'drizzle-orm';
 
+// ==================================================================
+// TIPO MesFiltro — suporta mês único, trimestre ou anual
+// ==================================================================
+export type MesFiltro = number | null | [number, number];
+
+export function buildMesFilter(mes: MesFiltro, col: string): string {
+  if (!mes) return '';
+  if (Array.isArray(mes)) return `AND EXTRACT(MONTH FROM ${col}) BETWEEN ${mes[0]} AND ${mes[1]}`;
+  return `AND EXTRACT(MONTH FROM ${col}) = ${Math.floor(Number(mes))}`;
+}
+
+function buildDateRange(mes: MesFiltro, ano: number = 2026): [string, string] {
+  if (!mes) return [`${ano}-01-01`, `${ano + 1}-01-01`];
+  const start = Array.isArray(mes) ? mes[0] : (mes as number);
+  const end   = Array.isArray(mes) ? mes[1] : (mes as number);
+  const nextMes  = end === 12 ? 1 : end + 1;
+  const nextYear = end === 12 ? ano + 1 : ano;
+  return [
+    `${ano}-${String(start).padStart(2, '0')}-01`,
+    `${nextYear}-${String(nextMes).padStart(2, '0')}-01`,
+  ];
+}
+
 /**
  * Buscar contagem de crianças atendidas no PEC em 2026
  * Fonte: instance_enrollments + activity_instances
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getCriancasAtendidasPEC2026(mes: number | null = null): Promise<number> {
+export async function getCriancasAtendidasPEC2026(mes: MesFiltro = null): Promise<number> {
   try {
-    // Conta TODOS os alunos cadastrados na tabela 'aluno'
-    // Exclui apenas os que têm situacao_atendimento = 'Inativo'
-    const safeMes1 = mes !== null ? Math.floor(Number(mes)) : null;
-    const mesFilter1 = safeMes1 !== null ? `AND EXTRACT(MONTH FROM created_at) = ${safeMes1}` : '';
-    const result = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM aluno
-      WHERE (situacao_atendimento IS NULL OR situacao_atendimento != 'Inativo')
-        AND EXTRACT(YEAR FROM created_at) = 2026
-        ${mesFilter1}
-    `);
-    console.log(`[GV 2026] Query crianças PEC 2026 (tabela aluno) result:`, result.rows);
-    return parseInt(result.rows[0]?.total || '0');
+    // Conta matrículas acumuladas até o fim do período (enrollment_date)
+    let whereExtra = '';
+    const params: any[] = [2026];
+    if (mes === null) {
+      // todos/anual = snapshot atual: todos os ativos agora, independente do ano de matrícula
+      const result2 = await pool.query(
+        `SELECT COUNT(DISTINCT student_cpf) as total
+         FROM instance_enrollments
+         WHERE evadido = false`
+      );
+      const total2 = parseInt(result2.rows[0]?.total || '0');
+      console.log(`[GV 2026] Crianças atendidas PEC 2026 (ativos, mes=null): ${total2}`);
+      return total2;
+    } else if (Array.isArray(mes)) {
+      // trimestre = ativos ao fim do último dia do trimestre
+      const endMonth = mes[1];
+      const nextMonth = endMonth === 12 ? 1 : endMonth + 1;
+      const nextYear  = endMonth === 12 ? 2027 : 2026;
+      const endDate   = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+      params.push(endDate);
+      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
+    } else {
+      // mês específico = ativos ao fim daquele mês
+      const mesNum = Math.floor(Number(mes));
+      const nextMes = mesNum === 12 ? 1 : mesNum + 1;
+      const nextAno = mesNum === 12 ? 2027 : 2026;
+      const endDate = `${nextAno}-${String(nextMes).padStart(2, '0')}-01`;
+      params.push(endDate);
+      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
+    }
+    const result = await pool.query(
+      `SELECT COUNT(DISTINCT student_cpf) as total
+       FROM instance_enrollments
+       WHERE EXTRACT(YEAR FROM enrollment_date) = $1 ${whereExtra}`,
+      params
+    );
+    const total = parseInt(result.rows[0]?.total || '0');
+    console.log(`[GV 2026] Crianças atendidas PEC 2026 (ativos, mes=${JSON.stringify(mes)}): ${total}`);
+    return total;
   } catch (error) {
     console.error('[GV 2026] Erro ao buscar crianças PEC:', error);
     return 0;
@@ -243,37 +292,107 @@ export async function getCriancasAtendidasPEC2026(mes: number | null = null): Pr
  * Todos os status contam (ativo, concluido, evadido, desistente)
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getAtendimentosInclusao2026(mes: number | null = null): Promise<number> {
+export async function getAtendimentosInclusao2026(
+  mes: MesFiltro = null,
+  ano: number = new Date().getFullYear()
+): Promise<number> {
   try {
-    // Mesma fonte do coordenador Inclusão: COUNT(*) FROM participantes_inclusao WHERE status = 'ativo'
-    const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM participantes_inclusao WHERE status = 'ativo'`);
-    const total = Number(result.rows?.[0]?.cnt || 0);
-    console.log(`[GV 2026] Atendidos Inclusão (participantes ativos): ${total}`);
+    const presencaFilter = `AND EXTRACT(YEAR FROM pi2.data) = ${ano} ${buildMesFilter(mes, 'pi2.data')}`;
+    const geracaoFilter  = `AND EXTRACT(YEAR FROM gr.criado_em) = ${ano} ${buildMesFilter(mes, 'gr.criado_em')}`;
+    const result = await pool.query(`
+      SELECT COUNT(DISTINCT cpf) as total FROM (
+        SELECT pi.cpf
+        FROM participantes_inclusao pi
+        WHERE EXISTS (
+          SELECT 1 FROM presencas_inclusao pi2
+          WHERE pi2.participante_id = pi.id ${presencaFilter}
+        )
+        UNION
+        SELECT gr.cpf
+        FROM inclusao_geracao_de_renda gr
+        WHERE gr.cpf IS NOT NULL AND gr.cpf <> '' ${geracaoFilter}
+      ) combined
+    `);
+    const total = Number(result.rows[0]?.total || 0);
+    console.log(`[GV ${ano}] Atendidos Inclusão mes=${JSON.stringify(mes)}: ${total}`);
     return total;
   } catch (error) {
-    console.error('[GV 2026] Erro ao buscar atendidos inclusão:', error);
+    console.error(`[GV ${ano}] Erro ao buscar atendidos inclusão:`, error);
     return 0;
   }
 }
 
-export async function getAtendidosPsico2026(mes: number | null = null): Promise<number> {
+export async function getHorasAulaInclusao2026(
+  mes: MesFiltro = null,
+  ano: number = new Date().getFullYear()
+): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const startDate = safeMes !== null ? `2026-${String(safeMes).padStart(2,'0')}-01` : '2026-01-01';
-    const nextDate = safeMes !== null
-      ? (safeMes === 12 ? '2027-01-01' : `2026-${String(safeMes+1).padStart(2,'0')}-01`)
-      : '2027-01-01';
-    // Mesma lógica do coordenador Psicossocial: pessoas distintas em registros_confidenciais
+    const mesFilter = `AND EXTRACT(YEAR FROM pi2.data) = ${ano} ${buildMesFilter(mes, 'pi2.data')}`;
     const result = await pool.query(`
-      SELECT COUNT(DISTINCT COALESCE(participante_cpf, participante_nome, id::text)) as cnt
-      FROM registros_confidenciais
-      WHERE data::date >= $1 AND data::date < $2
-    `, [startDate, nextDate]);
-    const total = parseInt(result.rows[0]?.cnt || '0');
-    console.log(`[GV 2026] Atendidos Psico (mês=${mes ?? 'anual'}): ${total}`);
+      SELECT
+        COUNT(CASE WHEN pi2.presente THEN 1 END) as presentes_count,
+        ti.horario_entrada::text,
+        ti.horario_saida::text,
+        ti.horario
+      FROM presencas_inclusao pi2
+      JOIN turmas_inclusao ti ON pi2.turma_id = ti.id
+      WHERE 1=1 ${mesFilter}
+      GROUP BY pi2.turma_id, pi2.data, ti.horario_entrada, ti.horario_saida, ti.horario
+    `);
+    let horasAula = 0;
+    for (const row of result.rows) {
+      const presentes = Number(row.presentes_count || 0);
+      if (presentes <= 0) continue;
+      let diffMinutes = 0;
+      if (row.horario_entrada && row.horario_saida) {
+        const [hE, mE] = String(row.horario_entrada).split(':').map(Number);
+        const [hS, mS] = String(row.horario_saida).split(':').map(Number);
+        diffMinutes = (hS * 60 + mS) - (hE * 60 + mE);
+      } else if (row.horario) {
+        const match = String(row.horario).match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
+        if (match) {
+          const entMin = parseInt(match[1]) * 60 + parseInt(match[2]);
+          const saiMin = parseInt(match[3]) * 60 + parseInt(match[4]);
+          diffMinutes = saiMin - entMin;
+        }
+      }
+      if (diffMinutes > 0) horasAula += presentes * (diffMinutes / 60);
+    }
+    const total = Math.round(horasAula);
+    console.log(`[GV ${ano}] Horas Aula Inclusão (presenças reais, mês=${mes ?? 'anual'}): ${total}h`);
     return total;
   } catch (error) {
-    console.error('[GV 2026] Erro ao buscar atendidos psico:', error);
+    console.error(`[GV ${ano}] Erro ao buscar horas aula inclusão:`, error);
+    return 0;
+  }
+}
+
+export async function getAtendidosPsico2026(
+  mes: MesFiltro = null,
+  ano: number = new Date().getFullYear()
+): Promise<number> {
+  try {
+    const [startDate, nextDate] = buildDateRange(mes, ano);
+    // Fonte única de verdade: mesma query do /api/psico/dashboard-kpis
+    // Filtra tipos individuais (atendimento_individual + visita_domiciliar) + demandas_espontaneas
+    const result = await pool.query(`
+      SELECT COUNT(DISTINCT pessoa) AS cnt FROM (
+        SELECT COALESCE(NULLIF(TRIM(cpf_atendido),''), NULLIF(LOWER(TRIM(nome_atendido)),''), 'de_' || id::text) AS pessoa
+        FROM demandas_espontaneas
+        WHERE data_atendimento::date >= $1 AND data_atendimento::date < $2
+        UNION
+        SELECT COALESCE(NULLIF(participante_cpf,''), NULLIF(LOWER(TRIM(participante_nome)),''), 'rc_' || id::text) AS pessoa
+        FROM registros_confidenciais
+        WHERE tipo IN ('atendimento_individual', 'visita_domiciliar')
+          AND data::date >= $1 AND data::date < $2
+          AND (status IS NULL OR status != 'inativo')
+      ) pessoas
+    `, [startDate, nextDate]);
+    const total = parseInt(result.rows[0]?.cnt || '0');
+    console.log(`[GV ${ano}] Atendidos Psico (mês=${mes ?? 'anual'}): ${total}`);
+    return total;
+  } catch (error) {
+    console.error(`[GV ${ano}] Erro ao buscar atendidos psico:`, error);
     return 0;
   }
 }
@@ -283,23 +402,23 @@ export async function getAtendidosPsico2026(mes: number | null = null): Promise<
  * Fonte: participantes_turmas + turmas_inclusao
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getAlunosFormadosInclusao2026(mes: number | null = null): Promise<number> {
+export async function getAlunosFormadosInclusao2026(
+  mes: MesFiltro = null,
+  ano: number = new Date().getFullYear()
+): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    // Mesma fonte do coordenador Inclusão: participantes_turmas de turmas finalizadas no ano
-    const mesFilter = safeMes !== null
-      ? `AND EXTRACT(YEAR FROM ti.data_fim) = 2026 AND EXTRACT(MONTH FROM ti.data_fim) = ${safeMes}`
-      : `AND EXTRACT(YEAR FROM ti.data_fim) = 2026`;
+    const mesFilter = `AND EXTRACT(YEAR FROM ti.data_fim) = ${ano} ${buildMesFilter(mes, 'ti.data_fim')}`;
     const result = await pool.query(`
-      SELECT COUNT(CASE WHEN pt.status = 'concluido' OR pt.status = 'formado' THEN 1 END) as total
+      SELECT COUNT(*) as total
       FROM participantes_turmas pt
       JOIN turmas_inclusao ti ON pt.turma_id = ti.id
-      WHERE (ti.status = 'finalizado' OR ti.status = 'concluido')
+      WHERE pt.status IN ('concluido', 'formado')
+        AND ti.status = 'concluido'
         ${mesFilter}
     `);
     return parseInt(result.rows[0]?.total || '0');
   } catch (error) {
-    console.error('[GV 2026] Erro ao buscar alunos formados:', error);
+    console.error(`[GV ${ano}] Erro ao buscar alunos formados:`, error);
     return 0;
   }
 }
@@ -309,21 +428,10 @@ export async function getAlunosFormadosInclusao2026(mes: number | null = null): 
  * Fonte: sessions (campo attendance é JSONB com lista de presenças)
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getFrequenciaGeral2026(mes: number | null = null): Promise<number> {
+export async function getFrequenciaGeral2026(mes: MesFiltro = null): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const mesFilterPec = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM s.date::date) = $1` 
-      : '';
-    const mesFilterInclusao = safeMes !== null
-      ? `AND EXTRACT(MONTH FROM pi.data) = $1`
-      : '';
-    const params = safeMes !== null ? [safeMes] : [];
-    
-    // PEC: mesma lógica do coordenador PEC — falta_justificada conta como presente
-    const mesFilterPecCoord = safeMes !== null
-      ? `AND EXTRACT(YEAR FROM s.date::date) = 2026 AND EXTRACT(MONTH FROM s.date::date) = ${safeMes}`
-      : `AND EXTRACT(YEAR FROM s.date::date) = 2026`;
+    const mesFilterPecCoord = `AND EXTRACT(YEAR FROM s.date::date) = 2026 ${buildMesFilter(mes, 's.date::date')}`;
+    const mesFilterInclusao = buildMesFilter(mes, 'pi.data');
     const resultPec = await pool.query(`
       SELECT
         COUNT(CASE WHEN a->>'presente' = 'true' OR a->>'status' = 'falta_justificada' THEN 1 END) as presentes,
@@ -340,7 +448,7 @@ export async function getFrequenciaGeral2026(mes: number | null = null): Promise
       FROM presencas_inclusao pi
       WHERE EXTRACT(YEAR FROM pi.data) = 2026
         ${mesFilterInclusao}
-    `, params);
+    `);
 
     const presentesPec = parseInt(resultPec.rows[0]?.presentes || '0');
     const totalPec = parseInt(resultPec.rows[0]?.total_alunos || '0');
@@ -365,23 +473,32 @@ export async function getFrequenciaGeral2026(mes: number | null = null): Promise
  * (turma com data_inicio ou data_fim dentro do ano, ou created_at no ano)
  * @param ano - Ano de referência (padrão 2026)
  */
-export async function getAlunosEmFormacao2026(mes: number | null = null, ano: number = 2026): Promise<number> {
+export async function getAlunosEmFormacao2026(mes: MesFiltro = null, ano: number = 2026): Promise<number> {
   try {
+    // "Todos os Meses" → usa mês atual (snapshot, não acumulado)
+    const mesEfetivo: MesFiltro = mes === null ? new Date().getMonth() + 1 : mes;
+    const [, periodoFimExcl] = buildDateRange(mesEfetivo, ano);
+
+    // Último dia do período (dia antes do início do próximo mês)
+    const lastDayDate = new Date(periodoFimExcl);
+    lastDayDate.setDate(lastDayDate.getDate() - 1);
+
+    // Se o período ainda não fechou (mês corrente), usa hoje como referência
+    const today = new Date();
+    const refDate = lastDayDate > today ? today.toISOString().split('T')[0] : lastDayDate.toISOString().split('T')[0];
+
+    // Snapshot: turmas que ainda estavam ativas no último dia do período
     const result = await pool.query(`
       SELECT COUNT(DISTINCT pt.participante_id) as total
       FROM participantes_turmas pt
       JOIN turmas_inclusao ti ON pt.turma_id = ti.id
-      WHERE (
-        EXTRACT(YEAR FROM ti.data_inicio) = $1
-        OR EXTRACT(YEAR FROM ti.data_fim) = $1
-        OR (ti.data_inicio <= make_date($1::int, 12, 31) AND (ti.data_fim IS NULL OR ti.data_fim >= make_date($1::int, 1, 1)))
-        OR EXTRACT(YEAR FROM ti.created_at) = $1
-      )
-    `, [ano]);
-    console.log(`[GV ${ano}] Participantes ativos na Inclusão (turmas do ano):`, result.rows);
+      WHERE ti.data_inicio <= $1
+        AND (ti.data_fim IS NULL OR ti.data_fim >= $1)
+    `, [refDate]);
+    console.log(`[GV ${ano}] Pessoas em Formação Inclusão (snapshot em ${refDate}):`, result.rows[0]?.total);
     return parseInt(result.rows[0]?.total || '0');
   } catch (error) {
-    console.error(`[GV ${ano}] Erro ao buscar participantes ativos Inclusão:`, error);
+    console.error(`[GV ${ano}] Erro ao buscar pessoas em formação Inclusão:`, error);
     return 0;
   }
 }
@@ -394,10 +511,9 @@ export async function getAlunosEmFormacao2026(mes: number | null = null, ano: nu
  * Buscar todos os indicadores de 2026 de uma vez
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getAtendimentosColetivos2026(mes: number | null = null): Promise<number> {
+export async function getAtendimentosColetivos2026(mes: MesFiltro = null): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const mesFilter = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
+    const mesFilter = buildMesFilter(mes, 'data::date');
     const result = await pool.query(`
       SELECT COUNT(*) as total
       FROM registros_confidenciais
@@ -413,7 +529,7 @@ export async function getAtendimentosColetivos2026(mes: number | null = null): P
   }
 }
 
-export async function getIndicadores2026(mes: number | null = null): Promise<{
+export async function getIndicadores2026(mes: MesFiltro = null): Promise<{
   criancasAtendidas: number;
   alunosFormados: number;
   alunosEmFormacao: number;
@@ -425,6 +541,7 @@ export async function getIndicadores2026(mes: number | null = null): Promise<{
   atendimentosColetivos: number;
   avaliacaoAprendizagem: number;
   pesquisaSatisfacao: number;
+  npsCombinado: number;
 }> {
   const [
     criancasAtendidas, 
@@ -437,7 +554,8 @@ export async function getIndicadores2026(mes: number | null = null): Promise<{
     atendimentosPsico,
     atendimentosColetivos,
     avaliacaoAprendizagem,
-    pesquisaSatisfacao
+    pesquisaSatisfacao,
+    npsCombinado
   ] = await Promise.all([
     getCriancasAtendidasPEC2026(mes),
     getAlunosFormadosInclusao2026(mes),
@@ -449,7 +567,8 @@ export async function getIndicadores2026(mes: number | null = null): Promise<{
     getAtendimentosPsico2026(mes),
     getAtendimentosColetivos2026(mes),
     getAvaliacaoAprendizagem2026(mes),
-    getPesquisaSatisfacao2026(mes)
+    getPesquisaSatisfacao2026(mes),
+    getNpsCombinado2026(mes)
   ]);
   
   console.log(`📊 [GV 2026] Indicadores em tempo real (mês=${mes || 'anual'}):`, {
@@ -462,7 +581,7 @@ export async function getIndicadores2026(mes: number | null = null): Promise<{
     criancasAtendidas, alunosFormados, alunosEmFormacao, 
     frequencia, evasao, geracaoRenda,
     visitasDomicilio, atendimentosPsico, atendimentosColetivos,
-    avaliacaoAprendizagem, pesquisaSatisfacao
+    avaliacaoAprendizagem, pesquisaSatisfacao, npsCombinado
   };
 }
 
@@ -484,44 +603,66 @@ export const metasAnuais2026 = {
   atendimentosColetivos: 100
 };
 
+/** Defaults de meta anual para geração de renda (empregados + empreendedores). */
+export const METAS_INCLUSAO_RENDA_DEFAULTS = {
+  pessoasEmpregadas: 1000,
+  empreendedores: 500,
+};
+
+/**
+ * Resolve metas de geração de renda a partir do banco (metas_indicadores).
+ * Compatível com meta legada `geracaoRenda` (total único).
+ */
+export function resolveMetasInclusaoRenda(dbInclusao: Record<string, number> = {}): {
+  pessoasEmpregadas: number;
+  empreendedores: number;
+  geracaoRenda: number;
+} {
+  const { pessoasEmpregadas: defEmp, empreendedores: defEmpr } = METAS_INCLUSAO_RENDA_DEFAULTS;
+  let empreendedores = dbInclusao.empreendedores ?? defEmpr;
+  let pessoasEmpregadas = dbInclusao.pessoasEmpregadas
+    ?? (dbInclusao.geracaoRenda != null
+      ? Math.max(0, dbInclusao.geracaoRenda - empreendedores)
+      : defEmp);
+  return {
+    pessoasEmpregadas,
+    empreendedores,
+    geracaoRenda: pessoasEmpregadas + empreendedores,
+  };
+}
+
 // ==================================================================
 // FUNÇÕES ADICIONAIS PARA 2026 - Indicadores em tempo real do banco
 // ==================================================================
 
 /**
  * Buscar evasão (participantes que abandonaram turmas) em 2026
- * Fonte: participantes_turmas com status diferente de 'ativo' e 'concluido'
+ * Fonte: inclusao_evasoes e pec_evasoes (registros ativos)
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getEvasao2026(mes: number | null = null): Promise<number> {
+export async function getEvasao2026(mes: MesFiltro = null): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const params = safeMes !== null ? [safeMes] : [];
+    const mesFilterInclusao = mes
+      ? `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026 ${buildMesFilter(mes, 'ev.data_desligamento')}`
+      : `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026`;
+    const mesFilterPec = mes
+      ? `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026 ${buildMesFilter(mes, 'pe.data_desligamento')}`
+      : `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026`;
 
-    // Inclusão: usa data_desligamento (data real de saída)
-    const mesFilterInclusao = safeMes !== null
-      ? `AND EXTRACT(MONTH FROM pt.data_desligamento) = $1 AND EXTRACT(YEAR FROM pt.data_desligamento) = 2026`
-      : `AND EXTRACT(YEAR FROM COALESCE(pt.data_desligamento, pt.created_at) ) = 2026`;
-
-    const resultInclusao = await pool.query(`
-      SELECT COUNT(DISTINCT pt.id) as total
-      FROM participantes_turmas pt
-      JOIN turmas_inclusao ti ON pt.turma_id = ti.id
-      WHERE pt.status IN ('inativo', 'desistente', 'transferido', 'evadido')
-        ${mesFilterInclusao}
-    `, params);
-
-    // PEC: usa data_inativacao (campo adicionado), com fallback para updated_at
-    const mesFilterPec = safeMes !== null
-      ? `AND EXTRACT(MONTH FROM a.data_inativacao) = $1 AND EXTRACT(YEAR FROM a.data_inativacao) = 2026`
-      : `AND EXTRACT(YEAR FROM COALESCE(a.data_inativacao, a.updated_at)) = 2026`;
-
-    const resultPec = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM aluno a
-      WHERE a.situacao_atendimento = 'Inativo'
-        ${mesFilterPec}
-    `, params);
+    const [resultInclusao, resultPec] = await Promise.all([
+      pool.query(`
+        SELECT COUNT(*)::int AS total
+        FROM inclusao_evasoes ev
+        WHERE ev.revertido_em IS NULL
+          ${mesFilterInclusao}
+      `),
+      pool.query(`
+        SELECT COUNT(*)::int AS total
+        FROM pec_evasoes pe
+        WHERE pe.revertido_em IS NULL
+          ${mesFilterPec}
+      `),
+    ]);
 
     const evasaoInclusao = parseInt(resultInclusao.rows[0]?.total || '0');
     const evasaoPec = parseInt(resultPec.rows[0]?.total || '0');
@@ -538,18 +679,39 @@ export async function getEvasao2026(mes: number | null = null): Promise<number> 
  * Fonte: participantes_turmas ou registros de empregabilidade
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getGeracaoRenda2026(mes: number | null = null): Promise<number> {
+/**
+ * Contar famílias acompanhadas pelo Psicossocial (Favela 3D)
+ * Fonte: favela3d_participantes
+ * - Anual: total de registros com status = 'ativo'
+ * - Mês específico: acumulado até o fim do mês (created_at < início do mês seguinte)
+ */
+export async function getFamiliasPsicossocial2026(mes: MesFiltro = null, ano: number = 2026): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const params: any[] = [2026];
-    let mesFilter = '';
-    if (safeMes !== null) {
-      params.push(safeMes);
-      mesFilter = `AND EXTRACT(MONTH FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $2`;
+    let whereClause: string;
+    if (mes) {
+      const [, endDate] = buildDateRange(mes, ano);
+      whereClause = `status IS DISTINCT FROM 'inativo' AND created_at < '${endDate}'`;
+    } else {
+      whereClause = `status = 'ativo'`;
     }
     const result = await pool.query(
-      `SELECT COUNT(*) as total FROM inclusao_geracao_de_renda WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1 ${mesFilter}`,
-      params
+      `SELECT COUNT(*) as total FROM favela3d_participantes WHERE ${whereClause}`
+    );
+    const total = parseInt(result.rows[0]?.total || '0');
+    console.log(`[GV 2026] Famílias (Favela3D) mes=${mes} ano=${ano}: ${total}`);
+    return total;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar famílias psicossocial:', error);
+    return 0;
+  }
+}
+
+export async function getGeracaoRenda2026(mes: MesFiltro = null): Promise<number> {
+  try {
+    const col = 'COALESCE(data_contratacao, data_inicio_atividade, criado_em)';
+    const mesFilter = buildMesFilter(mes, col);
+    const result = await pool.query(
+      `SELECT COUNT(*) as total FROM inclusao_geracao_de_renda WHERE EXTRACT(YEAR FROM ${col}) = 2026 ${mesFilter}`
     );
     const total = parseInt(result.rows[0]?.total || '0');
     console.log(`[GV 2026] Geração de renda: ${total}`);
@@ -560,20 +722,14 @@ export async function getGeracaoRenda2026(mes: number | null = null): Promise<nu
   }
 }
 
-export async function getGeracaoRendaSplit2026(mes: number | null = null): Promise<{ empregabilidade: number; empreendedorismo: number }> {
+export async function getGeracaoRendaSplit2026(mes: MesFiltro = null): Promise<{ empregabilidade: number; empreendedorismo: number }> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const params: any[] = [2026];
-    let mesFilter = '';
-    if (safeMes !== null) {
-      params.push(safeMes);
-      mesFilter = `AND EXTRACT(MONTH FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $2`;
-    }
+    const col = 'COALESCE(data_contratacao, data_inicio_atividade, criado_em)';
+    const mesFilter = buildMesFilter(mes, col);
     const result = await pool.query(
       `SELECT tipo, COUNT(*) as total FROM inclusao_geracao_de_renda
-       WHERE EXTRACT(YEAR FROM COALESCE(data_contratacao, data_inicio_atividade, criado_em)) = $1 ${mesFilter}
-       GROUP BY tipo`,
-      params
+       WHERE EXTRACT(YEAR FROM ${col}) = 2026 ${mesFilter}
+       GROUP BY tipo`
     );
     const empregabilidade = parseInt(result.rows.find((r: any) => r.tipo === 'empregabilidade')?.total || '0');
     const empreendedorismo = parseInt(result.rows.find((r: any) => r.tipo === 'empreendedorismo')?.total || '0');
@@ -590,21 +746,9 @@ export async function getGeracaoRendaSplit2026(mes: number | null = null): Promi
  * Fonte: psico_atendimentos com tipo='visita_domiciliar'
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getVisitasDomicilio2026(mes: number | null = null): Promise<number> {
+export async function getVisitasDomicilio2026(mes: MesFiltro = null): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const mesFilterAtend = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data_atendimento) = $1` 
-      : '';
-    const mesFilterConf = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data::date) = $1` 
-      : '';
-    const mesFilterAtiv = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data) = $1` 
-      : '';
-    const params = safeMes !== null ? [safeMes] : [];
-    
-    const mesFilterRc = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
+    const mesFilterRc = buildMesFilter(mes, 'data::date');
     const result = await pool.query(`
       SELECT COUNT(*) as total
       FROM registros_confidenciais
@@ -625,27 +769,15 @@ export async function getVisitasDomicilio2026(mes: number | null = null): Promis
  * Fonte: psico_atendimentos (todos os tipos, exceto visita que já é contada separadamente)
  * @param mes - Mês específico (1-12) ou null para anual
  */
-export async function getAtendimentosPsico2026(mes: number | null = null): Promise<number> {
+export async function getAtendimentosPsico2026(mes: MesFiltro = null): Promise<number> {
   try {
-    const safeMes = mes !== null ? Math.floor(Number(mes)) : null;
-    const mesFilterAtend = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data_atendimento) = $1` 
-      : '';
-    const mesFilterConf = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data::date) = $1` 
-      : '';
-    const mesFilterAtiv = safeMes !== null 
-      ? `AND EXTRACT(MONTH FROM data) = $1` 
-      : '';
-    const params = safeMes !== null ? [safeMes] : [];
-    
-    const mesFilterRc2 = safeMes !== null ? `AND EXTRACT(MONTH FROM data::date) = ${safeMes}` : '';
-    const mesFilterDe = safeMes !== null ? `AND EXTRACT(MONTH FROM data_atendimento::date) = ${safeMes}` : '';
+    const mesFilterRc2 = buildMesFilter(mes, 'data::date');
+    const mesFilterDe  = buildMesFilter(mes, 'data_atendimento::date');
     const [rcResult, deResult] = await Promise.all([
       pool.query(`
         SELECT COUNT(*) as total
         FROM registros_confidenciais
-        WHERE tipo != 'visita_domiciliar'
+        WHERE tipo = 'atendimento_individual'
           AND EXTRACT(YEAR FROM data::date) = 2026
           AND (status IS NULL OR status != 'inativo')
           ${mesFilterRc2}
@@ -657,7 +789,8 @@ export async function getAtendimentosPsico2026(mes: number | null = null): Promi
           ${mesFilterDe}
       `),
     ]);
-    return parseInt(rcResult.rows[0]?.total || '0') + parseInt(deResult.rows[0]?.total || '0');
+    return parseInt(rcResult.rows[0]?.total || '0')
+      + parseInt(deResult.rows[0]?.total || '0');
   } catch (error) {
     console.error('[GV 2026] Erro ao buscar atendimentos psicossociais:', error);
     return 0;
@@ -665,23 +798,168 @@ export async function getAtendimentosPsico2026(mes: number | null = null): Promi
 }
 
 /**
- * Buscar avaliação de aprendizagem em 2026
- * Por enquanto retorna 0 até que haja dados de avaliações no banco
- * @param mes - Mês específico (1-12) ou null para anual
+ * Avaliação de Aprendizagem = % formados sobre inscritos em turmas que finalizaram no período.
+ * Mesma regra do endpoint /api/coordenador/dashboard-demografico-inclusao.
  */
-export async function getAvaliacaoAprendizagem2026(mes: number | null = null): Promise<number> {
-  // TODO: Implementar quando houver tabela de avaliações de aprendizagem
-  // Por enquanto retorna 0 (sem dados)
-  return 0;
+export async function getAvaliacaoAprendizagem2026(mes: MesFiltro = null, ano = 2026): Promise<number> {
+  try {
+    const mesInicio = mes === null ? 1 : Array.isArray(mes) ? mes[0] : Math.floor(Number(mes));
+    const mesFim = mes === null ? 12 : Array.isArray(mes) ? mes[1] : Math.floor(Number(mes));
+    const result = await pool.query(`
+      SELECT
+        COUNT(pt.id) AS total_inscritos,
+        COUNT(CASE WHEN pt.status IN ('formado', 'concluido') THEN 1 END) AS total_formados
+      FROM participantes_turmas pt
+      JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+      WHERE ti.status IN ('finalizado', 'concluido', 'encerrado')
+        AND ti.data_fim IS NOT NULL
+        AND EXTRACT(YEAR FROM ti.data_fim) = $1
+        AND EXTRACT(MONTH FROM ti.data_fim) BETWEEN $2 AND $3
+    `, [ano, mesInicio, mesFim]);
+    const totalInscritos = Number(result.rows?.[0]?.total_inscritos || 0);
+    const totalFormados = Number(result.rows?.[0]?.total_formados || 0);
+    const pct = totalInscritos > 0 ? Math.round((totalFormados / totalInscritos) * 100) : 0;
+    console.log(`[GV ${ano}] Avaliação aprendizagem (meses ${mesInicio}-${mesFim}): ${totalFormados}/${totalInscritos} = ${pct}%`);
+    return pct;
+  } catch (error) {
+    console.error('[GV 2026] Erro ao buscar avaliação de aprendizagem:', error);
+    return 0;
+  }
+}
+
+/** Casas mapeadas (território psicossocial) — soma agregada por ano/mês. */
+export async function getCasasMapeadas(ano: number, mes: MesFiltro = null): Promise<number> {
+  try {
+    let sql = 'SELECT COALESCE(SUM(casas_mapeadas), 0) AS total FROM mapeamentos_territorio WHERE 1=1';
+    const params: number[] = [];
+    params.push(ano);
+    sql += ` AND EXTRACT(YEAR FROM data) = $${params.length}`;
+    if (Array.isArray(mes)) {
+      params.push(mes[0]);
+      sql += ` AND EXTRACT(MONTH FROM data) >= $${params.length}`;
+      params.push(mes[1]);
+      sql += ` AND EXTRACT(MONTH FROM data) <= $${params.length}`;
+    } else if (mes !== null && Number(mes) >= 1 && Number(mes) <= 12) {
+      params.push(Math.floor(Number(mes)));
+      sql += ` AND EXTRACT(MONTH FROM data) = $${params.length}`;
+    }
+    const r = await pool.query(sql, params);
+    return Number(r.rows[0]?.total ?? 0);
+  } catch (error) {
+    console.error('[GV] Erro ao buscar casas mapeadas:', error);
+    return 0;
+  }
+}
+
+function isNpsMesUnico(mes: MesFiltro): mes is number {
+  return mes !== null && !Array.isArray(mes) && Number(mes) >= 1 && Number(mes) <= 12;
+}
+
+function npsFromValores(vals: number[]): number {
+  if (!vals.length) return 0;
+  const prom = vals.filter((v) => v >= 9).length;
+  const det = vals.filter((v) => v <= 6).length;
+  return Math.round(((prom - det) / vals.length) * 100);
+}
+
+/** NPS anual/período = média aritmética dos NPS mensais (meses com dado). Mês único = fórmula clássica. */
+async function calcNpsMediaMensalFromScores(
+  programas: string[],
+  mes: MesFiltro,
+  ano = 2026,
+): Promise<number | null> {
+  const placeholders = programas.map((_, i) => `$${i + 1}`).join(', ');
+  const params: any[] = [...programas, ano];
+  let mesClause = ' AND mes IS NOT NULL';
+  if (isNpsMesUnico(mes)) {
+    params.push(Math.floor(Number(mes)));
+    mesClause = ` AND mes = $${params.length}`;
+  } else if (Array.isArray(mes)) {
+    params.push(mes[0], mes[1]);
+    mesClause = ` AND mes BETWEEN $${params.length - 1} AND $${params.length}`;
+  }
+  const res = await pool.query(
+    `SELECT mes, ROUND(AVG(nps_score))::int AS score
+     FROM nps_scores_mensais
+     WHERE programa IN (${placeholders}) AND ano = $${programas.length + 1}
+     ${mesClause}
+     GROUP BY mes
+     ORDER BY mes`,
+    params,
+  );
+  if (!res.rows.length) return null;
+  if (isNpsMesUnico(mes)) return Number(res.rows[0].score);
+  const scores = res.rows.map((r: { score: number }) => Number(r.score));
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+}
+
+async function calcNpsMediaMensalFromRespostas(
+  programas: string[],
+  mes: MesFiltro,
+  ano = 2026,
+): Promise<number | null> {
+  const placeholders = programas.map((_, i) => `$${i + 1}`).join(', ');
+  const params: any[] = [...programas, ano];
+  let mesFilter = '';
+  if (isNpsMesUnico(mes)) {
+    params.push(Math.floor(Number(mes)));
+    mesFilter = `AND EXTRACT(MONTH FROM nr.criado_em) = $${params.length}`;
+  } else if (Array.isArray(mes)) {
+    params.push(mes[0], mes[1]);
+    mesFilter = `AND EXTRACT(MONTH FROM nr.criado_em) BETWEEN $${params.length - 1} AND $${params.length}`;
+  }
+  const result = await pool.query(
+    `SELECT EXTRACT(MONTH FROM nr.criado_em)::int AS mes, ri.valor_numerico
+     FROM nps_respostas_itens ri
+     JOIN nps_perguntas np ON np.id = ri.pergunta_id
+     JOIN nps_pesquisas p ON p.id = np.pesquisa_id
+     JOIN nps_respostas nr ON nr.id = ri.resposta_id
+     WHERE p.programa IN (${placeholders})
+       AND np.is_nps_principal = TRUE
+       AND ri.valor_numerico IS NOT NULL
+       AND EXTRACT(YEAR FROM nr.criado_em) = $${programas.length + 1}
+       ${mesFilter}`,
+    params,
+  );
+  if (!result.rows.length) return null;
+  if (isNpsMesUnico(mes)) {
+    return npsFromValores(result.rows.map((r: { valor_numerico: number }) => Number(r.valor_numerico)));
+  }
+  const byMes = new Map<number, number[]>();
+  for (const row of result.rows) {
+    const m = Number(row.mes);
+    if (!byMes.has(m)) byMes.set(m, []);
+    byMes.get(m)!.push(Number(row.valor_numerico));
+  }
+  const monthlyNps = [...byMes.values()].map(npsFromValores);
+  return Math.round(monthlyNps.reduce((a, b) => a + b, 0) / monthlyNps.length);
 }
 
 /**
- * Buscar pesquisa de satisfação (NPS) em 2026
- * Por enquanto retorna 0 até que haja dados de pesquisas no banco
- * @param mes - Mês específico (1-12) ou null para anual
+ * NPS por programa. Mês único: fórmula clássica (promotores − detratores).
+ * Anual/período: média dos NPS mensais com dado.
  */
-export async function getPesquisaSatisfacao2026(mes: number | null = null): Promise<number> {
-  // TODO: Implementar quando houver tabela de pesquisas de satisfação
-  // Por enquanto retorna 0 (sem dados)
-  return 0;
+async function calcNpsByPrograma(programas: string[], mes: MesFiltro, ano = 2026): Promise<number> {
+  try {
+    const fromRespostas = await calcNpsMediaMensalFromRespostas(programas, mes, ano);
+    if (fromRespostas !== null) return fromRespostas;
+    const fromScores = await calcNpsMediaMensalFromScores(programas, mes, ano);
+    if (fromScores !== null) return fromScores;
+    return 0;
+  } catch (e) {
+    console.error('Erro calcNpsByPrograma:', e);
+    return 0;
+  }
+}
+
+export async function getPesquisaSatisfacao2026(mes: MesFiltro = null): Promise<number> {
+  return calcNpsByPrograma(['inclusao'], mes);
+}
+
+export async function getNpsPEC2026(mes: MesFiltro = null): Promise<number> {
+  return calcNpsByPrograma(['pec'], mes);
+}
+
+export async function getNpsCombinado2026(mes: MesFiltro = null): Promise<number> {
+  return calcNpsByPrograma(['inclusao', 'pec'], mes);
 }

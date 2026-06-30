@@ -1,34 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { getPct, getColor, SectorCard } from "./shared";
+import { getPct, getColor, SectorCard, buildQp, type PeriodoFiltro, isPeriodoMulti, metaFnPeriodo } from "./shared";
+import { GestaoKpiCard } from "@/components/GestaoKpiCard";
 
-interface Props { ano: string; mes: string; }
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-/* ── Card com meta definida ──────────────────────────────────────────── */
-function PKpiCard({ label, valor, meta, inverse = false, format = 'number' as 'number' | 'percent', className = '' }: {
-  label: string; valor: number; meta: number; inverse?: boolean; format?: 'number' | 'percent'; className?: string;
-}) {
-  const pct   = getPct(valor, meta);
-  const color = getColor(valor, meta, inverse);
-  const dVal  = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
-  const dMeta = format === 'percent' ? `${meta}%`  : meta.toLocaleString('pt-BR');
-
-  return (
-    <div className={`bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full ${className}`}>
-      <p className="text-[11px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
-      <div className="flex-1 flex items-center gap-2 py-1">
-        <span className="text-4xl font-bold text-white tabular-nums leading-none">{dVal}</span>
-        <span className="text-[13px] text-slate-500 leading-none">/ {dMeta}</span>
-      </div>
-      <div className="flex justify-end">
-        <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
-      </div>
-    </div>
-  );
-}
 
 /* ── Card sem meta definida ──────────────────────────────────────────── */
 function PKpiCardNoMeta({ label, valor, format = 'number' as 'number' | 'percent', className = '' }: {
@@ -124,24 +103,15 @@ function PTurmasCard({ data }: { data: TurmasData | undefined }) {
 }
 
 /* ── Tab principal ───────────────────────────────────────────────────── */
-export default function TabPEC({ ano, mes }: Props) {
-  const qp = mes === 'todos' ? `?ano=${ano}` : `?ano=${ano}&mes=${mes}`;
+export default function TabPEC({ ano, periodo }: Props) {
+  const qp = buildQp(ano, periodo);
 
   const { data: gv } = useQuery<any>({
-    queryKey: ['/api/gestao-vista', ano, mes],
+    queryKey: ['/api/gestao-vista', ano, periodo],
     queryFn: () => fetch(`/api/gestao-vista${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
-  const { data: resumo } = useQuery<any>({
-    queryKey: ['/api/dashboard/pec/resumo', ano, mes],
-    queryFn: () => {
-      const start = mes !== 'todos' ? `${ano}-${String(mes).padStart(2,'0')}-01` : `${ano}-01-01`;
-      const end   = mes !== 'todos' ? `${ano}-${String(mes).padStart(2,'0')}-31` : `${ano}-12-31`;
-      return fetch(`/api/dashboard/pec/resumo?start=${start}&end=${end}`).then(r => r.json());
-    },
-    refetchInterval: 60000,
-  });
 
   const { data: evolucao } = useQuery<any>({
     queryKey: ['/api/dashboard/pec/evolucao-mensal', ano],
@@ -155,6 +125,15 @@ export default function TabPEC({ ano, mes }: Props) {
     refetchInterval: 120000,
   });
 
+  // KPIs canônicos — fonte única de verdade para PEC
+  // queryKey com URL completa para o fetcher padrão usar x-user-id header
+  const pecKpisUrl = `/api/pec/dashboard-kpis${qp}`;
+  const { data: pecKpis } = useQuery<any>({
+    queryKey: [pecKpisUrl],
+    queryFn: async () => { const r = await fetch(pecKpisUrl, { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
+    refetchInterval: 60000,
+  });
+
   const { data: metasDB } = useQuery<{ metas: Record<string, number> }>({
     queryKey: ['/api/metas-indicadores', ano, 'pec'],
     queryFn: () => fetch(`/api/metas-indicadores?ano=${ano}&vertente=pec`).then(r => r.json()),
@@ -164,29 +143,34 @@ export default function TabPEC({ ano, mes }: Props) {
 
   const ind          = gv?.indicadores || {};
   const pecMetas     = gv?.pecMetas || {};
-  const horasAula    = gv?.pecData?.horasAula ?? Number((resumo?.horasAula || 0).toFixed(0));
-  const atendimentos = resumo?.atendimentos ?? 0;
-  const alimentacao  = resumo?.alimentacao ?? 0;
+  const horasAula    = pecKpis?.horasAula ?? gv?.pecData?.horasAula ?? 0;
+  const atendimentos = pecKpis?.atendimentos ?? gv?.pecData?.atendimentos ?? 0;
+  const alimentacao  = pecKpis?.alimentacao ?? gv?.pecData?.alimentacao ?? 0;
   const lineData     = evolucao?.dados || MESES_LABELS.map(m => ({ mes: m, presencas: 0, faltas: 0 }));
 
   const freqMeta     = metasAdm.frequencia    ?? pecMetas?.frequencia_meta          ?? ind?.frequencia?.meta     ?? 85;
   const evasaoMeta   = metasAdm.evasao        ?? ind?.evasao?.meta                  ?? 10;
   const avalMeta     = metasAdm.nps           ?? pecMetas?.avaliacao_aprendizagem_meta ?? ind?.criterioSucesso?.meta ?? 90;
-  const atendidosMeta= metasAdm.criancasAtendidas ?? pecMetas?.atendidos_meta       ?? ind?.criancasAtendidas?.meta ?? 500;
-  const horasMeta    = pecMetas?.hora_aula_meta   ?? null;
-  const atendMeta    = pecMetas?.atendimentos_meta ?? null;
-  const alimMeta     = pecMetas?.alimentacao_meta  ?? null;
+  const atendidosMetaAnual = metasAdm.criancasAtendidas ?? pecMetas?.atendidos_meta ?? ind?.criancasAtendidas?.meta ?? 500;
+
+  const metaFn = (anual: number) => isPeriodoMulti(periodo) ? metaFnPeriodo(periodo, anual) : anual;
+
+  // "Crianças Atendidas" é acumulado — meta constante o ano todo, nunca proratada
+  const atendidosMeta = atendidosMetaAnual;
+  const horasMeta    = pecMetas?.hora_aula_meta   != null ? metaFn(pecMetas.hora_aula_meta)   : null;
+  const atendMeta    = pecMetas?.atendimentos_meta != null ? metaFn(pecMetas.atendimentos_meta) : null;
+  const alimMeta     = pecMetas?.alimentacao_meta  != null ? metaFn(pecMetas.alimentacao_meta)  : null;
 
   type Indicador =
     | { label: string; valor: number; meta: number; inverse?: boolean; format?: 'number' | 'percent'; noMeta?: false }
     | { label: string; valor: number; meta: null; inverse?: boolean; format?: 'number' | 'percent'; noMeta: true };
 
-  const freqValor = gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0;
+  const freqValor = pecKpis?.frequenciaMedia ?? gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0;
 
   const indicadores: Indicador[] = [
-    { label: 'Evasão',                   valor: gv?.pecData?.evasao          ?? ind?.evasao?.valor          ?? 0, meta: evasaoMeta,    format: 'percent', inverse: true  },
-    { label: 'Avaliação de Aprendizagem',valor: gv?.pecData?.nps             ?? ind?.criterioSucesso?.valor ?? 0, meta: avalMeta,      format: 'percent', inverse: false },
-    { label: 'Crianças Atendidas',       valor: gv?.pecData?.totalAlunos     ?? ind?.criancasAtendidas?.valor ?? 0, meta: atendidosMeta, format: 'number', inverse: false },
+    { label: 'Evasão',                   valor: pecKpis?.evasao               ?? gv?.pecData?.evasao          ?? ind?.evasao?.valor          ?? 0, meta: evasaoMeta,    format: 'percent', inverse: true  },
+    { label: 'NPS',                       valor: pecKpis?.nps                  ?? gv?.pecData?.nps             ?? ind?.criterioSucesso?.valor ?? 0, meta: avalMeta,      format: 'number', inverse: false },
+    { label: 'Crianças Atendidas',       valor: pecKpis?.atendidos            ?? gv?.pecData?.totalAlunos     ?? ind?.criancasAtendidas?.valor ?? 0, meta: atendidosMeta, format: 'number', inverse: false },
     horasMeta != null
       ? { label: 'Horas Aula',   valor: horasAula,    meta: horasMeta,  format: 'number', inverse: false }
       : { label: 'Horas Aula',   valor: horasAula,    meta: null, noMeta: true, format: 'number' },
@@ -216,7 +200,7 @@ export default function TabPEC({ ano, mes }: Props) {
                 const spanClass = isLastAlone ? 'col-span-2 md:col-span-3' : '';
                 return item.noMeta
                   ? <PKpiCardNoMeta key={item.label} label={item.label} valor={item.valor} format={item.format} className={spanClass} />
-                  : <PKpiCard key={item.label} label={item.label} valor={item.valor} meta={item.meta as number} inverse={item.inverse} format={item.format} className={spanClass} />;
+                  : <GestaoKpiCard key={item.label} label={item.label} valor={item.valor} meta={item.meta as number} inverse={item.inverse} format={item.format} className={spanClass} />;
               })}
             </div>
             {/* Frequência + Turmas Ativas lado a lado */}

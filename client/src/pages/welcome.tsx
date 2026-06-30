@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
+import { kpiColor } from "@/lib/kpiColors";
 import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -32,7 +34,11 @@ import { logger } from "@/utils/logger";
 import { CheckinCard } from "@/components/CheckinCard";
 import ImpactGestaoVista from "@/components/ImpactGestaoVista";
 import { IndiqueGanhe } from "@/components/IndiqueGanhe";
+import { ProgramasIconGrid } from "@/components/ProgramasIconGrid";
 import { isLeoByRole } from "@shared/conselho";
+import PrivacyPreferencesMenuItem from "@/components/PrivacyPreferencesMenuItem";
+import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from "@/components/AreaConsentGate";
+import { useAuthSession } from "@/hooks/useAuthSession";
 
 import outletLogo from "../app-assets/7f1ea56f-9e4c-4d9a-8f13-a744dc9538a6_1754683715214.png";
 import griffteLogo from "../app-assets/c735de54-82fe-432d-876d-508c7a28ca87_1754683710836.png";
@@ -413,11 +419,10 @@ function PublicityCarousel() {
           <button
             key={index}
             onClick={() => setCurrentSlide(index)}
-            className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full transition-all duration-300 ${
-              index === currentSlide
+            className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full transition-all duration-300 ${index === currentSlide
                 ? "bg-white scale-125 shadow-sm"
                 : "bg-white/50 hover:bg-white/70"
-            }`}
+              }`}
             aria-label={`Ir para slide ${index + 1}`}
           />
         ))}
@@ -431,6 +436,17 @@ export default function Welcome() {
   const { toast } = useToast();
   const { profileImage } = useProfileImage();
   const { userData } = useUserData();
+  const { data: authSession } = useAuthSession();
+
+  const donorRole = String(
+    authSession?.papel || authSession?.role || localStorage.getItem("userPapel") || ""
+  ).toLowerCase();
+  const isDonorArea = donorRole === "doador" || donorRole === "user";
+  const {
+    ready: donorConsentReady,
+    checking: donorConsentChecking,
+    markReady: markDonorConsentReady,
+  } = useAreaConsentReady("donors", { enabled: isDonorArea });
 
   // Obter userId do localStorage
   const userId = (userData as any)?.id ?? null;
@@ -517,40 +533,40 @@ export default function Welcome() {
   const [showF3DModal, setShowF3DModal] = useState(false);
   const [expandedF3DCard, setExpandedF3DCard] = useState<string | null>(null);
 
-  // Buscar dados da Gestão à Vista para todos os programas
+  const mesAtual: number = new Date().getMonth() + 1;
+  const anoAtual = new Date().getFullYear();
+  const periodoQuery = `?ano=${anoAtual}&mes=${mesAtual}`;
+
+  // Buscar dados da Gestão à Vista para o mês vigente
   const { data: gestaoVistaData } = useQuery({
-    queryKey: ['gestao-vista', 2026, null, null], // Ano todo, sem filtro de mês/programa
-    queryFn: () => apiRequest('/api/gestao-vista?ano=2026'),
-    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+    queryKey: ['gestao-vista', anoAtual, mesAtual, null],
+    queryFn: () => apiRequest(`/api/gestao-vista${periodoQuery}`),
+    staleTime: 5 * 60 * 1000,
   });
 
   // Buscar dados de indicadores Psicossocial
-  const { data: atencaoSocialData, isLoading: loadingAtencao } = useQuery<{
-    success: boolean;
-    data: {
-      visitasDomiciliares: { realizadas: number; meta: number; percentual: number };
-      atendimentosIndividuais: { realizados: number; meta: number; percentual: number };
-    };
+  const { data: psicoKpisData, isLoading: loadingPsicoKpis } = useQuery<{
+    atendidos: number;
+    atendimentos: number;
+    visitas: number;
+    atendimentosColetivos: number;
+    espacoOGrito: number;
+    demandasEspontaneas: number;
+    familias: number;
+    casosAbertos: number;
+    casosEncerrados: number;
+    resolutividade: number;
   }>({
-    queryKey: ['/api/psico/indicadores/atencao-social', { ano: 2026 }],
+    queryKey: ['/api/psico/dashboard-kpis', { ano: anoAtual, mes: mesAtual }],
     enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/atencao-social?ano=2026'),
+    queryFn: () => apiRequest(`/api/psico/dashboard-kpis${periodoQuery}`),
   });
 
-  const { data: metodoGritoData, isLoading: loadingMetodo } = useQuery<{
-    success: boolean;
-    data: {
-      atendimentosColetivos: { realizados: number; percentualTurmas: number };
-      espacosColetivos: { total: number; meta: number; percentual: number };
-      caravanasComunitarias: number;
-      acoesSaudeColaboradores: number;
-    };
-  }>({
-    queryKey: ['/api/psico/indicadores/metodo-grito', { ano: 2026 }],
-    enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/metodo-grito?ano=2026'),
+  const { data: intervencoesCountData } = useQuery<{ total: number }>({
+    queryKey: ['/api/psico/intervencoes/count', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => fetch(`/api/psico/intervencoes/count${periodoQuery}`).then(r => r.json()),
+    refetchInterval: 60000,
   });
-
 
   // Buscar dados de Negócios Sociais
   const { data: negociosSociaisData, isLoading: loadingNegocios } = useQuery<{
@@ -567,8 +583,8 @@ export default function Welcome() {
       };
     };
   }>({
-    queryKey: ['/api/negocios-sociais', { ano: 2026 }],
-    queryFn: () => apiRequest('/api/negocios-sociais?ano=2026'),
+    queryKey: ['/api/negocios-sociais', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/negocios-sociais${periodoQuery}`),
     enabled: showNegociosModal,
   });
 
@@ -589,6 +605,7 @@ export default function Welcome() {
         frequencia: number;
         alimentacao: number;
         horaAula: number;
+        evasao: number;
       };
       serenata: {
         atendidos: number;
@@ -599,8 +616,8 @@ export default function Welcome() {
       };
     };
   }>({
-    queryKey: ['/api/pec/dados-programas', { ano: 2026 }],
-    queryFn: () => apiRequest('/api/pec/dados-programas?ano=2026'),
+    queryKey: ['/api/pec/dados-programas', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/pec/dados-programas${periodoQuery}`),
     enabled: showPECModal,
   });
 
@@ -612,20 +629,15 @@ export default function Welcome() {
     }>;
     geracaoRenda?: { empregados: number; empreendedores: number };
   }>({
-    queryKey: ['/api/inclusao-produtiva/indicadores', { ano: 2026 }],
-    queryFn: () => apiRequest('/api/inclusao-produtiva/indicadores?ano=2026'),
+    queryKey: ['/api/inclusao-produtiva/indicadores', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/inclusao-produtiva/indicadores${periodoQuery}`),
     enabled: showInclusaoModal,
   });
 
-  // Buscar dados de Favela 3D (F3D)
-  const { data: f3dData, isLoading: loadingF3D } = useQuery<{
-    meses: string[];
-    eixos: Array<{
-      nome: string;
-      indicadores: Array<{ nome: string; mensal: (number | null)[] }>;
-    }>;
-  }>({
-    queryKey: ['/api/favela-3d/dados-mensais'],
+  // Buscar dados de Favela 3D do mês vigente
+  const { data: f3dData, isLoading: loadingF3D } = useQuery<any>({
+    queryKey: ['/api/gestao-vista/favela3d', anoAtual, mesAtual],
+    queryFn: () => fetch(`/api/gestao-vista/favela3d${periodoQuery}`).then(r => r.json()),
     enabled: showF3DModal,
   });
 
@@ -782,113 +794,113 @@ export default function Welcome() {
     return url;
   };
 
-   // Função para quebrar texto em vários slides
+  // Função para quebrar texto em vários slides
   const splitTextIntoSlides = (text: string, maxChars: number = 600): string[] => {
-  if (text.length <= maxChars) return [text];
+    if (text.length <= maxChars) return [text];
 
-  const slides: string[] = [];
-  let currentText = text;
+    const slides: string[] = [];
+    let currentText = text;
 
-  while (currentText.length > maxChars) {
-    let cutPoint = currentText.lastIndexOf(".", maxChars);
+    while (currentText.length > maxChars) {
+      let cutPoint = currentText.lastIndexOf(".", maxChars);
 
-    if (cutPoint === -1) {
-      cutPoint = Math.max(
-        currentText.lastIndexOf("!", maxChars),
-        currentText.lastIndexOf("?", maxChars)
-      );
+      if (cutPoint === -1) {
+        cutPoint = Math.max(
+          currentText.lastIndexOf("!", maxChars),
+          currentText.lastIndexOf("?", maxChars)
+        );
+      }
+
+      if (cutPoint === -1) {
+        cutPoint = currentText.lastIndexOf(" ", maxChars);
+      }
+
+      if (cutPoint === -1) cutPoint = maxChars;
+
+      if (
+        cutPoint < maxChars &&
+        (currentText[cutPoint] === "." ||
+          currentText[cutPoint] === "!" ||
+          currentText[cutPoint] === "?")
+      ) {
+        cutPoint += 1;
+      }
+
+      slides.push(currentText.substring(0, cutPoint).trim());
+      currentText = currentText.substring(cutPoint).trim();
     }
 
-    if (cutPoint === -1) {
-      cutPoint = currentText.lastIndexOf(" ", maxChars);
+    if (currentText.length > 0) {
+      slides.push(currentText);
     }
 
-    if (cutPoint === -1) cutPoint = maxChars;
-
-    if (
-      cutPoint < maxChars &&
-      (currentText[cutPoint] === "." ||
-        currentText[cutPoint] === "!" ||
-        currentText[cutPoint] === "?")
-    ) {
-      cutPoint += 1;
-    }
-
-    slides.push(currentText.substring(0, cutPoint).trim());
-    currentText = currentText.substring(cutPoint).trim();
-  }
-
-  if (currentText.length > 0) {
-    slides.push(currentText);
-  }
-
-  return slides;
+    return slides;
   };
 
-const convertToStories = (historias: any[]) => {
-  if (!historias?.length) return [];
+  const convertToStories = (historias: any[]) => {
+    if (!historias?.length) return [];
 
-  return historias.map((historia) => {
-    const texto =
-      historia.texto ||
-      `A história de ${historia.nome} é uma demonstração real de como o Clube do Grito transforma vidas.`;
+    return historias.map((historia) => {
+      const texto =
+        historia.texto ||
+        `A história de ${historia.nome} é uma demonstração real de como o Clube do Grito transforma vidas.`;
 
-    const boxUrl =
-      historia.imagemBoxUrl ||
-      `/api/historias-inspiradoras/${historia.id}/imagem?tipo=box`;
+      const boxUrl =
+        historia.imagemBoxUrl ||
+        `/api/historias-inspiradoras/${historia.id}/imagem?tipo=box`;
 
-    const storyUrl =
-      historia.imagemStoryUrl ||
-      `/api/historias-inspiradoras/${historia.id}/imagem?tipo=story`;
+      const storyUrl =
+        historia.imagemStoryUrl ||
+        `/api/historias-inspiradoras/${historia.id}/imagem?tipo=story`;
 
-    const slidesFromApi = Array.isArray(historia.slides)
-      ? historia.slides
-      : [];
+      const slidesFromApi = Array.isArray(historia.slides)
+        ? historia.slides
+        : [];
 
-    let slides: StorySlide[];
+      let slides: StorySlide[];
 
-    if (slidesFromApi.length > 0) {
-      // Caso você comece a salvar slides no banco
-      slides = slidesFromApi.map((slide: any, i: number) => ({
-        id: slide.id?.toString() || `${historia.id}_${i}`,
-        type: slide.type,
-        image: slide.image,
-        title: slide.title,
-        content: slide.content,
-        backgroundColor: slide.backgroundColor,
-        duration: slide.duration || 6,
-      }));
-    } else {
-      // Fallback: 1 slide de imagem + vários de texto
-      const textSlides = splitTextIntoSlides(texto, 600);
+      if (slidesFromApi.length > 0) {
+        // Caso você comece a salvar slides no banco
+        slides = slidesFromApi.map((slide: any, i: number) => ({
+          id: slide.id?.toString() || `${historia.id}_${i}`,
+          type: slide.type,
+          image: slide.image,
+          title: slide.title,
+          content: slide.content,
+          backgroundColor: slide.backgroundColor,
+          duration: slide.duration || 6,
+        }));
+      } else {
+        // Fallback: 1 slide de imagem + vários de texto
+        const textSlides = splitTextIntoSlides(texto, 600);
 
-      slides = [
-        {
-          id: `${historia.id}_1`,
-          type: "image",
-          image: storyUrl,
-          title: historia.titulo,
-          duration: 5,
-        },
-        ...textSlides.map((textPart, index) => ({
-          id: `${historia.id}_text_${index + 1}`,
-          type: "text" as const,
-          content: textPart,
-          backgroundColor: "#FFD700",
-          duration: 6,
-        })),
-      ];
-    }
+        slides = [
+          {
+            id: `${historia.id}_1`,
+            type: "image",
+            image: storyUrl,
+            title: historia.titulo,
+            duration: 5,
+          },
+          ...textSlides.map((textPart, index) => ({
+            id: `${historia.id}_text_${index + 1}`,
+            type: "text" as const,
+            content: textPart,
+            backgroundColor: "#FFD700",
+            duration: 6,
+          })),
+        ];
+      }
 
-    return {
-      id: historia.id.toString(),
-      title: historia.titulo,
-      name: historia.nome,
-      image: boxUrl,
-      slides,
-    };
-  });
-};
+      return {
+        id: historia.id.toString(),
+        title: historia.titulo,
+        name: historia.nome,
+        image: boxUrl,
+        slides,
+      };
+    });
+  };
 
   // Removido: histórias mock para exibir apenas histórias reais do banco
 
@@ -1043,9 +1055,11 @@ const convertToStories = (historias: any[]) => {
   });
 
   // 🎯 DADOS DE IMPACTO - Buscar dados reais de Meta vs Realizado
+  const mesAtualPad = String(mesAtual).padStart(2, '0');
+  const periodoMetaRealizado = `${anoAtual}-${mesAtualPad}`;
   const { data: impactData } = useQuery<any>({
-    queryKey: ['/api/gestao-vista/meta-realizado', { scope: 'annual', period: '2026' }],
-    queryFn: () => apiRequest('/api/gestao-vista/meta-realizado?scope=annual&period=2026'),
+    queryKey: ['/api/gestao-vista/meta-realizado', { scope: 'monthly', period: periodoMetaRealizado }],
+    queryFn: () => apiRequest(`/api/gestao-vista/meta-realizado?scope=monthly&period=${periodoMetaRealizado}`),
     staleTime: 5 * 60 * 1000, // Cache por 5 minutos
   });
 
@@ -1076,10 +1090,10 @@ const convertToStories = (historias: any[]) => {
     const indicadoresDesejados = [
       { buscar: ["Alunos Formados"], exibir: "Alunos formados", cor: "#10b981" }, // verde
       { buscar: ["Quantidade de Alunos"], exibir: "Crianças atendidas", cor: "#3b82f6", useCustomEndpoint: true }, // azul - usa endpoint específico
-      { 
-        buscar: ["Alunos Ativos", "Quantidade de Alunos"], 
-        exibir: "Alunos em Formação", 
-        cor: "#ec4899", 
+      {
+        buscar: ["Alunos Ativos", "Quantidade de Alunos"],
+        exibir: "Alunos em Formação",
+        cor: "#ec4899",
         somarTodos: true,
         projetos: ["CURSOS EAD CGD", "LAB. VOZES DO FUTURO"] // Filtrar por nome do projeto
       }, // rosa - soma Cursos EAD + Lab
@@ -1100,40 +1114,40 @@ const convertToStories = (historias: any[]) => {
             cor: indicador.cor
           };
         }
-        
+
         // LÓGICA PADRÃO: Pegar o item com maior realizado OU somar todos
         const items = impactData.data.filter((d: any) => {
           // Se tem projetos específicos, filtrar por indicador E projeto
           if (indicador.projetos && indicador.projetos.length > 0) {
             return indicador.buscar.some(busca => d.indicador_nome === busca) &&
-                   indicador.projetos.includes(d.projeto_nome);
+              indicador.projetos.includes(d.projeto_nome);
           }
           // Senão, usar apenas nomes dos indicadores
           return indicador.buscar.some(busca => d.indicador_nome === busca);
         });
-        
+
         if (items.length > 0) {
           // Se somarTodos=true, somar todos os valores encontrados (evitando duplicatas)
           if (indicador.somarTodos) {
             // Usar Map para agrupar por nome do indicador e evitar duplicatas
             const valoresPorIndicador = new Map<string, number>();
-            
+
             items.forEach((item: any) => {
               const chave = item.indicador_nome;
               const valorAtual = valoresPorIndicador.get(chave) || 0;
               const novoValor = item.realizado || 0;
-              
+
               // Manter o maior valor para cada indicador (evita duplicatas)
               if (novoValor > valorAtual) {
                 valoresPorIndicador.set(chave, novoValor);
               }
             });
-            
+
             const totalRealizado = Array.from(valoresPorIndicador.values()).reduce((sum, val) => sum + val, 0);
             const totalMeta = items.reduce((sum: number, item: any) => sum + (item.meta || 0), 0);
             // Se meta for 0 mas tem realizado, mostrar 100% (barra completa)
             const porcentagem = totalMeta > 0 ? (totalRealizado / totalMeta) * 100 : (totalRealizado > 0 ? 100 : 0);
-            
+
             return {
               nome: indicador.exibir,
               quantidade: Math.round(totalRealizado),
@@ -1142,16 +1156,16 @@ const convertToStories = (historias: any[]) => {
               cor: indicador.cor
             };
           }
-          
+
           // Senão, pegar o item com maior realizado (evita os zerados)
           const item = items.reduce((max: any, curr: any) => {
             return (curr.realizado || 0) > (max?.realizado || 0) ? curr : max;
           }, null);
-          
+
           if (item) {
             // Se meta for 0 mas tem realizado, mostrar 100% (barra completa)
             const porcentagem = item.atingimento_percentual || (item.meta > 0 ? 0 : (item.realizado > 0 ? 100 : 0));
-            
+
             return {
               nome: indicador.exibir,
               quantidade: Math.round(item.realizado || 0),
@@ -1188,6 +1202,20 @@ const convertToStories = (historias: any[]) => {
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (isDonorArea && donorConsentChecking) {
+    return <AreaConsentLoading />;
+  }
+
+  if (isDonorArea && !donorConsentReady) {
+    return (
+      <AreaConsentGate
+        area="donors"
+        onAccept={() => markDonorConsentReady()}
+        onNavigate={setLocation}
+      />
     );
   }
 
@@ -1293,8 +1321,8 @@ const convertToStories = (historias: any[]) => {
             <div
               ref={benefitScrollContainerRef}
               className="overflow-x-auto pb-4 -mx-4 md:-mx-8 cursor-grab active:cursor-grabbing"
-              style={{ 
-                scrollbarWidth: "none", 
+              style={{
+                scrollbarWidth: "none",
                 msOverflowStyle: "none",
                 scrollBehavior: "smooth",
                 WebkitOverflowScrolling: "touch"
@@ -1315,18 +1343,18 @@ const convertToStories = (historias: any[]) => {
                 if (!container) return;
                 const startX = e.pageX - container.offsetLeft;
                 const scrollLeft = container.scrollLeft;
-                
+
                 const handleMouseMove = (e: MouseEvent) => {
                   const x = e.pageX - container.offsetLeft;
                   const walk = (x - startX) * 1.5;
                   container.scrollLeft = scrollLeft - walk;
                 };
-                
+
                 const handleMouseUp = () => {
                   document.removeEventListener('mousemove', handleMouseMove);
                   document.removeEventListener('mouseup', handleMouseUp);
                 };
-                
+
                 document.addEventListener('mousemove', handleMouseMove);
                 document.addEventListener('mouseup', handleMouseUp);
               }}
@@ -1350,12 +1378,12 @@ const convertToStories = (historias: any[]) => {
                       }
                     >
                       {/* Imagem de fundo se houver - Otimizada para cards pequenos */}
-                      { beneficio.imagem && (
-                        <img 
+                      {beneficio.imagem && (
+                        <img
                           src={beneficio.imagem}
                           alt={beneficio.titulo}
                           className="absolute inset-0 w-full h-full object-cover"
-                          style={{ 
+                          style={{
                             imageRendering: 'crisp-edges',
                             filter: 'contrast(1.05) saturate(1.1)',
                             backfaceVisibility: 'hidden'
@@ -1438,11 +1466,10 @@ const convertToStories = (historias: any[]) => {
                       behavior: "smooth",
                     });
                   }}
-                  className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                    index === currentBenefitSlide
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${index === currentBenefitSlide
                       ? "bg-gray-800 scale-125"
                       : "bg-gray-300 hover:bg-gray-500"
-                  }`}
+                    }`}
                   whileHover={{ scale: 1.5 }}
                   whileTap={{ scale: 0.8 }}
                   aria-label={`Ir para prêmio ${index + 1}`}
@@ -1457,73 +1484,14 @@ const convertToStories = (historias: any[]) => {
           <h2 className="text-lg font-bold text-gray-900 mb-4 font-sans">
             Com seu apoio, o impacto é imenso!
           </h2>
-          
-          {/* Carrossel horizontal com todos os cards */}
-          <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-            <div className="flex gap-4 w-max items-start">
-              {/* Card PEC */}
-              <button
-                onClick={() => setShowPECModal(true)}
-                className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                data-testid="card-programa-pec"
-              >
-                <div className="w-20 h-20 bg-yellow-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                  <BookOpen className="w-10 h-10 text-gray-800" />
-                </div>
-                <span className="text-sm text-gray-800 font-semibold text-center">PEC</span>
-              </button>
 
-
-              {/* Card Psicossocial */}
-              <button
-                onClick={() => setShowPsicossocialModal(true)}
-                className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                data-testid="card-programa-psicossocial"
-              >
-                <div className="w-20 h-20 bg-yellow-400 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                  <Heart className="w-10 h-10 text-gray-800" />
-                </div>
-                <span className="text-sm text-gray-800 font-semibold text-center leading-tight">Psicossocial</span>
-              </button>
-
-              {/* Card F3D */}
-              <button
-                className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                onClick={() => setShowF3DModal(true)}
-                data-testid="card-programa-f3d"
-              >
-                <div className="w-20 h-20 bg-purple-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                  <Users className="w-10 h-10 text-gray-800" />
-                </div>
-                <span className="text-sm text-gray-800 font-semibold text-center">F3D</span>
-              </button>
-
-              {/* Card Negócios Sociais */}
-              <button
-                
-                className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                onClick={() => setShowNegociosModal(true)}
-                data-testid="card-programa-negocios"
-              >
-                <div className="w-20 h-20 bg-yellow-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                  <ShoppingBag className="w-10 h-10 text-gray-800" />
-                </div>
-                <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Negócios Sociais</span>
-              </button>
-
-              {/* Card Inclusão Produtiva */}
-              <button
-                className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                onClick={() => setShowInclusaoModal(true)}
-                data-testid="card-programa-inclusao"
-              >
-                <div className="w-20 h-20 bg-amber-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                  <Briefcase className="w-10 h-10 text-gray-800" />
-                </div>
-                <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Inclusão Produtiva</span>
-              </button>
-            </div>
-          </div>
+          <ProgramasIconGrid
+            onPEC={() => setShowPECModal(true)}
+            onPsicossocial={() => setShowPsicossocialModal(true)}
+            onF3D={() => setShowF3DModal(true)}
+            onNegocios={() => setShowNegociosModal(true)}
+            onInclusao={() => setShowInclusaoModal(true)}
+          />
         </div>
 
         {/* Modal de Indicadores Psicossocial */}
@@ -1535,9 +1503,9 @@ const convertToStories = (historias: any[]) => {
                 Indicadores Psicossocial
               </DialogTitle>
             </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
-            
+
+            <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
             <div className="space-y-4 mt-4">
               {/* Botão/Card 1: Atenção Social */}
               <div
@@ -1559,36 +1527,26 @@ const convertToStories = (historias: any[]) => {
                       <ChevronDown className="w-5 h-5 text-gray-600" />
                     )}
                   </div>
-                  
+
                   {expandedPsicoCard === 'atencao-social' && (
                     <div className="mt-4">
-                      {loadingAtencao ? (
-                        <div className="text-center py-4 text-gray-500">Carregando...</div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                          {/* Card Visitas Domiciliares */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {atencaoSocialData?.data.visitasDomiciliares.realizadas}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium mb-1">Visitas Domiciliares</p>
-                            <p className="text-xs text-gray-500">
-                              {atencaoSocialData?.data.visitasDomiciliares.percentual}% da Meta 2026
-                            </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Card Visitas Domiciliares */}
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {psicoKpisData?.visitas ?? (gestaoVistaData as any)?.indicadores?.visitas?.valor ?? '—'}
                           </div>
-
-                          {/* Card Atendimentos Individuais */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {atencaoSocialData?.data.atendimentosIndividuais.realizados}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Individuais</p>
-                            <p className="text-xs text-gray-500">
-                              {atencaoSocialData?.data.atendimentosIndividuais.percentual}% da Meta 2026
-                            </p>
-                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Visitas Domiciliares</p>
                         </div>
-                      )}
+
+                        {/* Card Acolhimento Individual */}
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {psicoKpisData ? ((psicoKpisData.atendimentos ?? 0) + (psicoKpisData.demandasEspontaneas ?? 0)) : ((gestaoVistaData as any)?.indicadores?.atendimentos?.valor ?? '—')}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Acolhimento Individual</p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1617,41 +1575,23 @@ const convertToStories = (historias: any[]) => {
 
                   {expandedPsicoCard === 'metodo-grito' && (
                     <div className="mt-4">
-                      {loadingMetodo ? (
-                        <div className="text-center py-4 text-gray-500">Carregando...</div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                          {/* Card Atendimentos Coletivos */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(metodoGritoData?.data.atendimentosColetivos.realizados ?? 0).toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Coletivos</p>
-                            <p className="text-xs text-gray-500">
-                              {metodoGritoData?.data.atendimentosColetivos.percentualTurmas ?? 0}% das turmas
-                            </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Card Intervenções */}
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {(intervencoesCountData?.total ?? 0).toLocaleString('pt-BR')}
                           </div>
-
-                          {/* Card Espaços Coletivos */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.espacosColetivos.total ?? 0}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium mb-1">#EspaçoOgrito</p>
-                            <p className="text-xs text-gray-500">
-                              {metodoGritoData?.data.espacosColetivos.percentual ?? 0}% da Meta 2026
-                            </p>
-                          </div>
-
-                          {/* Card Caravana Comunitária */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {metodoGritoData?.data.caravanasComunitarias ?? 0}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Caravana Comunitária</p>
-                          </div>
+                          <p className="text-xs text-gray-700 font-medium">Intervenções</p>
                         </div>
-                      )}
+
+                        {/* Card Espaços Coletivos */}
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-3xl font-bold text-yellow-600 mb-1">
+                            {psicoKpisData?.espacoOGrito ?? 0}
+                          </div>
+                          <p className="text-xs text-gray-700 font-medium">#EspaçoOGrito</p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1669,9 +1609,9 @@ const convertToStories = (historias: any[]) => {
                 Negócios Sociais
               </DialogTitle>
             </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
-            
+
+            <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
             <div className="space-y-4 mt-4">
               {/* Card Outlet */}
               <div
@@ -1693,15 +1633,15 @@ const convertToStories = (historias: any[]) => {
                       <ChevronDown className="w-5 h-5 text-gray-600" />
                     )}
                   </div>
-                  
+
                   {expandedNegocioCard === 'outlet' && (
                     <div className="mt-4">
                       {loadingNegocios ? (
                         <div className="text-center py-4 text-gray-500">Carregando...</div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="flex flex-wrap justify-center gap-3">
                           {/* Doações Recebidas */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm w-36">
                             <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
                               {negociosSociaisData?.data.outlet.doacoesRecebidas.toLocaleString('pt-BR')}
                             </div>
@@ -1709,20 +1649,21 @@ const convertToStories = (historias: any[]) => {
                           </div>
 
                           {/* Vendas - Pessoas Impactadas */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm w-36">
                             <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
-                              {negociosSociaisData?.data.outlet.vendasPessoasImpactadas.toLocaleString('pt-BR')}
+                              {(negociosSociaisData?.data.outlet.clientesAtendidos ?? 0).toLocaleString('pt-BR')}
                             </div>
-                            <p className="text-xs text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
+                            <p className="text-xs text-gray-700 font-medium">Clientes Atendidos</p>
                           </div>
 
-                          {/* Peças Vendidas */}
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          {/* Peças / Itens Vendidos */}
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm w-36">
                             <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
-                              {negociosSociaisData?.data.outlet.pecasVendidas.toLocaleString('pt-BR')}
+                              {(negociosSociaisData?.data.outlet.pecasVendidas ?? 0).toLocaleString('pt-BR')}
                             </div>
                             <p className="text-xs text-gray-700 font-medium">Peças / Itens Vendidos</p>
                           </div>
+
                         </div>
                       )}
                     </div>
@@ -1750,7 +1691,7 @@ const convertToStories = (historias: any[]) => {
                       <ChevronDown className="w-5 h-5 text-gray-600" />
                     )}
                   </div>
-                  
+
                   {expandedNegocioCard === 'griffte' && (
                     <div className="mt-4">
                       {loadingNegocios ? (
@@ -1791,15 +1732,14 @@ const convertToStories = (historias: any[]) => {
                 Programa de Esporte e Cultura
               </DialogTitle>
             </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
-            
+
+            <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
             <div className="space-y-4 mt-4">
               {/* Card Casa Sonhar */}
               <div
                 className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
                 onClick={() => setExpandedPECCard(expandedPECCard === 'casa-sonhar' ? null : 'casa-sonhar')}
-                data-testid="card-casa-sonhar"
               >
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -1809,53 +1749,34 @@ const convertToStories = (historias: any[]) => {
                       </div>
                       <h3 className="text-lg font-bold text-gray-800">Casa Sonhar</h3>
                     </div>
-                    {expandedPECCard === 'casa-sonhar' ? (
-                      <ChevronUp className="w-5 h-5 text-gray-600" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-gray-600" />
-                    )}
+                    {expandedPECCard === 'casa-sonhar' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                   </div>
-                  
                   {expandedPECCard === 'casa-sonhar' && (
                     <div className="mt-4">
-                      {loadingPEC ? (
-                        <div className="text-center py-4 text-gray-500">Carregando...</div>
-                      ) : (
+                      {loadingPEC ? <div className="text-center py-4 text-gray-500">Carregando...</div> : (
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.atendidos.toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.casaSonhar?.atendidos ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas em Atendimento</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.atendimentos.toLocaleString('pt-BR')}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.casaSonhar?.atendimentos ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {Math.round(pecData?.data.casaSonhar.frequencia ?? 0)}%
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{Math.round(pecData?.data?.casaSonhar?.frequencia ?? 0)}%</div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.alimentacao.toLocaleString('pt-BR')}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.casaSonhar?.alimentacao ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Alimentação</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.casaSonhar.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.casaSonhar?.horaAula ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
                           </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-casa-sonhar">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(pecData?.data.casaSonhar as any)?.evasao || 0}
-                            </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">0</div>
                             <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
@@ -1868,8 +1789,7 @@ const convertToStories = (historias: any[]) => {
               {/* Card Programa de Esporte e Cultura */}
               <div
                 className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                onClick={() => setExpandedPECCard(expandedPECCard === 'esporte-cultura' ? null : 'esporte-cultura')}
-                data-testid="card-esporte-cultura"
+                onClick={() => setExpandedPECCard(expandedPECCard === 'polo' ? null : 'polo')}
               >
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -1877,55 +1797,36 @@ const convertToStories = (historias: any[]) => {
                       <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
                         <Target className="w-5 h-5 text-white" />
                       </div>
-                      <h3 className="text-lg font-bold text-gray-800">Programa de Esporte e Cultura</h3>
+                      <h3 className="text-lg font-bold text-gray-800">Polo Esportivo Cultural</h3>
                     </div>
-                    {expandedPECCard === 'esporte-cultura' ? (
-                      <ChevronUp className="w-5 h-5 text-gray-600" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-gray-600" />
-                    )}
+                    {expandedPECCard === 'polo' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                   </div>
-                  
-                  {expandedPECCard === 'esporte-cultura' && (
+                  {expandedPECCard === 'polo' && (
                     <div className="mt-4">
-                      {loadingPEC ? (
-                        <div className="text-center py-4 text-gray-500">Carregando...</div>
-                      ) : (
+                      {loadingPEC ? <div className="text-center py-4 text-gray-500">Carregando...</div> : (
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.atendidos.toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.programaEsporteCultura?.atendidos ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas em Atendimento</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.atendimentos.toLocaleString('pt-BR')}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.programaEsporteCultura?.atendimentos ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {Math.round(pecData?.data.programaEsporteCultura.frequencia ?? 0)}%
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{Math.round(pecData?.data?.programaEsporteCultura?.frequencia ?? 0)}%</div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.alimentacao.toLocaleString('pt-BR')}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.programaEsporteCultura?.alimentacao ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Alimentação</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.programaEsporteCultura.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.programaEsporteCultura?.horaAula ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
                           </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm" data-testid="card-evasao-esporte-cultura">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(pecData?.data.programaEsporteCultura as any)?.evasao || 0}
-                            </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.programaEsporteCultura?.evasao ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
@@ -1939,7 +1840,6 @@ const convertToStories = (historias: any[]) => {
               <div
                 className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
                 onClick={() => setExpandedPECCard(expandedPECCard === 'serenata' ? null : 'serenata')}
-                data-testid="card-serenata"
               >
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -1949,47 +1849,30 @@ const convertToStories = (historias: any[]) => {
                       </div>
                       <h3 className="text-lg font-bold text-gray-800">Serenata</h3>
                     </div>
-                    {expandedPECCard === 'serenata' ? (
-                      <ChevronUp className="w-5 h-5 text-gray-600" />
-                    ) : (
-                      <ChevronDown className="w-5 h-5 text-gray-600" />
-                    )}
+                    {expandedPECCard === 'serenata' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                   </div>
-                  
                   {expandedPECCard === 'serenata' && (
                     <div className="mt-4">
-                      {loadingPEC ? (
-                        <div className="text-center py-4 text-gray-500">Carregando...</div>
-                      ) : (
+                      {loadingPEC ? <div className="text-center py-4 text-gray-500">Carregando...</div> : (
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.serenata.atendidos.toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Atendidos</p>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.serenata?.atendidos ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas em Atendimento</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.serenata.atendimentos.toLocaleString('pt-BR')}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.serenata?.atendimentos ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {Math.round(pecData?.data.serenata.frequencia ?? 0)}%
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{Math.round(pecData?.data?.serenata?.frequencia ?? 0)}%</div>
                             <p className="text-xs text-gray-700 font-medium">Frequência</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {pecData?.data.serenata.horaAula.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                            </div>
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.serenata?.horaAula ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</div>
                             <p className="text-xs text-gray-700 font-medium">Hora-Aula</p>
                           </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2 w-1/2 mx-auto">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(pecData?.data.serenata as any)?.evasao ?? 0}
-                            </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                            <div className="text-3xl font-bold text-yellow-600 mb-1">{(pecData?.data?.serenata?.evasao ?? 0).toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Evasão (alunos)</p>
                           </div>
                         </div>
@@ -2011,112 +1894,115 @@ const convertToStories = (historias: any[]) => {
                 Inclusão Produtiva
               </DialogTitle>
             </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
-            
+
+            <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
             <div className="space-y-4 mt-4">
               {loadingInclusao ? (
                 <div className="text-center py-8 text-gray-500">Carregando...</div>
               ) : inclusaoData?.projetos ? (
                 <>
-                {inclusaoData.projetos.map((projeto, index) => {
-                  const bgColors = ['bg-yellow-50', 'bg-yellow-50', 'bg-yellow-50'];
-                  const iconColors = ['bg-yellow-500', 'bg-yellow-500', 'bg-yellow-500'];
-                  const textColors = ['text-yellow-600', 'text-yellow-600', 'text-yellow-600'];
-                  const icons = [<Briefcase key="1" className="w-5 h-5 text-white" />, <GraduationCap key="2" className="w-5 h-5 text-white" />, <Target key="3" className="w-5 h-5 text-white" />];
-                  
-                  return (
-                    <div
-                      key={projeto.nome}
-                      className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
-                      onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === projeto.nome ? null : projeto.nome)}
-                      data-testid={`card-inclusao-${index}`}
-                    >
-                      <div className="p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
-                              {icons[index % 3]}
+                  {inclusaoData.projetos.map((projeto, index) => {
+                    const bgColors = ['bg-yellow-50', 'bg-yellow-50', 'bg-yellow-50'];
+                    const iconColors = ['bg-yellow-500', 'bg-yellow-500', 'bg-yellow-500'];
+                    const textColors = ['text-yellow-600', 'text-yellow-600', 'text-yellow-600'];
+                    const icons = [<Briefcase key="1" className="w-5 h-5 text-white" />, <GraduationCap key="2" className="w-5 h-5 text-white" />, <Target key="3" className="w-5 h-5 text-white" />];
+
+                    return (
+                      <div
+                        key={projeto.nome}
+                        className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
+                        onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === projeto.nome ? null : projeto.nome)}
+                        data-testid={`card-inclusao-${index}`}
+                      >
+                        <div className="p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
+                                {icons[index % 3]}
+                              </div>
+                              <h3 className="text-lg font-bold text-gray-800">{projeto.nome}</h3>
                             </div>
-                            <h3 className="text-lg font-bold text-gray-800">{projeto.nome}</h3>
+                            {expandedInclusaoCard === projeto.nome ? (
+                              <ChevronUp className="w-5 h-5 text-gray-600" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5 text-gray-600" />
+                            )}
                           </div>
-                          {expandedInclusaoCard === projeto.nome ? (
-                            <ChevronUp className="w-5 h-5 text-gray-600" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-600" />
+
+                          {expandedInclusaoCard === projeto.nome && (
+                            <div className="mt-4">
+                              <div className="grid grid-cols-2 gap-3">
+                                {projeto.indicadores.map((indicador, idx) => (
+                                  <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
+                                    <div className={`text-3xl font-bold ${textColors[index % 3]} mb-1`}>
+                                      {indicador.unidade === '%'
+                                        ? `${Math.round(indicador.valor)}%`
+                                        : Math.round(indicador.valor).toLocaleString('pt-BR')}
+                                    </div>
+                                    <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
+                                    {indicador.meta && (
+                                      <div className="mt-2">
+                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                          <div
+                                            className="h-2 rounded-full"
+                                            style={{
+                                              width: `${Math.min(100, (indicador.valor / indicador.meta) * 100)}%`,
+                                              backgroundColor: kpiColor((indicador.valor / indicador.meta) * 100)
+                                            }}
+                                          />
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">Meta: {indicador.meta}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
                         </div>
-                        
-                        {expandedInclusaoCard === projeto.nome && (
-                          <div className="mt-4">
-                            <div className="grid grid-cols-2 gap-3">
-                              {projeto.indicadores.map((indicador, idx) => (
-                                <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
-                                  <div className={`text-3xl font-bold ${textColors[index % 3]} mb-1`}>
-                                    {indicador.unidade === '%'
-                                      ? `${Math.round(indicador.valor)}%`
-                                      : Math.round(indicador.valor).toLocaleString('pt-BR')}
-                                  </div>
-                                  <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
-                                  {indicador.meta && (
-                                    <div className="mt-2">
-                                      <div className="w-full bg-gray-200 rounded-full h-2">
-                                        <div 
-                                          className={`h-2 rounded-full ${iconColors[index % 3]}`}
-                                          style={{ width: `${Math.min(100, (indicador.valor / indicador.meta) * 100)}%` }}
-                                        />
-                                      </div>
-                                      <p className="text-xs text-gray-500 mt-1">Meta: {indicador.meta}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
+                      </div>
+                    );
+                  })}
+                  {/* Card Geração de Renda - último, com expandir/recolher */}
+                  <div
+                    className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                    onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === 'geracaoRenda' ? null : 'geracaoRenda')}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-white" />
                           </div>
+                          <h3 className="text-lg font-bold text-gray-800">GERAÇÃO DE RENDA</h3>
+                        </div>
+                        {expandedInclusaoCard === 'geracaoRenda' ? (
+                          <ChevronUp className="w-5 h-5 text-gray-600" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-gray-600" />
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-                {/* Card Geração de Renda - último, com expandir/recolher */}
-                <div
-                  className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                  onClick={() => setExpandedInclusaoCard(expandedInclusaoCard === 'geracaoRenda' ? null : 'geracaoRenda')}
-                >
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
-                          <TrendingUp className="w-5 h-5 text-white" />
+                      {expandedInclusaoCard === 'geracaoRenda' && (
+                        <div className="mt-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {(inclusaoData.geracaoRenda?.empregados ?? 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Empregados</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-3xl font-bold text-yellow-600 mb-1">
+                                {(inclusaoData.geracaoRenda?.empreendedores ?? 0).toLocaleString('pt-BR')}
+                              </div>
+                              <p className="text-xs text-gray-700 font-medium">Empreendedores</p>
+                            </div>
+                          </div>
                         </div>
-                        <h3 className="text-lg font-bold text-gray-800">GERAÇÃO DE RENDA</h3>
-                      </div>
-                      {expandedInclusaoCard === 'geracaoRenda' ? (
-                        <ChevronUp className="w-5 h-5 text-gray-600" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-600" />
                       )}
                     </div>
-                    {expandedInclusaoCard === 'geracaoRenda' && (
-                      <div className="mt-4">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(inclusaoData.geracaoRenda?.empregados ?? 0).toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Empregados</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-3xl font-bold text-yellow-600 mb-1">
-                              {(inclusaoData.geracaoRenda?.empreendedores ?? 0).toLocaleString('pt-BR')}
-                            </div>
-                            <p className="text-xs text-gray-700 font-medium">Empreendedores</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                </div>
                 </>
               ) : (
                 <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
@@ -2134,77 +2020,118 @@ const convertToStories = (historias: any[]) => {
                 Favela 3D
               </DialogTitle>
             </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2025</p>
-            
+
+            <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
             <div className="space-y-4 mt-4">
               {loadingF3D ? (
                 <div className="text-center py-8 text-gray-500">Carregando...</div>
-              ) : f3dData?.eixos ? (
-                f3dData.eixos.map((eixo: any, index: number) => {
-                  const bgColors = ['bg-purple-50', 'bg-purple-50', 'bg-purple-50'];
-                  const iconColors = ['bg-purple-500', 'bg-purple-500', 'bg-purple-500'];
-                  const textColors = ['text-purple-600', 'text-purple-600', 'text-purple-600'];
-                  const icons = [<Users key="1" className="w-5 h-5 text-white" />, <TrendingUp key="2" className="w-5 h-5 text-white" />, <Home key="3" className="w-5 h-5 text-white" />];
-                  
-                  return (
-                    <div
-                      key={eixo.nome}
-                      className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
-                      onClick={() => setExpandedF3DCard(expandedF3DCard === eixo.nome ? null : eixo.nome)}
-                      data-testid={`card-f3d-${index}`}
-                    >
-                      <div className="p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
-                              {icons[index % 3]}
-                            </div>
-                            <h3 className="text-lg font-bold text-gray-800">{eixo.nome}</h3>
-                          </div>
-                          {expandedF3DCard === eixo.nome ? (
-                            <ChevronUp className="w-5 h-5 text-gray-600" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-600" />
-                          )}
-                        </div>
-                        
-                        {expandedF3DCard === eixo.nome && (
-                          <div className="mt-4">
-                            <div className={`grid gap-3 ${eixo.indicadores.length === 1 ? 'grid-cols-1 max-w-[200px] mx-auto' : 'grid-cols-2'}`}>
-                              {eixo.indicadores.map((indicador: any, idx: number) => (
-                                <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
-                                  <div className={`text-2xl font-bold ${textColors[index % 3]} mb-1`}>
-                                    {(indicador.valor ?? 0).toLocaleString('pt-BR')}
-                                  </div>
-                                  <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
-                                  {indicador.impacto > 0 && (
-                                    <p className="text-xs text-green-600 mt-1">Pessoas Impactadas: {indicador.impacto.toLocaleString('pt-BR')}</p>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
               ) : (
-                <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
+                <>
+                  {/* Panorama Favela 3D — accordion card */}
+                  <div
+                    className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                    onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                            <Users className="w-5 h-5 text-white" />
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
+                        </div>
+                        {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                      </div>
+                      {expandedF3DCard === 'panorama' && (
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.familias ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Famílias</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.visitas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Visitas</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Atendimentos Coletivos — accordion card */}
+                  <div
+                    className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                    onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-white" />
+                          </div>
+                          <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
+                        </div>
+                        {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                      </div>
+                      {expandedF3DCard === 'coletivos' && (
+                        <div className="mt-4 space-y-3">
+                          {/* Gerando Liderança */}
+                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Registros</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                            </div>
+                          </div>
+                          {/* Assembleia */}
+                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Registros</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                            </div>
+                          </div>
+                          {/* Grupo de Mulheres */}
+                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Registros</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </DialogContent>
         </Dialog>
 
         {/* 6. Seção Check-in - Componente unificado */}
-        <CheckinCard 
-          userId={userId} 
+        <CheckinCard
+          userId={userId}
           onCheckinComplete={() => {
             // Recarregar dados do usuário após check-in
             queryClient.invalidateQueries({ queryKey: ['/api/user', userId] });
             queryClient.invalidateQueries({ queryKey: ['checkin-status', userId] });
-          }} 
+          }}
         />
 
         {/* 7. Missão da Semana */}
@@ -2224,7 +2151,7 @@ const convertToStories = (historias: any[]) => {
           {/* Card principal com sombra */}
           <motion.div
             style={{
-              backgroundImage: 'url("/attached_assets/BG_1756832442490.png")',
+              backgroundImage: 'url("/assets/migrated/BG_1756832442490.png")',
               backgroundSize: "cover",
               backgroundPosition: "center",
               width: "338px",
@@ -2319,7 +2246,7 @@ const convertToStories = (historias: any[]) => {
           >
             {/* Imagem das moedas */}
             <motion.img
-              src="/attached_assets/image (7)_1756832872920.png"
+              src="/assets/migrated/image (7)_1756832872920.png"
               alt="Moedas empilhadas"
               className="relative z-10"
               style={{ width: "160px", height: "160px", objectFit: "contain" }}
@@ -2381,12 +2308,11 @@ const convertToStories = (historias: any[]) => {
                   style={{
                     width: "320px",
                     height: "180px",
-                    backgroundImage: `url("/api/historias-inspiradoras/${
-                      story.id
-                    }/imagem?tipo=box"), url(${JSON.stringify(
-                      story.image ||
+                    backgroundImage: `url("/api/historias-inspiradoras/${story.id
+                      }/imagem?tipo=box"), url(${JSON.stringify(
+                        story.image ||
                         "https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face"
-                    )})`,
+                      )})`,
                     backgroundSize: "cover",
                     backgroundPosition: "center",
                   }}
@@ -2410,11 +2336,10 @@ const convertToStories = (historias: any[]) => {
               <button
                 key={index}
                 onClick={() => scrollToStory(index)}
-                className={`w-2 h-2 rounded-full transition-colors duration-200 ${
-                  activeStoryIndex === index
+                className={`w-2 h-2 rounded-full transition-colors duration-200 ${activeStoryIndex === index
                     ? "bg-gray-800"
                     : "bg-gray-300 hover:bg-gray-500"
-                }`}
+                  }`}
                 aria-label={`Ir para história ${index + 1}`}
               />
             ))}
@@ -2499,12 +2424,12 @@ const convertToStories = (historias: any[]) => {
       <BottomNavigation hidden={showStories} />
 
       {/* Stories Viewer */}
-     {showStories && (
+      {showStories && (
         <StoriesViewer
           stories={finalStories}
           initialStoryIndex={selectedStoryIndex}
           onClose={() => setShowStories(false)}
-          // NÃO passa useRealData ou deixa false (porque já passou stories prontas)
+        // NÃO passa useRealData ou deixa false (porque já passou stories prontas)
         />
       )}
       {/* Modal de Benefícios */}
@@ -2689,6 +2614,8 @@ const convertToStories = (historias: any[]) => {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              <PrivacyPreferencesMenuItem onAfterClick={() => setShowHelpMenu(false)} />
+
               {/* Administrador - Apenas para Leo Martins */}
               {(() => {
                 // 🔐 Verificação por role - segura (não usa telefone ou email hardcoded)
@@ -2697,42 +2624,42 @@ const convertToStories = (historias: any[]) => {
                 console.log('🔍 [LEO CHECK] Role:', userPapel, 'isLeo:', isLeo);
                 return isLeo;
               })() && (
-                <div>
-                  <div
-                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-purple-50"
-                    onClick={() => {
-                      setShowHelpMenu(false);
-                      setTimeout(() => setLocation("/administrador"), 150);
-                    }}
-                  >
-                    <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Crown className="w-6 h-6 text-white" />
+                  <div>
+                    <div
+                      className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-purple-50"
+                      onClick={() => {
+                        setShowHelpMenu(false);
+                        setTimeout(() => setLocation("/administrador"), 150);
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Crown className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3
+                          className="font-semibold text-gray-900 text-base"
+                          style={{
+                            fontFamily:
+                              "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                          }}
+                        >
+                          Administrador
+                        </h3>
+                        <p
+                          className="text-sm text-gray-600 mt-1 leading-relaxed"
+                          style={{
+                            fontFamily:
+                              "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                          }}
+                        >
+                          Painel executivo e gestão institucional.
+                        </p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3
-                        className="font-semibold text-gray-900 text-base"
-                        style={{
-                          fontFamily:
-                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
-                        }}
-                      >
-                        Administrador
-                      </h3>
-                      <p
-                        className="text-sm text-gray-600 mt-1 leading-relaxed"
-                        style={{
-                          fontFamily:
-                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
-                        }}
-                      >
-                        Painel executivo e gestão institucional.
-                      </p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <div className="border-b border-gray-100 mx-4"></div>
                   </div>
-                  <div className="border-b border-gray-100 mx-4"></div>
-                </div>
-              )}
+                )}
 
               {/* Benefícios */}
               <div>
@@ -2829,42 +2756,42 @@ const convertToStories = (historias: any[]) => {
                 );
                 return userData.role === "leo";
               })() && (
-                <div>
-                  <div
-                    className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                    onClick={() => {
-                      setShowHelpMenu(false);
-                      setTimeout(() => setLocation("/administrador"), 150);
-                    }}
-                  >
-                    <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Shield className="w-6 h-6 text-white" />
+                  <div>
+                    <div
+                      className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                      onClick={() => {
+                        setShowHelpMenu(false);
+                        setTimeout(() => setLocation("/administrador"), 150);
+                      }}
+                    >
+                      <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Shield className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3
+                          className="font-semibold text-gray-900 text-base"
+                          style={{
+                            fontFamily:
+                              "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                          }}
+                        >
+                          Administrador
+                        </h3>
+                        <p
+                          className="text-sm text-gray-600 mt-1 leading-relaxed"
+                          style={{
+                            fontFamily:
+                              "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                          }}
+                        >
+                          Acesso ao painel administrativo completo.
+                        </p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3
-                        className="font-semibold text-gray-900 text-base"
-                        style={{
-                          fontFamily:
-                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
-                        }}
-                      >
-                        Administrador
-                      </h3>
-                      <p
-                        className="text-sm text-gray-600 mt-1 leading-relaxed"
-                        style={{
-                          fontFamily:
-                            "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
-                        }}
-                      >
-                        Acesso ao painel administrativo completo.
-                      </p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <div className="border-b border-gray-100 mx-4"></div>
                   </div>
-                  <div className="border-b border-gray-100 mx-4"></div>
-                </div>
-              )}
+                )}
 
               {/* Termos de Uso */}
               <div>
@@ -2872,10 +2799,7 @@ const convertToStories = (historias: any[]) => {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    setTimeout(
-                      () => setLocation("/termos-servicos?from=help"),
-                      150
-                    );
+                    setTimeout(() => setLocation("/termos-de-uso"), 150);
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -2906,13 +2830,50 @@ const convertToStories = (historias: any[]) => {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              {/* Política de Privacidade */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    setTimeout(() => setLocation("/politica-de-privacidade"), 150);
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3
+                      className="font-semibold text-gray-900 text-base"
+                      style={{
+                        fontFamily:
+                          "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                      }}
+                    >
+                      Política de Privacidade
+                    </h3>
+                    <p
+                      className="text-sm text-gray-600 mt-1 leading-relaxed"
+                      style={{
+                        fontFamily:
+                          "SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+                      }}
+                    >
+                      Como cuidamos dos seus dados pessoais.
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
               {/* Canal de Transparência */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                    window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -2953,7 +2914,7 @@ const convertToStories = (historias: any[]) => {
                       title: "Saindo da conta",
                       description: "Você será desconectado...",
                     });
-                    localStorage.clear();
+                    clearLocalStoragePreservingLgpd();
                     sessionStorage.clear();
                     setTimeout(() => (window.location.href = "/entrar"), 1000);
                   }}
@@ -2997,8 +2958,8 @@ const convertToStories = (historias: any[]) => {
                   {programasData[programaAberto].nome}
                 </DialogTitle>
               </DialogHeader>
-            
-            <p className="text-sm text-gray-500 mt-1">Dados Anuais 2026</p>
+
+              <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
 
               {/* Categorias e Dados */}
               <div className="mt-4 space-y-6">
@@ -3008,11 +2969,11 @@ const convertToStories = (historias: any[]) => {
                     <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
                       {categoria.titulo}
                     </h3>
-                    
+
                     {/* Lista de Dados */}
                     <div className="space-y-2">
                       {categoria.dados.map((dado, dadoIndex) => (
-                        <div 
+                        <div
                           key={dadoIndex}
                           className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                           data-testid={`dado-${catIndex}-${dadoIndex}`}

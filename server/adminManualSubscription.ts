@@ -4,6 +4,7 @@ import { db } from "./db";
 import { users, doadores, donorSubscriptions } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { normalizePhoneToE164 } from "./stripeHelpers";
+import { safeErrorPayload } from "./lib/safeError";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -190,10 +191,7 @@ export function registerAdminManualSubscription(app: Express) {
       
     } catch (error: any) {
       console.error('❌ [ADMIN MANUAL SUB] Erro:', error);
-      res.status(500).json({ 
-        success: false,
-        error: error.message 
-      });
+      res.status(500).json({ success: false, ...safeErrorPayload(error) });
     }
   });
 }

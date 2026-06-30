@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { format, parse, isValid } from 'date-fns';
-import { CalendarIcon, Plus, X, Upload, FileText, Trash2, ExternalLink } from 'lucide-react';
+import { CalendarIcon, Plus, X, Upload, FileText, Trash2, ExternalLink, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +20,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
+
+// ========== HELPERS ==========
+const GCS_PREFIX = /^https?:\/\/storage\.googleapis\.com\/[^/]+\//;
+function toProxyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (GCS_PREFIX.test(url)) {
+    return `/api/gcs-foto-proxy?path=${encodeURIComponent(url.replace(GCS_PREFIX, ''))}`;
+  }
+  return url;
+}
 
 // ========== FUNÇÕES DE MÁSCARA ==========
 
@@ -47,6 +57,144 @@ export function maskPhone(value: string): string {
   if (digits.length <= 2) return digits.length > 0 ? `(${digits}` : '';
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function unwrapApiPayload(payload: any) {
+  if (!payload || typeof payload !== "object") return payload;
+  return payload.data && typeof payload.data === "object" ? payload.data : payload;
+}
+
+function boolToFormEnum(val: any, trueVal: string, falseVal: string): string | undefined {
+  if (val === true || val === 'true') return trueVal;
+  if (val === false || val === 'false') return falseVal;
+  if (typeof val === 'string' && val.length > 0) {
+    const lower = val.toLowerCase().trim();
+    if (lower === 'sim' || lower === 's') return trueVal;
+    if (lower === 'nao' || lower === 'não' || lower === 'n') return falseVal;
+    return val;
+  }
+  return undefined;
+}
+
+function benefitToFormEnum(val: any): 'sim' | 'nao' | undefined {
+  return boolToFormEnum(val, 'sim', 'nao') as 'sim' | 'nao' | undefined;
+}
+
+function parseMoraDesdeAno(val: unknown): number | undefined {
+  if (val == null || val === '') return undefined;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  const digits = String(val).replace(/\D/g, '');
+  if (digits.length === 4) return parseInt(digits, 10);
+  const n = parseInt(String(val), 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Mapeia registro completo do aluno PEC (snake_case da API) para o formulário. */
+function mapPecAlunoToFormData(data: Record<string, any>): Record<string, any> {
+  const telDigits = (v: string) => String(v || '').replace(/\D/g, '');
+  const whatsappDigits = telDigits(data.whatsapp);
+
+  return {
+    cpf: onlyDigits(data.cpf),
+    nome_completo: data.nome_completo,
+    area: data.area || 'pec',
+    foto_perfil: data.foto_perfil,
+    data_nascimento: data.data_nascimento
+      ? format(new Date(String(data.data_nascimento).slice(0, 10) + 'T12:00:00'), 'dd/MM/yyyy')
+      : '',
+    genero: (data.genero || 'feminino').toLowerCase(),
+    numero_matricula: data.numero_matricula,
+    id_catraca: data.id_catraca || (data.cpf ? String(data.cpf).replace(/\D/g, '') : ''),
+    estado_civil: data.estado_civil,
+    religiao: data.religiao,
+    naturalidade: data.naturalidade,
+    nacionalidade: data.nacionalidade || 'Brasil',
+    pode_sair_sozinho: boolToFormEnum(data.pode_sair_sozinho, 'sim', 'nao'),
+    tamanho_calca: data.tamanho_calca,
+    tamanho_camiseta: data.tamanho_camiseta,
+    tamanho_calcado: data.tamanho_calcado,
+    cor_raca: data.cor_raca ? String(data.cor_raca).toLowerCase() : undefined,
+    frequenta_projeto_social: boolToFormEnum(data.frequenta_projeto_social, 'sim', 'nao'),
+    projeto_social_qual: data.projeto_social_qual,
+    acesso_internet: boolToFormEnum(data.acesso_internet, 'sim', 'nao'),
+    internet_qual: data.internet_qual,
+    rg: data.rg,
+    orgao_emissor: data.orgao_emissor,
+    ctps_numero: data.ctps_numero,
+    ctps_serie: data.ctps_serie,
+    titulo_eleitor: data.titulo_eleitor,
+    nis_pis_pasep: data.nis_pis_pasep,
+    documentos_possui: Array.isArray(data.documentos_possui) ? data.documentos_possui : [],
+    email: data.email,
+    telefone: data.telefone,
+    telefone_whatsapp: whatsappDigits.length > 0 && telDigits(data.telefone) === whatsappDigits,
+    telefones_adicionais: Array.isArray(data.telefones_adicionais) ? data.telefones_adicionais : [],
+    contatos_emergencia: Array.isArray(data.contatos_emergencia) ? data.contatos_emergencia : [],
+    cep: data.cep,
+    logradouro: data.logradouro,
+    numero: data.numero,
+    complemento: data.complemento,
+    bairro: data.bairro,
+    cidade: data.cidade,
+    estado: data.estado,
+    ponto_referencia: data.ponto_referencia,
+    mora_desde_ano: parseMoraDesdeAno(data.mora_desde_ano ?? data.mora_desde),
+    cadunico: benefitToFormEnum(data.cadunico) || 'nao',
+    bolsa_familia: benefitToFormEnum(data.bolsa_familia) || 'nao',
+    bpc: benefitToFormEnum(data.bpc) || 'nao',
+    cartao_alimentacao: benefitToFormEnum(data.cartao_alimentacao) || 'nao',
+    outros_beneficios: benefitToFormEnum(data.outros_beneficios) || 'nao',
+    data_entrada: data.data_entrada
+      ? new Date(String(data.data_entrada).slice(0, 10) + 'T12:00:00')
+      : null,
+    forma_acesso: data.forma_acesso || 'Busca ativa',
+    demandas: Array.isArray(data.demandas) ? data.demandas : [],
+    observacoes_gerais: data.observacoes_gerais,
+    serie: data.serie,
+    escolaridade: data.escolaridade,
+    situacao_escolar: data.situacao_escolar ? String(data.situacao_escolar).toLowerCase() : undefined,
+    escola_formou: data.escola_formou,
+    ano_conclusao_em: data.ano_conclusao_em,
+    turno_escolar: Array.isArray(data.turno_escolar) ? data.turno_escolar : [],
+    instituicao_ensino: data.instituicao_ensino,
+    e_alfabetizado:
+      data.e_alfabetizado === true || data.e_alfabetizado === 'true'
+        ? 'sabe_ler_escrever'
+        : data.e_alfabetizado === false || data.e_alfabetizado === 'false'
+          ? 'nao_sabe_ler_nem_escrever'
+          : data.e_alfabetizado
+            ? String(data.e_alfabetizado).toLowerCase()
+            : undefined,
+    bairro_escola: data.bairro_escola,
+    situacao_profissional: data.situacao_profissional,
+    procura_trabalho: boolToFormEnum(data.procura_trabalho, 'sim', 'nao'),
+    trabalhos_atuais: Array.isArray(data.trabalhos_atuais) ? data.trabalhos_atuais : [],
+    experiencias_profissionais: Array.isArray(data.experiencias_profissionais) ? data.experiencias_profissionais : [],
+    possui_particularidade_saude: boolToFormEnum(data.possui_particularidade_saude, 'sim', 'nao'),
+    detalhes_particularidade: data.detalhes_particularidade,
+    possui_alergia: boolToFormEnum(data.possui_alergia, 'sim', 'nao'),
+    detalhes_alergia: data.detalhes_alergia,
+    faz_uso_medicamento: boolToFormEnum(data.faz_uso_medicamento, 'sim', 'nao'),
+    detalhes_medicamento: data.detalhes_medicamento,
+    possui_deficiencia: boolToFormEnum(data.possui_deficiencia, 'sim', 'nao_possui'),
+    detalhes_deficiencia: data.detalhes_deficiencia,
+    contatos_saude: Array.isArray(data.contatos_saude)
+      ? (data.contatos_saude[0] || undefined)
+      : (data.contatos_saude || undefined),
+    faz_uso_quimicos: boolToFormEnum(data.faz_uso_quimicos, 'sim', 'nao_possui'),
+    familiar_usa_quimicos: boolToFormEnum(data.familiar_usa_quimicos, 'sim', 'nao_possui'),
+    tipo_sanguineo: data.tipo_sanguineo,
+    restricao_alimentar: boolToFormEnum(data.restricao_alimentar, 'sim', 'nao'),
+    detalhes_restricao_alimentar: data.detalhes_restricao_alimentar,
+    possui_convenio_medico: boolToFormEnum(data.possui_convenio_medico, 'sim', 'nao'),
+    detalhes_convenio_medico: data.detalhes_convenio_medico,
+    historico_medico: boolToFormEnum(data.historico_medico, 'sim', 'nao'),
+    ja_teve_ou_costuma_ter: Array.isArray(data.ja_teve_ou_costuma_ter) ? data.ja_teve_ou_costuma_ter : [],
+    detalhes_historico_medico: data.detalhes_historico_medico,
+    relacionamentos_familiares: Array.isArray(data.relacionamentos_familiares) ? data.relacionamentos_familiares : [],
+    outros_relacionamentos: Array.isArray(data.outros_relacionamentos) ? data.outros_relacionamentos : [],
+    professorId: data.professorId,
+  };
 }
 
 // Máscara para Data: DD/MM/AAAA
@@ -128,6 +276,20 @@ export function validateRG(rg: string): boolean {
   return digits.length >= 7 && digits.length <= 9;
 }
 
+// CPF provisório: começa com 00000000 (8 zeros)
+function isCpfProvisorioCSF(cpf: string | null | undefined): boolean {
+  if (!cpf) return false;
+  const digits = cpf.replace(/\D/g, '');
+  return digits.length === 11 && digits.startsWith('00000000');
+}
+
+async function gerarCpfProvisorioCSF(): Promise<string> {
+  const r = await fetch("/api/favela3d/next-cpf-provisorio", { credentials: "include" });
+  if (!r.ok) throw new Error("Falha ao gerar CPF provisório");
+  const d = await r.json();
+  return d.cpf;
+}
+
 // Validar data no formato DD/MM/AAAA
 export function validateDate(date: string): boolean {
   const match = date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -157,15 +319,15 @@ const normEnum = (v: unknown) => typeof v === 'string' ? v.toLowerCase().trim() 
 const studentRegistrationSchema = z.object({
   // SEÇÃO 1: Identificação
   nome_completo: z.string().min(1, "Nome é obrigatório"),
-  data_nascimento: z.string().min(1, "Data de nascimento é obrigatória").refine(
-    (val) => validateDate(val),
+  data_nascimento: z.string().optional().refine(
+    (val) => !val || validateDate(val),
     { message: "Data inválida. Use o formato DD/MM/AAAA" }
   ),
   genero: z.preprocess(normEnum, z.enum(['feminino', 'masculino', 'nao_binario', 'nao_informado'], {
     required_error: "Selecione o gênero",
     invalid_type_error: "Selecione o gênero"
   })),
-  area: z.enum(["pec", "inclusao"], { required_error: "Área é obrigatória" }),
+  area: z.enum(["pec", "inclusao", "favela3d"], { required_error: "Área é obrigatória" }),
   foto_perfil: z.string().optional().nullable(),
   numero_matricula: z.string().optional().nullable(),
   id_catraca: z.string().optional().nullable(),
@@ -186,7 +348,7 @@ const studentRegistrationSchema = z.object({
   // SEÇÃO 2: Documentos
  cpf: z.string().min(1, "CPF é obrigatório")
   .refine((val) => onlyDigits(val).length === 11, { message: "CPF deve ter 11 dígitos" })
-  .refine((val) => validateCPF(val), { message: "CPF inválido. Digite um CPF real" }),
+  .refine((val) => validateCPF(val) || isCpfProvisorioCSF(val), { message: "CPF inválido. Digite um CPF real" }),
 
   rg: z.string().optional().nullable().refine(
     (val) => !val || val.length === 0 || validateRG(val),
@@ -242,6 +404,7 @@ const studentRegistrationSchema = z.object({
   
   // SEÇÃO 7: Escolar
   serie: z.string().optional(),
+  escolaridade: z.string().optional().nullable(),
   situacao_escolar: z.preprocess(normEnum, z.enum(['cursando', 'interrompido', 'concluido']).optional()),
   escola_formou: z.string().optional().nullable(),
   ano_conclusao_em: z.string().optional().nullable(),
@@ -251,6 +414,7 @@ const studentRegistrationSchema = z.object({
   bairro_escola: z.string().optional(),
   
   // SEÇÃO 8: Profissional
+  situacao_profissional: z.string().optional(),
   procura_trabalho: z.preprocess(normEnum, z.enum(['sim', 'nao']).optional()),
   trabalhos_atuais: z.array(z.object({
     situacao: z.string(),
@@ -346,7 +510,7 @@ interface ComprehensiveStudentFormProps {
   editCpf?: string;
   editId?: number; // For inclusao mode (uses numeric ID)
   viewMode?: boolean;
-  mode?: 'pec' | 'inclusao'; // pec = alunos PEC/Esporte-Cultura, inclusao = Inclusão Produtiva
+  mode?: 'pec' | 'inclusao' | 'favela3d' | 'comunidade'; // pec = alunos PEC/Esporte-Cultura, inclusao = Inclusão Produtiva, favela3d = Favela 3D, comunidade = Atendidos Comunidade
 }
 
 // ===================== RASCUNHOS (localStorage) =====================
@@ -477,7 +641,18 @@ function deleteDraftLS(userId: string | null, mode: DraftMode, draftId: string) 
 // =================== FIM RASCUNHOS (localStorage) ===================
 
 export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewMode = false, mode = 'pec' }: ComprehensiveStudentFormProps) {
-  const isEditMode = mode === 'inclusao' ? !!editId : !!editCpf;
+  const isComunidade = mode === 'comunidade';
+  const isFavela3D = mode === 'favela3d' || isComunidade; // visual behavior: same wizard for both
+  const isStrictFavela3D = mode === 'favela3d'; // only for IGF-specific logic
+  const isEditMode = mode === 'inclusao' ? !!editId : (mode === 'favela3d' || isComunidade) ? !!editId : !!editCpf;
+  const normalizedEditCpf = onlyDigits(editCpf || "");
+  const [igfClassificacao, setIgfClassificacao] = React.useState('');
+  const [igfCriancas, setIgfCriancas] = React.useState(0);
+  const [igfAdolescentes, setIgfAdolescentes] = React.useState(0);
+  const [igfAdultos, setIgfAdultos] = React.useState(0);
+  const [igfIdosos, setIgfIdosos] = React.useState(0);
+  const [igfError, setIgfError] = React.useState(false);
+  const [rendaTipo, setRendaTipo] = React.useState('');
   const isReadOnly = viewMode;
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -492,7 +667,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   const [uploadingDocumento, setUploadingDocumento] = useState(false);
   const [pendingDocumentos, setPendingDocumentos] = useState<File[]>([]);
   const [showAddRelacaoModal, setShowAddRelacaoModal] = useState(false);
-  const [novaRelacao, setNovaRelacao] = useState({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' as 'familiar' | 'outro' });
+  const [novaRelacao, setNovaRelacao] = useState({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' as 'familiar' | 'outro', renda: '' });
   const [relacionamentosFamiliares, setRelacionamentosFamiliares] = useState<Array<{ nome: string; parentesco: string; relacao: string }>>([]);
   const [outrosRelacionamentos, setOutrosRelacionamentos] = useState<Array<{ nome: string; parentesco: string; relacao: string }>>([]);
   interface ResponsavelItem {
@@ -538,7 +713,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   const [novoTrabalho, setNovoTrabalho] = useState({ empresa: '', cargo: '', dataEntrada: '', dataSaida: '', remuneracao: '' });
   const [trabalhosAtuais, setTrabalhosAtuais] = useState<Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>>([]);
   const [experienciasPassadas, setExperienciasPassadas] = useState<Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>>([]);
-  
+  const loadedPecCpfRef = React.useRef<string | null>(null);
+
   const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -555,7 +731,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     resolver: zodResolver(studentRegistrationSchema),
     defaultValues: {
       genero: 'feminino',
-        area: mode === "inclusao" ? "inclusao" : "pec",
+        area: mode === "inclusao" ? "inclusao" : mode === "favela3d" ? "favela3d" : "pec",
       nacionalidade: 'Brasil',
       telefone_whatsapp: false,
       cadunico: 'nao',
@@ -610,6 +786,12 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   }, [cepValue]);
 
   useEffect(() => {
+    if (!open) {
+      loadedPecCpfRef.current = null;
+    }
+  }, [open]);
+
+  useEffect(() => {
     if (open && !isEditMode && !viewMode) {
       setCurrentSection(1);
       form.reset();
@@ -623,14 +805,126 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   }, [open]);
 
   useEffect(() => {
-    const shouldLoadData = mode === 'inclusao' ? (editId && open) : (editCpf && open);
+    const shouldLoadData = mode === 'inclusao' ? (editId && open) : (mode === 'favela3d' || isComunidade) ? (editId && open) : (editCpf && open);
     
     if (shouldLoadData) {
-      if (mode === 'inclusao' && editId) {
-        console.log('[EDIT FORM INCLUSAO] Carregando dados do participante:', editId);
-        fetch(`/api/participantes-inclusao/${editId}`)
+      if (isComunidade && editId) {
+        fetch(`/api/psico/atendidos-comunidade/${editId}`, { credentials: 'include' })
           .then(res => res.json())
           .then(data => {
+            if (data && !data.error) {
+              const boolToStr = (val: any) => {
+                if (val === true || val === 'true' || val === 'Sim') return 'sim';
+                if (val === false || val === 'false' || val === 'Não') return 'nao';
+                return 'nao';
+              };
+              const formData: any = {
+                area: 'comunidade',
+                nome_completo: data.nome || '',
+                cpf: data.cpf || '',
+                data_nascimento: data.data_nascimento
+                  ? format(new Date(String(data.data_nascimento).slice(0, 10) + 'T12:00:00'), 'dd/MM/yyyy')
+                  : '',
+                genero: (data.sexo || 'feminino').toLowerCase(),
+                cor_raca: data.raca ? data.raca.toLowerCase() : undefined,
+                telefone: data.telefone || '',
+                email: data.email || '',
+                cep: data.cep || '',
+                logradouro: data.endereco || '',
+                numero: data.numero || '',
+                complemento: data.complemento || '',
+                bairro: data.bairro || '',
+                cidade: data.cidade || '',
+                estado: data.estado || '',
+                cadunico: boolToStr(data.tem_cad_unico),
+                bolsa_familia: boolToStr(data.tem_bolsa_familia),
+                bpc: boolToStr(data.tem_bpc),
+                demandas: data.demandas
+                  ? data.demandas.split(',').map((d: string) => d.trim()).filter(Boolean)
+                  : [],
+                observacoes_gerais: data.observacoes || '',
+              };
+              Object.keys(formData).forEach(k => { if (formData[k] === null) formData[k] = undefined; });
+              form.reset(formData);
+              setIgfCriancas(Number(data.criancas) || 0);
+              setIgfAdolescentes(Number(data.adolescentes) || 0);
+              setIgfAdultos(Number(data.adultos) || 0);
+              setIgfIdosos(Number(data.idosos) || 0);
+              if (data.foto_url) setFotoPreview(toProxyUrl(data.foto_url));
+            }
+          })
+          .catch(err => console.error('[EDIT COMUNIDADE] Erro ao carregar:', err));
+      } else if (mode === 'favela3d' && editId) {
+        fetch(`/api/favela3d/participantes/${editId}`, { credentials: 'include' })
+          .then(res => res.json())
+          .then(data => {
+            if (data && !data.error) {
+              const boolToStr = (val: any) => {
+                if (val === true || val === 'true') return 'sim';
+                if (val === false || val === 'false') return 'nao';
+                return 'nao';
+              };
+              const formData: any = {
+                area: 'favela3d',
+                nome_completo: data.nome || '',
+                cpf: data.cpf || '',
+                data_nascimento: data.dataNascimento
+                  ? format(new Date(String(data.dataNascimento).slice(0, 10) + 'T12:00:00'), 'dd/MM/yyyy')
+                  : '',
+                genero: (data.genero || 'feminino').toLowerCase(),
+                cor_raca: data.raca ? data.raca.toLowerCase() : undefined,
+                telefone: data.telefone || '',
+                email: data.email || '',
+                cep: data.cep || '',
+                logradouro: data.endereco || '',
+                numero: data.numero || '',
+                complemento: data.complemento || '',
+                bairro: data.bairro || '',
+                cidade: data.cidade || '',
+                estado: data.estado || '',
+                cadunico: boolToStr(data.temCadUnico),
+                bolsa_familia: boolToStr(data.temBolsaFamilia),
+                bpc: boolToStr(data.temBpc),
+                carteira_idoso: boolToStr(data.temCarteiraIdoso),
+                demandas: data.demandas
+                  ? data.demandas.split(',').map((d: string) => d.trim()).filter(Boolean)
+                  : [],
+                observacoes_gerais: data.observacoes || '',
+                situacao_profissional: data.situacaoProfissional || '',
+                escolaridade: data.escolaridade || '',
+                serie: data.serie || '',
+                situacao_escolar: data.situacaoEscolar || undefined,
+                turno_escolar: data.turnoEscolar ? data.turnoEscolar.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+                instituicao_ensino: data.instituicaoEnsino || '',
+                e_alfabetizado: data.eAlfabetizado || undefined,
+                bairro_escola: data.bairroEscola || '',
+                data_entrada: data.dataEntrada
+                  ? new Date(String(data.dataEntrada).slice(0, 10) + 'T12:00:00')
+                  : null,
+                forma_acesso: data.formaAcesso || 'Busca ativa',
+              };
+              Object.keys(formData).forEach(k => { if (formData[k] === null) formData[k] = undefined; });
+              form.reset(formData);
+              setIgfClassificacao(data.igf || '');
+              setIgfCriancas(Number(data.criancas) || 0);
+              setIgfAdolescentes(Number(data.adolescentes) || 0);
+              setIgfAdultos(Number(data.adultos) || 0);
+              setIgfIdosos(Number(data.idosos) || 0);
+              setRendaTipo(data.rendaTipo || '');
+              if (Array.isArray(data.relacionamentos)) {
+                setRelacionamentosFamiliares(data.relacionamentos.filter((r: any) => r.tipo === 'familiar'));
+                setOutrosRelacionamentos(data.relacionamentos.filter((r: any) => r.tipo === 'outro'));
+              if (data.fotoUrl) setFotoPreview(toProxyUrl(data.fotoUrl));
+              }
+            }
+          })
+          .catch(err => console.error('[EDIT FAVELA3D] Erro ao carregar:', err));
+      } else if (mode === 'inclusao' && editId) {
+        console.log('[EDIT FORM INCLUSAO] Carregando dados do participante:', editId);
+        fetch(`/api/participantes-inclusao/${editId}`, { credentials: 'include' })
+          .then(res => res.json())
+          .then(raw => {
+            const data = unwrapApiPayload(raw);
             console.log('[EDIT FORM INCLUSAO] Dados recebidos:', data);
             if (data && !data.error) {
               // Helper: converts boolean DB values to the string enum expected by the form
@@ -645,7 +939,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 cpf: data.cpf || '',
                 nome_completo: data.nome,
                 area: data.area || 'inclusao',
-                data_nascimento: data.dataNascimento ? format(new Date(data.dataNascimento + 'T12:00:00'), 'dd/MM/yyyy') : '',
+                data_nascimento: data.dataNascimento ? format(new Date(String(data.dataNascimento).slice(0, 10) + 'T12:00:00'), 'dd/MM/yyyy') : '',
                 genero: (data.genero || 'feminino').toLowerCase(),
                 numero_matricula: data.codigoMatricula,
                 id_catraca: data.idCatraca || data.id_catraca || (data.cpf ? String(data.cpf).replace(/\D/g, '') : ''),
@@ -728,7 +1022,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               });
               form.reset(formData);
               if (data.fotoUrl) {
-                setFotoPreview(data.fotoUrl);
+                setFotoPreview(toProxyUrl(data.fotoUrl));
               }
               originalCpfRef.current = onlyDigits(formData.cpf || "");
               setRelacionamentosFamiliares(data.relacionamentosFamiliares || []);
@@ -740,79 +1034,52 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
             }
           })
           .catch(err => console.error('Erro ao carregar participante:', err));
-      } else if (mode === 'pec' && editCpf) {
-        console.log('[EDIT FORM] Carregando dados do aluno:', editCpf);
-        form.reset({});
-        setFotoPreview(null);
-        setFotoFile(null);
+      } else if (mode === 'pec' && normalizedEditCpf) {
+        if (loadedPecCpfRef.current === normalizedEditCpf) {
+          return;
+        }
+        loadedPecCpfRef.current = normalizedEditCpf;
+        console.log('[EDIT FORM] Carregando dados do aluno:', normalizedEditCpf);
         setDocumentos([]);
         setPendingDocumentos([]);
         setResponsaveisData([]);
         setShowResponsavelForm(false);
-        fetch(`/api/students/${editCpf}`)
+        fetch(`/api/students/${normalizedEditCpf}`, { credentials: 'include' })
           .then(res => res.json())
-          .then(data => {
+          .then(raw => {
+            const data = unwrapApiPayload(raw);
             console.log('[EDIT FORM] Dados recebidos:', data);
             console.log('[EDIT FORM] foto_perfil:', data?.foto_perfil);
             if (data && !data.error) {
-              const boolToEnumPec = (val: any, trueVal: string, falseVal: string): string | undefined => {
-                if (val === true || val === 'true') return trueVal;
-                if (val === false || val === 'false') return falseVal;
-                if (typeof val === 'string' && val.length > 0) return val;
-                return undefined;
-              };
-
-              const formData: any = {
-                cpf: onlyDigits(data.cpf),
-                nome_completo: data.nome_completo,
-                area: data.area || 'pec',
-                data_nascimento: data.data_nascimento ? format(new Date(data.data_nascimento), 'dd/MM/yyyy') : '',
-                genero: (data.genero || 'feminino').toLowerCase(),
-                numero_matricula: data.numero_matricula,
-                id_catraca: data.id_catraca || (data.cpf ? String(data.cpf).replace(/\D/g, '') : ''),
-                estado_civil: data.estado_civil,
-                religiao: data.religiao,
-                naturalidade: data.naturalidade,
-                nacionalidade: data.nacionalidade || 'Brasil',
-                pode_sair_sozinho: boolToEnumPec(data.pode_sair_sozinho, 'sim', 'nao'),
-                tamanho_calca: data.tamanho_calca,
-                tamanho_camiseta: data.tamanho_camiseta,
-                tamanho_calcado: data.tamanho_calcado,
-                cor_raca: data.cor_raca ? data.cor_raca.toLowerCase() : undefined,
-                cep: data.cep,
-                logradouro: data.logradouro,
-                numero: data.numero,
-                complemento: data.complemento,
-                bairro: data.bairro,
-                cidade: data.cidade,
-                estado: data.estado,
-                ponto_referencia: data.ponto_referencia,
-                mora_desde_ano: data.mora_desde_ano,
-                email: data.email,
-                telefone: data.telefone,
-                cadunico: data.cadunico === 'Sim' ? 'sim' : 'nao',
-                bolsa_familia: data.bolsa_familia === 'Sim' ? 'sim' : 'nao',
-                bpc: data.bpc === 'Sim' ? 'sim' : 'nao',
-                rg: data.rg,
-                orgao_emissor: data.orgao_emissor,
-              };
-              // Sanitize: converte null → undefined para todos os campos (Zod .optional() não aceita null)
+              const formData: any = mapPecAlunoToFormData(data);
               Object.keys(formData).forEach(key => {
                 if (formData[key] === null) formData[key] = undefined;
               });
               form.reset(formData);
               if (data.foto_perfil) {
-                setFotoPreview(data.foto_perfil);
+                setFotoPreview(toProxyUrl(data.foto_perfil));
               }
               originalCpfRef.current = onlyDigits(formData.cpf || "");
+              const trabalhos = Array.isArray(data.trabalhos_atuais) ? data.trabalhos_atuais : [];
+              const experiencias = Array.isArray(data.experiencias_profissionais) ? data.experiencias_profissionais : [];
+              setTrabalhosAtuais(trabalhos);
+              setExperienciasPassadas(experiencias);
+              setRelacionamentosFamiliares(
+                Array.isArray(data.relacionamentos_familiares) ? data.relacionamentos_familiares : []
+              );
+              setOutrosRelacionamentos(
+                Array.isArray(data.outros_relacionamentos) ? data.outros_relacionamentos : []
+              );
+              setAdditionalPhones(formData.telefones_adicionais || []);
+              setEmergencyContacts(formData.contatos_emergencia || []);
               setLoadingDocumentos(true);
-              fetch(`/api/documentos/aluno/${editCpf}`)
+              fetch(`/api/documentos/aluno/${normalizedEditCpf}`, { credentials: 'include' })
                 .then(docsRes => docsRes.ok ? docsRes.json() : [])
                 .then(docsData => setDocumentos(docsData || []))
                 .catch(err => console.error('Erro ao carregar documentos:', err))
                 .finally(() => setLoadingDocumentos(false));
 
-              fetch(`/api/alunos/${editCpf}/responsaveis`)
+              fetch(`/api/alunos/${normalizedEditCpf}/responsaveis`, { credentials: 'include' })
                 .then(res => res.ok ? res.json() : [])
                 .then((resps: any[]) => {
                   if (resps && resps.length > 0) {
@@ -1084,7 +1351,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         try {
           const formData = new FormData();
           formData.append('foto', fotoFile);
-          await fetch(`/api/participantes-inclusao/${result.id}/foto`, {
+          await fetch(`/api/coordenador/participantes/${result.id}/foto`, {
             method: 'POST',
             body: formData
           });
@@ -1143,7 +1410,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         try {
           const formData = new FormData();
           formData.append('foto', fotoFile);
-          await fetch(`/api/participantes-inclusao/${editId}/foto`, {
+          await fetch(`/api/coordenador/participantes/${editId}/foto`, {
             method: 'POST',
             body: formData
           });
@@ -1278,14 +1545,14 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   }
   // =================== FIM RASCUNHOS: handlers =====================
 
-  const onSubmit = (data: StudentRegistrationData) => {
+  const onSubmit = async (data: StudentRegistrationData) => {
    // ✅ Normalizar textos ANTES de montar payloads
-  const nomeNormalizado = normalizePersonName(data.nome_completo);
-  const naturalidadeNorm = normalizePersonName(data.naturalidade);
-  const cidadeNorm = normalizePersonName(data.cidade);
-  const bairroNorm = normalizePersonName(data.bairro);
-  const logradouroNorm = normalizePersonName(data.logradouro);
-  const pontoRefNorm = normalizePersonName(data.ponto_referencia);
+  const nomeNormalizado = normalizePersonName(data?.nome_completo);
+  const naturalidadeNorm = normalizePersonName(data?.naturalidade);
+  const cidadeNorm = normalizePersonName(data?.cidade);
+  const bairroNorm = normalizePersonName(data?.bairro);
+  const logradouroNorm = normalizePersonName(data?.logradouro);
+  const pontoRefNorm = normalizePersonName(data?.ponto_referencia);
 
   // RHF: contatos_emergencia
   const contatosEmergenciaNorm = (data.contatos_emergencia || []).map((c) => ({
@@ -1406,10 +1673,166 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     detalhes_historico_medico: data.detalhes_historico_medico,
 
     // Sistema
-    professorId: data.professorId || parseInt(localStorage.getItem("userId") || "0"),
+    professorId: data.professorId || (() => { const id = parseInt(localStorage.getItem("userId") || "0"); return id > 0 ? id : null; })(),
   };
 
-    if (mode === 'inclusao') {
+    if (isComunidade) {
+      // Comunidade mode - salva em /api/psico/atendidos-comunidade (sem IGF obrigatório)
+      const comunidadeData = {
+        nome: nomeNormalizado,
+        cpf: data.cpf || null,
+        data_nascimento: data.data_nascimento
+          ? format(parse(data.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd")
+          : null,
+        sexo: data.genero,
+        raca: data.cor_raca || null,
+        telefone: data.telefone || null,
+        email: data.email || null,
+        cep: data.cep || null,
+        endereco: logradouroNorm || null,
+        numero: data.numero || null,
+        complemento: data.complemento || null,
+        bairro: bairroNorm || null,
+        cidade: cidadeNorm || null,
+        estado: data.estado || null,
+        tem_cad_unico: data.cadunico === 'sim' ? 'Sim' : data.cadunico === 'nao' ? 'Não' : null,
+        tem_bolsa_familia: data.bolsa_familia === 'sim' ? 'Sim' : data.bolsa_familia === 'nao' ? 'Não' : null,
+        tem_bpc: data.bpc === 'sim' ? 'Sim' : data.bpc === 'nao' ? 'Não' : null,
+        numero_pessoas: igfCriancas + igfAdolescentes + igfAdultos + igfIdosos || null,
+        criancas: igfCriancas || null,
+        adolescentes: igfAdolescentes || null,
+        adultos: igfAdultos || null,
+        idosos: igfIdosos || null,
+        demandas: Array.isArray(data.demandas) ? data.demandas.join(', ') : (data.demandas || null),
+        observacoes: data.observacoes_gerais || null,
+        criado_por_user_id: parseInt(localStorage.getItem("userId") || "0") || null,
+      };
+      try {
+        const url = isEditMode && editId
+          ? `/api/psico/atendidos-comunidade/${editId}`
+          : '/api/psico/atendidos-comunidade';
+        const method = isEditMode && editId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(comunidadeData),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const saved = await res.json().catch(() => null);
+        const savedId = saved?.id || editId;
+        if (fotoFile && savedId) {
+          try {
+            const fd = new FormData();
+            fd.append('foto', fotoFile);
+            await fetch(`/api/psico/atendidos-comunidade/${savedId}/foto`, {
+              method: 'POST',
+              credentials: 'include',
+              body: fd,
+            });
+          } catch (err) {
+            console.error('Erro ao fazer upload da foto comunidade:', err);
+          }
+        }
+        toast({ title: isEditMode ? 'Pessoa atualizada com sucesso!' : 'Pessoa cadastrada com sucesso!' });
+        onClose();
+      } catch (err: any) {
+        toast({ title: isEditMode ? 'Erro ao atualizar' : 'Erro ao cadastrar', description: err.message, variant: 'destructive' });
+      }
+      return;
+    }
+
+    if (isStrictFavela3D) {
+      // Favela 3D mode - salva em /api/favela3d/participantes
+      if (!igfClassificacao) {
+        setIgfError(true);
+        return;
+      }
+      setIgfError(false);
+      const favela3dData = {
+        nome: nomeNormalizado,
+        cpf: data.cpf || null,
+        dataNascimento: data.data_nascimento
+          ? format(parse(data.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd")
+          : null,
+        genero: data.genero,
+        raca: data.cor_raca || null,
+        telefone: data.telefone || null,
+        email: data.email || null,
+        cep: data.cep || null,
+        endereco: logradouroNorm || null,
+        numero: data.numero || null,
+        complemento: data.complemento || null,
+        bairro: bairroNorm || null,
+        cidade: cidadeNorm || null,
+        estado: data.estado || null,
+        igf: igfClassificacao || null,
+        temCadUnico: data.cadunico === 'sim',
+        temBolsaFamilia: data.bolsa_familia === 'sim',
+        temBpc: data.bpc === 'sim',
+        numeroPessoas: igfCriancas + igfAdolescentes + igfAdultos + igfIdosos,
+        criancas: igfCriancas,
+        adolescentes: igfAdolescentes,
+        adultos: igfAdultos,
+        idosos: igfIdosos,
+        demandas: (data.demandas || []).join(', '),
+        observacoes: data.observacoes_gerais || null,
+        rendaTipo: rendaTipo || null,
+        temCarteiraIdoso: data.carteira_idoso === 'sim',
+        situacaoProfissional: data.situacao_profissional || null,
+        escolaridade: data.escolaridade || null,
+        serie: data.serie || null,
+        situacaoEscolar: data.situacao_escolar || null,
+        turnoEscolar: Array.isArray(data.turno_escolar) && data.turno_escolar.length > 0 ? data.turno_escolar.join(',') : null,
+        instituicaoEnsino: data.instituicao_ensino || null,
+        eAlfabetizado: data.e_alfabetizado || null,
+        bairroEscola: data.bairro_escola || null,
+        dataEntrada: data.data_entrada ? format(data.data_entrada, "yyyy-MM-dd") : null,
+        formaAcesso: data.forma_acesso || null,
+        relacionamentos: [
+          ...relacionamentosFamiliares.map(r => ({ ...r, tipo: 'familiar' })),
+          ...outrosRelacionamentos.map(r => ({ ...r, tipo: 'outro' })),
+        ],
+      };
+
+      try {
+        const url = isEditMode && editId
+          ? `/api/favela3d/participantes/${editId}`
+          : '/api/favela3d/participantes';
+        const method = isEditMode && editId ? 'PUT' : 'POST';
+        const successMsg = isEditMode ? 'Família atualizada com sucesso!' : 'Participante cadastrado!';
+        const successDesc = isEditMode ? undefined : 'Família registrada no Favela 3D.';
+        await fetch(url, {
+          method,
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(favela3dData),
+        }).then(async (res) => {
+          if (!res.ok) throw new Error(await res.text());
+          const saved = await res.json().catch(() => null);
+          // Upload foto if present
+          const savedId = saved?.id || editId;
+          if (fotoFile && savedId) {
+            try {
+              const fd = new FormData();
+              fd.append('foto', fotoFile);
+              await fetch(`/api/favela3d/participantes/${savedId}/foto`, {
+                method: 'POST',
+                credentials: 'include',
+                body: fd,
+              });
+            } catch (err) {
+              console.error('Erro ao fazer upload da foto Favela 3D:', err);
+            }
+          }
+          toast({ title: successMsg, description: successDesc });
+          onClose();
+        });
+      } catch (err: any) {
+        toast({ title: isEditMode ? 'Erro ao atualizar' : 'Erro ao cadastrar', description: err.message, variant: 'destructive' });
+      }
+      return;
+    } else if (mode === 'inclusao') {
       // Converter dados para formato da API de inclusão produtiva
       const inclusaoData = {
         nome: nomeNormalizado,
@@ -1586,11 +2009,11 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       return;
     }
 
-    setCurrentSection(prev => Math.min(prev + 1, 11));
+    if (isFavela3D && currentSection === 9) { setCurrentSection(11); } else { setCurrentSection(prev => Math.min(prev + 1, 11)); }
   };
 
   const prevSection = () => {
-    setCurrentSection(prev => Math.max(prev - 1, 1));
+    if (isFavela3D && currentSection === 11) { setCurrentSection(9); } else { setCurrentSection(prev => Math.max(prev - 1, 1)); }
   };
 
   const demandasOptions = [
@@ -1604,7 +2027,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     'Serviços Socioassistenciais'
   ];
     const sectionRequiredFields: Record<number, Array<keyof StudentRegistrationData>> = {
-      1: ["nome_completo", "area", "cpf", "data_nascimento", "genero"],
+      1: isFavela3D ? ["nome_completo", "cpf", "genero"] : ["nome_completo", "area", "cpf", "data_nascimento", "genero"],
       2: [],
       3: ["telefone"],
       6: ["data_entrada", "forma_acesso"],
@@ -1693,7 +2116,7 @@ useEffect(() => {
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isReadOnly ? '👁 Visualizar Aluno' : isEditMode ? 'Editar Aluno' : 'Cadastro Completo de Aluno'}</DialogTitle>
+          <DialogTitle>{isReadOnly ? (isComunidade ? '👁 Visualizar Atendido Comunidade' : isFavela3D ? '👁 Visualizar Atendido' : '👁 Visualizar Aluno') : isEditMode ? (isComunidade ? 'Editar Atendido Comunidade' : isFavela3D ? 'Editar Atendido' : 'Editar Aluno') : isComunidade ? 'Cadastro — Atendidos Comunidade' : isFavela3D ? 'Cadastro — Favela 3D' : 'Cadastro Completo de Aluno'}</DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
@@ -1708,12 +2131,12 @@ useEffect(() => {
           >
             {/* Progress indicator */}
             <div className="flex items-center justify-between mb-6 overflow-x-auto">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((section) => (
+              {(isFavela3D ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 11] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]).map((section) => (
                 <div key={section} className="flex items-center">
                   <div
                     className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
                       currentSection === section
-                        ? mode === 'inclusao' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
+                        ? mode === 'inclusao' ? 'bg-green-500 text-white' : isFavela3D ? 'bg-purple-600 text-white' : 'bg-orange-500 text-white'
                         : currentSection > section
                         ? 'bg-green-500 text-white'
                         : 'bg-gray-200 text-gray-600'
@@ -1721,7 +2144,7 @@ useEffect(() => {
                   >
                     {section}
                   </div>
-                  {section < 11 && (
+                  {section < 11 && !(isFavela3D && section === 9) && (
                     <div className={`w-4 h-1 ${currentSection > section ? 'bg-green-500' : 'bg-gray-200'}`} />
                   )}
                 </div>
@@ -1775,7 +2198,7 @@ useEffect(() => {
                     </label>
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm text-gray-500">Foto do aluno (opcional)</p>
+                    <p className="text-sm text-gray-500">{isFavela3D ? "Foto do atendido (opcional)" : "Foto do aluno (opcional)"}</p>
                     <p className="text-xs text-gray-400">Formatos: JPG, PNG. Máx: 5MB</p>
                   </div>
                 </div>
@@ -1794,7 +2217,8 @@ useEffect(() => {
                       </FormItem>
                     )}
                   />
-                  <FormField
+                  {!isFavela3D && (
+                    <FormField
                             control={form.control}
                             name="area"
                             render={({ field }) => (
@@ -1815,6 +2239,7 @@ useEffect(() => {
                               </FormItem>
                             )}
                           />
+                  )}
 
                         <FormField
   control={form.control}
@@ -1833,11 +2258,11 @@ useEffect(() => {
               {...field}
               placeholder="000.000.000-00"
               data-testid="input-cpf"
-              value={field.value || ""}
+              value={field.value ? maskCPF(String(field.value)) : ''}
               onChange={(e) => {
                 const masked = maskCPF(e.target.value);
-                field.onChange(masked);
                 const digits = masked.replace(/\D/g, '');
+                field.onChange(digits); // salva sempre só números
                 form.setValue('id_catraca', digits);
               }}
               className={[
@@ -1862,6 +2287,28 @@ useEffect(() => {
           </div>
         </FormControl>
 
+        {isFavela3D && (
+          <button type="button" className="text-xs text-purple-600 underline mt-1 block"
+            onClick={async () => {
+              try {
+                const cpf = await gerarCpfProvisorioCSF();
+                form.setValue('cpf', cpf, { shouldValidate: false });
+                form.clearErrors('cpf');
+              } catch {}
+            }}>
+            Não tem CPF? Gerar provisório
+          </button>
+        )}
+
+        {isFavela3D && isCpfProvisorioCSF(form.watch('cpf')) && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 flex items-start gap-2 mt-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <p className="text-sm text-amber-800 font-medium leading-tight">
+              CPF provisório — atualize o CPF real desta pessoa assim que possível.
+            </p>
+          </div>
+        )}
+
         <FormMessage />
       </FormItem>
     );
@@ -1873,7 +2320,7 @@ useEffect(() => {
                     name="data_nascimento"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Data de Nascimento *</FormLabel>
+                        <FormLabel>Data de Nascimento {!isFavela3D && '*'}</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -2025,7 +2472,8 @@ useEffect(() => {
                     )}
                   />
 
-                  <FormField
+                  {!isFavela3D && (
+                    <FormField
                     control={form.control}
                     name="pode_sair_sozinho"
                     render={({ field }) => (
@@ -2051,8 +2499,10 @@ useEffect(() => {
                       </FormItem>
                     )}
                   />
+                  )}
                 </div>
 
+                {!isFavela3D && (
                 <div className="border-t pt-4 mt-4">
                   <h4 className="font-semibold mb-4">DADOS COMPLEMENTARES DO(A) MATRICULADO(A) - TAMANHO</h4>
                   <div className="grid grid-cols-3 gap-4">
@@ -2099,6 +2549,7 @@ useEffect(() => {
                     />
                   </div>
                 </div>
+                )}
 
                 <FormField
                   control={form.control}
@@ -3118,6 +3569,26 @@ useEffect(() => {
                       )}
                     />
 
+                    {isFavela3D && (
+                      <div className="space-y-2">
+                        <Label className="font-medium">Carteira de Idoso</Label>
+                        <RadioGroup
+                          value={form.watch('carteira_idoso') || ''}
+                          onValueChange={(v) => form.setValue('carteira_idoso' as any, v)}
+                          className="flex gap-4"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="sim" id="carteira-idoso-sim" />
+                            <Label htmlFor="carteira-idoso-sim">Sim</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="nao" id="carteira-idoso-nao" />
+                            <Label htmlFor="carteira-idoso-nao">Não</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                    )}
+
                     <FormField
                       control={form.control}
                       name="outros_beneficios"
@@ -3224,6 +3695,7 @@ useEffect(() => {
                             <SelectItem value="Demanda espontânea">Demanda espontânea</SelectItem>
                             <SelectItem value="Encaminhamento da rede">Encaminhamento da rede</SelectItem>
                             <SelectItem value="Outros">Outros</SelectItem>
+                            {isFavela3D && <SelectItem value="Favela 3D">Favela 3D</SelectItem>}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -3280,7 +3752,7 @@ useEffect(() => {
                       <FormControl>
                         <Textarea
                           {...field}
-                          placeholder="Observações gerais sobre o aluno"
+                          placeholder={isFavela3D ? "Observações gerais sobre o atendido" : "Observações gerais sobre o aluno"}
                           className="min-h-[120px]"
                           data-testid="textarea-observacoes"
                         />
@@ -3298,6 +3770,37 @@ useEffect(() => {
                 <h3 className="text-lg font-semibold">Escolaridade</h3>
                 
                 <div className="grid grid-cols-2 gap-4">
+                  {isFavela3D ? (
+                    <FormField
+                      control={form.control}
+                      name="escolaridade"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Escolaridade</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || ''}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="nao_escolarizado">Não escolarizado</SelectItem>
+                              <SelectItem value="fundamental_incompleto">Fundamental Incompleto</SelectItem>
+                              <SelectItem value="eja_fundamental">EJA — Fundamental</SelectItem>
+                              <SelectItem value="fundamental_completo">Fundamental Completo</SelectItem>
+                              <SelectItem value="medio_incompleto">Médio Incompleto</SelectItem>
+                              <SelectItem value="eja_medio">EJA — Médio</SelectItem>
+                              <SelectItem value="medio_completo">Médio Completo</SelectItem>
+                              <SelectItem value="superior_incompleto">Superior Incompleto</SelectItem>
+                              <SelectItem value="superior_completo">Superior Completo</SelectItem>
+                              <SelectItem value="pos_graduacao">Pós-Graduação</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ) : (
                   <FormField
                     control={form.control}
                     name="serie"
@@ -3338,8 +3841,9 @@ useEffect(() => {
                       </FormItem>
                     )}
                   />
+                  )}
 
-                  {!['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
+                  {!isFavela3D && !['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
                     <FormField
                       control={form.control}
                       name="situacao_escolar"
@@ -3374,7 +3878,7 @@ useEffect(() => {
                 </div>
 
                 {/* Campos extras quando já concluiu o Ensino Médio */}
-                {['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
+                {!isFavela3D && ['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
                   <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
                     <FormField
                       control={form.control}
@@ -3517,6 +4021,34 @@ useEffect(() => {
 
                 <FormField
                   control={form.control}
+                  name="situacao_profissional"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Situação profissional atual</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione a situação..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="empregado_clt">Empregado/a CLT</SelectItem>
+                          <SelectItem value="empregado_sem_carteira">Empregado/a sem carteira</SelectItem>
+                          <SelectItem value="autonomo">Autônomo/a</SelectItem>
+                          <SelectItem value="desempregado">Desempregado/a</SelectItem>
+                          <SelectItem value="aposentado">Aposentado/a</SelectItem>
+                          <SelectItem value="do_lar">Do lar</SelectItem>
+                          <SelectItem value="estudante">Estudante</SelectItem>
+                          <SelectItem value="outro">Outro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name="procura_trabalho"
                   render={({ field }) => (
                     <FormItem>
@@ -3549,7 +4081,7 @@ useEffect(() => {
                       type="button" 
                       variant="outline" 
                       size="sm"
-                      className="bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
+                      className={isFavela3D ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-orange-500 hover:bg-orange-600 text-white border-orange-500"}
                       onClick={() => {
                         setNovoTrabalho({ empresa: '', cargo: '', dataEntrada: '', dataSaida: '', remuneracao: '' });
                         setShowAddTrabalhoModal(true);
@@ -3907,9 +4439,9 @@ useEffect(() => {
                   )}
                 </div>
 
-                {/* Químicos */}
+                {/* Químicos e dados de saúde */}
                 <div className="space-y-4">
-                  <h4 className="font-semibold">Químicos</h4>
+                {!isFavela3D && (<><h4 className="font-semibold">Químicos</h4>
                   <FormField
                     control={form.control}
                     name="faz_uso_quimicos"
@@ -3971,6 +4503,7 @@ useEffect(() => {
                       </FormItem>
                     )}
                   />
+                </>)}
 
                   <FormField
                     control={form.control}
@@ -4136,7 +4669,7 @@ useEffect(() => {
             )}
 
             {/* SEÇÃO 10: Grupos */}
-            {currentSection === 10 && (
+            {currentSection === 10 && !isFavela3D && (
               <div className="space-y-6">
                 <h3 className="text-lg font-semibold">Grupos do Atendido</h3>
                 <p className="text-sm text-gray-600">
@@ -4191,15 +4724,16 @@ useEffect(() => {
             {/* SEÇÃO 11: Família e Responsáveis */}
             {currentSection === 11 && (
               <div className="space-y-4">
+                {!isFavela3D && (<>
                 <h3 className="text-lg font-semibold">Responsáveis pelo Aluno</h3>
                 <p className="text-sm text-gray-600">
-                  Cadastre os responsáveis legais pelo aluno (pai, mãe, tutor ou outro). Você pode adicionar vários e marcar qual é o responsável principal.
+                  Cadastre os responsáveis legais pelo aluno (pai, mãe, tutor, amigo ou outro). Você pode adicionar vários e marcar qual é o responsável principal.
                 </p>
 
                 {responsaveisData.length > 0 && (
                   <div className="space-y-3">
                     {responsaveisData.map((resp, idx) => {
-                      const parentescoLabels: Record<string, string> = { pai: 'Pai', mae: 'Mãe', avo: 'Avó/Avô', tio: 'Tio/Tia', irmao: 'Irmão/Irmã', tutor_legal: 'Tutor Legal', outro: 'Outro' };
+                      const parentescoLabels: Record<string, string> = { pai: 'Pai', mae: 'Mãe', avo: 'Avó/Avô', tio: 'Tio/Tia', irmao: 'Irmão/Irmã', padrasto_madrasta: 'Padrasto/Madrasta', conjuge: 'Cônjuge/Companheiro(a)', tutor_legal: 'Tutor Legal', amigo: 'Amigo(a)', vizinho: 'Vizinho(a)', outro: 'Outro' };
                       return (
                         <Card key={idx} className={`${resp.e_principal ? 'border-green-500 border-2' : 'border-gray-200'}`}>
                           <CardContent className="p-4">
@@ -4322,7 +4856,11 @@ useEffect(() => {
                               <SelectItem value="avo">Avó/Avô</SelectItem>
                               <SelectItem value="tio">Tio/Tia</SelectItem>
                               <SelectItem value="irmao">Irmão/Irmã</SelectItem>
+                              <SelectItem value="padrasto_madrasta">Padrasto/Madrasta</SelectItem>
+                              <SelectItem value="conjuge">Cônjuge/Companheiro(a)</SelectItem>
                               <SelectItem value="tutor_legal">Tutor Legal</SelectItem>
+                              <SelectItem value="amigo">Amigo(a)</SelectItem>
+                              <SelectItem value="vizinho">Vizinho(a)</SelectItem>
                               <SelectItem value="outro">Outro</SelectItem>
                             </SelectContent>
                           </Select>
@@ -4401,8 +4939,10 @@ useEffect(() => {
                             <SelectContent>
                               <SelectItem value="nao_alfabetizado">Não Alfabetizado</SelectItem>
                               <SelectItem value="fundamental_incompleto">Fundamental Incompleto</SelectItem>
+                              <SelectItem value="eja_fundamental">EJA — Fundamental</SelectItem>
                               <SelectItem value="fundamental_completo">Fundamental Completo</SelectItem>
                               <SelectItem value="medio_incompleto">Médio Incompleto</SelectItem>
+                              <SelectItem value="eja_medio">EJA — Médio</SelectItem>
                               <SelectItem value="medio_completo">Médio Completo</SelectItem>
                               <SelectItem value="superior_incompleto">Superior Incompleto</SelectItem>
                               <SelectItem value="superior_completo">Superior Completo</SelectItem>
@@ -4599,6 +5139,7 @@ useEffect(() => {
                     </CardContent>
                   </Card>
                 )}
+                </>)}
 
                 {/* Relacionamentos Familiares - unificado da Seção 10 */}
                 <div className="space-y-4">
@@ -4689,9 +5230,9 @@ useEffect(() => {
                   <Button 
                   type="button" 
                   variant="outline" 
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
+                  className={`w-full ${isFavela3D ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : "bg-orange-500 hover:bg-orange-600 text-white border-orange-500"}`}
                   onClick={() => {
-                    setNovaRelacao({ nome: '', parentesco: '', relacao: '', tipo: 'familiar' });
+                    setNovaRelacao({ nome: '', parentesco: '', relacao: '', tipo: 'familiar', renda: '' });
                     setShowAddRelacaoModal(true);
                   }}
                 >
@@ -4763,6 +5304,23 @@ useEffect(() => {
                           placeholder="Descreva a relação (ex: mora junto, visita frequentemente)"
                         />
                         </div>
+                        {isFavela3D && (
+                          <div className="space-y-2">
+                            <Label>Tipo de renda</Label>
+                            <Select value={novaRelacao.renda} onValueChange={(v) => setNovaRelacao({...novaRelacao, renda: v})}>
+                              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="formal">Formal (CLT, servidor público)</SelectItem>
+                                <SelectItem value="informal">Informal (autônomo, bico)</SelectItem>
+                                <SelectItem value="beneficio">Benefício social (BPC, Bolsa Família)</SelectItem>
+                                <SelectItem value="empreendedorismo">Empreendedorismo</SelectItem>
+                                <SelectItem value="sem_renda">Sem renda</SelectItem>
+                                <SelectItem value="outro">Outro</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
                       </div>
                       <div className="flex justify-end gap-2">
                         <Button type="button" variant="outline" onClick={() => setShowAddRelacaoModal(false)}>
@@ -4775,7 +5333,7 @@ useEffect(() => {
                             toast({ title: "Preencha o nome e parentesco", variant: "destructive" });
                             return;
                           }
-                          const relData = { nome: novaRelacao.nome, parentesco: novaRelacao.parentesco, relacao: novaRelacao.relacao };
+                          const relData = { nome: novaRelacao.nome, parentesco: novaRelacao.parentesco, relacao: novaRelacao.relacao, renda: novaRelacao.renda };
                           if (novaRelacao.tipo === 'familiar') {
                             setRelacionamentosFamiliares(prev => [...prev, relData]);
                           } else {
@@ -4790,6 +5348,88 @@ useEffect(() => {
                       </div>
                   </DialogContent>
                 </Dialog>
+                </div>
+
+                {/* IGF — Índice Gerando Falcões (apenas Favela 3D, não Comunidade) */}
+                {isStrictFavela3D && (
+                  <div className="border-t pt-4 mt-4 space-y-4">
+                    <div className="space-y-4">
+                      <h4 className="font-semibold">IGF — Índice Gerando Falcões</h4>
+                      <div className="space-y-2">
+                        <Label>Classificação IGF</Label>
+                        <Select value={igfClassificacao} onValueChange={v => { setIgfClassificacao(v); setIgfError(false); }}>
+                          <SelectTrigger className={igfError ? 'border-red-500 ring-1 ring-red-500' : ''}>
+                            <SelectValue placeholder="Selecione a classificação" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="E1">E1 — Extrema vulnerabilidade</SelectItem>
+                            <SelectItem value="E2">E2 — Alta vulnerabilidade</SelectItem>
+                            <SelectItem value="P1">P1 — Vulnerabilidade moderada</SelectItem>
+                            <SelectItem value="P2">P2 — Baixa vulnerabilidade</SelectItem>
+                            <SelectItem value="D">D — Dignidade</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {igfError && <p className="text-sm text-red-500 mt-1">Classificação IGF é obrigatória</p>}
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="font-medium">Composição familiar</Label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-sm">Crianças (0–11)</Label>
+                            <Input type="number" min={0} value={igfCriancas} onChange={e => setIgfCriancas(Number(e.target.value))} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-sm">Adolescentes (12–17)</Label>
+                            <Input type="number" min={0} value={igfAdolescentes} onChange={e => setIgfAdolescentes(Number(e.target.value))} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-sm">Adultos (18–59)</Label>
+                            <Input type="number" min={0} value={igfAdultos} onChange={e => setIgfAdultos(Number(e.target.value))} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-sm">Idosos (60+)</Label>
+                            <Input type="number" min={0} value={igfIdosos} onChange={e => setIgfIdosos(Number(e.target.value))} />
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-500">Total: {igfCriancas + igfAdolescentes + igfAdultos + igfIdosos} pessoa(s)</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* LGPD — Consentimento do Responsável (Fase 4) */}
+            {currentSection === 11 && !isReadOnly && (
+              <div className="mt-6 p-4 border border-blue-200 rounded-lg bg-blue-50 space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Shield className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-blue-800">Consentimento LGPD — Responsável Legal</h3>
+                </div>
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  Em cumprimento à Lei Geral de Proteção de Dados (LGPD) e ao ECA, é necessário registrar o consentimento
+                  do responsável legal para o tratamento dos dados do participante.{" "}
+                  <a href="/termo-consentimento-responsavel" target="_blank" className="underline font-medium">
+                    Leia o Termo de Consentimento completo
+                  </a>.
+                </p>
+                <div className="space-y-2">
+                  {[
+                    { field: "consentimento_responsavel", label: "O responsável legal autorizou o tratamento dos dados pessoais do participante *" },
+                    { field: "uso_imagem_autorizado", label: "O responsável autorizou o uso de imagem fotográfica/audiovisual para fins institucionais" },
+                    { field: "uso_dados_presenca", label: "O responsável autorizou o uso dos dados para controle de presença e frequência" },
+                    { field: "uso_dados_relatorios", label: "O responsável autorizou o uso dos dados em relatórios de impacto (de forma anonimizada)" },
+                  ].map(({ field, label }) => (
+                    <label key={field} className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 w-4 h-4 accent-blue-600 flex-shrink-0"
+                        checked={!!(form.watch as any)?.(field) || false}
+                        onChange={e => (form.setValue as any)(field, e.target.checked)}
+                      />
+                      <span className="text-xs text-blue-800 leading-relaxed">{label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             )}
@@ -4849,9 +5489,41 @@ useEffect(() => {
                     }
                     data-testid="button-salvar"
                     onClick={async () => {
+                      // Para Favela3D, validar manualmente apenas os campos com *
+                      if (isFavela3D) {
+                        const vals = form.getValues();
+                        if (!vals.nome_completo?.trim()) {
+                          toast({ title: "Nome é obrigatório", variant: "destructive" }); return;
+                        }
+                        if (vals.data_nascimento && !validateDate(vals.data_nascimento)) {
+                          toast({ title: "Data de nascimento inválida", description: "Use o formato DD/MM/AAAA", variant: "destructive" }); return;
+                        }
+                        if (!vals.cpf?.trim()) {
+                          toast({ title: "CPF é obrigatório", variant: "destructive" }); return;
+                        }
+                        const cpfDigits = onlyDigits(vals.cpf);
+                        if (cpfDigits.length !== 11) {
+                          toast({ title: "CPF inválido", description: "O CPF deve ter 11 dígitos", variant: "destructive" }); return;
+                        }
+                        if (!validateCPF(vals.cpf) && !isCpfProvisorioCSF(vals.cpf)) {
+                          toast({ title: "CPF inválido", description: "Digite um CPF real e válido", variant: "destructive" }); return;
+                        }
+                        if (!vals.telefone?.trim() || onlyDigits(vals.telefone).length < 10) {
+                          toast({ title: "Telefone inválido", description: "Preencha o telefone com DDD (mínimo 10 dígitos)", variant: "destructive" }); return;
+                        }
+                        // Tudo OK — chamar onSubmit diretamente, bypassando Zod
+                        try {
+                          await onSubmit(form.getValues() as any);
+                        } catch (err: any) {
+                          toast({ title: 'Erro ao salvar', description: String(err?.message || err), variant: 'destructive' });
+                        }
+                        return;
+                      }
+
+                      // Outros modos: validação padrão Zod completa
                       const ok = await form.trigger(undefined, { shouldFocus: true });
                       if (!ok) {
-                                        toast({
+                        toast({
                           title: "Campos obrigatórios faltando",
                           description: "Revise os campos destacados em vermelho.",
                           variant: "destructive",

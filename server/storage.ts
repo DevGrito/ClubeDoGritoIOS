@@ -20,7 +20,7 @@ import {
   // Novas tabelas EDUCADORES
   educadores, educadorPrograma, alunoPrograma,
   // Tabelas de Inclusão Produtiva
-  programasInclusao, turmasInclusao, participantesTurmas, participantesInclusao, presencasInclusao,
+  programasInclusao, turmasInclusao, participantesTurmas, participantesInclusao, presencasInclusao, inclusaoEvasoes, pecEvasoes,
   // Tabelas Psicossociais
   psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos,
   // Coordenadores
@@ -242,7 +242,7 @@ export interface IStorage {
   getRelatorio(id: number): Promise<RelatorioGerado | undefined>;
 
   // Dashboard sumário para professor
-  getProfessorDashboardSummary(professorId: number, vertente?: string): Promise<any>;
+  getProfessorDashboardSummary(professorId: number, vertente?: string, ano?: number, mes?: number): Promise<any>;
 
   // Atualização de perfil do professor
   updateProfessorProfile(id: number, data: { name?: string; email?: string }): Promise<User>;
@@ -709,7 +709,9 @@ export interface IStorage {
   deleteParticipante(id: number): Promise<void>;
 
   // Relacionamentos Participante-Turma
-  addParticipanteToTurma(participanteId: number, turmaId: number): Promise<ParticipanteTurma>;
+  addParticipanteToTurma(participanteId: number, turmaId: number, dataIngresso?: string): Promise<ParticipanteTurma>;
+  registerInclusaoEvasao(participanteId: number, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null>;
+  revertInclusaoEvasao(participanteId: number, turmaId: number): Promise<ParticipanteTurma | null>;
   removeParticipanteFromTurma(participanteId: number, turmaId: number): Promise<void>;
   getTurmasByParticipante(participanteId: number): Promise<TurmaInclusao[]>;
   getParticipantesByTurma(turmaId: number): Promise<ParticipanteInclusao[]>;
@@ -1605,27 +1607,6 @@ export class DatabaseStorage implements IStorage {
     await db.delete(turma).where(eq(turma.id, id));
   }
 
- async getAllTurmasInclusao(): Promise<any[]> {
-  return db
-    .select({
-      id: turmasInclusao.id,
-      programaId: turmasInclusao.programaId,
-      nome: turmasInclusao.nome,
-      descricao: turmasInclusao.descricao,
-      local: turmasInclusao.local,
-      dataInicio: turmasInclusao.dataInicio,
-      dataFim: turmasInclusao.dataFim,
-      horario: turmasInclusao.horario,
-      status: turmasInclusao.status,
-      createdAt: turmasInclusao.createdAt,
-      updatedAt: turmasInclusao.updatedAt,
-    })
-    .from(turmasInclusao)
-    // se quiser, join com programas:
-    // .leftJoin(programasInclusao, eq(turmasInclusao.programaId, programasInclusao.id))
-    .orderBy(desc(turmasInclusao.createdAt));
-}
-
   async getUsersByRole(role: string): Promise<User[]> {
     return db
       .select()
@@ -1925,9 +1906,17 @@ export class DatabaseStorage implements IStorage {
     }
   }
   // Dashboard sumário para professor (retorna dados por vertente)
-  async getProfessorDashboardSummary(professorId: number, vertente?: string): Promise<any> {
-    const programa = vertente === 'inclusao' ? 'inclusao_produtiva' : 'pec';
-    const turmaTipo = vertente === 'inclusao' ? 'inclusao' : 'pec';
+  async getProfessorDashboardSummary(professorId: number, vertente?: string, ano?: number, mes?: number): Promise<any> {
+    const vertenteRaw = (vertente || '').toLowerCase().trim();
+    const vertenteNorm = vertenteRaw
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    const isInclusao =
+      vertenteNorm === 'inclusao' ||
+      vertenteNorm === 'inclusao_produtiva' ||
+      vertenteNorm === 'inclusao produtiva';
+    const programa = isInclusao ? 'inclusao_produtiva' : 'pec';
+    const turmaTipo = isInclusao ? 'inclusao' : 'pec';
 
     // Resolve professor record from users table
     const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [professorId]);
@@ -1936,8 +1925,8 @@ export class DatabaseStorage implements IStorage {
     let assignedTurmaIds: number[] = [];
     if (email) {
       const profRes = await pool.query(
-        'SELECT id FROM professores WHERE email = $1 AND programa = $2 LIMIT 1',
-        [email, programa]
+        'SELECT id FROM professores WHERE lower(trim(email)) = lower(trim($1)) AND programa = $2 LIMIT 1',
+        [String(email), programa]
       );
       const profId = profRes.rows?.[0]?.id;
       if (profId) {
@@ -1949,24 +1938,96 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Fallback: quando não há vínculo explícito em professor_turmas,
+    // usa vínculo direto em turma/professor_id (FK para users.id).
     if (assignedTurmaIds.length === 0) {
-      return { meusAlunos: 0, alunosFormados: 0, turmasAtivas: 0, aulasMinistradas: 0 };
+      const directTurmasRes = isInclusao
+        ? await pool.query('SELECT id FROM turmas_inclusao WHERE professor_id = $1', [professorId])
+        : await pool.query('SELECT id FROM turma WHERE professor_id = $1', [professorId]);
+      assignedTurmaIds = directTurmasRes.rows.map((r: any) => Number(r.id));
     }
 
-    if (vertente === 'inclusao') {
+    if (assignedTurmaIds.length === 0) {
+      return { meusAlunos: 0, alunosFormados: 0, alunosEmFormacao: 0, turmasAtivas: 0, aulasMinistradas: 0 };
+    }
+
+    if (isInclusao) {
       const participantesRes = await pool.query(
         'SELECT COUNT(DISTINCT participante_id) as count FROM participantes_turmas WHERE turma_id = ANY($1::int[])',
         [assignedTurmaIds]
       );
       const meusAlunos = Number(participantesRes.rows?.[0]?.count || 0);
 
+      // Opção A: formados por vínculo/turma (não distinto por participante)
+      // Ex.: se o mesmo participante concluiu 2 turmas, conta 2 formações.
+      const formadosParams: any[] = [assignedTurmaIds];
+      let formadosDateFilter = '';
+      if (ano) {
+        formadosParams.push(ano);
+        formadosDateFilter += ` AND EXTRACT(YEAR FROM ti.data_fim) = $${formadosParams.length}`;
+      }
+      if (mes && mes > 0) {
+        formadosParams.push(mes);
+        formadosDateFilter += ` AND EXTRACT(MONTH FROM ti.data_fim) = $${formadosParams.length}`;
+      }
       const formadosRes = await pool.query(
-        `SELECT COUNT(DISTINCT participante_id) as count
-         FROM participantes_turmas
-         WHERE turma_id = ANY($1::int[]) AND status = 'concluido'`,
-        [assignedTurmaIds]
+        `SELECT COUNT(*) as count
+         FROM participantes_turmas pt
+         JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+         WHERE pt.turma_id = ANY($1::int[])
+           AND pt.status IN ('concluido', 'formado')
+           AND ti.status IN ('finalizado', 'concluido')
+           ${formadosDateFilter}`,
+        formadosParams
       );
       const alunosFormados = Number(formadosRes.rows?.[0]?.count || 0);
+
+      const emFormacaoParams: any[] = [assignedTurmaIds];
+      let emFormacaoPeriodoFilter = '';
+      if (ano && mes && mes > 0) {
+        // Filtra turmas em andamento dentro do mês selecionado (sobreposição de período).
+        emFormacaoParams.push(ano, mes);
+        const yIdx = emFormacaoParams.length - 1;
+        const mIdx = emFormacaoParams.length;
+        emFormacaoPeriodoFilter = `
+          AND daterange(
+            COALESCE(ti.data_inicio::date, ti.created_at::date),
+            COALESCE(ti.data_fim::date, COALESCE(ti.data_inicio::date, ti.created_at::date)),
+            '[]'
+          ) && daterange(
+            make_date($${yIdx}, $${mIdx}, 1),
+            (make_date($${yIdx}, $${mIdx}, 1) + interval '1 month - 1 day')::date,
+            '[]'
+          )
+        `;
+      } else if (ano) {
+        // Quando o filtro é anual (mês = Todos), considera sobreposição com o ano inteiro.
+        emFormacaoParams.push(ano);
+        const yIdx = emFormacaoParams.length;
+        emFormacaoPeriodoFilter = `
+          AND daterange(
+            COALESCE(ti.data_inicio::date, ti.created_at::date),
+            COALESCE(ti.data_fim::date, COALESCE(ti.data_inicio::date, ti.created_at::date)),
+            '[]'
+          ) && daterange(
+            make_date($${yIdx}, 1, 1),
+            make_date($${yIdx}, 12, 31),
+            '[]'
+          )
+        `;
+      }
+
+      const alunosEmFormacaoRes = await pool.query(
+        `SELECT COUNT(*) as count
+         FROM participantes_turmas pt
+         JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+         WHERE pt.turma_id = ANY($1::int[])
+           AND lower(coalesce(ti.status, '')) NOT IN ('inativo', 'finalizado', 'concluido', 'concluída', 'encerrado')
+           AND lower(coalesce(pt.status, 'ativo')) NOT IN ('concluido', 'formado', 'desistente', 'evadido', 'inativo')
+           ${emFormacaoPeriodoFilter}`,
+        emFormacaoParams
+      );
+      const alunosEmFormacao = Number(alunosEmFormacaoRes.rows?.[0]?.count || 0);
 
       const aulasRes = await pool.query(
         `SELECT COUNT(DISTINCT concat(turma_id::text, '_', data::text)) as count FROM presencas_inclusao WHERE turma_id = ANY($1::int[])`,
@@ -1974,7 +2035,7 @@ export class DatabaseStorage implements IStorage {
       );
       const aulasMinistradas = Number(aulasRes.rows?.[0]?.count || 0);
 
-      return { meusAlunos, alunosFormados, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
+      return { meusAlunos, alunosFormados, alunosEmFormacao, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
     } else {
       const alunosRes = await pool.query(
         'SELECT COUNT(DISTINCT aluno_cpf) as count FROM aluno_turma WHERE turma_id = ANY($1::int[])',
@@ -1997,7 +2058,7 @@ export class DatabaseStorage implements IStorage {
       );
       const aulasMinistradas = Number(aulasRes.rows?.[0]?.count || 0);
 
-      return { meusAlunos, alunosFormados, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
+      return { meusAlunos, alunosFormados, alunosEmFormacao: 0, turmasAtivas: assignedTurmaIds.length, aulasMinistradas };
     }
   }
 
@@ -3618,16 +3679,6 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async createMarketingLink(link: InsertMarketingLink): Promise<MarketingLink> {
-    const [newLink] = await db
-      .insert(marketingLinks)
-      .values(link)
-      .returning();
-    
-    console.log(`✅ [MARKETING] Link criado: ${newLink.code} para campanha ${newLink.campaignId}`);
-    return newLink;
-  }
-
   async createMarketingLinks(links: InsertMarketingLink[]): Promise<MarketingLink[]> {
     const newLinks = await db
       .insert(marketingLinks)
@@ -3678,21 +3729,6 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     
     return link;
-  }
-
-  async updateMarketingLink(id: number, link: Partial<InsertMarketingLink>): Promise<MarketingLink> {
-    const [updated] = await db
-      .update(marketingLinks)
-      .set(link)
-      .where(eq(marketingLinks.id, id))
-      .returning();
-    
-    if (!updated) {
-      throw new Error(`Link ${id} não encontrado`);
-    }
-    
-    console.log(`✅ [MARKETING] Link atualizado: ${updated.code} (ID: ${id})`);
-    return updated;
   }
 
   async getMarketingLinkStats(linkId: number): Promise<{ clicks: number; cadastros: number; conversoes: number; taxa: number }> {
@@ -7419,14 +7455,111 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Relacionamentos Participante-Turma
-  async addParticipanteToTurma(participanteId: number, turmaId: number): Promise<ParticipanteTurma> {
+  async addParticipanteToTurma(participanteId: number, turmaId: number, dataIngresso?: string): Promise<ParticipanteTurma> {
+    const ingresso = dataIngresso || new Date().toISOString().split('T')[0];
+    const existing = await db.select()
+      .from(participantesTurmas)
+      .where(and(
+        eq(participantesTurmas.participanteId, participanteId),
+        eq(participantesTurmas.turmaId, turmaId),
+      ))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(inclusaoEvasoes)
+        .set({ revertidoEm: new Date() })
+        .where(and(
+          eq(inclusaoEvasoes.participanteId, participanteId),
+          eq(inclusaoEvasoes.turmaId, turmaId),
+          isNull(inclusaoEvasoes.revertidoEm),
+        ));
+
+      const [relacao] = await db.update(participantesTurmas)
+        .set({
+          status: 'ativo',
+          motivoDesligamento: null,
+          dataDesligamento: null,
+          dataIngresso: ingresso,
+        })
+        .where(eq(participantesTurmas.id, existing[0].id))
+        .returning();
+      console.log(`✅ [PARTICIPANTES-TURMAS] Participante ${participanteId} reativado na turma ${turmaId}`);
+      return relacao;
+    }
+
     const [relacao] = await db.insert(participantesTurmas).values({
       participanteId,
       turmaId,
       dataInscricao: new Date(),
-      status: 'ativo'
+      status: 'ativo',
+      dataIngresso: ingresso,
     }).returning();
     console.log(`✅ [PARTICIPANTES-TURMAS] Participante ${participanteId} vinculado à turma ${turmaId}`);
+    return relacao;
+  }
+
+  async registerInclusaoEvasao(participanteId: number, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null> {
+    const vinculo = await db.select().from(participantesTurmas)
+      .where(and(
+        eq(participantesTurmas.participanteId, participanteId),
+        eq(participantesTurmas.turmaId, turmaId),
+      ))
+      .limit(1);
+
+    if (vinculo.length === 0) return null;
+
+    const ativa = await db.select().from(inclusaoEvasoes)
+      .where(and(
+        eq(inclusaoEvasoes.participanteId, participanteId),
+        eq(inclusaoEvasoes.turmaId, turmaId),
+        isNull(inclusaoEvasoes.revertidoEm),
+      ))
+      .limit(1);
+
+    if (ativa.length > 0) {
+      throw new Error("Participante já possui evasão ativa nesta turma.");
+    }
+
+    await db.insert(inclusaoEvasoes).values({
+      participanteTurmaId: vinculo[0].id,
+      participanteId,
+      turmaId,
+      dataDesligamento,
+    });
+
+    const [relacao] = await db.update(participantesTurmas)
+      .set({ status: 'evadido', motivoDesligamento: null, dataDesligamento: null })
+      .where(eq(participantesTurmas.id, vinculo[0].id))
+      .returning();
+
+    console.log(`✅ [EVASÃO INCLUSÃO] Participante ${participanteId} evadido na turma ${turmaId} — ${dataDesligamento}`);
+    return relacao;
+  }
+
+  async revertInclusaoEvasao(participanteId: number, turmaId: number): Promise<ParticipanteTurma | null> {
+    const ativa = await db.select().from(inclusaoEvasoes)
+      .where(and(
+        eq(inclusaoEvasoes.participanteId, participanteId),
+        eq(inclusaoEvasoes.turmaId, turmaId),
+        isNull(inclusaoEvasoes.revertidoEm),
+      ))
+      .limit(1);
+
+    if (ativa.length === 0) return null;
+
+    await db.update(inclusaoEvasoes)
+      .set({ revertidoEm: new Date() })
+      .where(eq(inclusaoEvasoes.id, ativa[0].id));
+
+    const [relacao] = await db.update(participantesTurmas)
+      .set({ status: 'ativo', motivoDesligamento: null, dataDesligamento: null })
+      .where(and(
+        eq(participantesTurmas.participanteId, participanteId),
+        eq(participantesTurmas.turmaId, turmaId),
+      ))
+      .returning();
+
+    console.log(`✅ [EVASÃO INCLUSÃO] Evasão revertida — participante ${participanteId}, turma ${turmaId}`);
     return relacao;
   }
 
@@ -7648,14 +7781,6 @@ export class DatabaseStorage implements IStorage {
       isActive: c.isActive,
       createdAt: c.createdAt.toISOString(),
     })) as any;
-  }
-
-  async createMarketingCampaign(campaign: InsertMarketingCampaign): Promise<MarketingCampaign> {
-    const [newCampaign] = await db
-      .insert(marketingCampaigns)
-      .values(campaign)
-      .returning();
-    return newCampaign;
   }
 
   async getAllMarketingLinks(): Promise<MarketingLink[]> {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { formatCPF } from "@/lib/utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -11,8 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { TrendingUp, Plus, Search, Trash2, Edit, Briefcase, Store, Upload, X, Eye, ExternalLink } from "lucide-react";
+import { TrendingUp, Plus, Search, Trash2, Edit, Briefcase, Store, Upload, X, Eye, ExternalLink, Images, Download } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -70,11 +71,13 @@ const EMPTY_FORM = {
   dataContratacao: "",
   faixaSalarial: "",
   nomeNegocio: "",
+  segmento: "",
   cnpj: "",
   faturamentoAproximado: "",
   dataInicioAtividade: "",
   observacoes: "",
   status: "ativo",
+  padraoGf: null as boolean | null,
 };
 
 export function GeracaoRendaSection() {
@@ -84,6 +87,7 @@ export function GeracaoRendaSection() {
   const [dialog, setDialog] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState<any>({ ...EMPTY_FORM });
+  const [triedSubmit, setTriedSubmit] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroBusca, setFiltroBusca] = useState("");
   const [partBusca, setPartBusca] = useState("");
@@ -92,20 +96,24 @@ export function GeracaoRendaSection() {
   const [evidenciaFiles, setEvidenciaFiles] = useState<File[]>([]);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [viewRecord, setViewRecord] = useState<any | null>(null);
+  const [evidenciaModalRecord, setEvidenciaModalRecord] = useState<any | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pdfModalUrl, setPdfModalUrl] = useState<string | null>(null);
+  const [signedEvidUrls, setSignedEvidUrls] = useState<Record<string, string>>({});
+  const [loadingSignedUrls, setLoadingSignedUrls] = useState(false);
 
   const registrosQuery = useQuery<any[]>({
     queryKey: ["/api/geracoes-de-renda", filtroTipo],
     queryFn: async () => {
-      const params = filtroTipo ? `?tipo=${filtroTipo}` : "";
-      const r = await fetch(`/api/geracoes-de-renda${params}`, { credentials: "include" });
+      const tipoParam = filtroTipo && filtroTipo !== "edital_gf" ? `?tipo=${filtroTipo}` : "";
+      const r = await fetch(`/api/geracoes-de-renda${tipoParam}`, { credentials: "include" });
       if (!r.ok) throw new Error("Erro ao carregar");
       return r.json();
     },
   });
   const registrosRaw: any[] = registrosQuery.data ?? [];
   const registros: any[] = registrosRaw.filter((r) => {
+    if (filtroTipo === "edital_gf" && !r.padrao_gf) return false;
     if (!filtroBusca.trim()) return true;
     const q = filtroBusca.toLowerCase().replace(/[\.\-\/]/g, '');
     const nome = (r.nome || '').toLowerCase();
@@ -135,6 +143,31 @@ export function GeracaoRendaSection() {
   });
   const participantes: any[] = participantesQuery.data ?? [];
 
+  // Busca URLs pré-assinadas (GCS signed URLs) ao abrir qualquer modal com evidências
+  async function fetchSignedUrls(record: any) {
+    if (!record) { setSignedEvidUrls({}); return; }
+    const evids: any[] = record.evidencias || [];
+    const paths = evids.map((e: any) => e.storage_url).filter(Boolean);
+    if (paths.length === 0) { setSignedEvidUrls({}); return; }
+    setLoadingSignedUrls(true);
+    try {
+      const r = await fetch("/api/geracoes-de-renda/signed-urls", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths }),
+      });
+      if (r.ok) {
+        const { urls } = await r.json();
+        setSignedEvidUrls(urls || {});
+      }
+    } catch {}
+    setLoadingSignedUrls(false);
+  }
+
+  useEffect(() => { fetchSignedUrls(evidenciaModalRecord); }, [evidenciaModalRecord]);
+  useEffect(() => { fetchSignedUrls(viewRecord); }, [viewRecord]);
+
   const criarMutation = useMutation({
     mutationFn: async (data: FormData) => {
       const r = await fetch("/api/geracoes-de-renda", {
@@ -150,6 +183,7 @@ export function GeracaoRendaSection() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda/stats"] });
       toast({ title: "Registro criado com sucesso!" });
       closeDialog();
     },
@@ -172,6 +206,7 @@ export function GeracaoRendaSection() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda/stats"] });
       toast({ title: "Registro atualizado!" });
       closeDialog();
     },
@@ -185,6 +220,7 @@ export function GeracaoRendaSection() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/geracoes-de-renda/stats"] });
       toast({ title: "Registro removido" });
       setDeleteId(null);
     },
@@ -198,6 +234,7 @@ export function GeracaoRendaSection() {
     setPartBusca("");
     setPartSelecionado(null);
     setEvidenciaFiles([]);
+    setTriedSubmit(false);
   }
 
   function openCreate() {
@@ -206,6 +243,7 @@ export function GeracaoRendaSection() {
     setPartSelecionado(null);
     setPartBusca("");
     setEvidenciaFiles([]);
+    setTriedSubmit(false);
     setDialog(true);
   }
 
@@ -228,12 +266,14 @@ export function GeracaoRendaSection() {
       dataContratacao: rec.data_contratacao ? rec.data_contratacao.substring(0, 10) : "",
       faixaSalarial: rec.faixa_salarial || "",
       nomeNegocio: rec.nome_negocio || "",
+      segmento: rec.segmento || "",
       cnpj: rec.cnpj || "",
       faturamentoAproximado: rec.faturamento_aproximado || "",
       dataInicioAtividade: rec.data_inicio_atividade ? rec.data_inicio_atividade.substring(0, 10) : "",
       observacoes: rec.observacoes || "",
       status: rec.status || "ativo",
       programaId: rec.programa_id ? String(rec.programa_id) : "",
+      padraoGf: rec.padrao_gf === true ? true : rec.padrao_gf === false ? false : null,
     });
     setPartBusca(rec.nome || "");
     setDialog(true);
@@ -265,14 +305,18 @@ export function GeracaoRendaSection() {
   }
 
   function handleSubmit() {
+    setTriedSubmit(true);
     if (!form.tipo) return toast({ title: "Selecione o tipo", variant: "destructive" });
     // programaId is optional
     if (!form.nome || !form.cpf) return toast({ title: "Nome e CPF são obrigatórios", variant: "destructive" });
     if (form.tipo === "empregabilidade" && !form.empresa) {
       return toast({ title: "Informe a empresa", variant: "destructive" });
     }
-    if (form.tipo === "empreendedorismo" && !form.nomeNegocio) {
-      return toast({ title: "Informe o nome do negócio", variant: "destructive" });
+    if (form.tipo === "empreendedorismo" && !form.segmento) {
+      return toast({ title: "Informe a área de atuação", variant: "destructive" });
+    }
+    if (form.padraoGf === null || form.padraoGf === undefined) {
+      return toast({ title: "Informe se é Edital Gerando Falcões", variant: "destructive" });
     }
     if (!editing && evidenciaFiles.length === 0) {
       return toast({ title: "Anexe pelo menos uma evidência", variant: "destructive" });
@@ -322,6 +366,7 @@ export function GeracaoRendaSection() {
                 <SelectItem value="todos">Todos</SelectItem>
                 <SelectItem value="empregabilidade">Empregabilidade</SelectItem>
                 <SelectItem value="empreendedorismo">Empreendedorismo</SelectItem>
+                <SelectItem value="edital_gf">Edital Gerando Falcões</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -383,6 +428,17 @@ export function GeracaoRendaSection() {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
+                          {Array.isArray(r.evidencias) && r.evidencias.length > 0 && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                              title={`Ver evidências (${r.evidencias.length})`}
+                              onClick={() => setEvidenciaModalRecord(r)}
+                            >
+                              <Images className="w-4 h-4" />
+                            </Button>
+                          )}
                           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setViewRecord(r)}>
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -618,7 +674,11 @@ export function GeracaoRendaSection() {
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-sm font-medium mb-1 block">Nome do negócio *</label>
+                    <label className="text-sm font-medium mb-1 block">Área de Atuação *</label>
+                    <Input value={form.segmento} onChange={(e) => setForm((p: any) => ({ ...p, segmento: e.target.value }))} placeholder="Ex: Artesanato, Beleza, Alimentação..." />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Nome do negócio (opcional)</label>
                     <Input value={form.nomeNegocio} onChange={(e) => setForm((p: any) => ({ ...p, nomeNegocio: e.target.value }))} placeholder="Nome do empreendimento" />
                   </div>
                   <div>
@@ -695,6 +755,34 @@ export function GeracaoRendaSection() {
               </div>
             )}
 
+            {/* Edital GF */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">
+                Edital Gerando Falcões? <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-6">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="padrao-gf-sim"
+                    checked={form.padraoGf === true}
+                    onCheckedChange={() => setForm((p: any) => ({ ...p, padraoGf: true }))}
+                  />
+                  <label htmlFor="padrao-gf-sim" className="text-sm cursor-pointer select-none">Sim</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="padrao-gf-nao"
+                    checked={form.padraoGf === false}
+                    onCheckedChange={() => setForm((p: any) => ({ ...p, padraoGf: false }))}
+                  />
+                  <label htmlFor="padrao-gf-nao" className="text-sm cursor-pointer select-none">Não</label>
+                </div>
+              </div>
+              {triedSubmit && (form.padraoGf === null || form.padraoGf === undefined) && (
+                <p className="text-red-500 text-xs mt-1">Selecione uma opção</p>
+              )}
+            </div>
+
             {/* Observações */}
             <div>
               <label className="text-sm font-medium mb-1 block">Observações</label>
@@ -758,6 +846,7 @@ export function GeracaoRendaSection() {
                 <div className="border rounded-lg p-3 bg-orange-50/40 space-y-1">
                   <p className="font-medium text-orange-700">Empreendedorismo</p>
                   <div className="grid grid-cols-2 gap-y-1">
+                    <div><span className="text-gray-500">Área de Atuação:</span> {viewRecord.segmento || viewRecord.nome_negocio || "—"}</div>
                     <div><span className="text-gray-500">Negócio:</span> {viewRecord.nome_negocio || "—"}</div>
                     <div><span className="text-gray-500">CNPJ:</span> {viewRecord.cnpj || "—"}</div>
                     <div><span className="text-gray-500">Faturamento:</span> {viewRecord.faturamento_aproximado || "—"}</div>
@@ -765,6 +854,14 @@ export function GeracaoRendaSection() {
                   </div>
                 </div>
               )}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">Edital Gerando Falcões:</span>
+                {viewRecord.padrao_gf ? (
+                  <Badge className="bg-green-100 text-green-700 border-green-200">Sim</Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-white">Não</Badge>
+                )}
+              </div>
               {viewRecord.observacoes && (
                 <div>
                   <span className="text-gray-500 block">Observações:</span>
@@ -776,24 +873,29 @@ export function GeracaoRendaSection() {
                   <span className="text-gray-500 block mb-1">Evidências:</span>
                   <div className="space-y-2">
                     {viewRecord.evidencias.map((ev: any) => {
-                      const dlUrl = `/api/geracoes-de-renda/download?path=${encodeURIComponent(ev.storage_url)}`;
+                      const sigUrl = signedEvidUrls[ev.storage_url] || "";
                       const isImage = ev.mime_type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(ev.nome_arquivo);
                       return isImage ? (
                         <div key={ev.id}>
-                          <img
-                            src={dlUrl}
-                            alt={ev.nome_arquivo}
-                            onClick={() => setLightboxUrl(dlUrl)}
-                            className="max-w-full rounded-lg border max-h-64 object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
-                          />
+                          {sigUrl ? (
+                            <img
+                              src={sigUrl}
+                              alt={ev.nome_arquivo}
+                              onClick={() => setLightboxUrl(sigUrl)}
+                              className="max-w-full rounded-lg border max-h-64 object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
+                            />
+                          ) : (
+                            <p className="text-xs text-gray-400">Carregando imagem...</p>
+                          )}
                           <p className="text-xs text-gray-400 mt-1">{ev.nome_arquivo}</p>
                         </div>
                       ) : (
                         <button
                           key={ev.id}
                           type="button"
-                          onClick={() => setPdfModalUrl(dlUrl)}
-                          className="flex items-center gap-1 text-blue-600 hover:underline text-xs"
+                          onClick={() => sigUrl && setPdfModalUrl(sigUrl)}
+                          disabled={!sigUrl}
+                          className="flex items-center gap-1 text-blue-600 hover:underline text-xs disabled:text-gray-400 disabled:cursor-not-allowed"
                         >
                           <ExternalLink className="w-3 h-3" />{ev.nome_arquivo}
                         </button>
@@ -801,6 +903,95 @@ export function GeracaoRendaSection() {
                     })}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Evidências */}
+      <Dialog open={!!evidenciaModalRecord} onOpenChange={(v) => { if (!v) setEvidenciaModalRecord(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Images className="w-5 h-5 text-indigo-600" />
+              Evidências — {evidenciaModalRecord?.nome}
+            </DialogTitle>
+          </DialogHeader>
+          {evidenciaModalRecord && (
+            <div className="space-y-4">
+              {loadingSignedUrls ? (
+                <p className="text-gray-400 text-sm text-center py-8">Carregando evidências...</p>
+              ) : (evidenciaModalRecord.evidencias || []).length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-8">Nenhuma evidência cadastrada.</p>
+              ) : (
+                (evidenciaModalRecord.evidencias || []).map((ev: any) => {
+                  const sigUrl = signedEvidUrls[ev.storage_url] || "";
+                  const isImage = ev.mime_type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(ev.nome_arquivo || '');
+                  const isPdf = ev.mime_type === 'application/pdf' || /\.pdf$/i.test(ev.nome_arquivo || '');
+                  return (
+                    <div key={ev.id} className="border rounded-xl overflow-hidden bg-gray-50">
+                      {/* Header do arquivo */}
+                      <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
+                        <span className="text-sm font-medium text-gray-700 truncate flex-1">{ev.nome_arquivo}</span>
+                        {sigUrl ? (
+                          <a
+                            href={sigUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-2 flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Baixar
+                          </a>
+                        ) : (
+                          <span className="ml-2 text-xs text-gray-400 px-3 py-1.5">Link indisponível</span>
+                        )}
+                      </div>
+                      {/* Conteúdo */}
+                      <div className="p-3">
+                        {!sigUrl ? (
+                          <div className="flex flex-col items-center gap-3 py-6">
+                            <ExternalLink className="w-8 h-8 text-gray-300" />
+                            <p className="text-sm text-gray-400">Não foi possível carregar o arquivo</p>
+                          </div>
+                        ) : isImage ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <img
+                              src={sigUrl}
+                              alt={ev.nome_arquivo}
+                              className="max-w-full max-h-96 object-contain rounded-lg cursor-zoom-in hover:opacity-90 transition-opacity shadow-sm"
+                              onClick={() => setLightboxUrl(sigUrl)}
+                            />
+                            <p className="text-xs text-gray-400">Clique na imagem para ampliar</p>
+                          </div>
+                        ) : isPdf ? (
+                          <div className="flex flex-col gap-2">
+                            <iframe
+                              src={sigUrl}
+                              className="w-full h-80 rounded-lg border"
+                              title={ev.nome_arquivo}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-3 py-6">
+                            <ExternalLink className="w-8 h-8 text-gray-400" />
+                            <p className="text-sm text-gray-500">Arquivo não previsualizado</p>
+                            <a
+                              href={sigUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-600 hover:underline text-sm"
+                            >
+                              Abrir arquivo
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}

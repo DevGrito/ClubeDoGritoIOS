@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Loader2, User, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import girlImage from "../app-assets/image_1769199255257.png";
+import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
+import { getPostLoginPath } from "@/lib/post-login-redirect";
 
 export default function DevLogin() {
   const [, setLocation] = useLocation();
@@ -68,44 +70,35 @@ export default function DevLogin() {
 
     try {
       const response = await fetch("/api/login/developer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usuario, senha }),
-    });
-
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      setLoading(false);
-      toast({
-        title: "Erro no login",
-        description: data.error ?? "Usuário ou senha inválidos",
-        variant: "destructive",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ usuario, senha }),
       });
-      return;
-    }
 
-    // 👇 pega o papel retornado (dev ou dev-marketing)
-    const devRole = data.developer?.role ?? "dev";
-    if (devRole === "dev-marketing") {
-      setLoading(false);
-      setLocation("/dev/marketing");
-    } else {
-      setLoading(false);
-      setLocation("/dev");
-    }
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        toast({
+          title: "Erro no login",
+          description: data.error ?? "Usuário ou senha inválidos",
+          variant: "destructive",
+        });
+        return;
+      }
 
-    // salva contexto de sessão
-    localStorage.setItem("userPapel", devRole);
-    localStorage.setItem("isVerified", "true");
-    sessionStorage.setItem("dev_session", "active");
+      const session = await syncAuthSessionAfterLogin();
+      if (!session?.id) {
+        throw new Error("Sessão não foi criada. Tente novamente.");
+      }
 
-    // se for dev-marketing, manda direto pra tela certa
-    if (devRole === "dev-marketing") {
-      setLocation("/dev/marketing");
-    } else {
-      setLocation("/dev");
-    }
+      sessionStorage.setItem("dev_session", "active");
 
+      toast({
+        title: "Login realizado",
+        description: `Bem-vindo, ${data.developer?.nome ?? "desenvolvedor"}!`,
+      });
+
+      setLocation(getPostLoginPath(session));
     } catch (error) {
       console.error("Erro ao fazer login:", error);
       toast({

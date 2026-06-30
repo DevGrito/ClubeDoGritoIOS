@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useLocation, useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
 import { z } from "zod";
 import { ProjectForm, ActivityForm, InstanceForm, EnrollmentForm, SessionForm } from '@/components/pec/forms';
 import { PhotoGallery } from '@/components/pec/photo-gallery';
+import { RelatoriosPanel } from '@/components/RelatoriosPanel';
 
 // Router component to handle different PEC routes
 export default function PecRouter() {
@@ -225,7 +227,7 @@ function PecDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     setLocation('/entrar');
   };
@@ -1722,17 +1724,13 @@ function ProjectDetail({ projectId }: { projectId?: string }) {
           <TabsContent value="reports" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Relatórios do Projeto</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-500" />
+                  Relatórios Gerenciais
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-8">
-                  <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">Nenhum relatório disponível</p>
-                  <Button className="mt-4" onClick={handleGenerateSlides} data-testid="btn-generate-report">
-                    <FileText className="h-4 w-4 mr-2" />
-                    Gerar Relatório
-                  </Button>
-                </div>
+                <RelatoriosPanel vertente="pec" />
               </CardContent>
             </Card>
           </TabsContent>

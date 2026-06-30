@@ -1,4 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+const GCS_PREFIX = /^https?:\/\/storage\.googleapis\.com\/[^/]+\//;
+function toProxyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (GCS_PREFIX.test(url)) {
+    return `/api/gcs-foto-proxy?path=${encodeURIComponent(url.replace(GCS_PREFIX, ''))}`;
+  }
+  return url;
+}
 import { formatCPF } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +56,7 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
 
   const [searchParticipante, setSearchParticipante] = useState<string>("");
   const [statusFilterParticipantes, setStatusFilterParticipantes] = useState<string>("ativos");
+  const [turmaFilterParticipantes, setTurmaFilterParticipantes] = useState<string>("todas");
 
   const [selectedParticipante, setSelectedParticipante] = useState<any>(null);
   const [fullParticipanteData, setFullParticipanteData] = useState<any>(null);
@@ -71,6 +81,46 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
       if (!response.ok) throw new Error('Falha ao carregar participantes');
       return response.json();
     },
+  });
+
+  const turmasDisponiveis = useMemo(() => {
+    const turmaMap = new Map<number, string>();
+    participantesData.forEach((participante: any) => {
+      (participante.turmas || [])
+        .filter((turma: any) => turma?.status !== 'concluido')
+        .forEach((turma: any) => {
+          if (typeof turma?.id === "number" && turma?.nome) {
+            turmaMap.set(turma.id, turma.nome);
+          }
+        });
+    });
+
+    return Array.from(turmaMap.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [participantesData]);
+
+  const participantesFiltrados = participantesData.filter((p: any) => {
+    const matchesSearch =
+      (p.nome || "").toLowerCase().includes(searchParticipante.toLowerCase()) ||
+      (p.cpf || "").includes(searchParticipante);
+
+    let matchesStatus = true;
+    if (statusFilterParticipantes === "ativos") matchesStatus = p.status !== "inativo";
+    if (statusFilterParticipantes === "inativos") matchesStatus = p.status === "inativo";
+
+    const matchesTurmaPorPermissao =
+      !filtroTurmaIds ||
+      filtroTurmaIds.length === 0 ||
+      (p.turmas && p.turmas.some((t: any) => filtroTurmaIds.includes(t.id)));
+
+    const selectedTurmaId = turmaFilterParticipantes === "todas" ? null : Number(turmaFilterParticipantes);
+    const matchesTurmaSelecionada =
+      selectedTurmaId === null ||
+      (p.turmas &&
+        p.turmas.some((t: any) => t?.status !== "concluido" && t?.id === selectedTurmaId));
+
+    return matchesSearch && matchesStatus && matchesTurmaPorPermissao && matchesTurmaSelecionada;
   });
 
   const handleExportTemplate = () => {
@@ -261,7 +311,7 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
             title="Detalhes Completos do Participante"
             loading={loadingParticipanteDetails}
             color="blue"
-            foto={fullParticipanteData?.foto_perfil || selectedParticipante?.foto_perfil}
+            foto={toProxyUrl(fullParticipanteData?.fotoUrl || selectedParticipante?.fotoUrl)}
             nome={fullParticipanteData?.nome || selectedParticipante?.nome}
             cpf={maskCpfSection(fullParticipanteData?.cpf || selectedParticipante?.cpf)}
             status={fullParticipanteData?.status || selectedParticipante?.status}
@@ -302,10 +352,10 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                 title: "Dados Pessoais Adicionais",
                 icon: User,
                 fields: [
-                  { label: "Data de Nascimento", value: (fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento) ? new Date(fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento).toLocaleDateString('pt-BR') : undefined },
+                  { label: "Data de Nascimento", value: (fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento) ? new Date(String(fullParticipanteData?.dataNascimento || selectedParticipante?.dataNascimento).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
                   { label: "Nacionalidade", value: fullParticipanteData?.nacionalidade || selectedParticipante?.nacionalidade },
                   { label: "Forma de Acesso", value: fullParticipanteData?.formaAcesso || selectedParticipante?.formaAcesso },
-                  { label: "Data de Entrada", value: (fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada) ? new Date(fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada).toLocaleDateString('pt-BR') : undefined },
+                  { label: "Data de Entrada", value: (fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada) ? new Date(String(fullParticipanteData?.dataEntrada || selectedParticipante?.dataEntrada).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
                 ],
               },
               {
@@ -560,6 +610,19 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                 <SelectItem value="inativos">Inativos</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={turmaFilterParticipantes} onValueChange={setTurmaFilterParticipantes}>
+              <SelectTrigger className="w-64" data-testid="select-filtro-turma-participantes">
+                <SelectValue placeholder="Filtrar por turma" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas as turmas</SelectItem>
+                {turmasDisponiveis.map((turma) => (
+                  <SelectItem key={turma.id} value={String(turma.id)}>
+                    {turma.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <Table>
@@ -569,7 +632,8 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                 <TableHead>Nome</TableHead>
                 {!readOnly && <TableHead>CPF</TableHead>}
                 <TableHead>Telefone</TableHead>
-                {readOnly && <TableHead>Nascimento</TableHead>}
+                <TableHead>Nascimento</TableHead>
+                <TableHead>Idade</TableHead>
                 {!readOnly && <TableHead>Turmas</TableHead>}
                 {!readOnly && !hideSensitive && <TableHead>Escolaridade</TableHead>}
                 {!readOnly && <TableHead>Ações</TableHead>}
@@ -582,36 +646,20 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                     Carregando participantes...
                   </TableCell>
                 </TableRow>
-              ) : participantesData.filter((p: any) => {
-                  const matchesSearch = (p.nome || '').toLowerCase().includes(searchParticipante.toLowerCase()) || (p.cpf || '').includes(searchParticipante);
-                  let matchesStatus = true;
-                  if (statusFilterParticipantes === 'ativos') matchesStatus = p.status !== 'inativo';
-                  if (statusFilterParticipantes === 'inativos') matchesStatus = p.status === 'inativo';
-                  const matchesTurma = !filtroTurmaIds || filtroTurmaIds.length === 0 || (p.turmas && p.turmas.some((t: any) => filtroTurmaIds.includes(t.id)));
-                  return matchesSearch && matchesStatus && matchesTurma;
-                }).length === 0 ? (
+              ) : participantesFiltrados.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={readOnly ? 3 : 7} className="text-center text-gray-500 py-8">
                     {searchParticipante ? "Nenhum participante encontrado." : readOnly ? "Nenhum participante nas suas turmas." : "Nenhum participante cadastrado. Clique em \"Adicionar Participante\" para começar."}
                   </TableCell>
                 </TableRow>
               ) : (
-                participantesData
-                  .filter((p: any) => {
-                    const matchesSearch = (p.nome || '').toLowerCase().includes(searchParticipante.toLowerCase()) || (p.cpf || '').includes(searchParticipante);
-                    let matchesStatus = true;
-                    if (statusFilterParticipantes === 'ativos') matchesStatus = p.status !== 'inativo';
-                    if (statusFilterParticipantes === 'inativos') matchesStatus = p.status === 'inativo';
-                    const matchesTurma = !filtroTurmaIds || filtroTurmaIds.length === 0 || (p.turmas && p.turmas.some((t: any) => filtroTurmaIds.includes(t.id)));
-                    return matchesSearch && matchesStatus && matchesTurma;
-                  })
-                  .map((participante: any) => (
+                participantesFiltrados.map((participante: any) => (
                   <TableRow key={participante.id}>
                     {!readOnly && !hideSensitive && (
                       <TableCell>
-                        {participante.foto_perfil && participante.foto_perfil.trim() ? (
+                        {participante.fotoUrl && participante.fotoUrl.trim() ? (
                           <img
-                            src={participante.foto_perfil}
+                            src={toProxyUrl(participante.fotoUrl)!}
                             alt={participante.nome}
                             className="w-10 h-10 rounded-full object-cover"
                           />
@@ -632,13 +680,23 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                     </TableCell>
                     {!readOnly && <TableCell>{hideSensitive ? maskCpfSection(participante.cpf) : formatCPF(participante.cpf)}</TableCell>}
                     <TableCell>{participante.telefone}</TableCell>
-                    {readOnly && (
-                      <TableCell>
-                        {participante.dataNascimento || participante.data_nascimento
-                          ? new Date((participante.dataNascimento || participante.data_nascimento) + 'T12:00:00').toLocaleDateString('pt-BR')
-                          : '-'}
-                      </TableCell>
-                    )}
+                    <TableCell>
+                      {participante.dataNascimento || participante.data_nascimento
+                        ? new Date((participante.dataNascimento || participante.data_nascimento) + 'T12:00:00').toLocaleDateString('pt-BR')
+                        : '-'}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const nasc = participante.dataNascimento || participante.data_nascimento;
+                        if (!nasc) return '-';
+                        const hoje = new Date();
+                        const n = new Date(nasc + 'T12:00:00');
+                        let idade = hoje.getFullYear() - n.getFullYear();
+                        const m = hoje.getMonth() - n.getMonth();
+                        if (m < 0 || (m === 0 && hoje.getDate() < n.getDate())) idade--;
+                        return `${idade} anos`;
+                      })()}
+                    </TableCell>
                     {!readOnly && (
                       <TableCell>
                         <div className="flex flex-wrap gap-1">

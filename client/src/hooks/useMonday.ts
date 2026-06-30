@@ -6,7 +6,6 @@ import {
   MondayUser, 
   MondayApiResponse,
   MondayQueryResponse,
-  MondayConfig,
   MondayRequestOptions,
   MondayBoardsState,
   MondayItemsState,
@@ -123,28 +122,7 @@ const CREATE_ITEM_MUTATION = `
 `;
 
 class MondayGraphQLClient {
-  private config: MondayConfig;
-  private baseUrl: string = 'https://api.monday.com/v2';
-
-  constructor(config: MondayConfig) {
-    this.config = config;
-  }
-
-  private getAuthHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'API-Version': this.config.apiVersion || '2023-10',
-    };
-
-    // Prefer MONDAY_TOKEN over MONDAY_API_KEY
-    if (this.config.token) {
-      headers['Authorization'] = `Bearer ${this.config.token}`;
-    } else if (this.config.apiKey) {
-      headers['Authorization'] = this.config.apiKey;
-    }
-
-    return headers;
-  }
+  private baseUrl: string = '/api/monday/graphql';
 
   async query<T = any>(
     query: string, 
@@ -153,7 +131,10 @@ class MondayGraphQLClient {
     try {
       const response = await fetch(this.baseUrl, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           query,
           variables: options.variables || {},
@@ -224,34 +205,10 @@ export function useMonday() {
   const [client, setClient] = useState<MondayGraphQLClient | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Initialize client with environment variables
+  // Client usa proxy autenticado no backend (SEC-002) — sem tokens no bundle
   useEffect(() => {
-    const initializeClient = () => {
-      try {
-        // Get API keys from environment variables
-        const mondayToken = import.meta.env.VITE_MONDAY_TOKEN;
-        const mondayApiKey = import.meta.env.VITE_MONDAY_API_KEY;
-
-        if (!mondayToken && !mondayApiKey) {
-          console.warn('Monday.com credentials not found. Please set VITE_MONDAY_TOKEN or VITE_MONDAY_API_KEY');
-          return;
-        }
-
-        const config: MondayConfig = {
-          token: mondayToken,
-          apiKey: mondayApiKey,
-          apiVersion: '2023-10'
-        };
-
-        const newClient = new MondayGraphQLClient(config);
-        setClient(newClient);
-        setIsInitialized(true);
-      } catch (error) {
-        console.error('Failed to initialize Monday.com client:', error);
-      }
-    };
-
-    initializeClient();
+    setClient(new MondayGraphQLClient());
+    setIsInitialized(true);
   }, []);
 
   // Hook state management

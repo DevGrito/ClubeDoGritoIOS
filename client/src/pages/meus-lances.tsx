@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { ArrowLeft, Clock, Star, Trophy, AlertCircle, CheckCircle, Eye, X, Timer, Users, Target, TrendingUp, Plus, Sparkles, PartyPopper, Zap, RefreshCw, Heart } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { authFetch } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
 import { useUserData } from "@/hooks/useUserData";
 import { useProfileImage } from "@/hooks/useProfileImage";
@@ -80,9 +81,7 @@ const LanceMaiorAlerta = ({
   const { data: estatisticas, isLoading } = useQuery<EstatisticasBeneficio>({
     queryKey: [`/api/beneficios/${beneficioId}/estatisticas`],
     queryFn: async () => {
-      const response = await fetch(`/api/beneficios/${beneficioId}/estatisticas`, {
-        headers: { 'x-user-id': userId },
-      });
+      const response = await authFetch(`/api/beneficios/${beneficioId}/estatisticas`);
       if (!response.ok) throw new Error('Falha ao buscar estatísticas');
       return response.json();
     },
@@ -166,11 +165,7 @@ export default function MeusLances() {
   const { data: lances = [], isLoading } = useQuery<Lance[]>({
     queryKey: ['/api/meus-lances'],
     queryFn: async () => {
-      const response = await fetch('/api/meus-lances', {
-        headers: {
-          'x-user-id': userId || '',
-        },
-      });
+      const response = await authFetch('/api/meus-lances');
       if (!response.ok) {
         throw new Error('Falha ao buscar lances');
       }
@@ -189,11 +184,7 @@ export default function MeusLances() {
     queryKey: [`/api/beneficios/${lanceDetalhes}/estatisticas`],
     enabled: !!lanceDetalhes,
     queryFn: async () => {
-      const response = await fetch(`/api/beneficios/${lanceDetalhes}/estatisticas`, {
-        headers: {
-          'x-user-id': userId || '',
-        },
-      });
+      const response = await authFetch(`/api/beneficios/${lanceDetalhes}/estatisticas`);
       if (!response.ok) {
         throw new Error('Falha ao buscar estatísticas');
       }
@@ -207,7 +198,7 @@ export default function MeusLances() {
     queryFn: async () => {
       if (!userId) return null;
       try {
-        const response = await fetch(`/api/users/${userId}/gritos`);
+        const response = await authFetch(`/api/users/${userId}/gritos`);
         if (response.ok) {
           return await response.json();
         }

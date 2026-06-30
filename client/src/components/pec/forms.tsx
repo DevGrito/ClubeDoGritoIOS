@@ -26,6 +26,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { useToast } from '@/hooks/use-toast';
+import { parseDateLocal } from '@/lib/class-days';
 
 // Schemas
 const projectSchema = z.object({
@@ -786,7 +787,7 @@ export function InstanceForm({
       start_date: instance.start_date ? new Date(instance.start_date) : new Date(),
       end_date: instance.end_date ? new Date(instance.end_date) : new Date(),
       location: instance.location || '',
-      situation: instance.situation || 'planejamento',
+      situation: (instance.situation === 'planejamento' ? 'execucao' : instance.situation) || 'execucao',
       period: instance.period || 'matutino',
       start_time: instance.start_time || '',
       end_time: instance.end_time || '',
@@ -809,7 +810,7 @@ export function InstanceForm({
       start_date: new Date(),
       end_date: new Date(),
       location: '',
-      situation: 'planejamento',
+      situation: 'execucao',
       period: 'matutino',
       start_time: '',
       end_time: '',
@@ -880,14 +881,10 @@ export function InstanceForm({
       code: instance.code || instance.codigo || '',
       min_age: instance.min_age ?? instance.age_min ?? 6,
       max_age: instance.max_age ?? instance.age_max ?? 17,
-      start_date: instance.start_date ? new Date(instance.start_date)
-        : instance.occurrence_start ? new Date(instance.occurrence_start)
-        : instance.dataInicio ? new Date(instance.dataInicio) : new Date(),
-      end_date: instance.end_date ? new Date(instance.end_date)
-        : instance.occurrence_end ? new Date(instance.occurrence_end)
-        : instance.dataFim ? new Date(instance.dataFim) : new Date(),
+      start_date: parseDateLocal(instance.start_date || instance.occurrence_start || instance.dataInicio) ?? new Date(),
+      end_date: parseDateLocal(instance.end_date || instance.occurrence_end || instance.dataFim) ?? new Date(),
       location: instance.location || instance.local || '',
-      situation: instance.situation || instance.status || 'planejamento',
+      situation: ((instance.situation || instance.status) === 'planejamento' ? 'execucao' : (instance.situation || instance.status)) || 'execucao',
       period: instance.period || instance.period_label || 'matutino',
       start_time: (instance.start_time || instance.horarioInicio) ? String(instance.start_time || instance.horarioInicio).slice(0, 5) : '',
       end_time: (instance.end_time || instance.horarioFim) ? String(instance.end_time || instance.horarioFim).slice(0, 5) : '',
@@ -908,7 +905,7 @@ export function InstanceForm({
       start_date: new Date(),
       end_date: new Date(),
       location: '',
-      situation: 'planejamento',
+      situation: 'execucao',
       period: 'matutino',
       start_time: '',
       end_time: '',
@@ -1247,9 +1244,8 @@ export function InstanceForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="planejamento">Planejamento</SelectItem>
-                        <SelectItem value="execucao">Execução</SelectItem>
-                        <SelectItem value="encerrada">Encerrada</SelectItem>
+                        <SelectItem value="execucao">Em andamento</SelectItem>
+                        <SelectItem value="encerrada">Concluído</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

@@ -2,22 +2,37 @@ import { loadStripe, Stripe } from "@stripe/stripe-js";
 
 const isProd = import.meta.env.PROD;
 
-// Pega a chave pública do .env
-let stripePublicKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY as string | undefined;
+/** Apenas chaves publishable (pk_*). Nunca use sk_* no frontend. */
+function normalizeStripePublicKey(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const key = raw.trim();
+  if (key.startsWith("sk_")) {
+    console.error(
+      "[Stripe] VITE_STRIPE_PUBLIC_KEY parece ser uma chave secreta (sk_*). " +
+        "Use apenas a chave publicável (pk_*) no frontend."
+    );
+    return undefined;
+  }
+  if (!key.startsWith("pk_")) {
+    console.warn("[Stripe] Chave pública deve começar com pk_");
+  }
+  return key;
+}
 
-// Se não tiver chave, em dev usa fallback; em prod só loga erro
+const stripePublicKey = normalizeStripePublicKey(
+  import.meta.env.VITE_STRIPE_PUBLIC_KEY as string | undefined
+);
+
 if (!stripePublicKey) {
   if (isProd) {
     console.error(
       "[Stripe] VITE_STRIPE_PUBLIC_KEY não configurada em produção. " +
-        "Verifique as variáveis de ambiente."
+        "Pagamentos Stripe ficarão indisponíveis até configurar a variável."
     );
   } else {
     console.warn(
-      "[Stripe] VITE_STRIPE_PUBLIC_KEY não encontrada. Usando chave de teste hardcoded (DEV apenas)."
+      "[Stripe] VITE_STRIPE_PUBLIC_KEY ausente. Configure no .env local (pk_test_...)."
     );
-    stripePublicKey =
-      "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";
   }
 }
 

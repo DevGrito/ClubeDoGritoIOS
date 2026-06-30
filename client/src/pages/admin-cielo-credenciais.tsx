@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { ArrowLeft, Save, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authFetch } from "@/lib/queryClient";
 
 const formSchema = z.object({
   merchantId: z.string().min(1, "MerchantId é obrigatório"),
@@ -38,7 +39,7 @@ export default function AdminCieloCredenciais() {
 
   async function checkCieloStatus() {
     try {
-      const res = await fetch('/api/admin/cielo/status');
+      const res = await authFetch('/api/admin/cielo/status');
       const data = await res.json();
       setIsConfigured(data.configured);
     } catch (error) {
@@ -51,10 +52,10 @@ export default function AdminCieloCredenciais() {
   async function onSubmit(values: FormValues) {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/admin/cielo/credentials', {
+      const response = await authFetch('/api/admin/cielo/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       });
 
       const data = await response.json();

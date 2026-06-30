@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { kpiColor, kpiColorInverse } from "@/lib/kpiColors";
 
 export const MESES = [
   { value: 'todos', label: 'Todos os Meses' },
@@ -16,13 +17,92 @@ export const MESES = [
   { value: '12', label: 'Dezembro' },
 ];
 
-export const ANOS = ['2025', '2026'];
+/** 'todos' = ano inteiro; number[] = um ou mais meses (1–12) */
+export type PeriodoFiltro = 'todos' | number[];
+
+export function isPeriodoTodos(periodo: PeriodoFiltro): boolean {
+  return periodo === 'todos';
+}
+
+export function isPeriodoMulti(periodo: PeriodoFiltro): boolean {
+  return periodo !== 'todos' && periodo.length > 1;
+}
+
+export function periodoMesUnico(periodo: PeriodoFiltro): number | null {
+  if (periodo === 'todos' || periodo.length !== 1) return null;
+  return periodo[0];
+}
+
+/** Meses do período (contíguos quando multi — min..max) */
+export function periodoMesesLista(periodo: PeriodoFiltro): number[] {
+  if (periodo === 'todos') return [];
+  if (periodo.length === 1) return [...periodo];
+  const min = Math.min(...periodo);
+  const max = Math.max(...periodo);
+  return Array.from({ length: max - min + 1 }, (_, i) => min + i);
+}
+
+export function periodoUltimoMes(periodo: PeriodoFiltro): number {
+  if (periodo === 'todos') return 0;
+  return Math.max(...periodo);
+}
+
+export function buildQp(ano: string, periodo: PeriodoFiltro): string {
+  if (periodo === 'todos') return `?ano=${ano}`;
+  if (periodo.length === 1) return `?ano=${ano}&mes=${periodo[0]}`;
+  const min = Math.min(...periodo);
+  const max = Math.max(...periodo);
+  return `?ano=${ano}&mesInicio=${min}&mesFim=${max}`;
+}
+
+export function appendPeriodoParams(params: URLSearchParams, periodo: PeriodoFiltro): void {
+  if (periodo === 'todos') return;
+  if (periodo.length === 1) {
+    params.set('mes', String(periodo[0]));
+    return;
+  }
+  params.set('mesInicio', String(Math.min(...periodo)));
+  params.set('mesFim', String(Math.max(...periodo)));
+}
+
+/** Quantidade de meses para prorratear metas (÷11) */
+export function periodoQtdMesesMeta(periodo: PeriodoFiltro): number {
+  if (periodo === 'todos') return Math.max(0, new Date().getMonth());
+  return periodo.length;
+}
+
+export function metaFnPeriodo(periodo: PeriodoFiltro, anual: number): number {
+  const qtd = periodoQtdMesesMeta(periodo);
+  if (qtd <= 0) return anual;
+  return Math.max(1, Math.round(anual * qtd / 11));
+}
+
+const MESES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+export function periodoLabel(periodo: PeriodoFiltro, ano: string): string {
+  if (periodo === 'todos') return String(ano);
+  if (periodo.length === 1) return `${MESES_PT[periodo[0] - 1]} de ${ano}`;
+  const sorted = [...periodo].sort((a, b) => a - b);
+  if (sorted.length <= 3) {
+    return `${sorted.map(m => MESES_SHORT[m - 1]).join(', ')} de ${ano}`;
+  }
+  return `${MESES_SHORT[sorted[0] - 1]}–${MESES_SHORT[sorted[sorted.length - 1] - 1]} de ${ano}`;
+}
+
+// Gera automaticamente do 2026 até o ano atual — em 2027 aparece '2027', etc.
+// '2025' mantido comentado caso seja necessário reativar
+const _anoAtual = new Date().getFullYear();
+export const ANOS = Array.from(
+  { length: Math.max(1, _anoAtual - 2026 + 1) },
+  (_, i) => String(2026 + i)
+);
 
 export type GVIndicadores = {
   frequencia?: { valor: number; meta: number };
   evasao?: { valor: number; meta: number };
   criterioSucesso?: { valor: number; meta: number };
   nps?: { valor: number; meta: number };
+  npsCombinado?: { valor: number; meta: number };
   alunosFormados?: { valor: number; meta: number };
   alunosEmFormacao?: { valor: number; meta: number };
   criancasAtendidas?: { valor: number; meta: number };
@@ -57,14 +137,7 @@ export function getPct(valor: number, meta: number): number {
 
 export function getColor(valor: number, meta: number, inverse = false): string {
   const pct = getPct(valor, meta);
-  if (inverse) {
-    if (pct <= 80) return '#22c55e';
-    if (pct <= 100) return '#eab308';
-    return '#ef4444';
-  }
-  if (pct >= 100) return '#22c55e';
-  if (pct >= 80) return '#eab308';
-  return '#ef4444';
+  return inverse ? kpiColorInverse(pct) : kpiColor(pct);
 }
 
 export function getBgColor(valor: number, meta: number, inverse = false): string {
@@ -88,15 +161,15 @@ interface KpiItemProps {
 }
 
 export function KpiItem({ label, valor, meta, unit = '', inverse = false, format = 'number', size = 'md', note, prorated, proratedMes }: KpiItemProps) {
-  const mesRef = proratedMes ?? (new Date().getMonth() + 1);
-  const metaEfetiva = prorated && mesRef < 12 ? Math.round((mesRef / 12) * meta) : meta;
-  const pct = getPct(valor, metaEfetiva);
-  const color = getColor(valor, metaEfetiva, inverse);
+  const mesRef = proratedMes ?? Math.max(0, new Date().getMonth());
+  const metaEfetiva = prorated && mesRef > 0 ? Math.round((mesRef / 11) * meta) : (prorated ? 0 : meta);
+  const pct = metaEfetiva > 0 ? getPct(valor, metaEfetiva) : 0;
+  const color = metaEfetiva > 0 ? getColor(valor, metaEfetiva, inverse) : '#64748b';
 
   const displayValor = format === 'percent' ? `${valor}%` : `${valor.toLocaleString('pt-BR')}${unit}`;
-  const displayMeta  = format === 'percent' ? `${metaEfetiva}%`  : `${metaEfetiva.toLocaleString('pt-BR')}${unit}`;
+  const displayMeta  = metaEfetiva > 0 ? (format === 'percent' ? `${metaEfetiva}%` : `${metaEfetiva.toLocaleString('pt-BR')}${unit}`) : '—';
   const MESES_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const proratedNote = prorated && mesRef < 12 ? `Até ${MESES_SHORT[mesRef - 1]}: ${metaEfetiva.toLocaleString('pt-BR')} · Anual: ${meta.toLocaleString('pt-BR')}` : null;
+  const proratedNote = prorated && mesRef > 0 && mesRef < 11 ? `Acum. ${MESES_SHORT[mesRef]}: ${metaEfetiva.toLocaleString('pt-BR')} · Anual: ${meta.toLocaleString('pt-BR')}` : null;
 
   const labelCls = size === 'lg' ? 'text-[11px]' : size === 'sm' ? 'text-[7px]' : 'text-[8px]';
   const pctCls   = size === 'lg' ? 'text-[14px]' : size === 'sm' ? 'text-[9px]' : 'text-[11px]';
@@ -106,7 +179,7 @@ export function KpiItem({ label, valor, meta, unit = '', inverse = false, format
   return (
     <div className="flex flex-col justify-between h-full">
       <div className="flex items-start justify-between gap-1">
-        <p className={`${labelCls} text-slate-400 uppercase tracking-wide leading-tight`} style={{ wordBreak: 'break-word' }}>{label}</p>
+        <p className={`${labelCls} text-slate-400 uppercase tracking-wide leading-tight`} style={{ hyphens: 'auto', overflowWrap: 'break-word', wordBreak: 'normal' }}>{label}</p>
         <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
           {note && <span className="text-[7px] text-slate-500 leading-tight">{note}</span>}
           <span className={`${pctCls} font-bold tabular-nums leading-tight`} style={{ color }}>{pct}%</span>
@@ -136,7 +209,7 @@ export function KpiItemNoMeta({ label, valor, unit = '', format = 'number', size
   return (
     <div className="flex flex-col justify-between h-full">
       <div className="flex items-start justify-between gap-1">
-        <p className={`${labelCls} text-slate-400 uppercase tracking-wide leading-tight`} style={{ wordBreak: 'break-word' }}>{label}</p>
+        <p className={`${labelCls} text-slate-400 uppercase tracking-wide leading-tight`} style={{ hyphens: 'auto', overflowWrap: 'break-word', wordBreak: 'normal' }}>{label}</p>
         <span className={`text-[8px] text-slate-500 flex-shrink-0 leading-tight`}>—</span>
       </div>
       <div className="flex-1 flex items-center gap-1">
@@ -201,7 +274,7 @@ export function GaugeCard({ label, valor, meta, inverse = false, size = 'md' }: 
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-2 flex flex-col h-full">
       <div className="flex items-start justify-between gap-1">
-        <p className="text-slate-400 uppercase tracking-wide leading-tight" style={{ fontSize: labelSize, wordBreak: 'break-word' }}>{label}</p>
+        <p className="text-slate-400 uppercase tracking-wide leading-tight" style={{ fontSize: labelSize, hyphens: 'auto', overflowWrap: 'break-word', wordBreak: 'normal' }}>{label}</p>
         <span className="font-bold tabular-nums flex-shrink-0 leading-tight" style={{ color, fontSize: pctSize }}>{pct}%</span>
       </div>
       <div className="flex-1 min-h-0">

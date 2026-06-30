@@ -224,7 +224,7 @@ const isButtonDisabled =
             {/* Ilustração das pessoas fazendo high-five - Imagem profissional */}
             <div className="mb-8 flex justify-center">
               <img 
-                src="/attached_assets/HIFH FIVE_Prancheta 1 1_1757421141870.png" 
+                src="/assets/migrated/HIFH FIVE_Prancheta 1 1_1757421141870.png" 
                 alt="Pessoas comemorando high-five"
                 className="w-48 h-48 object-contain"
                 onLoad={() => console.log('High-five image loaded successfully!')}

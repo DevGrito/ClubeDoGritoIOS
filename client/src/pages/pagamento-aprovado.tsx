@@ -107,7 +107,7 @@ export default function PagamentoAprovadoPage() {
 
           <div className="space-y-3">
             <Button
-              onClick={() => setLocation("/pagamento-ingresso")}
+              onClick={() => setLocation("/eventos")}
               className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 w-full"
               data-testid="button-tentar-novamente"
             >

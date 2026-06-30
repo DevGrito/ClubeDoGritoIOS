@@ -14,7 +14,10 @@ import { Phone, MessageCircle, ArrowLeft } from "lucide-react";
 import Logo from "@/components/logo";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { authFetch, queryClient } from "@/lib/queryClient";
+import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
+import { getPostLoginPath } from "@/lib/post-login-redirect";
+import { SessionExpiredAlert } from "@/components/SessionExpiredAlert";
 
 const countryCodes = [
   { name: "Brasil", code: "+55", id: "br" },
@@ -35,6 +38,7 @@ const countryCodes = [
 ];
 
 export default function Entrar() {
+  const fetch = authFetch;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [countryCode, setCountryCode] = useState("+55");
@@ -66,7 +70,7 @@ export default function Entrar() {
         const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email.trim() }),
+          body: JSON.stringify({ email: email.trim(), tipo: modoPatrocinador ? "patrocinador" : "conselho" }),
         });
 
         const data = await response.json();
@@ -95,39 +99,28 @@ export default function Entrar() {
           throw new Error(data.error || "E-mail não autorizado");
         }
 
-        // limpa e preserva subscription
         const preserveSubscription = localStorage.getItem("hasActiveSubscription");
-        ["userId","userName","userEmail","userTelefone","userPhone","userPapel","userData"].forEach(k=>localStorage.removeItem(k));
+        ["userId", "userName", "userEmail", "userTelefone", "userPhone", "userPapel", "userData", "monitorId", "coordenadorId", "professorId"].forEach((k) =>
+          localStorage.removeItem(k)
+        );
 
-        // salva user
-        localStorage.setItem("userId", String(data.user?.id ?? 0));
-        localStorage.setItem("userName", data.user?.nome ?? "Coordenador");
-        localStorage.setItem("userEmail", data.user?.email ?? email.trim());
-        localStorage.setItem("userTelefone", data.user?.telefone ?? "");
-        localStorage.setItem("userPhone", data.user?.telefone ?? "");
-        localStorage.setItem("userPapel", data.role ?? data.user?.papel ?? "user");
-        localStorage.setItem("isVerified", "true");
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+        const session = await syncAuthSessionAfterLogin();
+        if (!session) {
+          throw new Error("Sessão não foi criada. Tente fazer login novamente.");
+        }
+
         localStorage.setItem("userData", JSON.stringify(data));
-
         if (preserveSubscription) localStorage.setItem("hasActiveSubscription", preserveSubscription);
 
         window.dispatchEvent(new CustomEvent("localStorageChanged"));
 
-        toast({ title: "Login realizado", description: `Bem-vindo, ${data.user?.nome ?? "Coordenador"}!` });
+        toast({
+          title: "Login realizado",
+          description: `Bem-vindo, ${session.nome ?? data.user?.nome ?? "usuário"}!`,
+        });
 
-        // redirecionamento:
-        if (modoCoordenador) {
-          const path = data.redirectPath || "/coordenador"; // fallback
-          setLocation(path);
-          return;
-        }
-
-        // já existente (conselho/patrocinador)
-        if (data.user?.papel === "patrocinador" || data.role === "patrocinador") {
-          setLocation("/patrocinador");
-        } else {
-          setLocation("/conselho");
-        }
+        setLocation(getPostLoginPath(session));
       } catch (error: any) {
         toast({
           title: "Erro no login",
@@ -288,7 +281,6 @@ export default function Entrar() {
 
       const userData = await smsResponse.json();
 
-      // CLEAR old localStorage data first to prevent cache issues (preservando hasActiveSubscription)
       localStorage.removeItem("userId");
       localStorage.removeItem("userName");
       localStorage.removeItem("userEmail");
@@ -296,21 +288,18 @@ export default function Entrar() {
       localStorage.removeItem("userPhone");
       localStorage.removeItem("userPapel");
       localStorage.removeItem("userData");
+      localStorage.removeItem("monitorId");
+      localStorage.removeItem("coordenadorId");
+      localStorage.removeItem("professorId");
 
-      const newUserId = userData.user?.id?.toString() || "";
-      localStorage.setItem("userId", newUserId);
-      
-      const userName = userData.user?.nome || userData.nome || "";
-      localStorage.setItem("userName", userName);
-      
-      localStorage.setItem("userEmail", userData.user?.email || userData.email || "");
-      localStorage.setItem("userTelefone", userData.user?.telefone || userData.telefone);
-      localStorage.setItem("userPhone", userData.user?.telefone || userData.telefone);
-      localStorage.setItem("userPapel", userData.user?.papel || userData.papel || "user");
-      localStorage.setItem("isVerified", "true");
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      const session = await syncAuthSessionAfterLogin();
+      if (!session) {
+        throw new Error("Sessão não foi criada. Tente fazer login novamente.");
+      }
+
       localStorage.setItem("userData", JSON.stringify(userData));
 
-      // ✅ Salvar status de doador no localStorage
       if (userData.donationStatus?.isDonor || userData.papel === "doador" || userData.user?.papel === "doador") {
         localStorage.setItem("isDonor", "true");
         localStorage.setItem("userType", "doador");
@@ -333,29 +322,26 @@ export default function Entrar() {
           : "Bem-vindo ao Clube do Grito!",
       });
 
-      // Roteamento
-     if (userData.papel === "professor" || userData.redirectTo === "/professor") {
-        localStorage.setItem("professorTipo", userData.professorTipo || "regular");
-        setLocation("/professor");
-      } else if (userData.papel === "leo") {
-        setLocation("/tdoador");
-      } else if (userData.papel === "admin") {
-        setLocation("/admin-geral");
-      } else if (userData.papel === "conselho" || userData.conselhoStatus === "aprovado") {
-        setLocation("/conselho");
-      } else if (userData.conselhoStatus === "recusado") {
+      queryClient.invalidateQueries();
+
+      if (userData.conselhoStatus === "recusado") {
         toast({
           title: "Acesso negado",
           description: "Seu acesso ao Conselho foi negado. Entre em contato com o administrador.",
           variant: "destructive",
         });
         setLocation("/perfil");
-      } else if (userData.papel === "doador") {
-        setLocation("/tdoador");
       } else if (userData.needsCouncilApproval || userData.conselhoStatus === "pendente") {
         setLocation("/aguardando-aprovacao");
       } else {
-        setLocation("/welcome");
+        const role = session.papel || session.role || userData.user?.papel || userData.papel;
+        if (role?.startsWith("professor")) {
+          localStorage.setItem(
+            "professorTipo",
+            userData.professorTipo || role.replace("professor_", "") || "regular"
+          );
+        }
+        setLocation(getPostLoginPath(session));
       }
 
               
@@ -382,6 +368,7 @@ export default function Entrar() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-6">
+        <SessionExpiredAlert />
         <div className="text-center">
           <Logo size="lg" className="mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-black mb-2">Entrar</h1>
@@ -476,11 +463,19 @@ export default function Entrar() {
                       <Button
                         type="button"
                         variant="ghost"
+                        onClick={() => setLocation('/login/aluno')}
+                        className="text-sm text-gray-600 hover:text-yellow-400 hover:bg-transparent underline"
+                      >
+                        Aluno
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
                         onClick={() => {
                           setModoConselho(true);
                           setModoPatrocinador(false);
                         }}
-                        className="text-sm text-gray-600 hover:text-white underline"
+                        className="text-sm text-gray-600 hover:text-yellow-400 hover:bg-transparent underline"
                       >
                         Conselho
                       </Button>
@@ -491,7 +486,7 @@ export default function Entrar() {
                           setModoPatrocinador(true);
                           setModoConselho(false);
                         }}
-                        className="text-sm text-gray-600 hover:text-white underline"
+                        className="text-sm text-gray-600 hover:text-yellow-400 hover:bg-transparent underline"
                       >
                         Patrocinador
                       </Button>
@@ -606,6 +601,12 @@ export default function Entrar() {
             </p>
           </div>
         )}
+
+        <div className="text-center text-xs text-gray-400 pt-2">
+          <button onClick={() => setLocation("/termos-de-uso")} className="hover:underline">Termos de Uso</button>
+          {" · "}
+          <button onClick={() => setLocation("/politica-de-privacidade")} className="hover:underline">Política de Privacidade</button>
+        </div>
       </div>
     </div>
   );

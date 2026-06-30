@@ -1,16 +1,12 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, PaymentRequestButtonElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Check, CreditCard, Smartphone } from "lucide-react";
 import Logo from "@/components/logo";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { planPrices, periodicityLabels } from "@/lib/stripe";
-
-// Stripe setup
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_51RdaS1Qlsea8vAKZC1WmSHcCGXNGGTxJuLZ3iq90MUpeCxq5CUhj5C2QwmHWO008hWIMSaZ0yh75EzrSUpXyvTs6002cYD8L9l");
+import { planPrices, periodicityLabels, stripePromise } from "@/lib/stripe";
 
 interface AppleGooglePayProps {
   planInfo: any;

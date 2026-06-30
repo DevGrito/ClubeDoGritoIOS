@@ -1,22 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { formatCPF } from "@/lib/utils";
+import { authFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
-import { Users, Plus, Search, UserX, FileDown } from "lucide-react";
-
-const DESLIGAMENTO_MOTIVOS = [
-  "Cadastro errado",
-  "Empregabilidade",
-  "Desistência",
-  "Mudança de localidade",
-  "Mudança de oficina/curso",
-];
+import { Users, Plus, Search, UserX, FileDown, Phone, User, MapPin, GraduationCap } from "lucide-react";
+import { FrequenciaModal } from "@/components/presenca/FrequenciaModal";
+import { ParticipanteDetalhesModal, type DetalhesSection } from "@/components/ParticipanteDetalhesModal";
+import { SituacaoFormacaoBadge } from "@/components/turma/SituacaoFormacaoBadge";
+import { DESLIGAMENTO_MOTIVOS } from "@shared/turmaMotivos";
+import {
+  getSituacaoFormacaoInclusao,
+  isAlunoEvadidoInclusao,
+  isTurmaFinalizadaInclusao,
+} from "@/lib/turmaSituacaoAluno";
 
 interface TurmaDetailModalInclusaoProps {
   open: boolean;
@@ -41,7 +44,7 @@ function gerarPDFListaAlunos(turma: any, alunos: any[]) {
   const dataInicio = formatarData(turma.dataInicio);
   const dataFim = formatarData(turma.dataFim);
   const alunosAtivos = [...alunos]
-    .filter(a => (a.status || "ativo").toLowerCase() === "ativo")
+    .filter(a => !isAlunoEvadidoInclusao(a))
     .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
   const html = `<!DOCTYPE html>
@@ -86,41 +89,131 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   const { toast } = useToast();
   const [turmaAlunos, setTurmaAlunos] = useState<any[]>([]);
   const [loadingAlunos, setLoadingAlunos] = useState(false);
-  const [filterAlunos, setFilterAlunos] = useState<"ativos" | "inativos" | "todos">("todos");
+  const [filterAlunos, setFilterAlunos] = useState<"todos" | "evadidos">("todos");
   const [searchEnrolled, setSearchEnrolled] = useState("");
   const [showAddAluno, setShowAddAluno] = useState(false);
   const [searchAluno, setSearchAluno] = useState("");
   const [allParticipantes, setAllParticipantes] = useState<any[]>([]);
   const [loadingAll, setLoadingAll] = useState(false);
   const [addingId, setAddingId] = useState<number | null>(null);
+  const [pendingAddParticipante, setPendingAddParticipante] = useState<{ id: number; nome: string } | null>(null);
+  const [dataIngressoInclusao, setDataIngressoInclusao] = useState<string>(new Date().toISOString().split('T')[0]);
   const [desligarModal, setDesligarModal] = useState<{ id: number; nome: string } | null>(null);
   const [desligarMotivo, setDesligarMotivo] = useState("");
   const [submittingDesligar, setSubmittingDesligar] = useState(false);
+  const [evasaoModal, setEvasaoModal] = useState<{ id: number; nome: string } | null>(null);
+  const [dataEvasao, setDataEvasao] = useState(new Date().toISOString().split("T")[0]);
+  const [submittingEvasao, setSubmittingEvasao] = useState(false);
+  const [frequencias, setFrequencias] = useState<Record<string, { presencas: number; total: number }> | null>(null);
+  const [freqModalAluno, setFreqModalAluno] = useState<{ id: number; nome: string } | null>(null);
+  const [showDetalhesModal, setShowDetalhesModal] = useState(false);
+  const [loadingDetalhes, setLoadingDetalhes] = useState(false);
+  const [fullParticipanteData, setFullParticipanteData] = useState<any>(null);
+  const loadSeqRef = useRef(0);
 
-  const fetchAlunos = async () => {
-    if (!turma?.id) return;
+  const isAbortError = (err: unknown) =>
+    err instanceof DOMException && err.name === "AbortError";
+
+  const loadTurmaAlunos = useCallback(async (turmaId: number, signal?: AbortSignal) => {
+    const seq = ++loadSeqRef.current;
     setLoadingAlunos(true);
     try {
-      const resp = await fetch(`/api/turmas-inclusao/${turma.id}/participantes`, { credentials: "include" });
-      if (resp.ok) {
-        const data = await resp.json();
-        setTurmaAlunos(Array.isArray(data) ? data : []);
+      const resp = await authFetch(
+        `/api/turmas-inclusao/${turmaId}/participantes`,
+        { credentials: "include", signal },
+        { on401: "returnResponse" }
+      );
+      if (signal?.aborted || seq !== loadSeqRef.current) return;
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        toast({
+          title: "Erro ao carregar alunos",
+          description: errData.error || "Não foi possível buscar os alunos desta turma.",
+          variant: "destructive",
+        });
+        setTurmaAlunos([]);
+        return;
       }
-    } catch {
+
+      const data = await resp.json();
+      if (signal?.aborted || seq !== loadSeqRef.current) return;
+
+      const lista = Array.isArray(data) ? data : (data?.data ?? data?.participantes ?? []);
+      setTurmaAlunos(
+        (Array.isArray(lista) ? lista : []).map((a: any) => ({
+          ...a,
+          evasaoAtiva: a.evasaoAtiva === true || a.evasao_ativa === true,
+          evasaoId: a.evasaoId ?? a.evasao_id ?? null,
+        }))
+      );
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err) || seq !== loadSeqRef.current) return;
       toast({ title: "Erro ao carregar alunos", variant: "destructive" });
+      setTurmaAlunos([]);
     } finally {
-      setLoadingAlunos(false);
+      if (seq === loadSeqRef.current) setLoadingAlunos(false);
+    }
+  }, [toast]);
+
+  const handleClickAluno = async (aluno: any) => {
+    setShowDetalhesModal(true);
+    setLoadingDetalhes(true);
+    setFullParticipanteData(null);
+    try {
+      const res = await fetch(`/api/participantes-inclusao/${aluno.id}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setFullParticipanteData(data);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar detalhes do participante:", err);
+    } finally {
+      setLoadingDetalhes(false);
     }
   };
 
+  const reloadAlunos = useCallback(async () => {
+    if (!turma?.id) return;
+    await loadTurmaAlunos(Number(turma.id));
+  }, [turma?.id, loadTurmaAlunos]);
+
   useEffect(() => {
-    if (open && turma?.id) {
-      fetchAlunos();
-      setFilterAlunos("todos");
-      setSearchEnrolled("");
-      setShowAddAluno(false);
+    if (!open || !turma?.id) {
+      setFrequencias(null);
+      return;
     }
-  }, [open, turma?.id]);
+
+    const turmaId = Number(turma.id);
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    setTurmaAlunos([]);
+    setFilterAlunos("todos");
+    setSearchEnrolled("");
+    setShowAddAluno(false);
+    loadTurmaAlunos(turmaId, signal);
+
+    (async () => {
+      try {
+        const resp = await fetch(
+          `/api/frequencia/turma?tipo=inclusao&turmaId=${turmaId}`,
+          { credentials: "include", signal }
+        );
+        if (signal.aborted) return;
+        if (resp.ok) {
+          const data = await resp.json();
+          setFrequencias(data.porParticipante || {});
+        }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          setFrequencias(null);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [open, turma?.id, loadTurmaAlunos]);
 
   const fetchAllParticipantes = async () => {
     setLoadingAll(true);
@@ -137,7 +230,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     }
   };
 
-  const handleAddAluno = async (participanteId: number) => {
+  const handleAddAluno = async (participanteId: number, dataIngresso?: string) => {
     if (!turma?.id) return;
     setAddingId(participanteId);
     try {
@@ -145,10 +238,11 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ dataIngresso: dataIngresso || undefined }),
       });
       if (resp.ok) {
         toast({ title: "Participante adicionado à turma." });
-        await fetchAlunos();
+        await reloadAlunos();
       } else {
         const err = await resp.json().catch(() => ({}));
         toast({ title: "Erro", description: err.error || "Não foi possível adicionar.", variant: "destructive" });
@@ -174,7 +268,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
         toast({ title: "Participante desligado", description: `Motivo: ${desligarMotivo}` });
         setDesligarModal(null);
         setDesligarMotivo("");
-        await fetchAlunos();
+        await reloadAlunos();
       } else {
         const err = await resp.json().catch(() => ({}));
         toast({ title: "Erro", description: err.error || "Não foi possível desligar.", variant: "destructive" });
@@ -186,13 +280,57 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     }
   };
 
-  const enrolledIds = new Set(turmaAlunos.map(a => a.id));
+  const handleMarcarEvasao = async () => {
+    if (!evasaoModal || !turma?.id || !dataEvasao) return;
+    setSubmittingEvasao(true);
+    try {
+      const resp = await fetch(`/api/participantes-inclusao/${evasaoModal.id}/turmas/${turma.id}/evasao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dataEvasao }),
+      });
+      if (resp.ok) {
+        toast({ title: "Evasão registrada", description: `${evasaoModal.nome} — ${formatarData(dataEvasao)}` });
+        setEvasaoModal(null);
+        await reloadAlunos();
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        toast({ title: "Erro", description: err.error || "Não foi possível registrar evasão.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Erro ao registrar evasão", variant: "destructive" });
+    } finally {
+      setSubmittingEvasao(false);
+    }
+  };
+
+  const handleReverterEvasao = async (aluno: any) => {
+    if (!turma?.id) return;
+    try {
+      const resp = await fetch(`/api/participantes-inclusao/${aluno.id}/turmas/${turma.id}/reverter-evasao`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (resp.ok) {
+        toast({ title: "Aluno reativado", description: `${aluno.nome || aluno.nomeCompleto} está ativo novamente na turma.` });
+        await reloadAlunos();
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        toast({ title: "Erro", description: err.error || "Não foi possível reverter.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Erro ao reverter evasão", variant: "destructive" });
+    }
+  };
+
+  const enrolledIds = new Set(
+    turmaAlunos.filter(a => !isAlunoEvadidoInclusao(a)).map(a => a.id)
+  );
 
   const filteredAlunos = turmaAlunos
     .filter(a => {
-      const isInativo = (a.status || "ativo").toLowerCase() !== "ativo";
-      if (filterAlunos === "ativos" && isInativo) return false;
-      if (filterAlunos === "inativos" && !isInativo) return false;
+      if (filterAlunos === "evadidos" && !isAlunoEvadidoInclusao(a)) return false;
       if (searchEnrolled.trim()) {
         const term = searchEnrolled.trim().toLowerCase();
         const nome = (a.nome || a.nomeCompleto || "").toLowerCase();
@@ -203,8 +341,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     })
     .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
-  const totalAtivos = turmaAlunos.filter(a => (a.status || "ativo").toLowerCase() === "ativo").length;
-  const totalInativos = turmaAlunos.filter(a => (a.status || "ativo").toLowerCase() !== "ativo").length;
+  const totalEvadidos = turmaAlunos.filter(isAlunoEvadidoInclusao).length;
 
   const availableParticipantes = allParticipantes
     .filter(p => !enrolledIds.has(p.id))
@@ -223,6 +360,8 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   const horario = turma?.horarioEntrada && turma?.horarioSaida
     ? `${turma.horarioEntrada} - ${turma.horarioSaida}`
     : turma?.horario || "A definir";
+
+  const turmaFinalizada = isTurmaFinalizadaInclusao(turma);
 
   return (
     <>
@@ -269,7 +408,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <Users className="w-4 h-4" /> Alunos da Turma
                     <span className="text-xs font-normal text-gray-500">
-                      ({totalAtivos} ativo{totalAtivos !== 1 ? "s" : ""}{totalInativos > 0 ? `, ${totalInativos} inativo${totalInativos !== 1 ? "s" : ""}` : ""})
+                      ({turmaAlunos.length} no total{totalEvadidos > 0 ? `, ${totalEvadidos} evadido${totalEvadidos !== 1 ? "s" : ""}` : ""})
                     </span>
                   </h3>
                   <div className="flex items-center gap-2">
@@ -303,8 +442,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="ativos">Ativos</SelectItem>
-                        <SelectItem value="inativos">Inativos</SelectItem>
+                        <SelectItem value="evadidos">Evadidos</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -325,7 +463,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                   <div className="text-center py-6 text-sm text-gray-500">Carregando alunos...</div>
                 ) : filteredAlunos.length === 0 ? (
                   <div className="text-center py-6 text-sm text-gray-400">
-                    {searchEnrolled.trim() ? "Nenhum aluno encontrado." : filterAlunos === "inativos" ? "Nenhum aluno inativo." : "Nenhum aluno matriculado."}
+                    {searchEnrolled.trim() ? "Nenhum aluno encontrado." : filterAlunos === "evadidos" ? "Nenhum aluno evadido nesta turma." : "Nenhum aluno matriculado."}
                   </div>
                 ) : (
                   <div className="border rounded-lg overflow-hidden">
@@ -334,34 +472,98 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                         <TableRow className="bg-gray-50">
                           <TableHead className="text-xs">Nome</TableHead>
                           <TableHead className="text-xs">CPF</TableHead>
+                          <TableHead className="text-xs">Frequência</TableHead>
+                          <TableHead className="text-xs">Situação</TableHead>
                           <TableHead className="text-xs">Status</TableHead>
                           <TableHead className="text-xs text-right">Ação</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredAlunos.map((a: any) => {
-                          const isInativo = (a.status || "ativo").toLowerCase() !== "ativo";
+                          const isEvadido = isAlunoEvadidoInclusao(a);
+                          const dataEvasaoAluno = a.dataEvasao || a.dataEvasaoPec;
+                          const freqData = frequencias?.[String(a.id)];
+                          const pres = freqData?.presencas ?? null;
+                          const total = freqData?.total ?? 0;
+                          const pct = pres !== null && total > 0 ? Math.round((pres / total) * 100) : null;
+                          const corBadge =
+                            pct === null ? "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                            : pct >= 85 ? "bg-green-100 text-green-800 hover:bg-green-200"
+                            : pct >= 60 ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                            : "bg-red-100 text-red-700 hover:bg-red-200";
                           return (
-                            <TableRow key={a.id} className={isInativo ? "bg-gray-50/80" : ""}>
-                              <TableCell className="text-sm py-2">{a.nome || a.nomeCompleto || "—"}</TableCell>
+                            <TableRow key={a.id} className={isEvadido ? "bg-gray-50/80" : ""}>
+                              <TableCell className="text-sm py-2">
+                                <button
+                                  className="font-medium text-left text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                  onClick={() => handleClickAluno(a)}
+                                >
+                                  {a.nome || a.nomeCompleto || "—"}
+                                </button>
+                                <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                                  <Phone className="w-3 h-3 shrink-0" />
+                                  {a.telefone || 'Não informado'}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-sm py-2 text-gray-500">{formatCPF(a.cpf)}</TableCell>
                               <TableCell className="py-2">
-                                {isInativo ? (
-                                  <Badge variant="secondary" className="text-xs bg-gray-200 text-gray-700">Inativo</Badge>
+                                <button
+                                  onClick={() => setFreqModalAluno({ id: a.id, nome: a.nome || a.nomeCompleto || "—" })}
+                                  className={`text-xs font-semibold px-2 py-0.5 rounded-full cursor-pointer transition-colors ${corBadge}`}
+                                  title="Ver detalhe de frequência"
+                                >
+                                  {pct !== null ? `${pct}% (${pres}/${total})` : "Sem dados"}
+                                </button>
+                              </TableCell>
+                              <TableCell className="py-2">
+                                <SituacaoFormacaoBadge
+                                  situacao={getSituacaoFormacaoInclusao(turmaFinalizada, a.status)}
+                                />
+                              </TableCell>
+                              <TableCell className="py-2">
+                                {isEvadido ? (
+                                  <div>
+                                    <Badge variant="secondary" className="text-xs bg-gray-200 text-gray-700">Evadido</Badge>
+                                    {dataEvasaoAluno && (
+                                      <p className="text-xs text-gray-400 mt-0.5">{formatarData(dataEvasaoAluno)}</p>
+                                    )}
+                                  </div>
                                 ) : (
                                   <Badge className="text-xs bg-green-100 text-green-800 hover:bg-green-100">Ativo</Badge>
                                 )}
                               </TableCell>
                               <TableCell className="text-right py-2">
-                                {!isInativo && (
+                                {isEvadido ? (
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
-                                    onClick={() => { setDesligarModal({ id: a.id, nome: a.nome || a.nomeCompleto || "Participante" }); setDesligarMotivo(""); }}
+                                    className="h-7 text-xs text-green-700 border-green-200 hover:bg-green-50"
+                                    onClick={() => handleReverterEvasao(a)}
                                   >
-                                    <UserX className="w-3 h-3 mr-1" /> Desligar
+                                    Reativar
                                   </Button>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs text-orange-600 border-orange-200 hover:bg-orange-50"
+                                      onClick={() => {
+                                        setEvasaoModal({ id: a.id, nome: a.nome || a.nomeCompleto || "Participante" });
+                                        setDataEvasao(new Date().toISOString().split("T")[0]);
+                                      }}
+                                    >
+                                      <UserX className="w-3 h-3 mr-1" /> Evasão
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                                      onClick={() => { setDesligarModal({ id: a.id, nome: a.nome || a.nomeCompleto || "Participante" }); setDesligarMotivo(""); }}
+                                    >
+                                      <UserX className="w-3 h-3 mr-1" /> Desligar
+                                    </Button>
+                                  </div>
                                 )}
                               </TableCell>
                             </TableRow>
@@ -404,7 +606,10 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                               size="sm"
                               className="h-6 text-xs px-2"
                               disabled={addingId === p.id}
-                              onClick={() => handleAddAluno(p.id)}
+                              onClick={() => {
+                                setDataIngressoInclusao(new Date().toISOString().split('T')[0]);
+                                setPendingAddParticipante({ id: p.id, nome: p.nome || p.nomeCompleto || String(p.id) });
+                              }}
                             >
                               {addingId === p.id ? "..." : "+ Adicionar"}
                             </Button>
@@ -428,7 +633,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
           <AlertDialogHeader>
             <AlertDialogTitle>Desligar da Turma</AlertDialogTitle>
             <AlertDialogDescription>
-              Selecione o motivo do desligamento de <strong>{desligarModal?.nome}</strong>.
+              Selecione o motivo do desligamento de <strong>{desligarModal?.nome}</strong>. O vínculo será removido (não conta como evasão).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-3 grid grid-cols-1 gap-2">
@@ -457,6 +662,153 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!evasaoModal} onOpenChange={open => { if (!open) setEvasaoModal(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Registrar Evasão</DialogTitle>
+            <DialogDescription>
+              Informe a data de evasão de <strong>{evasaoModal?.nome}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Label htmlFor="dataEvasaoInclusao">Data de evasão</Label>
+            <Input
+              id="dataEvasaoInclusao"
+              type="date"
+              value={dataEvasao}
+              onChange={e => setDataEvasao(e.target.value)}
+              max={new Date().toISOString().split("T")[0]}
+              className="mt-1"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setEvasaoModal(null)} disabled={submittingEvasao}>Cancelar</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              disabled={!dataEvasao || submittingEvasao}
+              onClick={handleMarcarEvasao}
+            >
+              {submittingEvasao ? "Registrando..." : "Confirmar Evasão"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pendingAddParticipante} onOpenChange={(open) => { if (!open) setPendingAddParticipante(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Data de Ingresso</DialogTitle>
+            <DialogDescription>Informe a data em que o participante ingressou na turma.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">Participante</p>
+              <p className="text-sm text-gray-900">{pendingAddParticipante?.nome}</p>
+            </div>
+            <div>
+              <Label htmlFor="dataIngressoInclusaoInput">Data de ingresso</Label>
+              <Input
+                id="dataIngressoInclusaoInput"
+                type="date"
+                value={dataIngressoInclusao}
+                onChange={(e) => setDataIngressoInclusao(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setPendingAddParticipante(null)}>Cancelar</Button>
+            <Button
+              className="bg-green-500 hover:bg-green-600"
+              disabled={!dataIngressoInclusao || !!addingId}
+              onClick={() => {
+                if (!pendingAddParticipante) return;
+                handleAddAluno(pendingAddParticipante.id, dataIngressoInclusao);
+                setPendingAddParticipante(null);
+              }}
+            >
+              Confirmar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {freqModalAluno && (
+        <FrequenciaModal
+          open={!!freqModalAluno}
+          onOpenChange={(v) => { if (!v) setFreqModalAluno(null); }}
+          nomeAluno={freqModalAluno.nome}
+          nomeTurma={turma?.nome || ""}
+          tipo="inclusao"
+          turmaId={turma?.id}
+          participanteId={freqModalAluno.id}
+        />
+      )}
+
+      <ParticipanteDetalhesModal
+        open={showDetalhesModal}
+        onOpenChange={(v) => { setShowDetalhesModal(v); if (!v) setFullParticipanteData(null); }}
+        title="Detalhes do Participante"
+        loading={loadingDetalhes}
+        color="blue"
+        nome={fullParticipanteData?.nome}
+        cpf={fullParticipanteData ? formatCPF(fullParticipanteData.cpf) : undefined}
+        status={fullParticipanteData?.status}
+        sections={fullParticipanteData ? ([
+          {
+            title: "Identificação",
+            icon: User,
+            fields: [
+              { label: "Gênero", value: fullParticipanteData.genero },
+              { label: "Idade", value: (() => { const idade = fullParticipanteData.idade; return (idade && idade > 0 && idade < 150) ? `${idade} anos` : undefined; })() },
+              { label: "Data de Nascimento", value: fullParticipanteData.dataNascimento ? new Date(String(fullParticipanteData.dataNascimento).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
+              { label: "Data de Ingresso", value: fullParticipanteData.dataIngresso ? new Date(fullParticipanteData.dataIngresso).toLocaleDateString('pt-BR') : undefined },
+              { label: "Nº Matrícula", value: fullParticipanteData.codigoMatricula },
+              { label: "Forma de Acesso", value: fullParticipanteData.formaAcesso },
+              { label: "Nacionalidade", value: fullParticipanteData.nacionalidade },
+            ],
+          },
+          {
+            title: "Contato",
+            icon: Phone,
+            fields: [
+              { label: "Telefone", value: fullParticipanteData.telefone },
+              { label: "Email", value: fullParticipanteData.email },
+            ],
+          },
+          {
+            title: "Endereço",
+            icon: MapPin,
+            fields: [
+              { label: "CEP", value: fullParticipanteData.cep },
+              { label: "Logradouro", value: fullParticipanteData.logradouro, fullWidth: true },
+              { label: "Número", value: fullParticipanteData.numero },
+              { label: "Complemento", value: fullParticipanteData.complemento },
+              { label: "Bairro", value: fullParticipanteData.bairro },
+              { label: "Cidade", value: fullParticipanteData.cidade },
+              { label: "Estado", value: fullParticipanteData.estado },
+            ],
+          },
+          {
+            title: "Escolaridade e Profissional",
+            icon: GraduationCap,
+            cols: 2,
+            fields: [
+              { label: "Escolaridade", value: fullParticipanteData.escolaridade },
+              { label: "Experiência Profissional", value: fullParticipanteData.experienciaProfissional },
+              { label: "Objetivos Profissionais", value: fullParticipanteData.objetivosProfissionais, fullWidth: true },
+            ],
+          },
+          {
+            title: "Turmas",
+            icon: Users,
+            fields: (fullParticipanteData.turmas && Array.isArray(fullParticipanteData.turmas) && fullParticipanteData.turmas.length > 0)
+              ? fullParticipanteData.turmas.map((t: any) => ({ label: t.nome, value: t.status || "ativo" }))
+              : [{ label: "Turmas", value: "Nenhuma turma vinculada" }],
+          },
+        ] as DetalhesSection[]) : []}
+      />
     </>
   );
 }

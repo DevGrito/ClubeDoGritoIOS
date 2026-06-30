@@ -48,19 +48,11 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
   // Calcular mês atual baseado em externalPeriod (prioridade) ou filters.specificMonth
   // Usar useMemo para garantir que recalcula quando as dependências mudam
   const mesFiltro = (() => {
-    // Se período externo definido, usar ele (prioridade)
-    if (externalPeriod) {
-      const [, mes] = externalPeriod.split('-');
-      return parseInt(mes, 10);
-    }
-    // Se filtro específico de mês, usar ele
-    if (filters.specificMonth) {
-      const [, mes] = filters.specificMonth.split('-');
-      return parseInt(mes, 10);
-    }
-    // Se período anual, retornar null para buscar soma/último
-    if (filters.period === 'anual') {
-      return null;
+    const src = externalPeriod || filters.specificMonth;
+    if (src) {
+      const parts = src.split('-');
+      if (parts.length >= 2 && parts[1]) return parseInt(parts[1], 10);
+      return null; // apenas ano = anual
     }
     return null;
   })();
@@ -88,22 +80,14 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
     queryKey: ['/api/conselho/kpis', externalPeriod, filters.specificMonth, filters.period],
     queryFn: async () => {
       // Calcular URL dentro do queryFn para garantir valor atualizado
-      const mesParam = (() => {
-        if (externalPeriod) {
-          const [, mes] = externalPeriod.split('-');
-          return parseInt(mes, 10);
-        }
-        if (filters.specificMonth) {
-          const [, mes] = filters.specificMonth.split('-');
-          return parseInt(mes, 10);
-        }
-        if (filters.period === 'anual') {
-          return null;
-        }
-        return null;
-      })();
-      
-      const url = mesParam ? `/api/conselho/kpis?mes=${mesParam}` : '/api/conselho/kpis';
+      // externalPeriod '2026' = anual; '2026-04' = mensal
+      const period = externalPeriod || filters.specificMonth || '2026';
+      const parts = period.split('-');
+      const anoParam = parts[0];
+      const mesParam = parts.length >= 2 ? parts[1] : null;
+      const url = mesParam
+        ? `/api/conselho/kpis?ano=${anoParam}&mes=${parseInt(mesParam, 10)}`
+        : `/api/conselho/kpis?ano=${anoParam}`;
       console.log(`🔍 [CONSELHO KPI] Buscando KPIs: ${url}`);
       const response = await fetch(url);
       return response.json();
@@ -151,28 +135,14 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
 
   // Calcular subtitle para os cards - mostrar nome do mês
   const getSubtitle = () => {
-    if (filters.specificMonth) {
-      // Converter formato 'YYYY-MM' para nome do mês
-      const [ano, mes] = filters.specificMonth.split('-');
-      const meses = [
-        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-      ];
-      const mesIndex = parseInt(mes, 10) - 1;
-      return meses[mesIndex] || 'Período';
+    const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const src = externalPeriod || filters.specificMonth;
+    if (src) {
+      const parts = src.split('-');
+      if (parts.length >= 2 && parts[1]) return MESES[parseInt(parts[1], 10) - 1] || 'Período';
+      return 'Anual 2026'; // só ano = anual
     }
-    
-    // Fallback para outros tipos de período
-    switch (filters.period) {
-      case 'trimestral':
-        return 'Trimestre';
-      case 'semestral':
-        return 'Semestre';
-      case 'anual':
-        return 'Ano';
-      default:
-        return 'Período';
-    }
+    return 'Anual 2026';
   };
 
   // Expor função de refresh via ref
@@ -217,16 +187,15 @@ function ConselhoKpisSection({ showData = true, externalPeriod }: ConselhoKpisSe
       description: "Participantes ativos na Inclusão Produtiva",
       color: "#FFC300" // Amarelo-sol
     },
-    // Famílias Ativas da F3D só aparece em anos anteriores a 2026
-    ...(!esconderFavela3D ? [{
-      title: "Famílias Ativas da F3D",
+    {
+      title: "Famílias Acompanhadas",
       value: showData ? kpiData.familiasAcompanhadas : 0,
       displayValue: getDisplayValue(kpiData.familiasAcompanhadas),
       icon: Home,
       subtitle: getSubtitle(),
-      description: "Famílias ativas no projeto Favela 3D (Psicossocial)",
+      description: "Famílias acompanhadas pelo Coordenador Psicossocial",
       color: "#7B2CBF" // Roxo
-    }] : [])
+    }
   ];
 
   return (

@@ -1,4 +1,3 @@
-import useEmblaCarousel from "embla-carousel-react";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -54,12 +53,6 @@ export default function FinanceChartCarousel({
   loading = false,
   showData = true
 }: FinanceChartCarouselProps) {
-  const [emblaRef] = useEmblaCarousel({
-    align: 'start',
-    containScroll: 'trimSnaps',
-    dragFree: true,
-    loop: false
-  });
 
   // Função para mascarar valores
   const maskValue = (value: number) => showData ? value : 0;
@@ -134,15 +127,14 @@ export default function FinanceChartCarousel({
 
   return (
     <div className="relative">
-      {/* Layout horizontal com scroll no mobile */}
-      <div className="overflow-x-auto" ref={emblaRef}>
-        <div className="flex gap-4 min-w-full">
+      {/* Layout: empilhado no mobile, lado a lado no desktop */}
+      <div className="flex flex-col md:flex-row gap-4">
           {/* Gráfico Principal - Corporativo */}
           <motion.div
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex-none w-full md:w-[60%] lg:w-[65%]"
+            className="w-full md:w-[60%] lg:w-[65%]"
           >
             <Card className="bg-white border-2 border-gray-200 shadow-xl overflow-hidden h-full">
               <CardContent className="p-6">
@@ -166,9 +158,10 @@ export default function FinanceChartCarousel({
                 </div>
 
                 {/* Gráfico */}
-                <div className="h-[380px]">
+                <div style={{ overflowX: 'scroll', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                  <div style={{ minWidth: 380, height: 380 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
+                    <LineChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
                       <XAxis 
                         dataKey="mes" 
@@ -214,13 +207,14 @@ export default function FinanceChartCarousel({
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           </motion.div>
 
           {/* Gráficos Menores Empilhados - Direita */}
-          <div className="flex-none w-full md:w-[38%] lg:w-[33%] flex flex-col gap-4">
+          <div className="w-full md:w-[38%] lg:w-[33%] flex flex-col gap-4">
             {/* Gráfico 2 - Total Realizado (Barras) */}
             <motion.div
               initial={{ opacity: 0, x: 50 }}
@@ -250,9 +244,10 @@ export default function FinanceChartCarousel({
                   </div>
 
                   {/* Gráfico */}
-                  <div className="h-[140px]">
+                  <div style={{ overflowX: 'scroll', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                    <div style={{ minWidth: 300, height: 140 }}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
+                      <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
                         <XAxis 
                           dataKey="mes" 
@@ -284,6 +279,7 @@ export default function FinanceChartCarousel({
                         <Bar dataKey="realizado" fill="#0F4C5C" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -312,9 +308,10 @@ export default function FinanceChartCarousel({
                   </div>
 
                   {/* Gráfico */}
-                  <div className="h-[140px]">
+                  <div style={{ overflowX: 'scroll', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                    <div style={{ minWidth: 300, height: 140 }}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData}>
+                      <LineChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                         <defs>
                           <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3}/>
@@ -357,6 +354,7 @@ export default function FinanceChartCarousel({
                         />
                       </LineChart>
                     </ResponsiveContainer>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -364,6 +362,5 @@ export default function FinanceChartCarousel({
           </div>
         </div>
       </div>
-    </div>
   );
 }

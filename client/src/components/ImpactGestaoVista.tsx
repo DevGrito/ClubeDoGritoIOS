@@ -6,11 +6,39 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { motion } from 'framer-motion';
 import { SlidersHorizontal } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-interface Indicador {
+export function HintIcon({ text }: { text: string }) {
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-400 text-gray-400 text-[10px] font-bold leading-none hover:border-gray-600 hover:text-gray-600 focus:outline-none flex-shrink-0"
+            onClick={e => e.preventDefault()}
+          >
+            ?
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ─── METAS TRIMESTRAIS ───────────────────────────────────────────────────────
+// Atualizar a cada trimestre conforme combinado
+const META_TRIMESTRAL_FORMADOS = 250;  // Meta até março/2026
+const META_TRIMESTRAL_RENDA    = 100;  // Meta até março/2026
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface Indicador {
   valor: number;
   meta?: number;
-  tipo: 'percent' | 'count';
+  tipo: 'percent' | 'count' | 'score';
   color: 'green' | 'yellow' | 'red' | 'gray' | 'blue';
   progress: number;
 }
@@ -56,7 +84,7 @@ function getBarColorClass(color: 'green' | 'yellow' | 'red' | 'gray' | 'blue'): 
 }
 
 // Função para formatar valor
-function formatValue(valor: number, tipo: 'percent' | 'count'): string {
+function formatValue(valor: number, tipo: 'percent' | 'count' | 'score'): string {
   if (tipo === 'percent') {
     return new Intl.NumberFormat('pt-BR', {
       style: 'decimal',
@@ -67,31 +95,39 @@ function formatValue(valor: number, tipo: 'percent' | 'count'): string {
   return new Intl.NumberFormat('pt-BR').format(valor);
 }
 
-const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+export const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 // Componente de linha de indicador - v2.0
-interface IndicadorLineProps {
+export interface IndicadorLineProps {
   label: string;
   indicador: Indicador;
   delay?: number;
   prefersReducedMotion?: boolean;
   semestral?: boolean;
   inverse?: boolean;
-  mesReferencia?: number; // mês atual (1-12) para cálculo de meta proporcional
-  prorateSemestre?: boolean; // quando true: usa meta semestral (meta/2) em vez de mensal
+  mesReferencia?: number;
+  filtroMes?: number | null;
+  isMesFuturo?: boolean;
+  metaTrimestralQ1?: number;
+  prorateSemestre?: boolean;
+  metaTrimestral?: number;
+  semProrateio?: boolean;
+  hint?: string;
 }
 
-function useGestaoVista(ano: number, mes: number | null) {
+// mesAte: quando definido, pede ao backend dados cumulativos até aquele mês (modo "Todos")
+function useGestaoVista(ano: number, mes: number | null, mesAte?: number) {
   return useQuery<GestaoVistaData>({
-    // chave muda quando o mês muda → react-query refaz o fetch
-    queryKey: ['gestao-vista', ano, mes],
+    queryKey: ['gestao-vista', ano, mes, mesAte],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set('ano', String(ano));
       if (mes !== null) {
-        params.set('mes', String(mes)); // se tiver mês, manda pro backend
+        params.set('mes', String(mes));
+      } else if (mesAte !== undefined) {
+        // modo "Todos" com corte no último mês concluído
+        params.set('mesAte', String(mesAte));
       }
-
       const res = await fetch(`/api/gestao-vista?${params.toString()}`);
       if (!res.ok) throw new Error('Erro ao buscar gestão à vista');
       return (await res.json()) as GestaoVistaData;
@@ -100,22 +136,305 @@ function useGestaoVista(ano: number, mes: number | null) {
   });
 }
 
-function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false, semestral = false, inverse = false, mesReferencia, prorateSemestre = false }: IndicadorLineProps) {
+export function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = false, semestral = false, inverse = false, mesReferencia, filtroMes, isMesFuturo = false, prorateSemestre = false, metaTrimestral, semProrateio = false, metaTrimestralQ1, hint }: IndicadorLineProps) {
+  // Para mês futuro: força valor zero para exibição
+  const valorExibido = isMesFuturo ? 0 : indicador.valor;
   const { valor, meta, tipo, color, progress } = indicador;
-  const isSemMeta = tipo === 'count' && !meta;
+
+  // ── NOVA LÓGICA (quando filtroMes está definido) ──────────────────────────
+  const useNovaLogica = filtroMes !== undefined;
+  const isJaneiro    = filtroMes === 1;
+  const isModoMes    = filtroMes !== null && filtroMes !== undefined && filtroMes !== 1;
+  const isModoTodos  = filtroMes === null;
+
+  // ── Meta mensal: meta_anual ÷ 11 (um único mês) ──
+  const calcMetaMensal = (_mesFiltro: number): number | undefined => {
+    if (!meta || meta <= 0) return undefined;
+    if (tipo === 'percent' || tipo === 'score') return meta; // taxa/nota: meta é constante
+    return Math.round(meta / 11);
+  };
+
+  const metaMensal = isModoMes && filtroMes ? calcMetaMensal(filtroMes) : undefined;
+
+  // ── Meta esperada acumulada até mesReferencia (cor no modo "Todos") ──
+  const calcMetaEsperada = (mesRef: number): number | undefined => {
+    if (!meta || meta <= 0) return undefined;
+    if (tipo === 'percent' || tipo === 'score') return meta;
+    const mesesDecorridos = Math.max(0, mesRef - 1);
+    if (mesesDecorridos === 0) return undefined;
+    return Math.round((meta / 11) * mesesDecorridos);
+  };
+
+  const metaEsperadaAgora = mesReferencia ? calcMetaEsperada(mesReferencia) : undefined;
+
+  if (useNovaLogica) {
+    const isSemMeta = !meta || meta <= 0;
+
+    // ── Meta customizada trimestral Q1 (geração de renda e alunos formados 2026) ──
+    // metaTrimestralQ1 = meta fixa até março (ex: 100 ou 250)
+    // Todos → metaCustom = metaTrimestralQ1
+    // Fev/Mar (mes ≤ 3) → metaCustom = round(metaTrimestralQ1 / 3)
+    // Abr-Dez (mes > 3) → metaCustom = round((meta_anual - metaTrimestralQ1) / 9)
+    let metaCustom: number | undefined = undefined;
+    if (metaTrimestralQ1 && metaTrimestralQ1 > 0 && meta && meta > 0 && !isMesFuturo && !isJaneiro) {
+      if (isModoTodos) {
+        metaCustom = metaTrimestralQ1;
+      } else if (filtroMes && filtroMes <= 3) {
+        metaCustom = Math.round(metaTrimestralQ1 / 3);
+      } else if (filtroMes && filtroMes > 3) {
+        metaCustom = Math.round((meta - metaTrimestralQ1) / 9);
+      }
+    }
+
+    // Percentual e progresso da barra
+    let percentualDaMeta: number;
+    let progressoNaMeta: number;
+
+    // Mês futuro ou janeiro → tudo zerado
+    if (isMesFuturo || isJaneiro || isSemMeta) {
+      percentualDaMeta = 0;
+      progressoNaMeta  = 0;
+    } else if (metaCustom && metaCustom > 0) {
+      // Trimestral Q1: barra e texto vs meta anual (todos) ou metaCustom (mensal)
+      const barBase = isModoTodos && meta && meta > 0 ? meta : metaCustom;
+      percentualDaMeta = (valorExibido / barBase) * 100;
+      progressoNaMeta  = Math.min(percentualDaMeta, 100);
+    } else if (isModoMes && metaMensal && !semProrateio) {
+      // mensal com prorateio: usa meta proporcional ao mês
+      percentualDaMeta = (valorExibido / metaMensal) * 100;
+      progressoNaMeta  = Math.min(percentualDaMeta, 100);
+    } else {
+      // Todos OU semProrateio: barra mostra progresso em relação à meta anual
+      percentualDaMeta = meta! > 0 ? (valorExibido / meta!) * 100 : 0;
+      progressoNaMeta  = Math.min(percentualDaMeta, 100);
+    }
+    const excedeMeta = !semProrateio && !metaCustom && isModoMes && percentualDaMeta > 100;
+
+    // Badge %: para contagem, mostra % vs "meta até o momento" (não vs meta anual)
+    // Percentuais (frequência, evasão) ficam iguais ao percentualDaMeta
+    const percentualBadge = (() => {
+      if (tipo === 'percent' || tipo === 'score') return percentualDaMeta;
+      if (isMesFuturo || isJaneiro || isSemMeta) return 0;
+      if (metaCustom && metaCustom > 0) {
+        // Trimestral Q1: badge vs metaCustom (meta do período vigente)
+        return (valorExibido / metaCustom) * 100;
+      }
+      if (isModoMes && metaMensal && !semProrateio) {
+        // Mês: percentualDaMeta já é valorExibido/metaMensal
+        return percentualDaMeta;
+      }
+      if (isModoTodos && !semProrateio && metaEsperadaAgora && metaEsperadaAgora > 0) {
+        // Todos: badge vs meta esperada acumulada até o mês atual
+        return (valorExibido / metaEsperadaAgora) * 100;
+      }
+      return percentualDaMeta;
+    })();
+
+    // Cor inteligente
+    // Para métricas inversas (ex: evasão): quanto MENOR o valor em relação à meta, melhor
+    //   0–79% da meta → verde | 80–99% → amarelo | ≥100% → vermelho
+    // Para métricas normais: quanto MAIOR, melhor
+    //   ≥100% → verde | ≥80% → amarelo | <80% → vermelho
+    const colorPct = (pct: number): Indicador['color'] =>
+      inverse
+        ? (pct < 80 ? 'green' : pct < 100 ? 'yellow' : 'red')
+        : (pct >= 100 ? 'green' : pct >= 80 ? 'yellow' : 'red');
+
+    let effectiveColor: Indicador['color'];
+    if (isMesFuturo || isJaneiro || isSemMeta) {
+      effectiveColor = 'gray';
+    } else if (metaCustom && metaCustom > 0) {
+      const pctCustom = (valorExibido / metaCustom) * 100;
+      effectiveColor = colorPct(pctCustom);
+    } else if (isModoMes && metaMensal && !semProrateio) {
+      effectiveColor = colorPct(percentualDaMeta);
+    } else if (isModoTodos && !semProrateio && metaEsperadaAgora && metaEsperadaAgora > 0) {
+      const pctPrevisto = (valorExibido / metaEsperadaAgora) * 100;
+      effectiveColor = colorPct(pctPrevisto);
+    } else if (meta && meta > 0) {
+      effectiveColor = colorPct(percentualDaMeta);
+    } else {
+      effectiveColor = 'gray';
+    }
+
+    const getSolidColorNova = () => {
+      switch (effectiveColor) {
+        case 'blue':   return '#3b82f6';
+        case 'green':  return '#22c55e';
+        case 'yellow': return '#eab308';
+        case 'red':    return '#ef4444';
+        default:       return '#9ca3af';
+      }
+    };
+
+    // Rótulo de meta exibido — simples: só "Meta: X" (com % para percentuais)
+    const fmtMeta = (v: number) =>
+      tipo === 'percent'
+        ? `${new Intl.NumberFormat('pt-BR').format(v)}%`
+        : new Intl.NumberFormat('pt-BR').format(v);
+
+    const labelMetaDireita = () => {
+      if (isJaneiro || isSemMeta) return null;
+      const metaPrefix = inverse ? "<= " : "";
+      const labelMeta = isModoMes ? "Meta Mensal:" : "Meta Anual:";
+      // Trimestral Q1: todos → meta anual; mensal → meta proporcional
+      if (metaCustom && metaCustom > 0) {
+        if (isModoTodos && meta && meta > 0) return <span className="text-xs text-gray-600">Meta Anual: {metaPrefix}{fmtMeta(meta)}</span>;
+        if (isModoMes) return <span className="text-xs text-gray-600">Meta Mensal: {metaPrefix}{fmtMeta(metaCustom)}</span>;
+      }
+      // semProrateio: sempre mostra meta anual
+      if (semProrateio && meta && meta > 0) {
+        return <span className="text-xs text-gray-600">Meta Anual: {metaPrefix}{fmtMeta(meta)}</span>;
+      }
+      if (isModoMes && metaMensal) return (
+        <span className="text-xs text-gray-600">Meta Mensal: {metaPrefix}{fmtMeta(metaMensal)}</span>
+      );
+      if (isModoTodos && meta && meta > 0) return (
+        <span className="text-xs text-gray-600">Meta Anual: {metaPrefix}{fmtMeta(meta)}</span>
+      );
+      if (meta && meta > 0) return (
+        <span className="text-xs text-gray-600">{labelMeta} {metaPrefix}{fmtMeta(meta)}</span>
+      );
+      return null;
+    };
+
+    const leftLabel = () => {
+      const fmt = new Intl.NumberFormat('pt-BR');
+      const suffix = tipo === 'percent' ? '%' : '';
+      // Percentual/score nunca usa o formato valor/meta — mantém "Realizado: X"
+      if (isModoTodos && tipo !== 'percent' && tipo !== 'score') {
+        if (semProrateio) {
+          // Crianças atendidas: só o número realizado, sem fração
+          return <span className="text-xs text-gray-600">{fmt.format(valorExibido)}{suffix}</span>;
+        }
+        if (metaCustom && metaCustom > 0) {
+          // Trimestral Q1 (todos): Realizado / Previsto (meta_trimestral)
+          return (
+            <span className="text-xs text-gray-600">
+              Realizado: {fmt.format(valorExibido)}{suffix} / Previsto: {fmt.format(metaCustom)}{suffix}
+            </span>
+          );
+        }
+        // Normal: Realizado / Previsto (meta_esperada_agora)
+        const metaParaExibir = metaEsperadaAgora && metaEsperadaAgora > 0 ? metaEsperadaAgora : undefined;
+        if (metaParaExibir) {
+          return (
+            <span className="text-xs text-gray-600">
+              Realizado: {fmt.format(valorExibido)}{suffix} / Previsto: {fmt.format(metaParaExibir)}{suffix}
+            </span>
+          );
+        }
+      }
+      return (
+        <span className="text-xs text-gray-600">
+          Realizado: {fmt.format(valorExibido)}{suffix}
+        </span>
+      );
+    };
+
+    // ── Sem meta: exibe valor em destaque com badge "Acumulado" ──
+    if (isSemMeta) {
+      const fmt = new Intl.NumberFormat('pt-BR');
+      const suffix = tipo === 'percent' ? '%' : '';
+      return (
+        <div className="mb-4" role="region" aria-label={`${label}: ${valorExibido}`}>
+          <div className="mb-1 flex items-center gap-1">
+            <span className="text-sm font-semibold text-gray-700">{label}</span>
+            {hint && <HintIcon text={hint} />}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl font-bold text-gray-800">
+              {isMesFuturo ? '—' : `${fmt.format(valorExibido)}${suffix}`}
+            </span>
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5">
+              Acumulado
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mb-4" role="region" aria-label={`${label}: ${valorExibido}`}>
+        <div className="mb-1 flex items-center gap-1">
+          <span className="text-sm font-semibold text-gray-700">{label}</span>
+          {hint && <HintIcon text={hint} />}
+        </div>
+        <div className="flex justify-between items-center mb-2">
+          <div className="flex items-center gap-2">
+            {leftLabel()}
+
+          </div>
+          {labelMetaDireita()}
+        </div>
+        <div className="relative">
+          <div className="w-full h-8 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+            <motion.div
+              className="h-full rounded-full shadow-md"
+              initial={{ width: 0 }}
+              animate={{ width: excedeMeta ? '100%' : `${progressoNaMeta}%` }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.8, delay: delay * 0.05, ease: [0.4, 0.0, 0.2, 1] }}
+              style={{
+                background: excedeMeta ? '#22c55e' : getSolidColorNova()
+              }}
+            />
+          </div>
+          {progressoNaMeta > 0 && (
+            progressoNaMeta >= 22 ? (
+              <div
+                className="absolute top-0 bottom-0 pointer-events-none flex items-center justify-center"
+                style={{ width: `${Math.min(progressoNaMeta, 100)}%` }}
+              >
+                <span
+                  className="text-xs font-bold text-white whitespace-nowrap"
+                  style={{ textShadow: '0 0 4px rgba(0,0,0,0.55)' }}
+                >
+                  {percentualBadge.toFixed(1)}%
+                </span>
+              </div>
+            ) : (
+              <div
+                className="absolute top-0 bottom-0 pointer-events-none flex items-center"
+                style={{ left: `${Math.min(progressoNaMeta, 100)}%`, paddingLeft: 6 }}
+              >
+                <span
+                  className="text-xs font-bold whitespace-nowrap"
+                  style={{ color: getSolidColorNova() }}
+                >
+                  {percentualBadge.toFixed(1)}%
+                </span>
+              </div>
+            )
+          )}
+        </div>
+        {semestral && (
+          <div className="mt-2 px-2 py-1 bg-gray-100 border-l-4 border-gray-400 rounded">
+            <p className="text-xs text-gray-600"><span className="font-semibold">Dado semestral:</span> coletado somente duas vezes ao ano</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── LÓGICA LEGADA (2025 e anteriores) ────────────────────────────────────
+  const isSemMeta = tipo === 'count' && !meta && !metaTrimestral;
 
   // Meta proporcional: mensal ou semestral dependendo do indicador
   const isSemestre1 = mesReferencia ? mesReferencia <= 6 : false;
   const isSemestre2 = mesReferencia ? mesReferencia > 6 : false;
 
-  // Modo semestral: usa meta/2 (para indicadores com meta por semestre)
-  const useProratedMeta =
+  const useProratedMetaBase =
     tipo === 'count' && meta && meta > 0 && mesReferencia &&
     (prorateSemestre ? (isSemestre1 || isSemestre2) : (mesReferencia >= 1 && mesReferencia < 12));
+  const useProratedMeta = metaTrimestral ? true : useProratedMetaBase;
 
   let metaProporcional: number | undefined = meta;
   let nomePeriodo: string | null = null;
-  if (useProratedMeta && mesReferencia) {
+
+  if (metaTrimestral && metaTrimestral > 0) {
+    metaProporcional = metaTrimestral;
+    nomePeriodo = 'trimestral';
+  } else if (useProratedMetaBase && mesReferencia) {
     if (prorateSemestre) {
       metaProporcional = Math.round(meta! / 2);
       nomePeriodo = isSemestre1 ? '1º Semestre' : '2º Semestre';
@@ -124,34 +443,26 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
       nomePeriodo = 'até ' + MONTH_NAMES[mesReferencia - 1];
     }
   }
-  const nomeMes = mesReferencia ? MONTH_NAMES[mesReferencia - 1] : null;
 
-  // Calcular percentual em relação à meta (proporcional para count, anual para percent)
   const metaParaCalculo = useProratedMeta ? metaProporcional : meta;
   const percentualDaMeta = metaParaCalculo && metaParaCalculo > 0 ? (valor / metaParaCalculo) * 100 : progress;
   const excedeMeta = percentualDaMeta > 100;
-
-  // Calcular as partes da barra
   const progressoNaMeta = excedeMeta ? 100 : percentualDaMeta;
-  const excessoAlemDaMeta = excedeMeta ? Math.min(percentualDaMeta - 100, 100) : 0;
-  
-  // Cores SÓLIDAS baseadas no status (SEM GRADIENTES)
+
+  const effectiveColor: Indicador['color'] = metaTrimestral
+    ? (percentualDaMeta >= 100 ? 'blue' : percentualDaMeta >= 80 ? 'yellow' : 'red')
+    : color;
+
   const getSolidColor = () => {
-    switch (color) {
-      case 'blue':
-        return '#3b82f6'; // Azul sólido
-      case 'green':
-        return '#22c55e'; // Verde sólido
-      case 'yellow':
-        return '#eab308'; // Amarelo sólido
-      case 'red':
-        return '#ef4444'; // Vermelho sólido
-      default:
-        return '#9ca3af'; // Cinza sólido
+    switch (effectiveColor) {
+      case 'blue':   return '#3b82f6';
+      case 'green':  return '#22c55e';
+      case 'yellow': return '#eab308';
+      case 'red':    return '#ef4444';
+      default:       return '#9ca3af';
     }
   };
-  
-  // Formatar valor com meta (para contagem E percentual)
+
   const getValorComMeta = () => {
     if (meta && meta > 0) {
       if (tipo === 'count') {
@@ -173,16 +484,16 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
           <span className="text-xs text-gray-600">
             Realizado: {new Intl.NumberFormat('pt-BR').format(valor)}{tipo === 'percent' ? '%' : ''}
           </span>
-          {inverse && (
-            <span className="text-xs text-gray-400 italic">↓ Quanto menor, melhor</span>
-          )}
+
         </div>
         {useProratedMeta && metaProporcional && (
           <div className="text-right">
             <span className="text-xs font-semibold text-gray-700">
               Meta {nomePeriodo}: {new Intl.NumberFormat('pt-BR').format(metaProporcional)}
             </span>
-            <span className="text-xs text-gray-400 ml-1">(Anual: {new Intl.NumberFormat('pt-BR').format(meta!)})</span>
+            {meta && (
+              <span className="text-xs text-gray-400 ml-1">(Anual: {new Intl.NumberFormat('pt-BR').format(meta)})</span>
+            )}
           </div>
         )}
         {!useProratedMeta && meta && meta > 0 && (
@@ -192,36 +503,53 @@ function IndicadorLine({ label, indicador, delay = 0, prefersReducedMotion = fal
         )}
         {isSemMeta && <span className="text-xs text-gray-400">(sem meta)</span>}
       </div>
-      <div className="w-full h-8 bg-gray-200 rounded-full overflow-hidden relative shadow-inner">
-        <motion.div
-          className="h-full rounded-full shadow-md flex items-center justify-center"
-          initial={{ width: 0 }}
-          animate={{ width: `${excedeMeta ? 100 : progressoNaMeta}%` }}
-          transition={
-            prefersReducedMotion
-              ? { duration: 0 }
-              : {
-                  duration: 0.8,
-                  delay: delay * 0.05,
-                  ease: [0.4, 0.0, 0.2, 1]
-                }
-          }
-          style={{
-            background: excedeMeta 
-              ? `linear-gradient(to right, #22c55e 0%, #22c55e ${(100 / percentualDaMeta) * 100}%, #3b82f6 ${(100 / percentualDaMeta) * 100}%, #3b82f6 100%)`
-              : getSolidColor()
-          }}
-        >
-          {progressoNaMeta > 10 && (
-            <span className="text-xs font-bold text-white">
-              {percentualDaMeta.toFixed(1)}%
-            </span>
-          )}
-        </motion.div>
-        {progressoNaMeta <= 10 && progressoNaMeta > 0 && (
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-white">
-            {percentualDaMeta.toFixed(1)}%
-          </div>
+      <div className="relative w-full h-8">
+        {/* barra com overflow-hidden isolado — nunca corta o texto */}
+        <div className="absolute inset-0 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+          <motion.div
+            className="h-full rounded-full shadow-md"
+            initial={{ width: 0 }}
+            animate={{ width: `${excedeMeta ? 100 : progressoNaMeta}%` }}
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : {
+                    duration: 0.8,
+                    delay: delay * 0.05,
+                    ease: [0.4, 0.0, 0.2, 1]
+                  }
+            }
+            style={{
+              background: excedeMeta
+                ? `linear-gradient(to right, #22c55e 0%, #22c55e ${(100 / percentualDaMeta) * 100}%, #3b82f6 ${(100 / percentualDaMeta) * 100}%, #3b82f6 100%)`
+                : getSolidColor()
+            }}
+          />
+        </div>
+        {/* texto fora do overflow-hidden: nunca é cortado */}
+        {progressoNaMeta > 0 && (
+          progressoNaMeta >= 22 ? (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-none flex items-center justify-center"
+              style={{ width: `${Math.min(progressoNaMeta, 100)}%` }}
+            >
+              <span
+                className="text-xs font-bold text-white whitespace-nowrap"
+                style={{ textShadow: '0 0 4px rgba(0,0,0,0.55)' }}
+              >
+                {percentualDaMeta.toFixed(1)}%
+              </span>
+            </div>
+          ) : (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-none flex items-center"
+              style={{ left: `${Math.min(progressoNaMeta, 100)}%`, paddingLeft: 6 }}
+            >
+              <span className="text-xs font-bold whitespace-nowrap" style={{ color: getSolidColor() }}>
+                {percentualDaMeta.toFixed(1)}%
+              </span>
+            </div>
+          )
         )}
       </div>
       {semestral && (
@@ -257,8 +585,21 @@ export default function ImpactGestaoVista({
   const { toast } = useToast();
   
   const tituloFinal = titulo || `Gestão à Vista ${ano}`;
-  
-  const { data, isLoading, error } = useGestaoVista(ano, mes);
+
+  // Se mudar para 2026 e o mês selecionado for janeiro (sem meta definida), volta para "Todos"
+  useEffect(() => {
+    if (ano >= 2026 && mes === 1) setMes(null);
+  }, [ano, mes]);
+
+  // Último mês concluído: mês anterior ao corrente (fevereiro em diante; em janeiro usa 1)
+  // Exemplo: estamos em maio (5) → ultimoMesConcluido = 4 (abril)
+  const mesReferenciaAtual = new Date().getMonth() + 1;
+  const ultimoMesConcluido = mesReferenciaAtual > 1 ? mesReferenciaAtual - 1 : 1;
+
+  // Em modo "Todos" (mes===null) e ano 2026, passa mesAte ao backend para buscar
+  // dados cumulativos somente até o último mês concluído (não inclui mês em curso)
+  const mesAteApi = ano >= 2026 && mes === null ? ultimoMesConcluido : undefined;
+  const { data, isLoading, error } = useGestaoVista(ano, mes, mesAteApi);
 
   const { data: metasInclusao } = useQuery<{ metas: Record<string, number> }>({
     queryKey: ['/api/metas-indicadores', ano, 'inclusao'],
@@ -266,8 +607,16 @@ export default function ImpactGestaoVista({
     staleTime: 60000,
   });
 
-  // Mês de referência para meta proporcional: mês selecionado ou mês atual
-  const mesReferencia = mes ?? (new Date().getMonth() + 1);
+  // true quando o filtro aponta para um mês que ainda não chegou
+  const isMesFuturo = ano >= 2026 && mes !== null && mes > mesReferenciaAtual;
+
+  // mesReferencia para calcMetaEsperada:
+  // - modo mês: usa o mês selecionado
+  // - modo "Todos": usa ultimoMesConcluido, pois calcMetaEsperada(N) = (N-1) meses ativos
+  //   ex: ultimoMesConcluido=4 (abril) → calcMetaEsperada(4) = 3 meses (fev+mar+abr) ✓
+  const mesReferencia = ano >= 2026
+    ? (mes !== null ? (mes as number) : ultimoMesConcluido)
+    : undefined;
 
   // Detectar preferência de movimento reduzido
   const prefersReducedMotion = typeof window !== 'undefined' 
@@ -290,10 +639,11 @@ export default function ImpactGestaoVista({
     }
   }, [error, hasShownError, toast]);
   
-  // Meses
-  const months = [
-    { value: 'null', label: 'Todos' },
-    { value: '1', label: 'Janeiro' },
+  // Meses — Janeiro oculto em 2026 (sem meta definida)
+  // Em 2026, só exibe meses até o mês atual (não mostra meses futuros)
+  const allMonths = [
+    { value: 'null', label: 'Acumulado' },
+    ...(ano < 2026 ? [{ value: '1', label: 'Janeiro' }] : []),
     { value: '2', label: 'Fevereiro' },
     { value: '3', label: 'Março' },
     { value: '4', label: 'Abril' },
@@ -306,6 +656,7 @@ export default function ImpactGestaoVista({
     { value: '11', label: 'Novembro' },
     { value: '12', label: 'Dezembro' }
   ];
+  const months = allMonths;
   
   return (
     <Card className="w-full max-w-2xl mx-auto mb-6">
@@ -401,6 +752,10 @@ export default function ImpactGestaoVista({
               indicador={data.indicadores.criancasAtendidas}
               delay={0}
               prefersReducedMotion={prefersReducedMotion}
+              mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
+              semProrateio={ano >= 2026}
             />
             <IndicadorLine
               label="Alunos formados"
@@ -408,6 +763,8 @@ export default function ImpactGestaoVista({
               delay={1}
               prefersReducedMotion={prefersReducedMotion}
               mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
             />
             {mostrarAlunosEmFormacao && (
               <IndicadorLine
@@ -416,6 +773,7 @@ export default function ImpactGestaoVista({
                 delay={2}
                 prefersReducedMotion={prefersReducedMotion}
                 mesReferencia={mesReferencia}
+                filtroMes={ano >= 2026 ? mes : undefined}
               />
             )}
             <IndicadorLine
@@ -424,8 +782,10 @@ export default function ImpactGestaoVista({
               delay={3}
               prefersReducedMotion={prefersReducedMotion}
               mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
             />
-            {ano !== 2026 && (
+            {ano < 2026 && (
               <IndicadorLine
                 label="Avaliação de aprendizagem"
                 indicador={data.indicadores.criterioSucesso}
@@ -434,7 +794,7 @@ export default function ImpactGestaoVista({
                 semestral={true}
               />
             )}
-            {ano !== 2026 && (
+            {ano < 2026 && (
               <IndicadorLine
                 label="NPS"
                 indicador={data.indicadores.nps}
@@ -450,19 +810,24 @@ export default function ImpactGestaoVista({
               prefersReducedMotion={prefersReducedMotion}
               inverse
               mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
             />
             {(() => {
               const empregados = data.indicadores.pessoasEmpregadas?.valor || 0;
               const empreendedores = data.indicadores.empreendedores?.valor || 0;
               const totalRenda = empregados + empreendedores;
-              const metaAnual = metasInclusao?.metas?.geracaoRenda ?? 1500;
-              const pct = metaAnual > 0 ? (totalRenda / metaAnual) * 100 : 0;
-              const color: Indicador['color'] = pct >= 100 ? 'blue' : pct >= 80 ? 'green' : pct >= 50 ? 'yellow' : 'red';
+              const metaAnual =
+                (metasInclusao?.metas?.pessoasEmpregadas ?? 1000) +
+                (metasInclusao?.metas?.empreendedores ?? 500);
+              // Para 2026: usa nova lógica /11; para outros anos: usa trimestral
+              const pct = ano < 2026 && META_TRIMESTRAL_RENDA > 0 ? (totalRenda / META_TRIMESTRAL_RENDA) * 100 : (metaAnual > 0 ? (totalRenda / metaAnual) * 100 : 0);
+              const colorRenda: Indicador['color'] = pct >= 100 ? 'green' : pct >= 80 ? 'yellow' : 'red';
               const geracaoRendaIndicador: Indicador = {
                 valor: totalRenda,
                 meta: metaAnual,
                 tipo: 'count',
-                color,
+                color: colorRenda,
                 progress: Math.min(pct, 100),
               };
               return (
@@ -472,10 +837,12 @@ export default function ImpactGestaoVista({
                   delay={7}
                   prefersReducedMotion={prefersReducedMotion}
                   mesReferencia={mesReferencia}
+                  filtroMes={ano >= 2026 ? mes : undefined}
+                  isMesFuturo={ano >= 2026 ? isMesFuturo : false}
                 />
               );
             })()}
-            {ano !== 2026 && (
+            {ano < 2026 && (
               <IndicadorLine
                 label="Famílias Acompanhadas F3D"
                 indicador={data.indicadores.familiasAtivas}
@@ -489,6 +856,8 @@ export default function ImpactGestaoVista({
               delay={9}
               prefersReducedMotion={prefersReducedMotion}
               mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
             />
             <IndicadorLine
               label="Atendimentos Psicossociais"
@@ -496,6 +865,8 @@ export default function ImpactGestaoVista({
               delay={10}
               prefersReducedMotion={prefersReducedMotion}
               mesReferencia={mesReferencia}
+              filtroMes={ano >= 2026 ? mes : undefined}
+              isMesFuturo={ano >= 2026 ? isMesFuturo : false}
             />
           </div>
         ) : (

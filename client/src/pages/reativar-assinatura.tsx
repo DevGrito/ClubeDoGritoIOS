@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { motion } from 'framer-motion';
 import { AlertCircle, RefreshCw, ArrowLeft, Heart, CreditCard } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ export default function ReativarAssinatura() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     setLocation('/');
   };
 

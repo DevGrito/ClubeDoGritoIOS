@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { useMemo } from 'react';
+import { useAuthSession } from '@/hooks/useAuthSession';
 
 interface UserData {
   id?: number;
@@ -14,14 +15,16 @@ interface UserData {
 }
 
 export function useUserData() {
-  // 🔐 SECURITY: Dados SEMPRE vêm do servidor via API
-  // Não há mais bypass de dados hardcoded para nenhum papel
-  const userId = localStorage.getItem("userId");
+  const { data: authSession } = useAuthSession();
+  // 🔐 SECURITY: identidade principal vem da sessão backend.
+  const userId = String(authSession?.id || localStorage.getItem("userId") || "");
 
   const { data: apiUserData, isLoading, error } = useQuery({
     queryKey: ["/api/user", userId],
     queryFn: async () => {
-      const response = await fetch(`/api/user/${userId}?t=${Date.now()}`);
+      const response = await fetch(`/api/user/${userId}?t=${Date.now()}`, {
+        credentials: "include",
+      });
       if (!response.ok) throw new Error('Failed to fetch user data');
       return response.json();
     },
@@ -35,7 +38,7 @@ export function useUserData() {
 
   // Process the API data into our UserData format (memoized to prevent infinite loops)
   const userData: UserData = useMemo(() => {
-    // 🔹 Lê possíveis dados já guardados no localStorage (para usar como fallback)
+    // 🔹 Lê possíveis dados já guardados no localStorage (apenas campos auxiliares)
     const storedEmail = localStorage.getItem("userEmail") || "";
     const storedPhone = localStorage.getItem("userPhone") || "";
     const storedPlan  = localStorage.getItem("userPlan")  || "eco";
@@ -53,32 +56,27 @@ export function useUserData() {
         id: data.id,
         nome,
         sobrenome,
-        // 👇 usa email/telefone/plano da API, mas CAI PARA o localStorage se a API não mandar
+        // Usa API como fonte principal; fallback só para campos auxiliares.
         email: data.email || storedEmail,
         telefone: data.telefone || storedPhone,
         plano: data.plano || storedPlan,
         fotoPerfil: data.fotoPerfil || undefined,
-        role: data.role || undefined,
+        role: data.role || authSession?.papel || authSession?.role || undefined,
       };
     }
 
-    // Fallback completo para localStorage se não tiver apiUserData
-    const idStr = localStorage.getItem("userId") || "";
-    const userName = localStorage.getItem("userName") || "";
-    const nome = userName.split(" ")[0] || "";
-    const sobrenome = userName.split(" ").slice(1).join(" ") || "";
-    const email = storedEmail;
+    // Sem dados da API: não usar nome/papel legados para evitar vazamento de contexto (ex.: monitor -> doador).
+    const nome = "";
+    const sobrenome = "";
+    const email = authSession?.email || storedEmail;
     const telefone = storedPhone;
     const plano = storedPlan;
-    const role = localStorage.getItem("userPapel") || undefined;
+    const role = authSession?.papel || authSession?.role || undefined;
 
-    const idNum =
-      idStr && !Number.isNaN(Number.parseInt(idStr, 10))
-        ? Number.parseInt(idStr, 10)
-        : undefined;
+    const idNum = authSession?.id || undefined;
 
     return { id: idNum, nome, sobrenome, email, telefone, plano, role };
-  }, [apiUserData]);
+  }, [apiUserData, authSession]);
 
   // Update user data mutation
   const updateUserDataMutation = useMutation({
@@ -88,6 +86,7 @@ export function useUserData() {
       const response = await fetch(`/api/users/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: "include",
         body: JSON.stringify({
           nome: fullName,
           email: data.email,

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Heart, MapPin, Menu, RefreshCw, ArrowLeft, CheckCircle, User, Gift, CreditCard, BookOpen, ChevronRight, ChevronLeft, LogOut, Shield, ExternalLink, Trophy, X } from 'lucide-react';
@@ -17,6 +18,7 @@ import { beneficios } from "@shared/schema";
 import useActivityTracker from "@/hooks/useActivityTracker";
 import { CheckinCard } from "@/components/CheckinCard";
 import { isLeoByRole } from "@shared/conselho";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 
 // Import Beneficio type from shared schema
 type Beneficio = typeof beneficios.$inferSelect;
@@ -249,8 +251,7 @@ export default function Beneficios() {
 
   // Bloquear acesso se assinatura estiver cancelada/inativa
   useEffect(() => {
-    // Não redirecionar se ainda está carregando ou se é role especial (leo, desenvolvedor, etc)
-    const skipCheckRoles = ['leo', 'desenvolvedor', 'conselho', 'professor', 'patrocinador'];
+    const skipCheckRoles = ['leo', 'desenvolvedor', 'dev', 'dev-admin', 'dev-marketing', 'admin', 'conselho', 'professor', 'patrocinador', 'monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico', 'coordenador', 'coordenador_pec', 'coordenador_inclusao', 'coordenador_psico', 'tecnica_psico'];
     const shouldSkipCheck = userData?.role && skipCheckRoles.includes(userData.role);
     
     if (loadingSubscription || shouldSkipCheck) {
@@ -368,7 +369,7 @@ export default function Beneficios() {
       nome: "Aliado do Grito",
       descricao: "Primeiro passo na jornada de transformação",
       gritos: 2500,
-      imagem: "attached_assets/image_1756491369207.png",
+      imagem: "/assets/migrated/image_1756491369207.png",
       proximo: "Eco do Bem"
     },
     {
@@ -376,7 +377,7 @@ export default function Beneficios() {
       nome: "Eco do Bem",
       descricao: "Ampliando seu impacto na comunidade",
       gritos: 10000,
-      imagem: "attached_assets/image_1756491440300.png",
+      imagem: "/assets/migrated/image_1756491440300.png",
       proximo: "Voz Ativa"
     },
     {
@@ -384,7 +385,7 @@ export default function Beneficios() {
       nome: "Voz Ativa",
       descricao: "Liderando mudanças positivas",
       gritos: 30000,
-      imagem: "attached_assets/image_1756491479690.png",
+      imagem: "/assets/migrated/image_1756491479690.png",
       proximo: "Transformador"
     },
     {
@@ -392,7 +393,7 @@ export default function Beneficios() {
       nome: "Transformador", 
       descricao: "Criando impacto duradouro",
       gritos: 75000,
-      imagem: "attached_assets/image_1756491507581.png",
+      imagem: "/assets/migrated/image_1756491507581.png",
       proximo: "Guerreiro do Grito"
     },
     {
@@ -400,7 +401,7 @@ export default function Beneficios() {
       nome: "Guerreiro do Grito",
       descricao: "Máximo nível de engajamento e impacto",
       gritos: 150000,
-      imagem: "attached_assets/image_1756491533634.png",
+      imagem: "/assets/migrated/image_1756491533634.png",
       proximo: null
     }
   ];
@@ -1117,7 +1118,7 @@ export default function Beneficios() {
             {/* Card principal */}
             <motion.div 
               style={{
-                backgroundImage: 'url("/attached_assets/BG_1756832442490.png")',
+                backgroundImage: 'url("/assets/migrated/BG_1756832442490.png")',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 width: '338px', 
@@ -1209,7 +1210,7 @@ export default function Beneficios() {
             >
               {/* Imagem das moedas */}
               <motion.img 
-                src="/attached_assets/image (7)_1756832872920.png" 
+                src="/assets/migrated/image (7)_1756832872920.png" 
                 alt="Moedas empilhadas"
                 className="relative z-10"
                 style={{width: '160px', height: '160px', objectFit: 'contain'}}
@@ -1623,24 +1624,24 @@ export default function Beneficios() {
                   </div>
                 )}
 
-              {/* Termos de Uso */}
+              {/* Privacidade e cookies */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
+                    openPrivacyPreferences();
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <BookOpen className="w-6 h-6 text-black" />
+                    <Shield className="w-6 h-6 text-black" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Termos de Uso
+                      Privacidade e cookies
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Segurança e clareza em cada passo.
+                      Preferências e leitura dos documentos legais
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
@@ -1654,7 +1655,7 @@ export default function Beneficios() {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                    window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1681,7 +1682,7 @@ export default function Beneficios() {
                     setShowHelpMenu(false);
                     setTimeout(() => {
                       // Clear all localStorage data
-                      localStorage.clear();
+                      clearLocalStoragePreservingLgpd();
                       // Redirect to home page
                       setLocation('/');
                     }, 150);

@@ -1,46 +1,20 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { getPct, getColor, SectorCard, NpsBar, MESES_PT } from "./shared";
+import {
+  getPct, getColor, SectorCard, NpsBar, MESES_PT, buildQp,
+  type PeriodoFiltro, isPeriodoTodos, periodoMesUnico, metaFnPeriodo,
+} from "./shared";
+import { GestaoKpiCard } from "@/components/GestaoKpiCard";
 
-interface Props { ano: string; mes: string; }
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-/* ── Card padrão Inclusão (meta opcional) ───────────────────────────── */
-function IKpiCard({ label, valor, meta, inverse = false, format = 'number' as 'number' | 'percent', note }: {
-  label: string; valor: number; meta?: number; inverse?: boolean; format?: 'number' | 'percent'; note?: string;
-}) {
-  const hasMeta = meta != null && meta > 0;
-  const pct     = hasMeta ? getPct(valor, meta!) : null;
-  const color   = hasMeta ? getColor(valor, meta!, inverse) : '#64748b';
-  const dVal    = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
-  const dMeta   = hasMeta ? (format === 'percent' ? `${meta}%` : meta!.toLocaleString('pt-BR')) : null;
-
-  return (
-    <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full">
-      <p className="text-[11px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
-      <div className="flex-1 flex items-center gap-2 py-1">
-        <span className="text-4xl font-bold text-white tabular-nums leading-none">{dVal}</span>
-        {dMeta && <span className="text-[13px] text-slate-500 leading-none">/ {dMeta}</span>}
-      </div>
-      <div className="flex items-end justify-between">
-        <div className="flex flex-col">
-          {note && note.split(' · ').map((line, i) => (
-            <span key={i} className="text-[10px] text-slate-500 leading-tight">{line}</span>
-          ))}
-        </div>
-        {hasMeta && pct != null && (
-          <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ── Gauge (velocímetro) Inclusão (meta opcional) ────────────────────── */
-function IGaugeCard({ label, valor, meta, inverse = false, note }: {
-  label: string; valor: number; meta?: number; inverse?: boolean; note?: string;
+function IGaugeCard({ label, valor, meta, inverse = false, note, smallLabel = false }: {
+  label: string; valor: number; meta?: number; inverse?: boolean; note?: string; smallLabel?: boolean;
 }) {
   const hasMeta = meta != null && meta > 0;
   const pct     = hasMeta ? Math.min(getPct(valor, meta!), 100) : 0;
@@ -55,21 +29,26 @@ function IGaugeCard({ label, valor, meta, inverse = false, note }: {
 
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full">
-      <p className="text-[11px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
+      <p className={`${smallLabel ? 'text-[9px]' : 'text-[11px]'} text-slate-400 uppercase tracking-widest leading-tight`}>{label}</p>
       <div className="flex-1 min-h-0 flex items-center justify-center">
-        <svg viewBox="0 0 100 58" className="w-full" style={{ maxHeight: '90px' }}>
-          <path d="M 10 54 A 40 40 0 0 1 90 54" fill="none" stroke="#1e293b" strokeWidth="9" strokeLinecap="round" />
+        <svg viewBox="0 0 100 52" className="w-full" style={{ maxHeight: '86px' }}>
+          <path d="M 10 48 A 40 40 0 0 1 90 48" fill="none" stroke="#1e293b" strokeWidth="5" strokeLinecap="round" />
           {hasMeta && (
             <path
-              d="M 10 54 A 40 40 0 0 1 90 54"
-              fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
+              d="M 10 48 A 40 40 0 0 1 90 48"
+              fill="none" stroke={color} strokeWidth="5" strokeLinecap="round"
               strokeDasharray={`${animFilled} ${circumference}`}
               style={{ transition: 'stroke-dasharray 1s ease' }}
             />
           )}
-          <text x="50" y="43" textAnchor="middle" fill="white" fontSize="20" fontWeight="bold" fontFamily="monospace">
+          <text x="50" y="35" textAnchor="middle" fill="white" fontSize="20" fontWeight="bold" fontFamily="monospace">
             {valor.toLocaleString('pt-BR')}
           </text>
+          {hasMeta && (
+            <text x="50" y="47" textAnchor="middle" fill="#64748b" fontSize="10" fontFamily="monospace">
+              / {meta!.toLocaleString('pt-BR')}
+            </text>
+          )}
         </svg>
       </div>
       <div className="flex items-end justify-between">
@@ -120,24 +99,15 @@ function IFreqBar({ valor, meta }: { valor: number; meta: number }) {
 }
 
 /* ── Tab principal ───────────────────────────────────────────────────── */
-export default function TabInclusao({ ano, mes }: Props) {
-  const qp = mes === 'todos' ? `?ano=${ano}` : `?ano=${ano}&mes=${mes}`;
+export default function TabInclusao({ ano, periodo }: Props) {
+  const qp = buildQp(ano, periodo);
 
   const { data: gv } = useQuery<any>({
-    queryKey: ['/api/gestao-vista', ano, mes],
+    queryKey: ['/api/gestao-vista', ano, periodo],
     queryFn: () => fetch(`/api/gestao-vista${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
-  const { data: resumo } = useQuery<any>({
-    queryKey: ['/api/dashboard/inclusao/resumo', ano, mes],
-    queryFn: () => {
-      const start = mes !== 'todos' ? `${ano}-${String(mes).padStart(2,'0')}-01` : `${ano}-01-01`;
-      const end   = mes !== 'todos' ? `${ano}-${String(mes).padStart(2,'0')}-31` : `${ano}-12-31`;
-      return fetch(`/api/dashboard/inclusao/resumo?start=${start}&end=${end}`).then(r => r.json());
-    },
-    refetchInterval: 60000,
-  });
 
   const { data: evolucao } = useQuery<any>({
     queryKey: ['/api/dashboard/inclusao/evolucao-mensal', ano],
@@ -158,22 +128,46 @@ export default function TabInclusao({ ano, mes }: Props) {
   const metaFrequencia     = metasDB.frequencia     != null ? metasDB.frequencia     : undefined;
   const metaEvasao         = metasDB.evasao         != null ? metasDB.evasao         : undefined;
   const metaAlunosFormados = metasDB.alunosFormados != null ? metasDB.alunosFormados : undefined;
-  // Metas fixas de geração de renda (não configuráveis)
-  const META_PESSOAS_EMPREGADAS = 1000;
-  const META_EMPREENDENDO       = 500;
+  const META_ANUAL_EMPREGADAS   = metasDB.pessoasEmpregadas ?? 1000;
+  const META_ANUAL_EMPREENDENDO = metasDB.empreendedores ?? 500;
 
-  // Meta proporcional ao mês vigente (se "Todos"/'todos'/'0', usa mês atual do calendário)
-  const MESES_NOMES = MESES_PT;
-  const mesNumRaw = Number(mes);
-  const mesNum = (!mes || mes === 'todos' || isNaN(mesNumRaw) || mesNumRaw === 0) ? new Date().getMonth() + 1 : mesNumRaw;
-  const mesLabel = MESES_NOMES[mesNum - 1] ?? '';
-  const metaEmpregadasPro   = Math.round(META_PESSOAS_EMPREGADAS * mesNum / 12);
-  const metaEmpreendendoPro = Math.round(META_EMPREENDENDO * mesNum / 12);
-  const metaFormadosPro     = metaAlunosFormados != null ? Math.round(metaAlunosFormados * mesNum / 12) : undefined;
+  // ÷11: "Todos" = meses decorridos desde fev; mês específico = 1 (cada mês vale 1/11)
+  const mesAtual  = new Date().getMonth() + 1;
+  const mesUnico  = periodoMesUnico(periodo);
+  const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
+
+  const mesLabel = mesUnico
+    ? (MESES_PT[mesUnico - 1] ?? '')
+    : isPeriodoTodos(periodo)
+      ? ''
+      : '';
+
+  // Metas prorateadas (trimestre = /4, mês = *mesNum/11, anual = inteira)
+  const metaFormadosAnual        = metaAlunosFormados || 2000;
+  const metaEmpregadasProrated   = metaFn(META_ANUAL_EMPREGADAS);
+  const metaEmpreendendoProrated = metaFn(META_ANUAL_EMPREENDENDO);
+  const metaFormadosProrated     = metaFn(metaFormadosAnual);
+
+  /* Avaliação: primário via /api/gestao-vista (público); demográfico só com sessão */
+  const { data: demogData } = useQuery<any>({
+    queryKey: ['/api/coordenador/dashboard-demografico-inclusao', ano, periodo],
+    queryFn: async () => {
+      const r = await fetch(`/api/coordenador/dashboard-demografico-inclusao${qp}`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const avaliacaoAprendizagem =
+    gv?.indicadores?.criterioSucesso?.valor ??
+    (typeof demogData?.avaliacaoAprendizagem === 'number' ? demogData.avaliacaoAprendizagem : undefined) ??
+    0;
 
   const ind          = gv?.indicadores || {};
-  const horasAula    = Number((resumo?.horasAula || 0).toFixed(0));
-  const atendimentos = resumo?.atendimentos || 0;
+  const incD         = gv?.inclusaoData || {};
+  const horasAula    = Number((incD?.horasAula || 0).toFixed(0));
+  const atendimentos = incD?.atendimentos || 0;
   const lineData     = evolucao?.dados || MESES_LABELS.map(m => ({ mes: m, presencas: 0, faltas: 0 }));
 
   return (
@@ -184,24 +178,25 @@ export default function TabInclusao({ ano, mes }: Props) {
         <SectorCard title="" accent="#3b82f6" className="md:flex-1">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {/* Linha 1 */}
-            <IGaugeCard label="Pessoas Empregadas"   valor={ind?.pessoasEmpregadas?.valor || 0} meta={metaEmpregadasPro}   note={`Meta até ${mesLabel}: ${metaEmpregadasPro.toLocaleString('pt-BR')} (Anual: ${META_PESSOAS_EMPREGADAS.toLocaleString('pt-BR')})`} />
-            <IGaugeCard label="Pessoas Empreendendo" valor={ind?.empreendedores?.valor    || 0} meta={metaEmpreendendoPro} note={`Meta até ${mesLabel}: ${metaEmpreendendoPro.toLocaleString('pt-BR')} (Anual: ${META_EMPREENDENDO.toLocaleString('pt-BR')})`} />
-            <IKpiCard   label="Pessoas Formadas"   valor={ind?.alunosFormados?.valor    || 0} meta={metaFormadosPro} note={metaFormadosPro != null && metaAlunosFormados != null ? `Meta até ${mesLabel}: ${metaFormadosPro.toLocaleString('pt-BR')} (Anual: ${metaAlunosFormados.toLocaleString('pt-BR')})` : undefined} />
-            <IKpiCard   label="Pessoas em Formação" valor={ind?.alunosEmFormacao?.valor  || 0} />
+            <IGaugeCard label="Pessoas Empregadas"   valor={ind?.pessoasEmpregadas?.valor || 0} meta={metaEmpregadasProrated   || undefined} note={metaEmpregadasProrated   > 0 ? `Meta anual: ${META_ANUAL_EMPREGADAS.toLocaleString('pt-BR')}` : undefined} />
+            <IGaugeCard label="Pessoas Empreendendo" valor={ind?.empreendedores?.valor    || 0} meta={metaEmpreendendoProrated || undefined} note={metaEmpreendendoProrated > 0 ? `Meta anual: ${META_ANUAL_EMPREENDENDO.toLocaleString('pt-BR')}` : undefined} smallLabel />
+            <GestaoKpiCard   label="Pessoas Formadas"     valor={ind?.alunosFormados?.valor    || 0} meta={metaFormadosProrated     || undefined} note={metaFormadosProrated     > 0 ? `Meta anual: ${metaFormadosAnual.toLocaleString('pt-BR')}` : undefined} />
+            <GestaoKpiCard   label="Pessoas em Formação" valor={ind?.alunosEmFormacao?.valor  || 0} />
 
             {/* Linha 2 */}
             <div className="col-span-2 h-full">
               {metaFrequencia != null
                 ? <IFreqBar valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} meta={metaFrequencia} />
-                : <IKpiCard label="Frequência" valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} format="percent" />
+                : <GestaoKpiCard label="Frequência" valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} format="percent" />
               }
             </div>
-            <IKpiCard label="Evasão"     valor={ind?.evasao?.valor || 0} meta={metaEvasao} inverse format="percent" note={metaEvasao != null ? `Meta: < ${metaEvasao}%` : undefined} />
-            <IKpiCard label="Horas Aula" valor={horasAula} />
+            <GestaoKpiCard label="Evasão"     valor={ind?.evasao?.valor || 0} meta={metaEvasao} inverse format="percent" />
+            <GestaoKpiCard label="Horas Aula" valor={horasAula} />
 
             {/* Linha 3 */}
-            <IKpiCard label="Atendimentos" valor={atendimentos} />
-            <div className="col-span-1 md:col-span-3 bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col justify-center">
+            <GestaoKpiCard label="Atendimentos" valor={atendimentos} />
+            <GestaoKpiCard label="Avaliação de Aprendizagem" valor={avaliacaoAprendizagem} meta={90} format="percent" />
+            <div className="col-span-2 bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col justify-center">
               <NpsBar valor={ind?.nps?.valor || 0} meta={ind?.nps?.meta || 70} />
             </div>
           </div>

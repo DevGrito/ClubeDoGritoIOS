@@ -12,6 +12,10 @@ import Logo from "@/components/logo";
 import { CompanyAvatar } from "@/components/CompanyAvatar";
 import StoriesViewer from "@/components/StoriesViewer";
 import BottomNavigation from "@/components/bottom-navigation";
+import { useAuthSession } from "@/hooks/useAuthSession";
+import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from "@/components/AreaConsentGate";
+import { LgpdLegalDrawerGroup } from "@/components/LgpdLegalMenuSection";
+import { logoutAndClearSession } from "@/lib/auth-session";
 import { 
   Menu,
   Home,
@@ -50,7 +54,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
-import ImpactGestaoVista from "@/components/ImpactGestaoVista";
+import GestaoVistaAreas from "@/components/GestaoVistaAreas";
+import { ProgramasIconGrid } from "@/components/ProgramasIconGrid";
 
 interface ImpactMetrics {
   vidasImpactadas: number;
@@ -99,7 +104,8 @@ interface PatrocinadorData {
 const AnimatedCounter = ({ targetValue, delay = 0 }: { targetValue: number; delay?: number }) => {
   const [count, setCount] = useState(0);
 
-  useState(() => {
+  useEffect(() => {
+    if (targetValue === 0) return;
     const timeout = setTimeout(() => {
       const duration = 1500;
       const steps = 60;
@@ -120,13 +126,15 @@ const AnimatedCounter = ({ targetValue, delay = 0 }: { targetValue: number; dela
     }, delay);
 
     return () => clearTimeout(timeout);
-  });
+  }, [targetValue, delay]);
 
   return <span>{count.toLocaleString('pt-BR')}</span>;
 };
 
 export default function PatrocinadorDashboard() {
   const [, setLocation] = useLocation();
+  const { ready: consentReady, checking: consentChecking, markReady: setConsentReady } =
+    useAreaConsentReady("sponsors");
   const [showStories, setShowStories] = useState(false);
   const [selectedStoryIndex, setSelectedStoryIndex] = useState(0);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
@@ -154,6 +162,9 @@ export default function PatrocinadorDashboard() {
   const [showF3DModal, setShowF3DModal] = useState(false);
   const [expandedF3DCard, setExpandedF3DCard] = useState<string | null>(null);
 
+  const mesAtual = new Date().getMonth() + 1;
+  const anoAtual = new Date().getFullYear();
+
   // Buscar dados do PEC (para modal detalhes)
   const { data: dadosPEC, isLoading: isLoadingPEC } = useQuery<any>({
     queryKey: ['/api/pec/dados-mensais'],
@@ -166,36 +177,33 @@ export default function PatrocinadorDashboard() {
     enabled: showInclusaoDetails
   });
 
-  // ============ Queries para os modais de programas (igual ao doador) ============
-  
-  // Buscar dados de indicadores Psicossocial
-  const { data: atencaoSocialData, isLoading: loadingAtencao } = useQuery<{
-    success: boolean;
-    data: {
-      visitasDomiciliares: { realizadas: number; meta: number; percentual: number };
-      atendimentosIndividuais: { realizados: number; meta: number; percentual: number };
-    };
+  // ============ Queries para os modais de programas (idênticas ao doador) ============
+
+  // Psicossocial
+  const { data: psicoKpisData, isLoading: loadingPsicoKpis } = useQuery<{
+    atendidos: number;
+    atendimentos: number;
+    visitas: number;
+    atendimentosColetivos: number;
+    espacoOGrito: number;
+    demandasEspontaneas: number;
+    familias: number;
+    casosAbertos: number;
+    casosEncerrados: number;
+    resolutividade: number;
   }>({
-    queryKey: ['/api/psico/indicadores/atencao-social'],
-    enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/atencao-social'),
+    queryKey: ['/api/psico/dashboard-kpis', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/psico/dashboard-kpis?ano=${anoAtual}&mes=${mesAtual}`),
+    staleTime: 5 * 60 * 1000,
   });
 
-  const { data: metodoGritoData, isLoading: loadingMetodo } = useQuery<{
-    success: boolean;
-    data: {
-      atendimentosColetivos: { realizados: number; percentualTurmas: number };
-      espacosColetivos: { total: number; meta: number; percentual: number };
-      caravanasComunitarias: number;
-      acoesSaudeColaboradores: number;
-    };
-  }>({
-    queryKey: ['/api/psico/indicadores/metodo-grito'],
-    enabled: showPsicossocialModal,
-    queryFn: () => apiRequest('/api/psico/indicadores/metodo-grito'),
+  const { data: intervencoesPatroCount } = useQuery<{ total: number }>({
+    queryKey: ['/api/psico/intervencoes/count', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => fetch(`/api/psico/intervencoes/count?ano=${anoAtual}&mes=${mesAtual}`).then(r => r.json()),
+    refetchInterval: 60000,
   });
 
-  // Buscar dados de Negócios Sociais
+  // Negócios Sociais
   const { data: negociosSociaisData, isLoading: loadingNegocios } = useQuery<{
     success: boolean;
     data: {
@@ -210,11 +218,12 @@ export default function PatrocinadorDashboard() {
       };
     };
   }>({
-    queryKey: ['/api/negocios-sociais'],
+    queryKey: ['/api/negocios-sociais', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/negocios-sociais?ano=${anoAtual}&mes=${mesAtual}`),
     enabled: showNegociosModal,
   });
 
-  // Buscar dados de PEC para modal simplificado
+  // PEC
   const { data: pecData, isLoading: loadingPEC } = useQuery<{
     success: boolean;
     data: {
@@ -237,35 +246,33 @@ export default function PatrocinadorDashboard() {
         atendimentos: number;
         frequencia: number;
         horaAula: number;
+        evasao: number;
       };
     };
   }>({
-    queryKey: ['/api/pec/dados-programas'],
+    queryKey: ['/api/pec/dados-programas', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/pec/dados-programas?ano=${anoAtual}&mes=${mesAtual}`),
     enabled: showPECModal,
   });
 
-  // Buscar dados de Inclusão Produtiva para modal simplificado
+  // Inclusão Produtiva
   const { data: inclusaoData, isLoading: loadingInclusao } = useQuery<{
     projetos: Array<{
       nome: string;
-      indicadores: Array<{ nome: string; valor: number; meta: number }>;
+      indicadores: Array<{ nome: string; valor: number; meta?: number; unidade?: string }>;
     }>;
     geracaoRenda?: { empregados: number; empreendedores: number };
   }>({
-    queryKey: ['/api/inclusao-produtiva/indicadores'],
+    queryKey: ['/api/inclusao-produtiva/indicadores', { ano: anoAtual, mes: mesAtual }],
+    queryFn: () => apiRequest(`/api/inclusao-produtiva/indicadores?ano=${anoAtual}&mes=${mesAtual}`),
     enabled: showInclusaoModal,
   });
 
-  // Buscar dados de Favela 3D (F3D)
-  const { data: f3dData, isLoading: loadingF3D } = useQuery<{
-    meses: string[];
-    eixos: Array<{
-      nome: string;
-      indicadores: Array<{ nome: string; valor: number; impacto: number }>;
-    }>;
-  }>({
-    queryKey: ['/api/favela-3d/dados-mensais'],
-    enabled: showF3DModal,
+  // Favela 3D
+  const { data: f3dData, isLoading: loadingF3D } = useQuery<any>({
+    queryKey: ['/api/gestao-vista/favela3d', anoAtual, mesAtual],
+    queryFn: () => fetch(`/api/gestao-vista/favela3d?ano=${anoAtual}&mes=${mesAtual}`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
   });
 
   // Helper functions para buscar valores mensais (igual ao Leo)
@@ -287,21 +294,11 @@ export default function PatrocinadorDashboard() {
     return indicadorData.mensal[mesSelecionadoInclusao];
   };
 
-  // Verificar se está em modo dev e salvar no sessionStorage
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const isDevAccess = urlParams.get('dev_access') === 'true';
-    const isFromDevPanel = urlParams.get('origin') === 'dev_panel';
-    
-    if (isDevAccess && isFromDevPanel) {
-      sessionStorage.setItem('dev_session', 'active');
-    }
-  }, []);
-
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
-  const userId = localStorage.getItem("userId");
-  const userEmail = localStorage.getItem("userEmail") || userData?.user?.email || "";
-  const userName = localStorage.getItem("userName") || userData?.user?.nome || "Empresa Patrocinadora";
+  const { data: authSession } = useAuthSession();
+  const userId = String(authSession?.id || localStorage.getItem("userId") || "");
+  const userEmail = authSession?.email || localStorage.getItem("userEmail") || userData?.user?.email || "";
+  const userName = authSession?.nome || localStorage.getItem("userName") || userData?.user?.nome || "Empresa Patrocinadora";
 
   // Buscar dados do patrocinador pelo email (categoria, valor, nome da empresa)
   const { data: patrocinadorInfo } = useQuery<{
@@ -522,6 +519,7 @@ export default function PatrocinadorDashboard() {
   // Buscar indicadores globais do banco Digital Ocean
   const { data: indicadoresGlobais } = useQuery<any>({
     queryKey: ['/api/indicadores-globais'],
+    staleTime: 5 * 60 * 1000,
   });
 
   // Buscar dados reais de progresso dos programas (mês 9 = setembro, último com dados)
@@ -564,8 +562,8 @@ export default function PatrocinadorDashboard() {
     ]
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
+  const handleLogout = async () => {
+    await logoutAndClearSession();
     setLocation("/entrar");
   };
 
@@ -669,6 +667,14 @@ export default function PatrocinadorDashboard() {
   };
 
 
+  if (consentChecking) {
+    return <AreaConsentLoading />;
+  }
+
+  if (!consentReady) {
+    return <AreaConsentGate area="sponsors" onAccept={() => setConsentReady()} onNavigate={setLocation} />;
+  }
+
   return (
     <motion.div 
       className="min-h-screen bg-white"
@@ -705,17 +711,7 @@ export default function PatrocinadorDashboard() {
               <CompanyAvatar
                 size="md"
                 className="mb-1 border-2 border-gray-200"
-                onClick={() => {
-                  const urlParams = new URLSearchParams(window.location.search);
-                  const devAccess = urlParams.get('dev_access');
-                  const origin = urlParams.get('origin');
-                  
-                  if (devAccess === 'true' && origin === 'dev_panel') {
-                    setLocation("/perfil-patrocinador?dev_access=true&origin=dev_panel");
-                  } else {
-                    setLocation("/perfil-patrocinador");
-                  }
-                }}
+                onClick={() => setLocation("/perfil-patrocinador")}
                 companyName={userName}
               />
               
@@ -762,7 +758,7 @@ export default function PatrocinadorDashboard() {
                     <div className="flex flex-col items-center text-center justify-center h-full">
                       <p className="text-sm text-gray-600 mb-2">Horas/Aula</p>
                       <p className="text-3xl font-bold text-gray-900">
-                        <AnimatedCounter targetValue={indicadoresGlobais?.horasAula || 226359} />
+                        <AnimatedCounter targetValue={indicadoresGlobais?.horasAula ?? 0} />
                       </p>
                     </div>
                   </CardContent>
@@ -774,31 +770,31 @@ export default function PatrocinadorDashboard() {
                     <div className="flex flex-col items-center text-center justify-center h-full">
                       <p className="text-sm text-gray-600 mb-2">Impacto Direto e Indiretamente</p>
                       <p className="text-3xl font-bold text-gray-900">
-                        <AnimatedCounter targetValue={indicadoresGlobais?.impactoDiretoIndireto || 317062} />
+                        <AnimatedCounter targetValue={indicadoresGlobais?.impactoDiretoIndireto ?? 0} />
                       </p>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Card 3: Atendimentos Socioemocionais */}
+                {/* Card 3: Atendimentos Psicossociais — fonte: indicadoresGlobais (mesma que /impacto) */}
                 <Card data-testid="card-atendimentos" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
                   <CardContent className="py-10 px-4">
                     <div className="flex flex-col items-center text-center justify-center h-full">
-                      <p className="text-sm text-gray-600 mb-2">Atendimentos Socioemocionais</p>
+                      <p className="text-sm text-gray-600 mb-2">Atendimentos Psicossociais</p>
                       <p className="text-3xl font-bold text-gray-900">
-                        <AnimatedCounter targetValue={impactData?.kpis?.atendimentosSocioemocionais || 5024} />
+                        <AnimatedCounter targetValue={indicadoresGlobais?.atendimentosPsico ?? 0} />
                       </p>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Card 4: Famílias Acompanhadas (exclusivo patrocinador) */}
+                {/* Card 4: Famílias Acompanhadas — fonte: Favela 3D (coordenador psicossocial) */}
                 <Card data-testid="card-familias" className="flex-shrink-0 w-[calc(100vw-2rem)] md:w-auto snap-start">
                   <CardContent className="py-10 px-4">
                     <div className="flex flex-col items-center text-center justify-center h-full">
                       <p className="text-sm text-gray-600 mb-2">Famílias Acompanhadas</p>
                       <p className="text-3xl font-bold text-gray-900">
-                        <AnimatedCounter targetValue={impactData?.kpis?.familiasAtivas || 219} />
+                        <AnimatedCounter targetValue={f3dData?.familias ?? 0} />
                       </p>
                     </div>
                   </CardContent>
@@ -886,75 +882,18 @@ export default function PatrocinadorDashboard() {
               Com seu apoio, o impacto é imenso!
             </h2>
             
-            {/* Carrossel horizontal com todos os cards */}
-            <div className="overflow-x-auto pb-2 -mx-4 px-4" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-              <div className="flex gap-4 w-max items-start">
-                {/* Card PEC */}
-                <button
-                  onClick={() => setShowPECModal(true)}
-                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                  data-testid="card-programa-pec"
-                >
-                  <div className="w-20 h-20 bg-yellow-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                    <BookOpen className="w-10 h-10 text-gray-800" />
-                  </div>
-                  <span className="text-sm text-gray-800 font-semibold text-center">PEC</span>
-                </button>
-
-                {/* Card Psicossocial */}
-                <button
-                  onClick={() => setShowPsicossocialModal(true)}
-                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                  data-testid="card-programa-psicossocial"
-                >
-                  <div className="w-20 h-20 bg-yellow-400 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                    <Heart className="w-10 h-10 text-gray-800" />
-                  </div>
-                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight">Psicossocial</span>
-                </button>
-
-                {/* Card F3D */}
-                <button
-                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                  onClick={() => setShowF3DModal(true)}
-                  data-testid="card-programa-f3d"
-                >
-                  <div className="w-20 h-20 bg-purple-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                    <Users className="w-10 h-10 text-gray-800" />
-                  </div>
-                  <span className="text-sm text-gray-800 font-semibold text-center">F3D</span>
-                </button>
-
-                {/* Card Negócios Sociais */}
-                <button
-                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                  onClick={() => setShowNegociosModal(true)}
-                  data-testid="card-programa-negocios"
-                >
-                  <div className="w-20 h-20 bg-yellow-300 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                    <ShoppingBag className="w-10 h-10 text-gray-800" />
-                  </div>
-                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Negócios Sociais</span>
-                </button>
-
-                {/* Card Inclusão Produtiva */}
-                <button
-                  className="flex flex-col items-center outline-none focus:outline-none hover:opacity-80 transition-opacity cursor-pointer"
-                  onClick={() => setShowInclusaoModal(true)}
-                  data-testid="card-programa-inclusao"
-                >
-                  <div className="w-20 h-20 bg-amber-200 rounded-3xl flex items-center justify-center mb-2 shadow-sm">
-                    <Briefcase className="w-10 h-10 text-gray-800" />
-                  </div>
-                  <span className="text-sm text-gray-800 font-semibold text-center leading-tight max-w-[80px]">Inclusão Produtiva</span>
-                </button>
-              </div>
-            </div>
+            <ProgramasIconGrid
+              onPEC={() => setShowPECModal(true)}
+              onPsicossocial={() => setShowPsicossocialModal(true)}
+              onF3D={() => setShowF3DModal(true)}
+              onNegocios={() => setShowNegociosModal(true)}
+              onInclusao={() => setShowInclusaoModal(true)}
+            />
           </div>
 
           {/* Gestão à Vista - igual ao doador */}
           <div className="mb-6">
-            <ImpactGestaoVista mostrarAlunosEmFormacao={false} />
+            <GestaoVistaAreas />
           </div>
 
           {/* Recursos e Contato */}
@@ -974,16 +913,17 @@ export default function PatrocinadorDashboard() {
                     Faça o download do relatório anual para acompanhar a prestação de contas.
                   </p>
                   <div className="space-y-2 mt-4">
-                    <a href="/relatorio-anual-2024.pdf" download="Relatório Anual - 2024.pdf">
+                    <a href="/relatorio-anual-2025.pdf" download="Relatório Anual - 2025.pdf">
                       <Button variant="link" className="p-0 h-auto text-blue-600" data-testid="link-relatorio-anual">
                         <Download className="w-4 h-4 mr-2" />
-                        Relatório Anual - 2024
+                        Relatório Anual - 2025
                       </Button>
                     </a>
                   </div>
                 </CardContent>
               </Card>
 
+              {/* KIT DE MÍDIA — NÃO APAGAR. Reativar quando o link do kit estiver disponível.
               <Card>
                 <CardContent className="pt-6">
                   <Package className="w-10 h-10 text-purple-600 mb-4" />
@@ -999,6 +939,7 @@ export default function PatrocinadorDashboard() {
                   </Button>
                 </CardContent>
               </Card>
+              */}
             </div>
           </div>
 
@@ -1074,6 +1015,8 @@ export default function PatrocinadorDashboard() {
               Acompanhe os indicadores mensais dos projetos de Cultura e Esporte
             </DialogDescription>
           </DialogHeader>
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
           
           {isLoadingPEC ? (
             <div className="flex items-center justify-center py-12">
@@ -1276,6 +1219,8 @@ export default function PatrocinadorDashboard() {
               Acompanhe os indicadores mensais<br />dos projetos de Inclusão Produtiva
             </DialogDescription>
           </DialogHeader>
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
           
           {isLoadingInclusao ? (
             <div className="flex items-center justify-center py-12">
@@ -1569,7 +1514,7 @@ export default function PatrocinadorDashboard() {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                    window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                   }}
                   data-testid="menu-transparencia"
                 >
@@ -1589,13 +1534,14 @@ export default function PatrocinadorDashboard() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              <LgpdLegalDrawerGroup onAfterClick={() => setShowHelpMenu(false)} />
+
               {/* Deslogar */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
-                  onClick={() => {
-                    localStorage.clear();
-                    sessionStorage.clear();
+                  onClick={async () => {
+                    await logoutAndClearSession();
                     setShowHelpMenu(false);
                     setTimeout(() => {
                       setLocation("/entrar");
@@ -1635,9 +1581,11 @@ export default function PatrocinadorDashboard() {
               Indicadores Psicossocial
             </DialogTitle>
           </DialogHeader>
-          
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
           <div className="space-y-4 mt-4">
-            {/* Botão/Card 1: Atenção Social */}
+            {/* Card 1: Atenção Social */}
             <div
               className="bg-yellow-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
               onClick={() => setExpandedPsicoCard(expandedPsicoCard === 'atencao-social' ? null : 'atencao-social')}
@@ -1657,33 +1605,22 @@ export default function PatrocinadorDashboard() {
                     <ChevronDown className="w-5 h-5 text-gray-600" />
                   )}
                 </div>
-                
                 {expandedPsicoCard === 'atencao-social' && (
                   <div className="mt-4">
-                    {loadingAtencao ? (
-                      <div className="text-center py-4 text-gray-500">Carregando...</div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {atencaoSocialData?.data.visitasDomiciliares.realizadas}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium mb-1">Visitas Domiciliares</p>
-                          <p className="text-xs text-gray-500">
-                            {atencaoSocialData?.data.visitasDomiciliares.percentual}% da Meta 2025
-                          </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-3xl font-bold text-yellow-600 mb-1">
+                          {psicoKpisData?.visitas ?? '—'}
                         </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {atencaoSocialData?.data.atendimentosIndividuais.realizados}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Individuais</p>
-                          <p className="text-xs text-gray-500">
-                            {atencaoSocialData?.data.atendimentosIndividuais.percentual}% da Meta 2025
-                          </p>
-                        </div>
+                        <p className="text-xs text-gray-700 font-medium">Visitas Domiciliares</p>
                       </div>
-                    )}
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-3xl font-bold text-yellow-600 mb-1">
+                          {psicoKpisData ? ((psicoKpisData.atendimentos ?? 0) + (psicoKpisData.demandasEspontaneas ?? 0)) : '—'}
+                        </div>
+                        <p className="text-xs text-gray-700 font-medium">Acolhimento Individual</p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1712,43 +1649,20 @@ export default function PatrocinadorDashboard() {
 
                 {expandedPsicoCard === 'metodo-grito' && (
                   <div className="mt-4">
-                    {loadingMetodo ? (
-                      <div className="text-center py-4 text-gray-500">Carregando...</div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {metodoGritoData?.data.atendimentosColetivos.realizados.toLocaleString('pt-BR')}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium mb-1">Atendimentos Coletivos</p>
-                          <p className="text-xs text-gray-500">
-                            {metodoGritoData?.data.atendimentosColetivos.percentualTurmas}% das turmas
-                          </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-3xl font-bold text-yellow-600 mb-1">
+                          {(intervencoesPatroCount?.total ?? 0).toLocaleString('pt-BR')}
                         </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {metodoGritoData?.data.espacosColetivos.total}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium mb-1">#EspaçoOgrito</p>
-                          <p className="text-xs text-gray-500">
-                            {metodoGritoData?.data.espacosColetivos.percentual}% da Meta 2025
-                          </p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {metodoGritoData?.data.caravanasComunitarias}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium">Caravana Comunitária</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-3xl font-bold text-yellow-600 mb-1">
-                            {metodoGritoData?.data.acoesSaudeColaboradores}
-                          </div>
-                          <p className="text-xs text-gray-700 font-medium">Ações de Saúde</p>
-                          <p className="text-xs text-gray-500">para colaboradores</p>
-                        </div>
+                        <p className="text-xs text-gray-700 font-medium">Intervenções</p>
                       </div>
-                    )}
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-3xl font-bold text-yellow-600 mb-1">
+                          {psicoKpisData?.espacoOGrito ?? 0}
+                        </div>
+                        <p className="text-xs text-gray-700 font-medium">#EspaçoOGrito</p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1766,6 +1680,8 @@ export default function PatrocinadorDashboard() {
               Negócios Sociais
             </DialogTitle>
           </DialogHeader>
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
           
           <div className="space-y-4 mt-4">
             {/* Card Outlet */}
@@ -1803,9 +1719,9 @@ export default function PatrocinadorDashboard() {
                         </div>
                         <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                           <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
-                            {negociosSociaisData?.data.outlet.vendasPessoasImpactadas.toLocaleString('pt-BR')}
+                            {(negociosSociaisData?.data.outlet.clientesAtendidos ?? 0).toLocaleString('pt-BR')}
                           </div>
-                          <p className="text-xs text-gray-700 font-medium">Vendas - Pessoas Impactadas</p>
+                          <p className="text-xs text-gray-700 font-medium">Clientes Atendidos</p>
                         </div>
                         <div className="bg-white rounded-lg p-3 text-center shadow-sm">
                           <div className="text-2xl sm:text-3xl font-bold text-yellow-600 mb-1">
@@ -1878,6 +1794,8 @@ export default function PatrocinadorDashboard() {
               PEC - Polo Esportivo Cultural
             </DialogTitle>
           </DialogHeader>
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
           
           <div className="space-y-4 mt-4">
             {/* Card Casa Sonhar */}
@@ -2078,6 +1996,8 @@ export default function PatrocinadorDashboard() {
               Inclusão Produtiva
             </DialogTitle>
           </DialogHeader>
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
           
           <div className="space-y-4 mt-4">
             {loadingInclusao ? (
@@ -2183,62 +2103,100 @@ export default function PatrocinadorDashboard() {
               Favela 3D
             </DialogTitle>
           </DialogHeader>
-          
+
+          <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
+
           <div className="space-y-4 mt-4">
             {loadingF3D ? (
               <div className="text-center py-8 text-gray-500">Carregando...</div>
-            ) : f3dData?.eixos ? (
-              f3dData.eixos.map((eixo: any, index: number) => {
-                const bgColors = ['bg-purple-50', 'bg-purple-50', 'bg-purple-50'];
-                const iconColors = ['bg-purple-500', 'bg-purple-500', 'bg-purple-500'];
-                const textColors = ['text-purple-600', 'text-purple-600', 'text-purple-600'];
-                const icons = [<Users key="1" className="w-5 h-5 text-white" />, <TrendingUp key="2" className="w-5 h-5 text-white" />, <Home key="3" className="w-5 h-5 text-white" />];
-                
-                return (
-                  <div
-                    key={eixo.nome}
-                    className={`${bgColors[index % 3]} rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl`}
-                    onClick={() => setExpandedF3DCard(expandedF3DCard === eixo.nome ? null : eixo.nome)}
-                    data-testid={`card-f3d-${index}`}
-                  >
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 ${iconColors[index % 3]} rounded-xl flex items-center justify-center`}>
-                            {icons[index % 3]}
-                          </div>
-                          <h3 className="text-lg font-bold text-gray-800">{eixo.nome}</h3>
-                        </div>
-                        {expandedF3DCard === eixo.nome ? (
-                          <ChevronUp className="w-5 h-5 text-gray-600" />
-                        ) : (
-                          <ChevronDown className="w-5 h-5 text-gray-600" />
-                        )}
-                      </div>
-                      
-                      {expandedF3DCard === eixo.nome && (
-                        <div className="mt-4">
-                          <div className={`grid gap-3 ${eixo.indicadores.length === 1 ? 'grid-cols-1 max-w-[200px] mx-auto' : 'grid-cols-2'}`}>
-                            {eixo.indicadores.map((indicador: any, idx: number) => (
-                              <div key={idx} className="bg-white rounded-lg p-3 text-center shadow-sm">
-                                <div className={`text-2xl font-bold ${textColors[index % 3]} mb-1`}>
-                                  {(indicador.valor ?? 0).toLocaleString('pt-BR')}
-                                </div>
-                                <p className="text-xs text-gray-700 font-medium">{indicador.nome}</p>
-                                {indicador.impacto > 0 && (
-                                  <p className="text-xs text-green-600 mt-1">Pessoas Impactadas: {indicador.impacto.toLocaleString('pt-BR')}</p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
             ) : (
-              <div className="text-center py-8 text-gray-500">Nenhum dado disponível</div>
+              <>
+                <div
+                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                          <Users className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
+                      </div>
+                      {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedF3DCard === 'panorama' && (
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.familias ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Famílias</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
+                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.visitas ?? 0).toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Visitas</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                  onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                          <TrendingUp className="w-5 h-5 text-white" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
+                      </div>
+                      {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                    </div>
+                    {expandedF3DCard === 'coletivos' && (
+                      <div className="mt-4 space-y-3">
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Registros</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </DialogContent>

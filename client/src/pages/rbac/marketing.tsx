@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,9 +11,24 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { authFetch } from "@/lib/queryClient";
 import AlterarSenhaMarketing from "@/components/AlterarSenhaMarketing";
-import { Shield, LogOut, ExternalLink, TrendingUp, TrendingDown, Users, Target, Minus, RefreshCw, KeyRound, AlertTriangle } from "lucide-react";
-
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
+import {
+  Shield,
+  LogOut,
+  ExternalLink,
+  TrendingUp,
+  TrendingDown,
+  Users,
+  Target,
+  Minus,
+  RefreshCw,
+  KeyRound,
+  AlertTriangle,
+  Eye,
+  Activity
+} from "lucide-react";
 const META_SEGUIDORES_ANUAL = 15000;
 const SEGUIDORES_BASE       = 11538;
 const META_GANHOS_ANUAL     = META_SEGUIDORES_ANUAL - SEGUIDORES_BASE;
@@ -67,6 +83,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 
 /* ── Página principal ────────────────────────────────────────────── */
 export default function MarketingPage() {
+  const fetch = authFetch;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -77,12 +94,13 @@ export default function MarketingPage() {
   const [appSecretInput, setAppSecretInput] = useState('');
   const [ano, setAno] = useState('2026');
   const [mes, setMes] = useState('todos');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'eventos'>('dashboard');
 
   const userName = localStorage.getItem("userName") || "Marketing";
   const userEmail = localStorage.getItem("userEmail") || "";
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     toast({ title: "Logout realizado", description: "Até logo!" });
     setLocation("/login/marketing");
@@ -91,14 +109,10 @@ export default function MarketingPage() {
   /* ── Mutação de sincronização real com Instagram API ─── */
   const syncMutation = useMutation({
     mutationFn: () => {
-      const token = localStorage.getItem("authToken") || localStorage.getItem("token") || "";
-      const userId = localStorage.getItem("userId") || "";
-      return fetch('/api/instagram/metrics/sync', {
+      return authFetch('/api/instagram/metrics/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'x-user-id': userId,
         },
         body: JSON.stringify({ periodLabel: 'morning' }),
       }).then(r => r.json());
@@ -119,10 +133,9 @@ export default function MarketingPage() {
   /* ── Mutação de salvar token Meta ─────────────────── */
   const saveTokenMutation = useMutation({
     mutationFn: (data: { token: string; appId?: string; appSecret?: string }) => {
-      const userId = localStorage.getItem("userId") || "";
-      return fetch('/api/admin/instagram/token', {
+      return authFetch('/api/admin/instagram/token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       }).then(r => r.json());
     },
@@ -143,34 +156,60 @@ export default function MarketingPage() {
   /* ── Queries ─────────────────────────────────────── */
   const { data: tokenStatus } = useQuery<any>({
     queryKey: ['/api/admin/instagram/token-status'],
-    queryFn: () => { const uid = localStorage.getItem("userId") || ""; return fetch('/api/admin/instagram/token-status', { headers: { 'x-user-id': uid } }).then(r => r.json()); },
+    queryFn: () => authFetch('/api/admin/instagram/token-status').then(r => r.json()),
     refetchInterval: 3600000,
     retry: false,
   });
 
-  const { data: igMetrics, isLoading: loadingIg, refetch: refetchIg } = useQuery<any>({
+  const { data: igMetrics, isLoading: loadingIg, refetch: refetchIg, error: igError } = useQuery<any>({
     queryKey: ['/api/instagram/metrics/current'],
-    queryFn: () => fetch('/api/instagram/metrics/current').then(r => r.json()),
+    queryFn: () => authFetch('/api/instagram/metrics/current').then(r => r.json()),
     refetchInterval: 300000,
     retry: false,
   });
 
-  const { data: segMensal } = useQuery<any>({
+  const { data: segMensal, error: segError } = useQuery<any>({
     queryKey: ['/api/marketing-seguidores-mensal', ano],
-    queryFn: () => fetch(`/api/marketing-seguidores-mensal?ano=${ano}`).then(r => r.json()),
+    queryFn: () => authFetch(`/api/marketing-seguidores-mensal?ano=${ano}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
-  const { data: doadores } = useQuery<any>({
+  const { data: doadores, error: doadoresError } = useQuery<any>({
     queryKey: ['/api/doadores/stats'],
     refetchInterval: 60000,
   });
 
-  /* ── Dados calculados ────────────────────────────── */
-  const igData        = igMetrics?.data;
-  const followersReal = igData?.followers_total || SEGUIDORES_BASE;
-  const syncedAt      = igData?.created_at ? new Date(igData.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+  useEffect(() => {
+    if (igError) toast({ title: "Erro ao carregar métricas", description: "Não foi possível buscar os dados do Instagram.", variant: "destructive" });
+  }, [igError]);
 
+  useEffect(() => {
+    if (segError) toast({ title: "Erro ao carregar seguidores", description: "Não foi possível buscar os dados de seguidores.", variant: "destructive" });
+  }, [segError]);
+
+  useEffect(() => {
+    if (doadoresError) toast({ title: "Erro ao carregar doadores", description: "Não foi possível buscar os dados de doadores.", variant: "destructive" });
+  }, [doadoresError]);
+
+  /* ── Dados calculados ────────────────────────────── */
+ const igData = igMetrics?.data;
+
+const totalSeguidoresInstagram = Number(igData?.followers_total || SEGUIDORES_BASE);
+const quantidadePostsInstagram = Number(igData?.posts_instagram_year || 0);
+const visualizacoesReels = Number(igData?.reels_views || 0);
+const engajamentoInstagram = Number(igData?.instagram_engagement || 0);
+
+const followersReal = totalSeguidoresInstagram;
+
+const syncedAt = igData?.created_at
+  ? new Date(igData.created_at).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  : null;
+  
   const segRows: any[]            = segMensal?.data || [];
   const segByMes: Record<string,any> = {};
   for (const r of segRows) segByMes[String(r.mes)] = r;
@@ -256,7 +295,7 @@ export default function MarketingPage() {
                 <Shield className="w-3.5 h-3.5" />
                 Senha
               </Button>
-              <Button variant="outline" size="sm" onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')} className="flex items-center gap-1.5 text-xs bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400">
+              <Button variant="outline" size="sm" onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')} className="flex items-center gap-1.5 text-xs bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400">
                 <ExternalLink className="w-3.5 h-3.5" />
                 Transparência
               </Button>
@@ -269,8 +308,39 @@ export default function MarketingPage() {
         </div>
       </header>
 
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <PushNotificationSettings variant="panel" className="max-w-xl" />
+      </div>
+
+      {/* ── Tab Navigation ─────────────────────────── */}
+      <div className="bg-white border-b border-gray-100 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex overflow-x-auto">
+            {[
+              { id: 'dashboard', label: 'Instagram', icon: '📊' },
+              { id: 'eventos', label: 'Eventos', icon: '🎉' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-all whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-pink-500 text-pink-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── Main ─────────────────────────────────────── */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        {activeTab === 'dashboard' && <>
 
         {/* Filtros de período */}
         <div className="flex items-center justify-between">
@@ -344,43 +414,87 @@ export default function MarketingPage() {
         </div>
 
         {/* ── 4 métricas ───────────────────────────────── */}
+      {/* Métricas principais do Instagram */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            icon={TrendingUp}
-            label="Seguidores Ganhos"
-            value={`+${segGanhos.toLocaleString('pt-BR')}`}
-            sub={mes === 'todos' ? `Meta anual: ${META_GANHOS_ANUAL.toLocaleString('pt-BR')}` : `Meta mensal: ${Math.ceil(META_GANHOS_ANUAL / 12).toLocaleString('pt-BR')}`}
-            trend={segGanhos >= (mes === 'todos' ? META_GANHOS_ANUAL : Math.ceil(META_GANHOS_ANUAL / 12)) ? '✓ Meta atingida' : `${Math.round((segGanhos / (mes === 'todos' ? META_GANHOS_ANUAL : Math.ceil(META_GANHOS_ANUAL / 12))) * 100)}% da meta`}
-            color="#10b981"
-            bg="#d1fae5"
-          />
-          <MetricCard
-            icon={TrendingDown}
-            label="Seguidores Perdidos"
-            value={`-${segPerdidos.toLocaleString('pt-BR')}`}
-            sub={mes === 'todos' ? `Limite: ${META_PERDIDOS_ANUAL.toLocaleString('pt-BR')}` : `Limite: ${Math.ceil(META_PERDIDOS_ANUAL / 12).toLocaleString('pt-BR')}`}
-            trend={segPerdidos > (mes === 'todos' ? META_PERDIDOS_ANUAL : Math.ceil(META_PERDIDOS_ANUAL / 12)) ? '⚠ Acima do limite' : '✓ Dentro do limite'}
-            color={segPerdidos > (mes === 'todos' ? META_PERDIDOS_ANUAL : Math.ceil(META_PERDIDOS_ANUAL / 12)) ? '#ef4444' : '#10b981'}
-            bg="#fee2e2"
-          />
-          <MetricCard
-            icon={liquido >= 0 ? TrendingUp : Minus}
-            label="Crescimento Líquido"
-            value={`${liquido >= 0 ? '+' : ''}${liquido.toLocaleString('pt-BR')}`}
-            sub="Ganhos menos perdidos"
-            trend={liquido > 0 ? `Taxa: ${taxaCrescimento}%` : liquido === 0 ? 'Estável' : 'Queda neste período'}
-            color={liquido >= 0 ? '#8b5cf6' : '#ef4444'}
-            bg="#ede9fe"
-          />
-          <MetricCard
-            icon={Users}
-            label="Doadores Ativos"
-            value={doadoresAtivos.toLocaleString('pt-BR')}
-            sub={`Meta: ${META_DOADORES.toLocaleString('pt-BR')}`}
-            trend={`${Math.round((doadoresAtivos / META_DOADORES) * 100)}% da meta`}
-            color="#f59e0b"
-            bg="#fef3c7"
-          />
+          {[
+            {
+              icon: Users,
+              label: 'Total de Seguidores',
+              value: totalSeguidoresInstagram.toLocaleString('pt-BR'),
+              sub: `Meta: ${META_SEGUIDORES_ANUAL.toLocaleString('pt-BR')}`,
+              color: '#8b5cf6',
+              bg: '#ede9fe'
+            },
+            {
+              icon: TrendingUp,
+              label: 'Seguidores Ganhos',
+              value: `+${segGanhos.toLocaleString('pt-BR')}`,
+              sub: `Meta: ${(mes === 'todos' ? META_GANHOS_ANUAL : Math.ceil(META_GANHOS_ANUAL / 12)).toLocaleString('pt-BR')}`,
+              color: '#10b981',
+              bg: '#d1fae5'
+            },
+            {
+              icon: TrendingDown,
+              label: 'Seguidores Perdidos',
+              value: `-${segPerdidos.toLocaleString('pt-BR')}`,
+              sub: `Limite: ${(mes === 'todos' ? META_PERDIDOS_ANUAL : Math.ceil(META_PERDIDOS_ANUAL / 12)).toLocaleString('pt-BR')}`,
+              color: '#ef4444',
+              bg: '#fee2e2'
+            },
+            {
+              icon: Target,
+              label: 'Posts Instagram',
+              value: quantidadePostsInstagram.toLocaleString('pt-BR'),
+              sub: `Ano ${ano}`,
+              color: '#ec4899',
+              bg: '#fce7f3'
+            },
+            {
+              icon: Eye,
+              label: 'Visualizações de Reels',
+              value: visualizacoesReels.toLocaleString('pt-BR'),
+              sub: `Ano ${ano}`,
+              color: '#6366f1',
+              bg: '#e0e7ff'
+            },
+            {
+              icon: Activity,
+              label: 'Engajamento Instagram',
+              value: engajamentoInstagram.toLocaleString('pt-BR'),
+              sub: 'Interações capturadas pela Meta',
+              color: '#f59e0b',
+              bg: '#fef3c7'
+            },
+            {
+              icon: Activity,
+              label: 'Crescimento Líquido',
+              value: `${liquido >= 0 ? '+' : ''}${liquido.toLocaleString('pt-BR')}`,
+              sub: `Taxa: ${taxaCrescimento}%`,
+              color: liquido >= 0 ? '#8b5cf6' : '#ef4444',
+              bg: '#ede9fe'
+            },
+            {
+              icon: Target,
+              label: 'Média/Mês Necessária',
+              value: mediaNecessaria > 0 ? `+${mediaNecessaria.toLocaleString('pt-BR')}` : '✓ Meta!',
+              sub: `${mesesRestantes} meses restantes`,
+              color: '#f59e0b',
+              bg: '#fef3c7'
+            },
+          ].map(({ icon: Icon, label, value, sub, color, bg }) => (
+            <Card key={label} className="border-gray-100">
+              <CardContent className="p-4 flex items-start gap-3">
+                <div className="p-2.5 rounded-xl flex-shrink-0" style={{ backgroundColor: bg }}>
+                  <Icon className="w-4 h-4" style={{ color }} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mb-0.5">{label}</p>
+                  <p className="text-xl font-bold tabular-nums" style={{ color }}>{value}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         {/* ── Gráficos ────────────────────────────────── */}
@@ -431,6 +545,12 @@ export default function MarketingPage() {
           </div>
 
         </div>
+
+        </>}
+
+        {activeTab === 'eventos' && (
+          <EventosGritoSection />
+        )}
 
       </main>
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,7 @@ export default function CentralAjuda() {
     });
     
     // Clear all storage completely
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     
     // Force full page reload to login page after a short delay

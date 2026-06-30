@@ -1,7 +1,11 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
+import { requestPushPermissionAndGetToken, clearPushTokenCache, fullResetPushSubscription, getWebPushSubscriptionKeys } from '@/lib/firebase';
 import { motion } from 'framer-motion';
+import EventosGritoSection from '../components/EventosGritoSection';
+import ScannerManagementPanel from '../components/ScannerManagementPanel';
 import { useLocation } from 'wouter';
-import {  UploadCloud, FileSpreadsheet,CheckCircle2, ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, TrendingDown, CheckCircle, AlertTriangle, Star, Edit, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, LogOut, Monitor, Camera, Globe } from 'lucide-react';
+import {  UploadCloud, FileSpreadsheet,CheckCircle2, ArrowLeft, RefreshCw, Search, Plus, Heart, MessageCircle, Users, DollarSign, Settings, BarChart3, Calendar, Target, Gift, TrendingUp, TrendingDown, CheckCircle, AlertTriangle, Star, Edit, Pencil, Save, X, Clock, Eye, Trash2, Upload, Download, FileText, Gavel, CreditCard, Filter, Share2, Ticket, Phone, Mail, Trophy, Activity, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Check, Loader2, LogOut, Monitor, Camera, Globe, Zap, QrCode, Lock, Key, UserPlus, Copy, UserX, Instagram, Bell, ToggleLeft, ToggleRight } from 'lucide-react';
 import { 
   LineChart, 
   Line, 
@@ -27,12 +31,14 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, authFetch } from '@/lib/queryClient';
 import { BenefitImageUploader } from '@/components/BenefitImageUploader';
 import { MarketingLinksSection } from '@/components/MarketingLinksSection';
 import { useUserData } from '@/hooks/useUserData';
@@ -43,6 +49,8 @@ import DevLogin from '@/pages/dev-login';
 import { TeamManagementSection } from '@/components/TeamManagementSection';
 import clubeDoGritoLogo from '../app-assets/CLUBE_DO_GRITO_LOGO_Prancheta_1_1751996016284_(1)_1764696786533.png';
 import { Separator } from "@/components/ui/separator";
+import { LgpdLegalHeaderButtons } from "@/components/LgpdLegalMenuSection";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 
@@ -534,8 +542,143 @@ const IG_MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','N
 function InstagramAnalyticsSection() {
   const [ano, setAno] = useState('2026');
   const [mes, setMes] = useState('todos');
+  // ── Token modal state ─────────────────────────────────────────────────────
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [appIdInput, setAppIdInput] = useState('');
+  const [appSecretInput, setAppSecretInput] = useState('');
+  const [forceOverwrite, setForceOverwrite] = useState(false);
+
+  // ── PIN Master state ───────────────────────────────────────────────────────
+  const [pinModalView, setPinModalView] = useState<'none'|'verify'|'create'|'change'>('none');
+  const [pinInput, setPinInput] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pinError, setPinError] = useState('');
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const { data: tokenStatus, refetch: refetchTokenStatus } = useQuery<any>({
+    queryKey: ['/api/admin/instagram/token-status'],
+    queryFn: () => authFetch('/api/admin/instagram/token-status').then(r => r.json()),
+    refetchInterval: 300000,
+  });
+
+  const { data: igConnection } = useQuery<any>({
+    queryKey: ['/api/admin/instagram/connection-test'],
+    queryFn: () => authFetch('/api/admin/instagram/connection-test').then(r => r.json()),
+    refetchInterval: 300000,
+  });
+
+  const { data: pinStatus, refetch: refetchPinStatus } = useQuery<any>({
+    queryKey: ['/api/admin/instagram/pin-status'],
+    queryFn: () => authFetch('/api/admin/instagram/pin-status').then(r => r.json()),
+  });
+
+  const hasPIN = !!pinStatus?.hasPIN;
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const verifyPinMutation = useMutation({
+    mutationFn: (pin: string) =>
+      authFetch('/api/admin/instagram/pin/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      }).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data?.valid) {
+        setPinError('');
+        setPinVerified(true);
+        setPinModalView('none');
+        setPinInput('');
+        setShowTokenModal(true);
+      } else {
+        setPinError('PIN incorreto. Tente novamente.');
+      }
+    },
+  });
+
+  const savePinMutation = useMutation({
+    mutationFn: (data: { newPin: string; currentPin?: string }) =>
+      authFetch('/api/admin/instagram/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).then(async r => {
+        const json = await r.json();
+        if (!r.ok) throw new Error(json?.error || `Erro ${r.status}`);
+        return json;
+      }),
+    onSuccess: (data) => {
+      if (data?.success) {
+        toast({ title: '🔐 PIN Master criado!', description: 'O token está protegido pelo PIN.' });
+        refetchPinStatus();
+        setPinModalView('none');
+        setPinInput(''); setPinConfirm(''); setCurrentPin(''); setPinError('');
+        setPinVerified(true);
+        setShowTokenModal(true);
+      } else {
+        setPinError(data?.error || 'Erro ao salvar PIN.');
+      }
+    },
+    onError: (e: any) => setPinError(e?.message || 'Falha na conexão. Tente novamente.'),
+  });
+
+  const saveTokenMutation = useMutation({
+    mutationFn: (data: { token: string; appId?: string; appSecret?: string; force?: boolean }) => {
+      return authFetch('/api/admin/instagram/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).then(r => r.json());
+    },
+    onSuccess: (data) => {
+      if (data?.success) {
+        const ig = data.connection?.instagramUsername
+          ? `@${data.connection.instagramUsername}`
+          : data.connection?.instagramBusinessAccountId;
+        toast({
+          title: '✅ Token salvo!',
+          description: [data.message, ig ? `Conta: ${ig}` : null].filter(Boolean).join(' — '),
+        });
+        setShowTokenModal(false);
+        setTokenInput(''); setAppIdInput(''); setAppSecretInput(''); setForceOverwrite(false);
+        setPinVerified(false);
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/instagram/token-status'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/instagram/connection-test'] });
+      } else if (data?.locked) {
+        toast({ title: '🔒 Token protegido', description: 'Marque a confirmação de substituição para continuar.', variant: 'destructive' });
+      } else {
+        toast({
+          title: 'Erro ao salvar token',
+          description: data?.connection?.error || data?.error || 'Verifique o token, App ID e App Secret.',
+          variant: 'destructive',
+        });
+      }
+    },
+    onError: () => toast({ title: 'Erro', description: 'Não foi possível salvar o token.', variant: 'destructive' }),
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const tokenExpired  = tokenStatus && !tokenStatus.valid;
+  const tokenDaysLeft = tokenStatus?.daysLeft;
+  const tokenWarnLow  = tokenDaysLeft !== undefined && tokenDaysLeft <= 7;
+  const tokenPermanent = tokenStatus?.valid && !tokenStatus?.expiresAt;
+
+  const handleTokenButtonClick = () => {
+    setPinError('');
+    setPinInput('');
+    if (!hasPIN) {
+      setPinModalView('create');
+    } else if (!pinVerified) {
+      setPinModalView('verify');
+    } else {
+      setShowTokenModal(true);
+    }
+  };
 
   const { data: igMetrics, refetch: refetchIg, isLoading: loadingIg } = useQuery<any>({
     queryKey: ['/api/instagram/metrics/current'],
@@ -544,27 +687,42 @@ function InstagramAnalyticsSection() {
     retry: false,
   });
 
-  const syncIgMutation = useMutation({
-    mutationFn: () => {
-      const userId = localStorage.getItem('userId') || localStorage.getItem('mktUserId') || '1';
-      return fetch('/api/instagram/metrics/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
-        body: JSON.stringify({ periodLabel: 'morning' }),
-      }).then(r => r.json());
-    },
-    onSuccess: (data) => {
-      if (data?.success) {
-        toast({ title: '✅ Sincronizado!', description: 'Dados do Instagram atualizados.' });
-        queryClient.invalidateQueries({ queryKey: ['/api/instagram/metrics/current'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/marketing-seguidores-mensal'] });
-        refetchIg();
-      } else {
-        toast({ title: 'Aviso', description: data?.error || 'Não foi possível sincronizar.', variant: 'destructive' });
-      }
-    },
-    onError: () => toast({ title: 'Erro', description: 'Falha ao conectar com a API do Instagram.', variant: 'destructive' }),
-  });
+const syncIgMutation = useMutation({
+  mutationFn: () => {
+    return authFetch('/api/instagram/metrics/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ periodLabel: 'morning' }),
+    }).then(r => r.json());
+  },
+  onSuccess: (data) => {
+    if (data?.success) {
+      toast({
+        title: '✅ Sincronizado!',
+        description: `Seguidores atualizados: ${data?.data?.followers_total?.toLocaleString('pt-BR') || '—'}`
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['/api/instagram/metrics/current'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing-seguidores-mensal'] });
+      refetchIg();
+    } else {
+      toast({
+        title: 'Aviso',
+        description: data?.error || 'Não foi possível sincronizar.',
+        variant: 'destructive'
+      });
+    }
+  },
+  onError: () => {
+    toast({
+      title: 'Erro',
+      description: 'Falha ao conectar com a API do Instagram.',
+      variant: 'destructive'
+    });
+  },
+});
 
   const { data: segMensal } = useQuery<any>({
     queryKey: ['/api/marketing-seguidores-mensal', ano],
@@ -572,10 +730,22 @@ function InstagramAnalyticsSection() {
     refetchInterval: 60000,
   });
 
-  const igData        = igMetrics?.data;
-  const followersReal = igData?.followers_total || IG_SEGUIDORES_BASE;
-  const syncedAt      = igData?.synced_at
-    ? new Date(igData.synced_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const igData = igMetrics?.data;
+
+  const totalSeguidoresInstagram = Number(igData?.followers_total || IG_SEGUIDORES_BASE);
+  const quantidadePostsInstagram = Number(igData?.posts_instagram_year || 0);
+  const visualizacoesReels = Number(igData?.reels_views || 0);
+  const engajamentoInstagram = Number(igData?.instagram_engagement || 0);
+
+  const followersReal = totalSeguidoresInstagram;
+
+  const syncedAt = igData?.created_at
+    ? new Date(igData.created_at).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
     : null;
 
   const segRows: any[] = segMensal?.data || [];
@@ -635,6 +805,14 @@ function InstagramAnalyticsSection() {
             <RefreshCw className={`w-3.5 h-3.5 ${syncIgMutation.isPending ? 'animate-spin' : ''}`} />
             {syncIgMutation.isPending ? 'Sincronizando...' : 'Sincronizar'}
           </button>
+          <button
+            onClick={handleTokenButtonClick}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${tokenExpired ? 'border-red-400 text-red-600 bg-red-50 hover:bg-red-100' : tokenWarnLow ? 'border-yellow-400 text-yellow-700 bg-yellow-50 hover:bg-yellow-100' : 'border-gray-200 hover:bg-gray-50'}`}
+            title={hasPIN ? 'Token protegido por PIN Master' : 'Configurar token de acesso do Instagram'}
+          >
+            {tokenExpired || tokenWarnLow ? <AlertTriangle className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
+            {tokenExpired ? 'Token expirado' : tokenWarnLow ? `${tokenDaysLeft}d` : hasPIN ? '🔐 Token' : 'Token'}
+          </button>
           <div className="flex gap-1">
             {['2025','2026'].map(a => (
               <button key={a} onClick={() => { setAno(a); setMes('todos'); }}
@@ -686,12 +864,73 @@ function InstagramAnalyticsSection() {
       </Card>
 
       {/* 4 métricas */}
+    {/* Métricas principais do Instagram */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: TrendingUp,   label: 'Seguidores Ganhos',     value: `+${segGanhos.toLocaleString('pt-BR')}`,     sub: `Meta: ${(mes === 'todos' ? IG_META_GANHOS : Math.ceil(IG_META_GANHOS / 12)).toLocaleString('pt-BR')}`,  color: '#10b981', bg: '#d1fae5' },
-          { icon: TrendingDown, label: 'Seguidores Perdidos',   value: `-${segPerdidos.toLocaleString('pt-BR')}`,   sub: `Limite: ${(mes === 'todos' ? IG_META_PERDIDOS : Math.ceil(IG_META_PERDIDOS / 12)).toLocaleString('pt-BR')}`, color: '#ef4444', bg: '#fee2e2' },
-          { icon: Activity,     label: 'Crescimento Líquido',   value: `${liquido >= 0 ? '+' : ''}${liquido.toLocaleString('pt-BR')}`,  sub: `Taxa: ${taxaCrescimento}%`, color: liquido >= 0 ? '#8b5cf6' : '#ef4444', bg: '#ede9fe' },
-          { icon: Target,       label: 'Média/Mês Necessária',  value: mediaNecessaria > 0 ? `+${mediaNecessaria.toLocaleString('pt-BR')}` : '✓ Meta!', sub: `${mesesRestantes} meses restantes`, color: '#f59e0b', bg: '#fef3c7' },
+          {
+            icon: Users,
+            label: 'Total de Seguidores',
+            value: totalSeguidoresInstagram.toLocaleString('pt-BR'),
+            sub: `Meta: ${IG_META_SEGUIDORES.toLocaleString('pt-BR')}`,
+            color: '#8b5cf6',
+            bg: '#ede9fe'
+          },
+          {
+            icon: TrendingUp,
+            label: 'Seguidores Ganhos',
+            value: `+${segGanhos.toLocaleString('pt-BR')}`,
+            sub: `Meta: ${(mes === 'todos' ? IG_META_GANHOS : Math.ceil(IG_META_GANHOS / 12)).toLocaleString('pt-BR')}`,
+            color: '#10b981',
+            bg: '#d1fae5'
+          },
+          {
+            icon: TrendingDown,
+            label: 'Seguidores Perdidos',
+            value: `-${segPerdidos.toLocaleString('pt-BR')}`,
+            sub: `Limite: ${(mes === 'todos' ? IG_META_PERDIDOS : Math.ceil(IG_META_PERDIDOS / 12)).toLocaleString('pt-BR')}`,
+            color: '#ef4444',
+            bg: '#fee2e2'
+          },
+          {
+            icon: Instagram,
+            label: 'Posts Instagram',
+            value: quantidadePostsInstagram.toLocaleString('pt-BR'),
+            sub: `Ano ${ano}`,
+            color: '#ec4899',
+            bg: '#fce7f3'
+          },
+          {
+            icon: Eye,
+            label: 'Visualizações de Reels',
+            value: visualizacoesReels.toLocaleString('pt-BR'),
+            sub: `Ano ${ano}`,
+            color: '#6366f1',
+            bg: '#e0e7ff'
+          },
+          {
+            icon: Activity,
+            label: 'Engajamento Instagram',
+            value: engajamentoInstagram.toLocaleString('pt-BR'),
+            sub: 'Interações capturadas pela Meta',
+            color: '#f59e0b',
+            bg: '#fef3c7'
+          },
+          {
+            icon: Activity,
+            label: 'Crescimento Líquido',
+            value: `${liquido >= 0 ? '+' : ''}${liquido.toLocaleString('pt-BR')}`,
+            sub: `Taxa: ${taxaCrescimento}%`,
+            color: liquido >= 0 ? '#8b5cf6' : '#ef4444',
+            bg: '#ede9fe'
+          },
+          {
+            icon: Target,
+            label: 'Média/Mês Necessária',
+            value: mediaNecessaria > 0 ? `+${mediaNecessaria.toLocaleString('pt-BR')}` : '✓ Meta!',
+            sub: `${mesesRestantes} meses restantes`,
+            color: '#f59e0b',
+            bg: '#fef3c7'
+          },
         ].map(({ icon: Icon, label, value, sub, color, bg }) => (
           <Card key={label} className="border-gray-100">
             <CardContent className="p-4 flex items-start gap-3">
@@ -707,7 +946,6 @@ function InstagramAnalyticsSection() {
           </Card>
         ))}
       </div>
-
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
@@ -759,6 +997,215 @@ function InstagramAnalyticsSection() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Banner de alerta token expirado ── */}
+      {tokenExpired && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-300 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700">Token do Instagram expirado!</p>
+            <p className="text-xs text-red-500">As sincronizações automáticas estão falhando. Configure um novo token permanente.</p>
+          </div>
+          <button onClick={handleTokenButtonClick} className="shrink-0 px-3 py-1.5 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600 transition-colors">
+            Corrigir agora
+          </button>
+        </div>
+      )}
+
+      {tokenWarnLow && !tokenExpired && (
+        <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-300 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0" />
+          <p className="text-sm text-yellow-800 flex-1">Token expira em <strong>{tokenDaysLeft} dias</strong>. Renove antes que as sincronizações parem.</p>
+          <button onClick={handleTokenButtonClick} className="shrink-0 px-3 py-1.5 bg-yellow-500 text-white text-xs font-semibold rounded-lg hover:bg-yellow-600 transition-colors">
+            Renovar
+          </button>
+        </div>
+      )}
+
+      {igConnection && !igConnection.success && tokenStatus?.valid && (
+        <div className="flex items-center gap-3 bg-orange-50 border border-orange-300 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-orange-800">Token válido, mas Instagram inacessível</p>
+            <p className="text-xs text-orange-700">
+              {igConnection.connection?.error || 'Reconfigure o token com App ID e App Secret para atualizar a conta vinculada.'}
+            </p>
+          </div>
+          <button onClick={handleTokenButtonClick} className="shrink-0 px-3 py-1.5 bg-orange-500 text-white text-xs font-semibold rounded-lg hover:bg-orange-600 transition-colors">
+            Reconfigurar
+          </button>
+        </div>
+      )}
+
+      {/* ── Modal PIN Master: Criar PIN ── */}
+      <Dialog open={pinModalView === 'create'} onOpenChange={(o) => { if (!o) { setPinModalView('none'); setPinInput(''); setPinConfirm(''); setPinError(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">🔐 Criar PIN Master</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">O PIN Master protege o token do Instagram contra alterações acidentais. Guarde-o com segurança — você vai precisar dele sempre que quiser alterar o token.</p>
+            <div>
+              <Label className="text-xs font-semibold">Novo PIN (mín. 4 dígitos)</Label>
+              <Input className="mt-1" type="password" inputMode="numeric" placeholder="••••" value={pinInput} onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))} maxLength={10} />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Confirmar PIN</Label>
+              <Input className="mt-1" type="password" inputMode="numeric" placeholder="••••" value={pinConfirm} onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ''))} maxLength={10} />
+            </div>
+            {pinError && <p className="text-xs text-red-500 font-semibold">{pinError}</p>}
+            <Button
+              className="w-full"
+              disabled={pinInput.length < 4 || savePinMutation.isPending}
+              onClick={() => {
+                if (pinInput !== pinConfirm) { setPinError('Os PINs não coincidem.'); return; }
+                setPinError('');
+                savePinMutation.mutate({ newPin: pinInput });
+              }}
+            >
+              {savePinMutation.isPending ? 'Salvando...' : '🔐 Criar PIN e continuar'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal PIN Master: Verificar PIN ── */}
+      <Dialog open={pinModalView === 'verify'} onOpenChange={(o) => { if (!o) { setPinModalView('none'); setPinInput(''); setPinError(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">🔐 PIN Master requerido</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">O token do Instagram está protegido. Digite o PIN Master para continuar.</p>
+            <div>
+              <Label className="text-xs font-semibold">PIN Master</Label>
+              <Input
+                className="mt-1 text-center text-lg tracking-widest"
+                type="password"
+                inputMode="numeric"
+                placeholder="••••"
+                value={pinInput}
+                onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))}
+                maxLength={10}
+                onKeyDown={e => { if (e.key === 'Enter' && pinInput.length >= 4) verifyPinMutation.mutate(pinInput); }}
+                autoFocus
+              />
+            </div>
+            {pinError && <p className="text-xs text-red-500 font-semibold">{pinError}</p>}
+            <Button
+              className="w-full"
+              disabled={pinInput.length < 4 || verifyPinMutation.isPending}
+              onClick={() => verifyPinMutation.mutate(pinInput)}
+            >
+              {verifyPinMutation.isPending ? 'Verificando...' : 'Entrar'}
+            </Button>
+            <button
+              className="w-full text-xs text-gray-400 hover:text-gray-600 underline"
+              onClick={() => { setPinModalView('change'); setPinInput(''); setPinError(''); }}
+            >
+              Esqueci meu PIN (alterar)
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal PIN Master: Alterar PIN ── */}
+      <Dialog open={pinModalView === 'change'} onOpenChange={(o) => { if (!o) { setPinModalView('none'); setPinInput(''); setPinConfirm(''); setCurrentPin(''); setPinError(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">🔐 Alterar PIN Master</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2">⚠️ Para alterar o PIN você precisa do PIN atual. Se perdeu o PIN, entre em contato com o administrador do sistema.</p>
+            <div>
+              <Label className="text-xs font-semibold">PIN atual</Label>
+              <Input className="mt-1" type="password" inputMode="numeric" placeholder="••••" value={currentPin} onChange={e => setCurrentPin(e.target.value.replace(/\D/g, ''))} maxLength={10} />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Novo PIN</Label>
+              <Input className="mt-1" type="password" inputMode="numeric" placeholder="••••" value={pinInput} onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))} maxLength={10} />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Confirmar novo PIN</Label>
+              <Input className="mt-1" type="password" inputMode="numeric" placeholder="••••" value={pinConfirm} onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ''))} maxLength={10} />
+            </div>
+            {pinError && <p className="text-xs text-red-500 font-semibold">{pinError}</p>}
+            <Button
+              className="w-full"
+              disabled={pinInput.length < 4 || !currentPin || savePinMutation.isPending}
+              onClick={() => {
+                if (pinInput !== pinConfirm) { setPinError('Os PINs não coincidem.'); return; }
+                setPinError('');
+                savePinMutation.mutate({ newPin: pinInput, currentPin });
+              }}
+            >
+              {savePinMutation.isPending ? 'Salvando...' : '🔐 Alterar PIN'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal de Configuração do Token Meta ── */}
+      <Dialog open={showTokenModal} onOpenChange={(o) => { if (!o) { setShowTokenModal(false); setForceOverwrite(false); setTokenInput(''); setAppIdInput(''); setAppSecretInput(''); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span>🔑</span> Configurar Token do Instagram
+              {hasPIN && <span className="ml-auto text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">🔐 PIN verificado</span>}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {tokenPermanent && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-800">
+                ✅ Token permanente ativo. Substituir irá invalidar o token atual.
+              </div>
+            )}
+            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800 space-y-1">
+              <p className="font-semibold mb-1">Como obter o token permanente (obrigatório App ID + Secret):</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Acesse <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer" className="underline">Meta Graph API Explorer</a></li>
+                <li>Selecione o app, marque permissões <strong>pages_show_list</strong>, <strong>instagram_basic</strong>, <strong>instagram_manage_insights</strong></li>
+                <li>Gere o token e cole abaixo junto com App ID + App Secret</li>
+              </ol>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Token do Explorer *</Label>
+              <Input className="mt-1 text-xs font-mono" placeholder="EAAxxxxxxxxxxxxxxx..." value={tokenInput} onChange={e => setTokenInput(e.target.value)} />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-2 font-semibold">Opcional — para token permanente:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">App ID</Label>
+                  <Input className="mt-1 text-xs" placeholder="1234567890" value={appIdInput} onChange={e => setAppIdInput(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">App Secret</Label>
+                  <Input className="mt-1 text-xs" type="password" placeholder="••••••••" value={appSecretInput} onChange={e => setAppSecretInput(e.target.value)} />
+                </div>
+              </div>
+            </div>
+            {tokenPermanent && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={forceOverwrite} onChange={e => setForceOverwrite(e.target.checked)} />
+                <span className="text-xs text-red-700 font-semibold">Confirmo que quero substituir o token permanente atual</span>
+              </label>
+            )}
+            <Button
+              className="w-full"
+              onClick={() => saveTokenMutation.mutate({ token: tokenInput, appId: appIdInput || undefined, appSecret: appSecretInput || undefined, force: tokenPermanent ? forceOverwrite : true })}
+              disabled={!tokenInput || saveTokenMutation.isPending || (tokenPermanent && !forceOverwrite)}
+            >
+              {saveTokenMutation.isPending ? 'Salvando...' : (appIdInput && appSecretInput ? '🔄 Salvar token permanente' : '💾 Salvar token')}
+            </Button>
+            {hasPIN && (
+              <button className="w-full text-xs text-gray-400 hover:text-gray-600 underline" onClick={() => { setShowTokenModal(false); setPinModalView('change'); }}>
+                Alterar PIN Master
+              </button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1547,6 +1994,22 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest(`/api/in-app-notifications/${id}/toggle-active`, { method: 'PATCH' });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: data?.active ? 'Notificação reativada' : 'Notificação pausada',
+        description: data?.active ? 'O banner voltará a aparecer para os usuários.' : 'O banner não será exibido até reativar.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/in-app-notifications'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao alternar', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const resetForm = () => {
     setFormData({
       title: '',
@@ -1611,21 +2074,30 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
       return;
     }
 
+    const ok = window.confirm(
+      "Enviar notificação push para TODOS os doadores com dispositivo registrado?\n\nEsta ação não pode ser desfeita."
+    );
+    if (!ok) return;
+
     setSendingPush(true);
     try {
-      await apiRequest('/api/push/send-to-all-donors', {
+      const data = await apiRequest('/api/push/send-to-all-donors', {
         method: 'POST',
         body: JSON.stringify({
           title: formData.title,
           body: formData.message,
-          data: {
-            type: 'in_app_notification',
-            action: formData.primaryButtonAction,
-          },
+          url: formData.primaryButtonAction || undefined,
+          inAppNotificationId: editingNotification?.id ?? undefined,
         }),
         headers: { 'Content-Type': 'application/json' },
       });
-      toast({ title: "Push enviado para todos os doadores!" });
+      if (editingNotification?.id) {
+        queryClient.invalidateQueries({ queryKey: ['/api/in-app-notifications'] });
+      }
+      toast({
+        title: "Push enviado para doadores",
+        description: `${data.enviados ?? 0} enviado(s), ${data.falhas ?? 0} falha(s), ${data.totalTokens ?? 0} token(s)${data.tokensInvalidosRemovidos ? `, ${data.tokensInvalidosRemovidos} inválido(s) removido(s)` : ""}`,
+      });
     } catch (error: any) {
       toast({ title: "Erro ao enviar push", description: error.message, variant: "destructive" });
     } finally {
@@ -1649,9 +2121,12 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <MessageCircle className="w-7 h-7 text-amber-600" />
-            Notificações In-App & Push
+            Banners no app (in-app)
           </h2>
-          <p className="text-gray-600">Gerencie notificações que aparecem dentro do app e enviadas por push</p>
+          <p className="text-gray-600 text-sm max-w-2xl">
+            Cards que aparecem <strong>dentro do app</strong> para doadores. O push para o celular é enviado separadamente pelo botão
+            &quot;Enviar como Push (Agora)&quot; ou automaticamente na data agendada se marcar &quot;envio push futuro&quot;.
+          </p>
         </div>
         <Button 
           onClick={() => { resetForm(); setEditingNotification(null); setShowForm(true); }} 
@@ -1771,7 +2246,7 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">Todos</SelectItem>
-                        <SelectItem value="donors">Apenas Doadores</SelectItem>
+                        <SelectItem value="donors_only">Apenas Doadores</SelectItem>
                         <SelectItem value="no_email">Sem E-mail</SelectItem>
                         <SelectItem value="no_subscription">Sem Assinatura</SelectItem>
                       </SelectContent>
@@ -1805,7 +2280,7 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
                       onChange={(e) => setFormData({ ...formData, scheduledAt: e.target.value })}
                       data-testid="input-scheduled-at"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Deixe vazio para enviar imediatamente</p>
+                    <p className="text-xs text-gray-500">Deixe vazio para exibir imediatamente. Se marcar envio push abaixo, o push dispara nesta data/hora.</p>
                   </div>
                 </div>
 
@@ -1820,8 +2295,8 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
                     data-testid="checkbox-send-as-push"
                   />
                   <label htmlFor="sendAsPush" className="cursor-pointer">
-                    <span className="font-semibold text-blue-800">Enviar também como Push</span>
-                    <p className="text-xs text-blue-600">Além da notificação in-app, envia push notification para todos os dispositivos registrados</p>
+                    <span className="text-sm font-medium">Marcar para envio push na data agendada</span>
+                    <p className="text-xs text-gray-500">Com data de agendamento: envia push automaticamente nesse horário. Sem agendamento: use o botão &quot;Enviar como Push (Agora)&quot;.</p>
                   </label>
                 </div>
 
@@ -2010,6 +2485,15 @@ function NotificationsSection({ queryClient }: { queryClient: any }) {
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleActiveMutation.mutate(notification.id)}
+                      disabled={toggleActiveMutation.isPending}
+                      title={notification.active ? 'Pausar banner' : 'Reativar banner'}
+                    >
+                      {notification.active ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -3080,9 +3564,11 @@ function PagamentosCieloSection({ queryClient }: { queryClient: any }) {
                         </a>
                       </td>
                       <td className="p-3 text-sm" data-testid={`text-email-cielo-${pagamento.id}`}>
-                        <a href={`mailto:${pagamento.email}`} className="text-blue-600 hover:underline truncate block max-w-[200px]">
-                          {pagamento.email}
-                        </a>
+                        {pagamento.email && pagamento.email !== 'temp@temp.com' ? (
+                          <a href={`mailto:${pagamento.email}`} className="text-blue-600 hover:underline truncate block max-w-[200px]">
+                            {pagamento.email}
+                          </a>
+                        ) : <span className="text-gray-400">-</span>}
                       </td>
                       <td className="p-3 text-right font-bold text-lg" data-testid={`text-value-cielo-${pagamento.id}`}>
                         {pagamento.valorFormatado}
@@ -3287,9 +3773,11 @@ function LeilaoCard({ leilao }: { leilao: any }) {
                             </a>
                           </td>
                           <td className="px-2 py-2 text-gray-600">
-                            <a href={`mailto:${p.email}`} className="hover:text-blue-600 truncate block max-w-[150px]">
-                              {p.email || '-'}
-                            </a>
+                            {p.email && p.email !== 'temp@temp.com' ? (
+                              <a href={`mailto:${p.email}`} className="hover:text-blue-600 truncate block max-w-[150px]">
+                                {p.email}
+                              </a>
+                            ) : <span className="text-gray-400">-</span>}
                           </td>
                           <td className="px-2 py-2">
                             <span className={`font-bold ${idx === 0 ? 'text-yellow-700' : 'text-gray-900'}`}>
@@ -3310,6 +3798,1121 @@ function LeilaoCard({ leilao }: { leilao: any }) {
   );
 }
 
+
+async function pushApiFetch(url: string, init?: RequestInit) {
+  const res = await fetch(url, { ...init, credentials: 'include' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  return data;
+}
+
+function pushPermissionBlockedMessage(): string | null {
+  if (typeof Notification === 'undefined') return 'Seu navegador não suporta notificações push.';
+  if (Notification.permission === 'denied') {
+    return 'Notificações bloqueadas no navegador. Libere nas configurações do site e tente novamente.';
+  }
+  return null;
+}
+
+function PushNotificationsSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'web' | 'android' | 'iphone'>('web');
+  const [registering, setRegistering] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+
+  const { data: sessionData } = useQuery<any>({ queryKey: ['/api/auth/session'] });
+
+  const registerPushTokenOnServer = useCallback(async (token: string) => {
+    const userKey = sessionData?.id ? String(sessionData.id) : null;
+    const userType = sessionData?.papel ?? sessionData?.role ?? null;
+    const userName = sessionData?.nome ?? sessionData?.name ?? null;
+    if (!userKey || !userType) {
+      throw new Error('Faça login antes de registrar o dispositivo');
+    }
+    const subKeys = await getWebPushSubscriptionKeys();
+    const data = await pushApiFetch('/api/push/register-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        userKey,
+        userType,
+        platform: 'web',
+        nome: userName,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 512) : null,
+        pushEndpoint: subKeys.pushEndpoint,
+        pushP256dh: subKeys.pushP256dh,
+        pushAuth: subKeys.pushAuth,
+      }),
+    });
+    if (data.needsRefresh) {
+      throw new Error('Token rejeitado pelo servidor — use Forçar reset e tente novamente');
+    }
+  }, [sessionData]);
+
+  const handleRegisterDevice = useCallback(async () => {
+    const blocked = pushPermissionBlockedMessage();
+    if (blocked) {
+      toast({ title: 'Notificações bloqueadas', description: blocked, variant: 'destructive' });
+      return;
+    }
+    setRegistering(true);
+    try {
+      clearPushTokenCache();
+      const token = await requestPushPermissionAndGetToken(true);
+      if (!token) {
+        const msg = pushPermissionBlockedMessage() || 'Verifique se as notificações estão permitidas no navegador.';
+        toast({ title: 'Não foi possível registrar', description: msg, variant: 'destructive' });
+        return;
+      }
+      await registerPushTokenOnServer(token);
+      toast({ title: 'Dispositivo registrado!', description: 'Este navegador vai receber notificações push.' });
+      setTimeout(() => { queryClient.invalidateQueries({ queryKey: ['/api/push/tokens/count'] }); }, 500);
+    } catch (err: any) {
+      toast({ title: 'Erro ao registrar', description: err.message, variant: 'destructive' });
+    } finally {
+      setRegistering(false);
+    }
+  }, [registerPushTokenOnServer, toast, queryClient]);
+
+  const handleForceReset = useCallback(async () => {
+    setResetting(true);
+    try {
+      await fullResetPushSubscription();
+      await new Promise(r => setTimeout(r, 500));
+      const blocked = pushPermissionBlockedMessage();
+      if (blocked) {
+        toast({ title: 'Notificações bloqueadas', description: blocked, variant: 'destructive' });
+        return;
+      }
+      const token = await requestPushPermissionAndGetToken(true);
+      if (!token) {
+        toast({ title: 'Reset feito, mas token não obtido', description: 'Abra o console (F12) ou libere notificações no navegador.', variant: 'destructive' });
+        return;
+      }
+      await registerPushTokenOnServer(token);
+      toast({ title: 'Reset e registro concluídos!', description: 'Este navegador vai receber notificações push.' });
+      setTimeout(() => { queryClient.invalidateQueries({ queryKey: ['/api/push/tokens/count'] }); }, 500);
+    } catch (err: any) {
+      toast({ title: 'Erro no reset', description: err.message, variant: 'destructive' });
+    } finally {
+      setResetting(false);
+    }
+  }, [registerPushTokenOnServer, toast, queryClient]);
+
+  const handleSendTest = useCallback(async () => {
+    const ok = window.confirm(
+      'Enviar notificação de TESTE apenas para os dispositivos registrados da sua conta?\n\nNenhum outro usuário receberá.'
+    );
+    if (!ok) return;
+    setSendingTest(true);
+    try {
+      const data = await pushApiFetch('/api/push/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Teste — Clube do Grito',
+          body: 'Se você está vendo isto, o push FCM está funcionando.',
+        }),
+      });
+      toast({
+        title: data.firebaseAccepted ? 'Teste aceito pelo Firebase' : 'Teste com falhas',
+        description: `${data.enviados ?? 0} de ${data.totalTokens ?? 0} dispositivo(s)${data.falhas ? ` (${data.falhas} falha(s))` : ''}`,
+        variant: data.firebaseAccepted ? 'default' : 'destructive',
+      });
+    } catch (err: any) {
+      toast({ title: 'Erro no teste', description: err.message, variant: 'destructive' });
+    } finally {
+      setSendingTest(false);
+    }
+  }, [toast]);
+
+  const SCREENS = [
+    { value: 'doador',        label: 'Tela do Doador',          path: '/welcome',                roles: ['doador', 'leo'] },
+    { value: 'aluno',         label: 'Tela do Aluno',           path: '/aluno',                  roles: ['aluno', 'student'] },
+    { value: 'professor',     label: 'Tela do Professor',       path: '/professor',              roles: ['professor', 'professor_pec', 'professor_inclusao', 'professor_psico'] },
+    { value: 'monitor',       label: 'Tela do Monitor',         path: '/monitor',                roles: ['monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico', 'monitor_psicossocial'] },
+    { value: 'conselho',      label: 'Tela do Conselho',        path: '/conselho',               roles: ['conselho'] },
+    { value: 'patrocinador',  label: 'Tela do Patrocinador',    path: '/patrocinador-dashboard', roles: ['patrocinador'] },
+    { value: 'coordenador',   label: 'Tela do Coordenador',     path: '/coordenador',            roles: ['coordenador_pec', 'coordenador_inclusao', 'coordenador_psicossocial', 'coordenador_negocios_sociais', 'coordenador_favela3d'] },
+    { value: 'administrador', label: 'Tela do Administrador',   path: '/administrador',          roles: ['super_admin'] },
+    { value: 'dev',           label: 'Tela Dev / Dev Mkt',      path: '/dev',                    roles: ['dev', 'dev-marketing'] },
+    { value: 'todos',         label: 'Todos os usuários',       path: '*',                       roles: [] },
+  ];
+
+  type GatilhoItem = { value: string; label: string; desc: string; audiences: string | string[]; grupo: string };
+  const ALL_GATILHOS: GatilhoItem[] = [
+    // ── GERAL
+    { value: 'manual',                     label: 'Manual',                               desc: 'Você dispara quando quiser pelo botão',                                       audiences: 'all',           grupo: 'Geral' },
+    { value: 'lembrete_checkin',           label: 'Lembrete de check-in',                 desc: 'Lembra o doador de fazer check-in (CRON — 3x/dia)',                           audiences: ['doador'],      grupo: 'Geral' },
+    // ── DOADOR
+    { value: 'doador_cadastrado',          label: 'Doador cadastrado',                    desc: 'Novo doador se cadastrou na plataforma',                                      audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doacao_confirmada',          label: 'Doação confirmada',                    desc: 'Pagamento da doação foi processado com sucesso',                              audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doacao_recusada',            label: 'Doação recusada',                      desc: 'Falha no processamento do pagamento',                                         audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_5_dias', label: 'Inadimplente — 5 dias',               desc: 'Doação atrasada há 5 dias',                                                   audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_7_dias', label: 'Inadimplente — 7 dias',               desc: 'Doação atrasada há 7 dias',                                                   audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_15_dias',label: 'Inadimplente — 15 dias',              desc: 'Doação atrasada há 15 dias',                                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_30_dias',label: 'Inadimplente — 30 dias',              desc: 'Doação atrasada há 30 dias',                                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_60_dias',label: 'Inadimplente — 60 dias',              desc: 'Doação atrasada há 60 dias',                                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_180_dias',label:'Inadimplente — 180 dias',             desc: 'Doação atrasada há 6 meses',                                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'doador_inadimplente_365_dias',label:'Inadimplente — 365 dias',             desc: 'Doação atrasada há 1 ano',                                                    audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'plano_alterado',             label: 'Plano de doação alterado',             desc: 'O doador alterou seu plano de contribuição',                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'assinatura_cancelada',       label: 'Assinatura cancelada',                desc: 'A assinatura foi encerrada',                                                  audiences: ['doador'],      grupo: 'Doador' },
+    { value: 'cartao_expirando',           label: 'Cartão expirando',                    desc: 'Cartão de crédito vai expirar em breve',                                      audiences: ['doador'],      grupo: 'Doador' },
+    // ── MISSÕES / LEILÃO
+    { value: 'nova_missao',                label: 'Nova missão criada',                  desc: 'Uma nova missão foi criada no administrador',                                 audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'missao_concluida',           label: 'Missão concluída',                    desc: 'O doador concluiu uma missão',                                               audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'novo_beneficio',             label: 'Novo benefício (legado)',             desc: 'Compat. com regras antigas — prefira beneficio_criado',                       audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'beneficio_criado',           label: 'Benefício criado',                    desc: 'Novo item disponível no leilão/catálogo',                                     audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'novo_lance_leilao',          label: 'Novo lance (legado)',                 desc: 'Compat. com regras antigas — prefira lance_recebido',                         audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'lance_recebido',             label: 'Lance recebido',                      desc: 'Confirma ao doador que seu lance foi registrado',                             audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'lance_superado',             label: 'Lance superado',                      desc: 'Outro doador deu um lance maior',                                             audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'lance_vencedor',             label: 'Vencedor do leilão',                  desc: 'O doador venceu o leilão',                                                    audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'leilao_encerrando',          label: 'Leilão prestes a encerrar',           desc: 'Leilão próximo do fim — dispara via CRON',                                    audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    { value: 'leilao_encerrado',           label: 'Leilão encerrado',                    desc: 'Leilão foi finalizado',                                                       audiences: ['doador'],      grupo: 'Missões & Leilão' },
+    // ── HISTÓRIAS / GRITOS
+    { value: 'nova_historia_inspira',      label: 'Nova história (legado)',              desc: 'Compat. com regras antigas — prefira historia_sucesso_publicada',             audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'historia_sucesso_publicada', label: 'História publicada',                  desc: 'Nova história de sucesso foi publicada',                                      audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'historia_sucesso_atualizada',label: 'História atualizada',                 desc: 'Uma história ativa foi atualizada',                                           audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'gritos_creditados',          label: 'Gritos creditados',                   desc: 'Gritos foram adicionados ao saldo do doador (check-in, primeira entrada)',    audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'gritos_missao_concluida',    label: 'Gritos — missão concluída',           desc: 'Gritos creditados por conclusão de missão',                                  audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'gritos_doacao_confirmada',   label: 'Gritos — doação confirmada',          desc: 'Gritos creditados após confirmação de doação',                                audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'gritos_expirando',           label: 'Gritos expirando',                    desc: 'Saldo de Gritos vai expirar em breve',                                        audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'gritos_utilizados',          label: 'Gritos utilizados',                   desc: 'Doador usou Gritos em algum resgate',                                         audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    { value: 'conquista_liberada',         label: 'Conquista liberada',                  desc: 'Doador desbloqueou uma nova conquista',                                       audiences: ['doador'],      grupo: 'Histórias & Gritos' },
+    // ── CONSELHO / GESTÃO
+    { value: 'relatorio_impacto_publicado',label: 'Relatório de impacto publicado',      desc: 'Relatório de impacto disponível para o conselho',                             audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    { value: 'meta_abaixo_esperado',       label: 'Meta abaixo do esperado',             desc: 'Indicador abaixo da meta — alerta para gestão',                              audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    { value: 'meta_batida',                label: 'Meta batida',                         desc: 'Meta mensal ou anual de indicador GV atingida — impacto, leo, conselho, patrocinador, equipe e técnico', audiences: ['conselho', 'doador', 'coordenador', 'monitor', 'professor', 'dev'], grupo: 'Conselho & Gestão' },
+    { value: 'pauta_conselho_criada',      label: 'Pauta do conselho criada',            desc: 'Nova pauta de reunião disponível',                                            audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    { value: 'nova_prestacao_contas',      label: 'Nova prestação de contas',            desc: 'Relatório de transparência publicado',                                        audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    { value: 'meta_vertente_abaixo',       label: 'Meta de vertente abaixo',             desc: 'Meta de vertente abaixo do esperado',                                        audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    { value: 'meta_vertente_alcancada',    label: 'Meta de vertente alcançada',           desc: 'Meta de vertente foi atingida',                                               audiences: ['conselho'],    grupo: 'Conselho & Gestão' },
+    // ── PATROCINADOR
+    { value: 'resultado_patrocinador_atualizado', label: 'Resultados do patrocinador atualizados', desc: 'Novos dados de impacto para o patrocinador', audiences: ['patrocinador'], grupo: 'Patrocinador' },
+    { value: 'evidencia_patrocinador_adicionada', label: 'Evidência de impacto adicionada',         desc: 'Nova evidência no relatório do patrocinador', audiences: ['patrocinador'], grupo: 'Patrocinador' },
+    { value: 'relatorio_patrocinador_publicado',  label: 'Relatório do patrocinador publicado',     desc: 'Relatório de patrocínio disponível',          audiences: ['patrocinador'], grupo: 'Patrocinador' },
+    { value: 'acao_patrocinada_realizada',         label: 'Ação patrocinada realizada',              desc: 'Ação vinculada ao patrocínio foi executada',   audiences: ['patrocinador'], grupo: 'Patrocinador' },
+    // ── PEC / INCLUSÃO (coordenador/professor/monitor)
+    { value: 'aluno_cadastrado',           label: 'Aluno cadastrado',                    desc: 'Novo aluno inserido no sistema',                                             audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'aluno_sem_turma',            label: 'Aluno sem turma',                     desc: 'Aluno cadastrado mas sem turma vinculada',                                   audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'scanner_aluno_sem_turma',    label: 'Aluno sem turma no scanner',          desc: 'CPF lido no scanner sem vínculo na turma selecionada',                        audiences: ['monitor'],     grupo: 'Educação' },
+    { value: 'aluno_nao_identificado',     label: 'Aluno não identificado',              desc: 'CPF do scanner não encontrado no cadastro',                                   audiences: ['monitor'],     grupo: 'Educação' },
+    { value: 'chamada_pendente',           label: 'Chamada pendente',                    desc: 'Chamada de aula ainda não registrada',                                        audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'chamada_editada_manual',     label: 'Chamada editada manualmente',         desc: 'Chamada alterada por um usuário',                                             audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'justificativa_pendente',     label: 'Justificativa de falta pendente',     desc: 'Falta sem justificativa registrada',                                          audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'baixa_frequencia_aluno',     label: 'Baixa frequência de aluno',           desc: 'Aluno com frequência abaixo do mínimo',                                       audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'risco_evasao',               label: 'Risco de evasão',                     desc: 'Aluno com indicadores de risco de abandono',                                  audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'turma_criada',               label: 'Turma criada',                        desc: 'Nova turma foi criada no sistema',                                            audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'turma_alterada',             label: 'Turma alterada',                      desc: 'Dados de turma foram atualizados',                                            audiences: ['professor'],   grupo: 'Educação' },
+    { value: 'aluno_matriculado_meio_turma',label:'Matrícula fora do início do período', desc: 'Aluno matriculado após início do ciclo',                                      audiences: ['professor'],   grupo: 'Educação' },
+    // ── MONITOR
+    { value: 'aluno_chegou',               label: 'Aluno chegou',                        desc: 'Entrada de aluno confirmada (monitor)',                                       audiences: ['monitor'],     grupo: 'Monitor' },
+    { value: 'aluno_nao_identificado',     label: 'Aluno não identificado',              desc: 'Rosto não reconhecido pela catraca',                                          audiences: ['monitor'],     grupo: 'Monitor' },
+    { value: 'chamada_aberta',             label: 'Chamada aberta para registro',        desc: 'Chamada disponível para preenchimento',                                       audiences: ['monitor'],     grupo: 'Monitor' },
+    { value: 'chamada_nao_finalizada',     label: 'Chamada não finalizada',              desc: 'Chamada aberta sem ser encerrada',                                            audiences: ['monitor'],     grupo: 'Monitor' },
+    // ── PROFESSOR
+    { value: 'aula_proxima',               label: 'Aula próxima — professor',            desc: 'Aviso de aula a iniciar em breve',                                            audiences: ['professor'],   grupo: 'Professor' },
+    { value: 'chamada_disponivel',         label: 'Chamada disponível — professor',      desc: 'Chamada disponível para registro',                                            audiences: ['professor'],   grupo: 'Professor' },
+    { value: 'aluno_faltas_consecutivas',  label: 'Aluno com faltas consecutivas',       desc: 'Aluno acumulou faltas seguidas',                                              audiences: ['professor'],   grupo: 'Professor' },
+    { value: 'atividade_professor_pendente',label:'Atividade pedagógica pendente',       desc: 'Professor tem atividade a registrar',                                         audiences: ['professor'],   grupo: 'Professor' },
+    { value: 'turma_professor_alterada',   label: 'Turma do professor alterada',         desc: 'Mudanças na turma vinculada ao professor',                                    audiences: ['professor'],   grupo: 'Professor' },
+    // ── ALUNO
+    { value: 'aluno_primeiro_acesso',      label: 'Primeiro acesso — aluno',             desc: 'Aluno acessou a plataforma pela primeira vez',                                audiences: ['aluno'],       grupo: 'Aluno' },
+    { value: 'presenca_confirmada_aluno',  label: 'Presença confirmada — aluno',         desc: 'Presença do aluno registrada',                                               audiences: ['aluno'],       grupo: 'Aluno' },
+    { value: 'falta_registrada_aluno',     label: 'Falta registrada — aluno',            desc: 'Falta do aluno registrada',                                                   audiences: ['aluno'],       grupo: 'Aluno' },
+    { value: 'aula_aluno_proxima',         label: 'Aula próxima — aluno',                desc: 'Aviso de aula para o aluno',                                                  audiences: ['aluno'],       grupo: 'Aluno' },
+    { value: 'turma_aluno_alterada',       label: 'Turma do aluno alterada',             desc: 'Mudanças na turma do aluno',                                                  audiences: ['aluno'],       grupo: 'Aluno' },
+    { value: 'foto_aluno_pendente',        label: 'Foto de cadastro pendente',           desc: 'Alunos sem foto no cadastro — 1 push por turma com quantidade (CRON sexta)', audiences: ['professor', 'monitor', 'coordenador'], grupo: 'Aluno' },
+    // ── ADMIN / SISTEMA
+    { value: 'usuario_cadastrado',         label: 'Usuário cadastrado',                  desc: 'Novo usuário registrado na plataforma',                                       audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'erro_critico_sistema',       label: 'Erro crítico no sistema',             desc: 'Erro grave detectado em produção',                                            audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'integracao_falhou',          label: 'Integração com falha',                desc: 'Falha em integração externa',                                                 audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'relatorio_geral_atualizado', label: 'Relatório geral atualizado',          desc: 'Relatório geral do período disponível',                                       audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'alteracao_sensivel',         label: 'Alteração sensível',                  desc: 'Modificação crítica registrada',                                              audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'termos_aceitos',             label: 'Termos aceitos',                      desc: 'Usuário aceitou os termos de uso',                                            audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'termos_pendentes',           label: 'Termos pendentes',                    desc: 'Usuários com termos pendentes de aceite',                                     audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'politica_privacidade_atualizada', label: 'Política de privacidade atualizada', desc: 'Enviado para todos — política revisada',                                  audiences: 'all',           grupo: 'Admin & Sistema' },
+    { value: 'permissao_alterada',         label: 'Permissão alterada',                  desc: 'Permissões de usuário foram modificadas',                                     audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'usuario_bloqueado',          label: 'Usuário bloqueado',                   desc: 'Acesso de usuário foi bloqueado',                                             audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'usuario_desbloqueado',       label: 'Usuário desbloqueado',                desc: 'Acesso de usuário foi restaurado',                                            audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    { value: 'cadastro_incompleto',        label: 'Cadastro incompleto',                 desc: 'Perfil com dados pendentes',                                                  audiences: 'all',           grupo: 'Admin & Sistema' },
+    { value: 'senha_alterada',             label: 'Senha alterada',                      desc: 'Senha de conta foi modificada',                                               audiences: 'all',           grupo: 'Admin & Sistema' },
+    { value: 'primeiro_acesso_realizado',  label: 'Primeiro acesso realizado',           desc: 'Notifica admin sobre novo primeiro acesso',                                   audiences: ['administrador'],grupo: 'Admin & Sistema' },
+    // ── DEV / TÉCNICO
+    { value: 'api_error',                  label: 'Erro de API',                         desc: 'Endpoint retornou erro inesperado',                                           audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'webhook_falhou',             label: 'Webhook com falha',                   desc: 'Falha no processamento de webhook',                                           audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'firebase_token_invalido',    label: 'Token Firebase inválido',             desc: 'Tokens FCM inválidos foram desativados',                                      audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'cron_falhou',                label: 'CRON com falha',                      desc: 'Job agendado falhou na execução',                                             audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'instagram_sync_falhou',      label: 'Instagram sync falhou',               desc: 'Erro na sincronização de métricas Instagram',                                 audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'stripe_sync_falhou',         label: 'Stripe sync falhou',                  desc: 'Erro na sincronização com Stripe',                                            audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'catraca_offline',            label: 'Catraca offline',                     desc: 'Hardware da catraca sem comunicação',                                         audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'dinamize_sync_falhou',       label: 'Dinamize sync falhou',                desc: 'Erro na sincronização com Dinamize',                                          audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'wuzapi_falhou',              label: 'WuzAPI com falha',                    desc: 'Serviço WhatsApp indisponível',                                               audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'cielo_falhou',               label: 'Cielo com falha',                     desc: 'Transação Cielo falhou',                                                      audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'gcs_upload_falhou',          label: 'Upload GCS com falha',                desc: 'Erro no envio para Google Cloud Storage',                                     audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    // ── DEV MARKETING
+    { value: 'notificacao_manual_enviada', label: 'Notificação manual enviada',          desc: 'Confirmação de envio manual concluído',                                       audiences: ['dev'],         grupo: 'Dev Marketing' },
+    { value: 'notificacao_manual_falhou',  label: 'Notificação manual falhou',           desc: 'Falha no envio manual de notificação',                                        audiences: ['dev'],         grupo: 'Dev Marketing' },
+    { value: 'campanha_cadastrada',        label: 'Campanha cadastrada',                 desc: 'Nova campanha de marketing registrada',                                       audiences: ['dev'],         grupo: 'Dev Marketing' },
+    { value: 'marketing_metricas_atualizadas', label: 'Métricas de marketing atualizadas', desc: 'Dados de marketing do período disponíveis',                                audiences: ['dev'],         grupo: 'Dev Marketing' },
+    { value: 'instagram_token_expirado',   label: 'Token Instagram expirado',            desc: 'Token da API Instagram vai expirar',                                          audiences: ['dev'],         grupo: 'Dev Marketing' },
+    { value: 'indicador_sem_dados',        label: 'Indicador sem dados',                 desc: 'Indicador sem registros para o período',                                      audiences: ['administrador'],grupo: 'Dev Marketing' },
+    { value: 'dashboard_atualizado',       label: 'Dashboard atualizado',                desc: 'Painel de dados foi atualizado',                                              audiences: ['administrador'],grupo: 'Dev Marketing' },
+    { value: 'dados_inconsistentes_detectados', label: 'Dados inconsistentes',          desc: 'Inconsistências nos dados detectadas',                                        audiences: ['administrador'],grupo: 'Dev Marketing' },
+  ];
+
+  const roleLabels: Record<string, string> = {
+    doador: 'Doadores', aluno: 'Alunos', student: 'Alunos', professor: 'Professores',
+    professor_pec: 'Prof. PEC', professor_inclusao: 'Prof. Inclusão', professor_psico: 'Prof. Psico',
+    monitor: 'Monitores', monitor_pec: 'Mon. PEC', monitor_inclusao: 'Mon. Inclusão', monitor_psico: 'Mon. Psico',
+    conselho: 'Conselho', patrocinador: 'Patrocinadores', dev: 'Dev', 'dev-marketing': 'Dev Mkt', leo: 'Léo',
+  };
+
+  type PushRule = {
+    id: number; nome: string; gatilho: string; destino_tela: string;
+    destino_roles: string[]; titulo: string; mensagem: string; url?: string;
+    ativo: boolean; created_at: string;
+    prioridade: string; tipo: string; cooldown_minutos: number;
+    modulo_alvo?: string; send_push: boolean; send_email: boolean; send_whatsapp: boolean;
+  };
+
+  type PushLog = {
+    id: number; rule_id: number | null; gatilho: string; destinatario_key: string | null;
+    destinatario_role: string | null; destinatario_nome?: string | null;
+    status: string; erro: string | null; skipped_reason?: string | null;
+    titulo_renderizado: string | null; mensagem_renderizado: string | null;
+    disparado_em: string; rule_nome: string | null;
+    origem?: string | null; canal?: string | null;
+    disparado_por_user_id?: number | null; disparado_por_nome?: string | null;
+  };
+
+  const emptyForm = { nome: '', gatilho: 'manual', destino_tela: 'doador', titulo: '', mensagem: '', url: '', prioridade: 'normal', tipo: 'manual', cooldown_minutos: 0 };
+  const [webSubTab, setWebSubTab] = useState<'nova' | 'lista' | 'historico'>('lista');
+  const [editingRule, setEditingRule] = useState<PushRule | null>(null);
+  const [form, setForm] = useState({ ...emptyForm });
+  const [saving, setSaving] = useState(false);
+  const [firingId, setFiringId] = useState<number | null>(null);
+  const [gatilhoOpen, setGatilhoOpen] = useState(false);
+  const [destinoOpen, setDestinoOpen] = useState(false);
+
+  // ── Filtros da lista
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'todas' | 'ativas' | 'inativas'>('todas');
+  const [filterTipo, setFilterTipo] = useState<'todos' | 'manual' | 'automatico'>('todos');
+  const [filterDestino, setFilterDestino] = useState('todos');
+  const [filterModulo, setFilterModulo] = useState('todos');
+  const [sortBy, setSortBy] = useState<'recentes' | 'antigas' | 'az' | 'za' | 'ativas' | 'inativas'>('recentes');
+
+  const { data: rules = [], isLoading: loadingRules, refetch: refetchRules } = useQuery<PushRule[]>({
+    queryKey: ['/api/push/rules'],
+  });
+
+  const { data: countData, isLoading: loadingCount, refetch: refetchCount } = useQuery<any>({
+    queryKey: ['/api/push/tokens/count'],
+  });
+
+  const [logStatusFilter, setLogStatusFilter] = useState<'todos' | 'success' | 'error' | 'skipped'>('todos');
+  const [logOrigemFilter, setLogOrigemFilter] = useState('todos');
+  const [logRoleFilter, setLogRoleFilter] = useState('');
+  const [logDateFrom, setLogDateFrom] = useState('');
+  const [logDateTo, setLogDateTo] = useState('');
+  const [logSearch, setLogSearch] = useState('');
+
+  const { data: logs = [], isLoading: loadingLogs, refetch: refetchLogs } = useQuery<PushLog[]>({
+    queryKey: ['/api/push/logs', logStatusFilter, logOrigemFilter, logRoleFilter, logDateFrom, logDateTo, logSearch],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (logStatusFilter !== 'todos') qs.set('status', logStatusFilter);
+      if (logOrigemFilter !== 'todos') qs.set('origem', logOrigemFilter);
+      if (logRoleFilter.trim()) qs.set('role', logRoleFilter.trim());
+      if (logDateFrom) qs.set('date_from', new Date(logDateFrom).toISOString());
+      if (logDateTo) qs.set('date_to', new Date(logDateTo + 'T23:59:59').toISOString());
+      if (logSearch.trim()) qs.set('search', logSearch.trim());
+      const q = qs.toString();
+      return pushApiFetch(`/api/push/logs${q ? `?${q}` : ''}`);
+    },
+    enabled: webSubTab === 'historico',
+  });
+
+  const { data: logStats = [] } = useQuery<{ gatilho: string; sucessos: string; erros: string; ultimo_disparo: string | null }[]>({
+    queryKey: ['/api/push/logs/stats'],
+    enabled: webSubTab === 'lista',
+  });
+  const logStatsMap = Object.fromEntries(logStats.map(s => [s.gatilho, s]));
+
+  const totalTokens = countData?.total ?? 0;
+  const byType: { user_type: string; total: string }[] = countData?.byType ?? [];
+
+  // Agrupa tokens por tela (usando o roles de cada SCREEN)
+  const tokensByScreen: { screen: typeof SCREENS[number]; count: number }[] = SCREENS
+    .filter(s => s.value !== 'todos')
+    .map(s => ({
+      screen: s,
+      count: byType
+        .filter(t => s.roles.includes(t.user_type))
+        .reduce((sum, t) => sum + Number(t.total), 0),
+    }))
+    .filter(x => x.count > 0);
+
+  const screenMap = Object.fromEntries(SCREENS.map(s => [s.value, s]));
+  const gatilhoMap = Object.fromEntries(ALL_GATILHOS.map(g => [g.value, g]));
+
+  const GATILHOS = ALL_GATILHOS.filter(g => {
+    if (g.audiences === 'all') return true;
+    if (!form.destino_tela) return true;
+    return (g.audiences as string[]).includes(form.destino_tela);
+  });
+
+  const openCreate = () => { setEditingRule(null); setForm({ ...emptyForm }); setWebSubTab('nova'); };
+  const openEdit = (rule: PushRule) => {
+    setEditingRule(rule);
+    setForm({
+      nome: rule.nome, gatilho: rule.gatilho, destino_tela: rule.destino_tela,
+      titulo: rule.titulo, mensagem: rule.mensagem, url: rule.url || '',
+      prioridade: rule.prioridade || 'normal', tipo: rule.tipo || 'manual',
+      cooldown_minutos: rule.cooldown_minutos || 0,
+    });
+    setWebSubTab('nova');
+  };
+
+  const handleSave = async () => {
+    if (!form.nome.trim() || !form.titulo.trim() || !form.mensagem.trim()) {
+      toast({ title: 'Preencha nome, título e mensagem', variant: 'destructive' }); return;
+    }
+    setSaving(true);
+    try {
+      const screen = screenMap[form.destino_tela];
+      const payload = { ...form, destino_roles: screen?.roles ?? [], url: form.url.trim() || null };
+      const method = editingRule ? 'PUT' : 'POST';
+      const endpoint = editingRule ? `/api/push/rules/${editingRule.id}` : '/api/push/rules';
+      await pushApiFetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      toast({ title: editingRule ? 'Regra atualizada!' : 'Regra criada!' });
+      setWebSubTab('lista');
+      setEditingRule(null);
+      setForm({ ...emptyForm });
+      refetchRules();
+    } catch (err: any) {
+      toast({ title: 'Erro ao salvar', description: err.message, variant: 'destructive' });
+    } finally { setSaving(false); }
+  };
+
+  const handleToggle = async (rule: PushRule) => {
+    try {
+      await pushApiFetch(`/api/push/rules/${rule.id}/toggle`, { method: 'PATCH' });
+      refetchRules();
+    } catch (err: any) {
+      toast({ title: 'Erro', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleDelete = async (rule: PushRule) => {
+    if (!confirm(`Excluir a regra "${rule.nome}"?`)) return;
+    try {
+      await pushApiFetch(`/api/push/rules/${rule.id}`, { method: 'DELETE' });
+      toast({ title: 'Regra excluída' });
+      refetchRules();
+    } catch (err: any) {
+      toast({ title: 'Erro ao excluir', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleFire = async (rule: PushRule) => {
+    if (!confirm(`Disparar a regra "${rule.nome}" agora?`)) return;
+    setFiringId(rule.id);
+    try {
+      const data = await pushApiFetch(`/api/push/rules/${rule.id}/fire`, { method: 'POST' });
+      toast({ title: 'Disparado!', description: `${data.sent ?? 0} dispositivo(s) receberam.` });
+    } catch (err: any) {
+      toast({ title: 'Erro ao disparar', description: err.message, variant: 'destructive' });
+    } finally { setFiringId(null); }
+  };
+
+  const TABS = [
+    { key: 'web',     label: 'Notificação Web',     future: false },
+    { key: 'android', label: 'Notificação Android',  future: true  },
+    { key: 'iphone',  label: 'Notificação iPhone',   future: true  },
+  ] as const;
+
+  // ── Variáveis computadas para o filtro da lista (fora do JSX)
+  const MODULOS = [
+    { value: 'todos', label: 'Todos os módulos' },
+    { value: 'clube_do_grito', label: 'Clube do Grito' },
+    { value: 'doador', label: 'Doador' },
+    { value: 'pec', label: 'PEC' },
+    { value: 'inclusao_produtiva', label: 'Inclusão Produtiva' },
+    { value: 'psicossocial', label: 'Psicossocial' },
+    { value: 'patrocinador', label: 'Patrocinador' },
+    { value: 'conselho', label: 'Conselho' },
+    { value: 'gestao_a_vista', label: 'Gestão à Vista' },
+    { value: 'marketing', label: 'Marketing' },
+    { value: 'sistema', label: 'Sistema' },
+    { value: 'integracoes', label: 'Integrações' },
+    { value: 'dev', label: 'Dev' },
+  ];
+  const formatCooldown = (min: number) => {
+    if (!min || min <= 0) return null;
+    if (min >= 1440 && min % 1440 === 0) return `${min / 1440}d entre envios`;
+    if (min >= 60 && min % 60 === 0) return `${min / 60}h entre envios`;
+    return `${min}min entre envios`;
+  };
+
+  const formatRuleMeta = (rule: PushRule, ultimoDisparo: string | null, stats?: { sucessos: string; erros: string }) => {
+    const parts: string[] = [];
+    parts.push(rule.tipo === 'automatico' ? 'Automático' : 'Manual');
+    const dest = screenMap[rule.destino_tela]?.label?.replace('Tela do ', '').replace('Tela ', '') ?? rule.destino_tela;
+    if (dest) parts.push(dest);
+    const gatilhoLabel = gatilhoMap[rule.gatilho]?.label;
+    if (gatilhoLabel) parts.push(gatilhoLabel);
+    if (rule.prioridade && rule.prioridade !== 'normal') {
+      parts.push(`Prioridade ${rule.prioridade}`);
+    }
+    const cd = formatCooldown(rule.cooldown_minutos);
+    if (cd) parts.push(cd);
+    if (rule.modulo_alvo) parts.push(rule.modulo_alvo.replace(/_/g, ' '));
+    if (ultimoDisparo) parts.push(`Último: ${ultimoDisparo}`);
+    if (stats) parts.push(`${Number(stats.sucessos || 0)} ok · ${Number(stats.erros || 0)} erros`);
+    return parts.join(' · ');
+  };
+  const q = filterSearch.toLowerCase().trim();
+  const filteredRules = rules
+    .filter(r => {
+      if (filterStatus === 'ativas' && !r.ativo) return false;
+      if (filterStatus === 'inativas' && r.ativo) return false;
+      if (filterTipo !== 'todos' && r.tipo !== filterTipo) return false;
+      if (filterDestino !== 'todos' && r.destino_tela !== filterDestino) return false;
+      if (filterModulo !== 'todos' && r.modulo_alvo !== filterModulo) return false;
+      if (q) {
+        const haystack = [r.nome, r.titulo, r.mensagem, r.gatilho, r.destino_tela, ...(r.destino_roles || [])].join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'az') return a.nome.localeCompare(b.nome);
+      if (sortBy === 'za') return b.nome.localeCompare(a.nome);
+      if (sortBy === 'ativas') return (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0);
+      if (sortBy === 'inativas') return (a.ativo ? 1 : 0) - (b.ativo ? 1 : 0);
+      if (sortBy === 'antigas') return a.id - b.id;
+      return b.id - a.id;
+    });
+  const totalAtivas = rules.filter(r => r.ativo).length;
+  const totalInativas = rules.length - totalAtivas;
+  const totalAuto = rules.filter(r => r.tipo === 'automatico').length;
+  const totalManual = rules.length - totalAuto;
+  const hasFilters = !!(filterSearch || filterStatus !== 'todas' || filterTipo !== 'todos' || filterDestino !== 'todos' || filterModulo !== 'todos');
+
+  return (
+    <div className="space-y-6">
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Campanhas push (celular/navegador)</h2>
+          <p className="text-gray-500 mt-1 text-sm max-w-2xl">
+            Regras automáticas e disparos para o celular do usuário. Para banners dentro do app, use a seção
+            &quot;Banners no app&quot; no menu lateral.
+          </p>
+        </div>
+        {activeTab === 'web' && (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { refetchRules(); refetchCount(); }}>
+              <RefreshCw className="w-4 h-4 mr-2" />Atualizar
+            </Button>
+            <Button size="sm" className="bg-black hover:bg-gray-800 text-white" onClick={openCreate}>
+              <Plus className="w-4 h-4 mr-2" />Nova Regra
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <PushNotificationSettings variant="panel" className="max-w-lg border-gray-200" />
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-200 pb-0">
+        {TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+              activeTab === tab.key
+                ? 'border-black text-black bg-white'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <span>{tab.label}</span>
+            {tab.future && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-400 text-black leading-none">
+                Em breve
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ABA WEB ── */}
+      {activeTab === 'web' && (
+        <div className="space-y-5">
+          {/* Dispositivos registrados — sempre visível */}
+          <Card className="border-gray-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 text-gray-700">
+                <Monitor className="w-4 h-4 text-gray-900" />Dispositivos Registrados
+                <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-gray-400" onClick={() => { refetchRules(); refetchCount(); }}>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingCount ? (
+                <div className="flex gap-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-24 rounded-lg" />)}</div>
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  <div className="bg-black rounded-lg px-4 py-3 text-center min-w-[80px]">
+                    <p className="text-2xl font-bold text-yellow-400">{totalTokens}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Total</p>
+                  </div>
+                  {tokensByScreen.map(({ screen, count }) => (
+                    <div key={screen.value} className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-center min-w-[80px]">
+                      <p className="text-2xl font-bold text-gray-800">{count}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{screen.label.replace('Tela do ', '').replace('Tela ', '')}</p>
+                    </div>
+                  ))}
+                  {totalTokens === 0 && (
+                    <p className="text-gray-400 text-sm italic self-center">
+                      Nenhum dispositivo registrado ainda.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs text-gray-400">
+                  Cada dispositivo ou navegador gera um registro separado — o mesmo usuário em dois aparelhos conta como 2 dispositivos, não como 2 pessoas.
+                </p>
+                <div className="flex gap-2 flex-wrap justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs border-amber-400 text-amber-800 hover:bg-amber-50"
+                    onClick={handleSendTest}
+                    disabled={sendingTest || registering || resetting}
+                    title="Envia push só para os dispositivos da sua conta logada"
+                  >
+                    {sendingTest ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Bell className="w-3.5 h-3.5 mr-1.5" />}
+                    {sendingTest ? 'Enviando teste...' : 'Enviar teste'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 border border-red-200"
+                    onClick={handleForceReset}
+                    disabled={resetting || registering || sendingTest}
+                    title="Apaga o service worker e assinatura antiga, então tenta registrar novamente. Use quando o botão principal falha."
+                  >
+                    {resetting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                    {resetting ? 'Resetando...' : 'Forçar reset'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-black text-black hover:bg-black hover:text-yellow-400 text-xs"
+                    onClick={handleRegisterDevice}
+                    disabled={registering || resetting || sendingTest}
+                  >
+                    {registering ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Bell className="w-3.5 h-3.5 mr-1.5" />}
+                    {registering ? 'Registrando...' : 'Registrar este navegador'}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sub-abas: Lista / Nova / Histórico */}
+          <div className="flex gap-1 border-b border-gray-200">
+            <button
+              onClick={() => { setWebSubTab('lista'); setEditingRule(null); setForm({ ...emptyForm }); }}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${webSubTab === 'lista' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+            >
+              Regras Cadastradas
+              {rules.length > 0 && (
+                <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">{rules.length}</span>
+              )}
+            </button>
+            <button
+              onClick={() => { setWebSubTab('nova'); if (!editingRule) setForm({ ...emptyForm }); }}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${webSubTab === 'nova' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+            >
+              {editingRule ? 'Editar Regra' : 'Nova Regra'}
+            </button>
+            <button
+              onClick={() => { setWebSubTab('historico'); refetchLogs(); }}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${webSubTab === 'historico' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+            >
+              Histórico
+            </button>
+          </div>
+
+          {/* Sub-aba: Lista */}
+          {webSubTab === 'lista' && (
+            <div className="space-y-4">
+              {loadingRules ? (
+                <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}</div>
+              ) : (
+                <>
+                  {/* Contadores */}
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'Total', val: rules.length, cls: 'bg-gray-900 text-white' },
+                      { label: 'Ativas', val: totalAtivas, cls: 'bg-green-100 text-green-800' },
+                      { label: 'Inativas', val: totalInativas, cls: 'bg-gray-100 text-gray-500' },
+                      { label: 'Auto', val: totalAuto, cls: 'bg-blue-100 text-blue-700' },
+                      { label: 'Manual', val: totalManual, cls: 'bg-yellow-100 text-yellow-700' },
+                    ].map(c => (
+                      <div key={c.label} className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${c.cls}`}>
+                        <span>{c.label}</span><span className="font-bold text-sm">{c.val}</span>
+                      </div>
+                    ))}
+                    <Button size="sm" variant="ghost" className="ml-auto text-gray-400 hover:text-gray-600 h-8" onClick={() => refetchRules()}>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+
+                  {/* Barra de busca e filtros */}
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por nome, título, mensagem, gatilho, destino..."
+                        value={filterSearch}
+                        onChange={e => setFilterSearch(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-black/10"
+                      />
+                      {filterSearch && (
+                        <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-black/20">
+                        <option value="todas">Todas</option>
+                        <option value="ativas">Ativas</option>
+                        <option value="inativas">Inativas</option>
+                      </select>
+                      <select value={filterTipo} onChange={e => setFilterTipo(e.target.value as any)} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-black/20">
+                        <option value="todos">Tipo: todos</option>
+                        <option value="automatico">Automático</option>
+                        <option value="manual">Manual</option>
+                      </select>
+                      <select value={filterDestino} onChange={e => setFilterDestino(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-black/20">
+                        <option value="todos">Destino: todos</option>
+                        {SCREENS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+                      <select value={filterModulo} onChange={e => setFilterModulo(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-black/20">
+                        {MODULOS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
+                      <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-black/20">
+                        <option value="recentes">Mais recentes</option>
+                        <option value="antigas">Mais antigas</option>
+                        <option value="az">A-Z</option>
+                        <option value="za">Z-A</option>
+                        <option value="ativas">Ativas primeiro</option>
+                        <option value="inativas">Inativas primeiro</option>
+                      </select>
+                      {hasFilters && (
+                        <button onClick={() => { setFilterSearch(''); setFilterStatus('todas'); setFilterTipo('todos'); setFilterDestino('todos'); setFilterModulo('todos'); setSortBy('recentes'); }} className="text-xs text-red-500 hover:text-red-700 px-2 py-1.5 rounded-lg border border-red-200 hover:bg-red-50">
+                          Limpar filtros
+                        </button>
+                      )}
+                    </div>
+                    {hasFilters && (
+                      <p className="text-xs text-gray-400">{filteredRules.length} de {rules.length} regras</p>
+                    )}
+                  </div>
+
+                  {/* Lista */}
+                  {filteredRules.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 border border-dashed border-gray-200 rounded-xl">
+                      <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm font-medium">Nenhuma notificação encontrada com esses filtros.</p>
+                      <button onClick={() => { setFilterSearch(''); setFilterStatus('todas'); setFilterTipo('todos'); setFilterDestino('todos'); setFilterModulo('todos'); }} className="mt-2 text-xs text-black underline underline-offset-2">Limpar filtros</button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredRules.map(rule => {
+                        const stats = logStatsMap[rule.gatilho];
+                        const ultimoDisparo = stats?.ultimo_disparo ? new Date(stats.ultimo_disparo).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null;
+                        const metaLine = formatRuleMeta(rule, ultimoDisparo, stats);
+                        return (
+                        <div
+                          key={rule.id}
+                          className={`rounded-xl border p-4 transition-all ${
+                            rule.ativo
+                              ? 'bg-white border-gray-200 hover:border-gray-300 border-l-4 border-l-green-500'
+                              : 'bg-gray-50/80 border-gray-100 opacity-75 border-l-4 border-l-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                                <p className="font-semibold text-gray-900 text-sm leading-snug">{rule.nome}</p>
+                                {!rule.ativo && (
+                                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Pausada</span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-gray-500 leading-relaxed mb-2" title={rule.gatilho}>
+                                {metaLine}
+                              </p>
+                              <p className="text-xs text-gray-800 font-medium line-clamp-1">"{rule.titulo}"</p>
+                              <p className="text-[11px] text-gray-500 line-clamp-2 mt-0.5">{rule.mensagem}</p>
+                              {rule.url && (
+                                <p className="text-[11px] text-gray-400 mt-1 truncate font-mono">{rule.url}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              {rule.tipo !== 'automatico' && (
+                                <Button size="sm" variant="outline" className="h-8 w-8 p-0 border-gray-200" onClick={() => handleFire(rule)} disabled={firingId === rule.id} title="Disparar agora">
+                                  {firingId === rule.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                                </Button>
+                              )}
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleToggle(rule)} title={rule.ativo ? 'Pausar regra' : 'Ativar regra'}>
+                                {rule.ativo ? <ToggleRight className="w-4 h-4 text-green-600" /> : <ToggleLeft className="w-4 h-4 text-gray-300" />}
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => openEdit(rule)} title="Editar">
+                                <Pencil className="w-3.5 h-3.5 text-gray-400" />
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleDelete(rule)} title="Excluir">
+                                <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );})}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Sub-aba: Nova / Editar */}
+          {webSubTab === 'nova' && (
+            <Card className="border-gray-200 bg-white">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-gray-900">
+                  <Zap className="w-4 h-4 text-gray-900" />
+                  {editingRule ? `Editando: ${editingRule.nome}` : 'Nova Regra de Notificação'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Nome da regra *</Label>
+                    <Input placeholder="Ex: Nova missão para doadores" value={form.nome} onChange={e => setForm(f => ({...f, nome: e.target.value}))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Link ao clicar (opcional)</Label>
+                    <Input placeholder="Ex: /missoes" value={form.url} onChange={e => setForm(f => ({...f, url: e.target.value}))} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tipo</Label>
+                    <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm" value={form.tipo} onChange={e => setForm(f => ({...f, tipo: e.target.value}))}>
+                      <option value="manual">Manual</option>
+                      <option value="automatico">Automático</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Prioridade</Label>
+                    <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm" value={form.prioridade} onChange={e => setForm(f => ({...f, prioridade: e.target.value}))}>
+                      <option value="baixa">Baixa</option>
+                      <option value="normal">Normal</option>
+                      <option value="alta">Alta</option>
+                      <option value="urgente">Urgente</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Cooldown (min)</Label>
+                    <Input type="number" min={0} placeholder="0 = sem limite" value={form.cooldown_minutos} onChange={e => setForm(f => ({...f, cooldown_minutos: parseInt(e.target.value) || 0}))} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Gatilho — quando dispara?</Label>
+                    <Popover open={gatilhoOpen} onOpenChange={setGatilhoOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        >
+                          <span className="truncate">
+                            {GATILHOS.find(g => g.value === form.gatilho)?.label ?? 'Selecionar gatilho...'}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar gatilho..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum gatilho encontrado.</CommandEmpty>
+                            {(() => {
+                              const groups = [...new Set(GATILHOS.map(g => g.grupo))];
+                              return groups.map(grp => (
+                                <CommandGroup key={grp} heading={grp}>
+                                  {GATILHOS.filter(g => g.grupo === grp).map(g => (
+                                    <CommandItem
+                                      key={g.value}
+                                      value={g.label}
+                                      onSelect={() => { setForm(f => ({...f, gatilho: g.value})); setGatilhoOpen(false); }}
+                                      className="flex items-start gap-2 py-2"
+                                    >
+                                      <Check className={`mt-0.5 h-4 w-4 shrink-0 ${form.gatilho === g.value ? 'opacity-100' : 'opacity-0'}`} />
+                                      <div>
+                                        <p className="text-sm font-medium">{g.label}</p>
+                                        <p className="text-xs text-muted-foreground">{g.desc}</p>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              ));
+                            })()}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Destino — quem recebe?</Label>
+                    <Popover open={destinoOpen} onOpenChange={setDestinoOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        >
+                          <span className="truncate">
+                            {SCREENS.find(s => s.value === form.destino_tela)?.label ?? 'Selecionar destino...'}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-full p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar destino..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum destino encontrado.</CommandEmpty>
+                            {SCREENS.map(s => (
+                              <CommandItem
+                                key={s.value}
+                                value={s.label}
+                                onSelect={() => {
+                                  setForm(f => {
+                                    const available = ALL_GATILHOS.filter(g => g.audiences === 'all' || (g.audiences as string[]).includes(s.value));
+                                    const gatilhoValido = available.some(g => g.value === f.gatilho);
+                                    return { ...f, destino_tela: s.value, gatilho: gatilhoValido ? f.gatilho : 'manual' };
+                                  });
+                                  setDestinoOpen(false);
+                                }}
+                                className="flex items-center gap-2 py-2"
+                              >
+                                <Check className={`h-4 w-4 shrink-0 ${form.destino_tela === s.value ? 'opacity-100' : 'opacity-0'}`} />
+                                {s.label}
+                              </CommandItem>
+                            ))}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    {form.destino_tela && form.destino_tela !== 'todos' && screenMap[form.destino_tela] && (
+                      <p className="text-xs text-gray-500">Inclui: {screenMap[form.destino_tela].roles.map(r => roleLabels[r] ?? r).join(', ')}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Título da notificação *</Label>
+                  <Input
+                    placeholder={form.gatilho === 'nova_missao' ? 'Ex: Nova missão! Ganhe {{gritos}} Gritos' : 'Título da notificação'}
+                    value={form.titulo}
+                    onChange={e => setForm(f => ({...f, titulo: e.target.value}))}
+                    maxLength={100}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Mensagem *</Label>
+                  <Textarea
+                    placeholder={form.gatilho === 'nova_missao' ? 'Ex: A missão "{{titulo}}" está disponível. Participe e ganhe pontos!' : 'Texto da notificação...'}
+                    value={form.mensagem}
+                    onChange={e => setForm(f => ({...f, mensagem: e.target.value}))}
+                    rows={3}
+                    maxLength={300}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Variáveis:{' '}
+                    <span className="font-mono bg-gray-100 px-1 rounded">{"{{nome}}"}</span> (primeiro nome){' '}
+                    {form.gatilho === 'nova_missao' && <>
+                      · <span className="font-mono bg-gray-100 px-1 rounded">{"{{titulo}}"}</span>{' '}
+                      · <span className="font-mono bg-gray-100 px-1 rounded">{"{{gritos}}"}</span>
+                    </>}
+                  </p>
+                  <p className="text-xs text-gray-400 text-right">{form.mensagem.length}/300</p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                  <Button variant="outline" onClick={() => { setWebSubTab('lista'); setEditingRule(null); setForm({ ...emptyForm }); }}>Cancelar</Button>
+                  <Button onClick={handleSave} disabled={saving} className="bg-black hover:bg-gray-800 text-white">
+                    {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Salvando...</> : 'Salvar Regra'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sub-aba: Histórico de disparos */}
+          {webSubTab === 'historico' && (
+            <div className="space-y-3">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-sm text-gray-600 font-medium">
+                    Histórico de envios
+                    {!loadingLogs && logs.length > 0 && (
+                      <span className="text-gray-400 font-normal ml-1">({logs.length} registros)</span>
+                    )}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <input
+                    type="search"
+                    placeholder="Buscar título, gatilho, nome..."
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white sm:col-span-2 lg:col-span-3"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                  />
+                  <select className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logStatusFilter} onChange={(e) => setLogStatusFilter(e.target.value as typeof logStatusFilter)}>
+                    <option value="todos">Todos os status</option>
+                    <option value="success">Sucesso</option>
+                    <option value="error">Erro</option>
+                    <option value="skipped">Não enviado</option>
+                  </select>
+                  <select className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logOrigemFilter} onChange={(e) => setLogOrigemFilter(e.target.value)}>
+                    <option value="todos">Todas as origens</option>
+                    <option value="cron">CRON</option>
+                    <option value="manual">Manual</option>
+                    <option value="broadcast">Broadcast</option>
+                    <option value="evento">Evento automático</option>
+                    <option value="teste">Teste</option>
+                  </select>
+                  <input type="date" className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logDateFrom} onChange={(e) => setLogDateFrom(e.target.value)} title="Data inicial" />
+                  <input type="date" className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logDateTo} onChange={(e) => setLogDateTo(e.target.value)} title="Data final" />
+                  <input type="text" placeholder="Papel (doador, aluno...)" className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logRoleFilter} onChange={(e) => setLogRoleFilter(e.target.value)} />
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => refetchLogs()} className="text-gray-400 hover:text-gray-600">
+                    <RefreshCw className="w-3.5 h-3.5 mr-1" /> Atualizar
+                  </Button>
+                </div>
+              </div>
+              {loadingLogs ? (
+                <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
+              ) : logs.length === 0 ? (
+                <div className="text-center py-14 text-gray-400">
+                  <Clock className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">Nenhum disparo registrado ainda.</p>
+                  <p className="text-xs mt-1 text-gray-300">Os disparos aparecerão aqui conforme as regras forem ativadas.</p>
+                </div>
+              ) : (
+                <div className="overflow-auto rounded-xl border border-gray-200">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 text-gray-500 text-left">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Data</th>
+                        <th className="px-3 py-2 font-medium">Origem</th>
+                        <th className="px-3 py-2 font-medium">Gatilho</th>
+                        <th className="px-3 py-2 font-medium">Destinatário</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                        <th className="px-3 py-2 font-medium">Disparado por</th>
+                        <th className="px-3 py-2 font-medium w-40">Erro / motivo</th>
+                        <th className="px-3 py-2 font-medium w-48">Título</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {logs.map(log => (
+                        <tr key={log.id} className={`hover:bg-gray-50 ${log.status === 'error' ? 'bg-red-50/50' : log.status === 'skipped' ? 'bg-amber-50/40' : ''}`}>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500 text-[11px]">
+                            {new Date(log.disparado_em).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 text-[10px] uppercase">{log.origem ?? log.canal ?? '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 max-w-[100px] truncate">{gatilhoMap[log.gatilho]?.label ?? log.gatilho}</td>
+                          <td className="px-3 py-2 text-gray-700 max-w-[120px] truncate" title={log.destinatario_nome || log.destinatario_key || ''}>
+                            {log.destinatario_nome || log.destinatario_key || log.destinatario_role || '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-medium text-[10px] ${
+                              log.status === 'success' ? 'bg-green-100 text-green-700'
+                                : log.status === 'skipped' ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-red-100 text-red-700'
+                            }`}>
+                              {log.status === 'success' ? '✓ ok' : log.status === 'skipped' ? '⊘ não enviado' : '✗ erro'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 max-w-[90px] truncate text-[11px]">{log.disparado_por_nome ?? '—'}</td>
+                          <td className="px-3 py-2 text-gray-600 max-w-[160px] truncate text-[11px]" title={log.erro || log.skipped_reason || ''}>
+                            {log.erro || log.skipped_reason || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-gray-700 max-w-[160px] truncate text-[11px]" title={log.titulo_renderizado ?? ''}>
+                            {log.titulo_renderizado ?? '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA ANDROID ── */}
+      {activeTab === 'android' && (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center py-20 px-8 text-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-black flex items-center justify-center">
+            <Monitor className="w-7 h-7 text-white" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-gray-900">Notificação Android</p>
+            <p className="text-sm text-gray-500 mt-1 max-w-xs">
+              Integração com Firebase Cloud Messaging para o app Android nativo via Capacitor. Implementação futura.
+            </p>
+          </div>
+          <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-yellow-400 text-black">Em breve</span>
+        </div>
+      )}
+
+      {/* ── ABA IPHONE ── */}
+      {activeTab === 'iphone' && (
+        <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 flex flex-col items-center justify-center py-20 px-8 text-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-black flex items-center justify-center">
+            <Smartphone className="w-7 h-7 text-white" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-gray-900">Notificação iPhone</p>
+            <p className="text-sm text-gray-500 mt-1 max-w-xs">
+              Integração com APNs (Apple Push Notification service) para o app iOS via Capacitor. Implementação futura.
+            </p>
+          </div>
+          <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-yellow-400 text-black">Em breve</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CatracaWebhookSection() {
   const { toast } = useToast();
@@ -3659,21 +5262,35 @@ function CatracaWebhookSection() {
                     {(presencaLog?.entradas || []).length === 0 ? (
                       <p className="text-center text-gray-400 py-8 text-sm">Nenhuma entrada via catraca nesta data</p>
                     ) : (
-                      (presencaLog?.entradas || []).map((e: any, i: number) => (
-                        <div key={i} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                            <span className="text-sm font-medium">{e.nome}</span>
+                      (presencaLog?.entradas || []).map((e: any, i: number) => {
+                        const isAlerta = e.resultado === 'sessao_automatica_criada';
+                        return (
+                          <div key={i} className={`flex items-start justify-between p-2 rounded-lg ${isAlerta ? 'bg-orange-50 border border-orange-200' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                            <div className="flex items-start gap-2">
+                              {isAlerta
+                                ? <AlertTriangle className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
+                                : <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                              }
+                              <div>
+                                <span className="text-sm font-medium">{e.nome}</span>
+                                {isAlerta && (
+                                  <p className="text-xs text-orange-600 mt-0.5">Sessão criada automaticamente — não havia chamada aberta</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                              {isAlerta && (
+                                <Badge className="bg-orange-100 text-orange-700 border-orange-300 text-[10px]">ALERTA</Badge>
+                              )}
+                              <Badge variant="outline" className={e.vertente === "pec" ? "border-yellow-500 text-yellow-700" : "border-green-500 text-green-700"}>
+                                {e.vertente === "pec" ? "PEC" : "Inclusão"}
+                              </Badge>
+                              <span className="text-xs text-gray-500">{e.turma}</span>
+                              <span className="text-xs font-mono text-gray-600">{e.hora}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className={e.vertente === "pec" ? "border-yellow-500 text-yellow-700" : "border-green-500 text-green-700"}>
-                              {e.vertente === "pec" ? "PEC" : "Inclusão"}
-                            </Badge>
-                            <span className="text-xs text-gray-500">{e.turma}</span>
-                            <span className="text-xs font-mono text-gray-600">{e.hora}</span>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </ScrollArea>
@@ -3772,6 +5389,12 @@ export default function DevMarketing() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [dmActiveSection, setDmActiveSection] = useState('menu');
+  const [scannerUsers, setScannerUsers] = useState<any[]>([]);
+  const [scannerForm, setScannerForm] = useState({ nome: '', username: '', email: '', senha: '' });
+  const [editingScanner, setEditingScanner] = useState<any>(null);
+  const [scannerSaving, setScannerSaving] = useState(false);
+  const [scannerMsg, setScannerMsg] = useState('');
   
   // Estados para modal de motivo de cancelamento
   const [showMotivoModal, setShowMotivoModal] = useState(false);
@@ -3780,6 +5403,9 @@ export default function DevMarketing() {
   const [motivoSelecionado, setMotivoSelecionado] = useState('');
   const [motivoCustom, setMotivoCustom] = useState('');
   const [savingMotivo, setSavingMotivo] = useState(false);
+  const [copiedDonorId, setCopiedDonorId] = useState<number | null>(null);
+  const [copiedDonorPhone, setCopiedDonorPhone] = useState<number | null>(null);
+  const [showDoadoresExternosPopover, setShowDoadoresExternosPopover] = useState(false);
   
   const motivosPredefinidos = [
     'Problemas financeiros',
@@ -3882,6 +5508,7 @@ export default function DevMarketing() {
   // Benefits state
   const [showBenefitForm, setShowBenefitForm] = useState(false);
   const [editingBenefit, setEditingBenefit] = useState<any>(null);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<number>>(new Set());
   const [benefitFormData, setBenefitFormData] = useState({
     titulo: '',
     descricao: '',
@@ -4024,17 +5651,37 @@ export default function DevMarketing() {
   });
 
   // Buscar dados dos Doadores do Stripe (igual ao Leo)
-  const { data: doadoresStripeData } = useQuery<any>({
+  const { data: doadoresStripeData, isLoading: loadingDoadoresStripe, refetch: refetchDoadoresStripe } = useQuery<any>({
     queryKey: ['/api/doadores/stats'],
-    refetchInterval: 900000,
+    refetchInterval: 300000,
     refetchOnWindowFocus: true,
+    refetchOnMount: true,
   });
 
-  // Buscar doadores externos (doam fora do aplicativo)
-  const { data: doadoresExternosData } = useQuery<any>({
+  // Buscar Doadores Externos (fora do app)
+  const { data: doadoresExternosDevData, isLoading: loadingDoadoresExternos } = useQuery<any>({
     queryKey: ['/api/doadores-externos'],
-    refetchInterval: 900000,
-    refetchOnWindowFocus: true,
+    queryFn: () => fetch('/api/doadores-externos').then(r => r.json()),
+  });
+
+
+  // Filtro de cancelamentos (client-side)
+  const [filtroCancel, setFiltroCancel] = useState<'historico' | 'ano' | 'mes'>('historico');
+  const [filtroAnoCancel, setFiltroAnoCancel] = useState<number>(new Date().getFullYear());
+  const [filtroMesCancel, setFiltroMesCancel] = useState<number>(new Date().getMonth());
+  const [marketingAno, setMarketingAno] = useState<number>(new Date().getFullYear());
+  const [marketingCategoria, setMarketingCategoria] = useState<string>('todos');
+  const [marketingTrimestre, setMarketingTrimestre] = useState<string>('todos');
+  const [editingMetricId, setEditingMetricId] = useState<number | null>(null);
+  const [editingMetricData, setEditingMetricData] = useState<any>(null);
+  const [novaMetrica, setNovaMetrica] = useState({
+    nome: '',
+    categoria: 'geral',
+    unidade: 'numero',
+    trimestre: 'todos',
+    realizado: '',
+    meta: '',
+    ordem: '0',
   });
 
   // Variáveis calculadas dos doadores do Stripe (igual ao Leo)
@@ -4048,6 +5695,25 @@ export default function DevMarketing() {
   const evolucaoMensalStripe = statsDoadores.evolucaoMensal || [];
   const distribuicaoPorValorStripe = statsDoadores.distribuicaoPorValor || [];
   const listaDoadoresStripe = statsDoadores.doadores || [];
+
+  // Cancelados filtrados client-side
+  const todosCancelados = listaDoadoresStripe.filter((d: any) => d.status === 'canceled');
+  const canceladosFiltrados = (() => {
+    if (filtroCancel === 'historico') return todosCancelados;
+    return todosCancelados.filter((d: any) => {
+      if (!d.canceledAtTs) return false;
+      const dt = new Date(d.canceledAtTs * 1000);
+      if (filtroCancel === 'ano') return dt.getFullYear() === filtroAnoCancel;
+      if (filtroCancel === 'mes') return dt.getFullYear() === filtroAnoCancel && dt.getMonth() === filtroMesCancel;
+      return true;
+    });
+  })();
+
+  const NOMES_MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const anosDisponiveis = Array.from(
+    new Set(todosCancelados.map((d: any) => d.canceledAtTs ? new Date(d.canceledAtTs * 1000).getFullYear() : null).filter(Boolean))
+  ).sort((a: any, b: any) => b - a) as number[];
+
   const CORES_PLANO = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'];
   const CORES_MOTIVO = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280'];
   
@@ -4199,6 +5865,91 @@ export default function DevMarketing() {
     }
   });
 
+  const { data: marketingMetricasData, isLoading: loadingMarketingMetricas, refetch: refetchMarketingMetricas } = useQuery<{
+    ano: number;
+    categoria: string;
+    metricas: Array<{
+      id: number;
+      nome: string;
+      categoria: string;
+      unidade: string;
+      realizado: number;
+      meta: number;
+      progresso: number;
+    }>;
+  }>({
+    queryKey: ['/api/marketing-metricas', marketingAno, marketingCategoria, marketingTrimestre],
+    queryFn: () => apiRequest(`/api/marketing-metricas?ano=${marketingAno}&categoria=${marketingCategoria}&trimestre=${marketingTrimestre}`),
+  });
+
+  const { data: metasFixasData } = useQuery<{ ano: number; metas: Array<{ id: number; chave: string; nome: string; meta: number; unidade: string; inversa: boolean }> }>({
+    queryKey: ['/api/marketing-metas-fixas', marketingAno],
+    queryFn: () => apiRequest(`/api/marketing-metas-fixas?ano=${marketingAno}`),
+  });
+  const metasFixasDb: Record<string, { nome: string; meta: number; unidade: string; inversa: boolean }> = {};
+  (metasFixasData?.metas || []).forEach((m) => { metasFixasDb[m.chave] = { nome: m.nome, meta: m.meta, unidade: m.unidade, inversa: m.inversa }; });
+
+  const { data: metricasTodasData } = useQuery<any>({
+    queryKey: ['/api/marketing-metricas', marketingAno, 'todos', 'todos'],
+    queryFn: () => apiRequest(`/api/marketing-metricas?ano=${marketingAno}&categoria=todos&trimestre=todos`),
+  });
+  const metricasTodas: any[] = metricasTodasData?.metricas || [];
+  const evadidosMetricGlobal = metricasTodas.find((m: any) => m.nome.toLowerCase().includes('evadido'));
+
+  const { data: segMensalGeral } = useQuery<any>({
+    queryKey: ['/api/marketing-seguidores-mensal', marketingAno],
+    queryFn: () => fetch(`/api/marketing-seguidores-mensal?ano=${marketingAno}`).then(r => r.json()),
+  });
+  const segRowsGeral: any[] = segMensalGeral?.data || [];
+
+  // Meses de cada trimestre
+  const trimMesesMap: Record<string, number[]> = { T1: [1,2,3], T2: [4,5,6], T3: [7,8,9], T4: [10,11,12] };
+  const trimMesesAtivos = marketingTrimestre !== 'todos' ? trimMesesMap[marketingTrimestre] ?? [] : [];
+
+  // Linhas do trimestre (ou todas)
+  const segRowsParaPeriodo = trimMesesAtivos.length > 0
+    ? segRowsGeral.filter((r: any) => trimMesesAtivos.includes(Number(r.mes)))
+    : segRowsGeral;
+
+  const visaoGeralSegGanhos   = segRowsParaPeriodo.reduce((acc: number, r: any) => acc + (r.seguidores_ganhos  || 0), 0);
+  const visaoGeralSegPerdidos = segRowsParaPeriodo.reduce((acc: number, r: any) => acc + (r.seguidores_perdidos || 0), 0);
+
+  // Total seguidores: último mês do período
+  const totalSeguidoresGeral = trimMesesAtivos.length > 0
+    ? (() => {
+        const ultimoMesTrim = trimMesesAtivos[trimMesesAtivos.length - 1];
+        const row = segRowsGeral.find((r: any) => Number(r.mes) === ultimoMesTrim)
+          ?? segRowsGeral.filter((r: any) => trimMesesAtivos.includes(Number(r.mes))).slice(-1)[0];
+        return row?.total_seguidores ?? IG_SEGUIDORES_BASE;
+      })()
+    : segRowsGeral.length > 0
+      ? (segRowsGeral[segRowsGeral.length - 1].total_seguidores ?? IG_SEGUIDORES_BASE)
+      : IG_SEGUIDORES_BASE;
+
+  // Meta proporcional — mesma lógica do TabMarketing (÷11 meses, T1=2, T2/3/4=3)
+  const mesesTrimAtivos = marketingTrimestre !== 'todos'
+    ? (marketingTrimestre === 'T1' ? 2 : 3)
+    : Math.max(0, new Date().getMonth()); // 0-indexed: abril=3 meses completos
+  const segMetaFn = (anual: number) => mesesTrimAtivos > 0
+    ? Math.max(1, Math.round(anual * mesesTrimAtivos / 11))
+    : anual;
+
+  const [editingFixedChave, setEditingFixedChave] = useState<string | null>(null);
+  const [editingFixedData, setEditingFixedData] = useState<{ nome: string; meta: string; unidade: string; inversa: boolean } | null>(null);
+
+  const saveMetaFixaMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest('/api/marketing-metas-fixas', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ['/api/marketing-metas-fixas'] });
+      setEditingFixedChave(null);
+      setEditingFixedData(null);
+      toast({ title: 'Meta salva com sucesso' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao salvar', description: error?.message, variant: 'destructive' });
+    },
+  });
+
   // Refresh all data
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -4213,7 +5964,8 @@ export default function DevMarketing() {
         queryClient.invalidateQueries({ queryKey: ['/api/donor-stats'] }),
         queryClient.invalidateQueries({ queryKey: ['/api/donors'] }),
         queryClient.invalidateQueries({ queryKey: ['/api/stripe/metrics'] }),
-        queryClient.invalidateQueries({ queryKey: ['/api/gestao-vista-data'] })
+        queryClient.invalidateQueries({ queryKey: ['/api/gestao-vista-data'] }),
+        queryClient.invalidateQueries({ queryKey: ['/api/marketing-metricas'] }),
       ]);
       toast({
         title: 'Dados atualizados',
@@ -4796,9 +6548,87 @@ const syncStripeMutation = useMutation({
     item.plano?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const formatCurrency = (value: number) =>
+    Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const formatPercent = (value: number) => `${Number(value || 0).toFixed(1)}%`;
+  const formatMetricValue = (value: number, unidade: string) => {
+    if (unidade === 'percentual') return `${Number(value || 0).toFixed(1)}%`;
+    if (unidade === 'moeda') return formatCurrency(value);
+    return Number(value || 0).toLocaleString('pt-BR');
+  };
+
+  const marketingMetricasCustom = marketingMetricasData?.metricas || [];
+  const metricasTopDashboard = marketingMetricasCustom;
+
+  const saveMetricaMutation = useMutation({
+    mutationFn: (payload: any) =>
+      apiRequest('/api/marketing-metricas', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ['/api/marketing-metricas'] });
+      toast({ title: 'Métrica salva com sucesso' });
+      setNovaMetrica({ nome: '', categoria: 'geral', unidade: 'numero', trimestre: 'todos', realizado: '', meta: '', ordem: '0' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao salvar métrica', description: error?.message || 'Tente novamente', variant: 'destructive' });
+    },
+  });
+
+  const deleteMetricaMutation = useMutation({
+    mutationFn: (id: number) => apiRequest(`/api/marketing-metricas/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ['/api/marketing-metricas'] });
+      toast({ title: 'Métrica removida' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao remover métrica', description: error?.message || 'Tente novamente', variant: 'destructive' });
+    },
+  });
+
+  const copiarTrimestreMutation = useMutation({
+    mutationFn: (payload: { ano: number; trimestreOrigem: string; trimestreDestino: string }) =>
+      apiRequest('/api/marketing-metricas/copiar-trimestre', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketing-metricas'] });
+      toast({ title: `✅ ${data.copiadas} métricas copiadas para ${data.trimestreDestino}` });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Erro ao copiar métricas', description: error?.message || 'Tente novamente', variant: 'destructive' });
+    },
+  });
+
+  const handleCriarMetrica = () => {
+    if (!novaMetrica.nome.trim()) {
+      toast({ title: 'Informe o nome da métrica', variant: 'destructive' });
+      return;
+    }
+    saveMetricaMutation.mutate({
+      ano: marketingAno,
+      nome: novaMetrica.nome.trim(),
+      categoria: novaMetrica.categoria,
+      unidade: novaMetrica.unidade,
+      trimestre: novaMetrica.trimestre,
+      realizado: Number(novaMetrica.realizado || 0),
+      meta: Number(novaMetrica.meta || 0),
+      ordem: Number(novaMetrica.ordem || 0),
+    });
+  };
+
+  const marketingMetrics = {
+    totalDoadores: totalDoadoresStripe,
+    arrecadacaoMensal: arrecadacaoMensalStripe,
+    taxaRetencao: Number(taxaRetencaoStripe || 0),
+    ticketMedio: doacaoMediaStripe,
+    beneficiosAtivos: beneficios.filter((b: any) => b.ativo !== false).length,
+    historiasAtivas: historias.filter((h: any) => h.ativo !== false).length,
+    missoesAtivas: missoes.filter((m: any) => m.ativo !== false).length,
+    linksMarketing: managementData?.links_stats?.total_links || 0,
+    webhooksAtivos: automationStats?.active_webhooks || 0,
+    automacoesAtivas: automations.filter((a: any) => a.active !== false).length,
+  };
+
   // Função para fazer logout
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     setLocation('/dev/login');
   };
@@ -4828,12 +6658,10 @@ const syncStripeMutation = useMutation({
     }
 
     const headers: Record<string, string> = {};
-    const userId = localStorage.getItem("userId");
-    if (userId) headers["x-user-id"] = userId;
     const devToken = sessionStorage.getItem("dev_token") || localStorage.getItem("dev_token");
     if (devToken) headers["x-dev-token"] = devToken;
 
-    const resp = await fetch(url, {
+    const resp = await authFetch(url, {
       method: "POST",
       body: fd,
       headers,
@@ -4907,354 +6735,380 @@ const syncStripeMutation = useMutation({
 
   return (
     <motion.div
-      className="min-h-screen bg-gray-50"
+      className="min-h-screen bg-slate-900"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              onClick={() => setLocation('/')}
-              className="flex items-center gap-2"
-              data-testid="button-back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Voltar
-            </Button>
-            <Logo size="xs" />
+      <div className="bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6 sticky top-0 z-40">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center">
+              <BarChart3 className="w-6 h-6 text-white" />
+            </div>
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">Painel Estratégico</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-white" data-testid="text-title">
+                Painel Estratégico
+              </h1>
+              <p className="text-slate-400">Instituto O Grito</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                placeholder="Pesquisar..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 w-64"
-                data-testid="input-search"
-              />
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => window.open('/pagamento/ingresso', '_blank')}
-              className="flex items-center gap-2"
-              data-testid="button-ingresso"
-            >
-              <Ticket className="w-4 h-4" />
-              Página Ingresso
-            </Button>
+          <div className="flex items-center gap-3 flex-wrap">
             {isDevAdmin && (
-              <Button
-                variant="default"
-                onClick={() => setLocation('/dev')}
-                className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-semibold"
-                data-testid="button-dev-toggle"
-              >
-                <Monitor className="w-4 h-4" />
+              <Button variant="outline" size="sm" onClick={() => setLocation('/dev')}
+                className="border-purple-500 text-purple-400 hover:bg-purple-500 hover:text-white"
+                data-testid="button-dev-toggle">
+                <Monitor className="w-4 h-4 mr-2" />
                 Painel Dev
               </Button>
             )}
             <Button
-              variant="outline"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex items-center gap-2"
-              data-testid="button-refresh"
+              onClick={handleSyncStripeDonors}
+              disabled={syncStripeLoading}
+              size="sm"
+              className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold"
+              data-testid="btn-sync-stripe-donors"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              {syncStripeLoading ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sync...</>
+              ) : (
+                <><RefreshCw className="w-4 h-4 mr-2" />Sync Stripe</>
+              )}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}
+              className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
+              data-testid="button-refresh">
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Atualizando...' : 'Atualizar'}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
-              className="flex items-center gap-2 bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
-              data-testid="button-transparencia"
-            >
-              <ExternalLink className="w-4 h-4" />
+            
+            <Button variant="outline" size="sm"
+              onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')}
+              className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+              data-testid="button-transparencia">
+              <ExternalLink className="w-4 h-4 mr-2" />
               Canal de Transparência
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleLogout}
-              className="flex items-center gap-2"
-              data-testid="button-logout"
-            >
-              <LogOut className="w-4 h-4" />
+            <LgpdLegalHeaderButtons tone="dark" />
+            <Button variant="outline" size="sm" onClick={handleLogout}
+              className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
+              data-testid="button-logout">
+              <LogOut className="w-4 h-4 mr-2" />
               Sair
             </Button>
           </div>
         </div>
-      </header>
+      </div>
 
                 {/* Main Content */}
-                <main className="p-6 mt-8">
-                  <div className="max-w-7xl mx-auto">
-                    <Tabs defaultValue="benefits" className="w-full">
+      <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
 
-                        {/* ✅ Header de Ações (fixo para qualquer aba) */}
-                <div className="flex items-center justify-between gap-4 mb-4">
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Painel Estratégico</h1>
-                    <p className="text-gray-600">Ações rápidas de manutenção e sincronização</p>
-                  </div>
+        <div className="mb-8 rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900 p-4 md:p-6 shadow-xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-8 bg-amber-500 rounded-full" />
+              <h2 className="text-2xl font-bold text-white">Visão Geral</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                {marketingMetricasCustom.length} indicadores
+              </Badge>
+              <Select value={String(marketingAno)} onValueChange={(v) => setMarketingAno(Number(v))}>
+                <SelectTrigger className="w-[96px] bg-slate-800 border-slate-700 text-slate-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[2024, 2025, 2026, 2027].map((anoOpt) => (
+                    <SelectItem key={anoOpt} value={String(anoOpt)}>{anoOpt}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={marketingTrimestre} onValueChange={setMarketingTrimestre}>
+                <SelectTrigger className="w-[110px] bg-slate-800 border-slate-700 text-slate-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="T1">T1</SelectItem>
+                  <SelectItem value="T2">T2</SelectItem>
+                  <SelectItem value="T3">T3</SelectItem>
+                  <SelectItem value="T4">T4</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={marketingCategoria} onValueChange={setMarketingCategoria}>
+                <SelectTrigger className="w-[120px] bg-slate-800 border-slate-700 text-slate-100">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="geral">Geral</SelectItem>
+                  <SelectItem value="captacao">Captação</SelectItem>
+                  <SelectItem value="conteudo">Conteúdo</SelectItem>
+                  <SelectItem value="automacao">Automação</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={handleSyncStripeDonors}
-                      disabled={syncStripeLoading}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold"
-                      data-testid="btn-sync-stripe-donors"
-                    >
-                      {syncStripeLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Sincronizando...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          Sync Stripe
-                        </>
-                      )}
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      onClick={() => queryClient.invalidateQueries()}
-                      data-testid="btn-refresh-panel"
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Atualizar
-                    </Button>
-                  </div>
+          {(() => {
+            const evadidosMetric = evadidosMetricGlobal || marketingMetricasCustom.find((m) => m.nome.toLowerCase().includes('evadido'));
+            const todasSemEvadidos = metricasTodas.filter((m: any) => !m.nome.toLowerCase().includes('evadido'));
+            const metricasFiltradas: Record<number, any> = {};
+            marketingMetricasCustom.forEach((m) => { metricasFiltradas[m.id] = m; });
+            const metricasSemEvadidos = todasSemEvadidos.length > 0 ? todasSemEvadidos : marketingMetricasCustom.filter((m) => !m.nome.toLowerCase().includes('evadido'));
+            const fixedDefaults = [
+              { chave: 'doadores', nomeDefault: 'Doadores', realizado: marketingMetrics.totalDoadores, metaDefault: 1000, unidadeDefault: 'numero' },
+              ...(evadidosMetric ? [{ chave: '__evadidos__', nomeDefault: evadidosMetric.nome, realizado: evadidosMetric.realizado, metaDefault: evadidosMetric.meta, unidadeDefault: evadidosMetric.unidade, inversaDefault: evadidosMetric.inversa, isCustom: true, customId: evadidosMetric.id }] : []),
+              { chave: 'beneficios_ativos', nomeDefault: 'Benefícios Ativos', realizado: marketingMetrics.beneficiosAtivos, metaDefault: 20, unidadeDefault: 'numero' },
+              { chave: 'historias_ativas', nomeDefault: 'Histórias Ativas', realizado: marketingMetrics.historiasAtivas, metaDefault: 20, unidadeDefault: 'numero' },
+              { chave: 'missoes_ativas', nomeDefault: 'Missões Ativas', realizado: marketingMetrics.missoesAtivas, metaDefault: 50, unidadeDefault: 'numero' },
+            ];
+            return (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {fixedDefaults.map((def: any) => {
+                    const dbVal = !def.isCustom ? metasFixasDb[def.chave] : null;
+                    const nome = dbVal?.nome ?? def.nomeDefault;
+                    const meta = dbVal?.meta ?? def.metaDefault;
+                    const unidade = dbVal?.unidade ?? def.unidadeDefault;
+                    const inversa = dbVal?.inversa ?? def.inversaDefault ?? false;
+                    const progresso = meta > 0 ? Math.min(100, Math.round((def.realizado / meta) * 100)) : 0;
+                    const barColor = inversa
+                      ? (progresso >= 100 ? 'bg-red-500' : progresso >= 80 ? 'bg-amber-400' : 'bg-emerald-500')
+                      : (progresso >= 100 ? 'bg-emerald-500' : progresso >= 80 ? 'bg-amber-400' : 'bg-red-500');
+                    const semMeta = ['beneficios_ativos', 'historias_ativas', 'missoes_ativas'].includes(def.chave);
+                    return (
+                      <Card key={def.chave} className="bg-slate-900/80 border-slate-700">
+                        <CardContent className="p-4">
+                          <p className="text-[11px] text-white uppercase tracking-wide leading-tight">{nome}</p>
+                          <p className="text-3xl font-bold text-white mt-0.5">{formatMetricValue(def.realizado, unidade)}</p>
+                          {!semMeta && (
+                            <>
+                              <p className="text-[10px] text-white mt-1">Meta: {formatMetricValue(meta, unidade)}</p>
+                              <div className="h-1 rounded-full bg-slate-700 mt-2 overflow-hidden">
+                                <div className={`h-full transition-all ${barColor}`} style={{ width: `${progresso}%` }} />
+                              </div>
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  {[
+                    { label: 'Total de Seguidores', valor: totalSeguidoresGeral,  meta: IG_META_SEGUIDORES,          metaAnual: null, inversa: false },
+                    { label: 'Seguidores Ganhos',   valor: visaoGeralSegGanhos,   meta: segMetaFn(IG_META_GANHOS),   metaAnual: null, inversa: false },
+                    { label: 'Seguidores Perdidos', valor: visaoGeralSegPerdidos,  meta: segMetaFn(IG_META_PERDIDOS), metaAnual: null, inversa: true },
+                  ].map((seg) => {
+                    const pct = seg.meta > 0 ? Math.min(Math.round((seg.valor / seg.meta) * 100), 999) : 0;
+                    const pctColor = seg.inversa
+                      ? (pct >= 100 ? 'text-red-400' : pct >= 80 ? 'text-amber-400' : 'text-emerald-400')
+                      : (pct >= 100 ? 'text-emerald-400' : pct >= 80 ? 'text-amber-400' : 'text-red-400');
+                    return (
+                      <Card key={seg.label} className="bg-slate-900/80 border-slate-700">
+                        <CardContent className="p-4 flex flex-col justify-between h-full min-h-[110px]">
+                          <p className="text-[11px] text-white uppercase tracking-wide leading-tight mb-2">{seg.label}</p>
+                          <div>
+                            <p className="text-3xl font-bold text-white">{seg.valor.toLocaleString('pt-BR')}</p>
+                            <p className="text-[11px] text-slate-400">/ {seg.meta.toLocaleString('pt-BR')}</p>
+                          </div>
+                          <div className="flex items-end justify-between mt-3">
+                            {seg.metaAnual ? (
+                              <p className="text-[10px] text-slate-400">Meta anual: {seg.metaAnual.toLocaleString('pt-BR')}</p>
+                            ) : <span />}
+                            <p className={`text-sm font-bold ${pctColor}`}>{pct}%</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  {metricasSemEvadidos.filter((m: any) => {
+                    const n = m.nome.toLowerCase().replace(/\s+/g, ' ').trim();
+                    return !n.includes('seguidores ganhos') && !n.includes('seguidor ganho') && !n.includes('seguidores perdidos') && !n.includes('seguidor perdido') && !n.includes('engajamento instagram');
+                  }).map((m) => {
+                    const trimestreMatch = marketingMetricasCustom.find((t) => t.nome === m.nome);
+                    const realizadoBase = trimestreMatch ? trimestreMatch.realizado : m.realizado;
+                    const metaBase = trimestreMatch ? trimestreMatch.meta : m.meta;
+                    const realizado = realizadoBase;
+                    const meta = metaBase;
+                    const semMeta2 = false;
+                    const progresso = meta > 0 ? Math.min(100, Math.round((realizado / meta) * 100)) : 0;
+                    return (
+                      <Card key={m.id} className="bg-slate-900/70 border-slate-700">
+                        <CardContent className="p-4">
+                          <p className="text-[11px] text-white uppercase tracking-wide">{m.nome}</p>
+                          <p className="text-3xl font-bold text-white">{formatMetricValue(realizado, m.unidade)}</p>
+                          {!semMeta2 && (
+                            <>
+                              <p className="text-[10px] text-white mt-1">Meta: {formatMetricValue(meta, m.unidade)}</p>
+                              <div className="h-1 rounded-full bg-slate-700 mt-2 overflow-hidden">
+                                <div
+                                  className={`h-full transition-all ${m.inversa ? (progresso >= 100 ? 'bg-red-500' : progresso >= 80 ? 'bg-amber-400' : 'bg-emerald-500') : (progresso >= 100 ? 'bg-emerald-500' : progresso >= 80 ? 'bg-amber-400' : 'bg-red-500')}`}
+                                  style={{ width: `${progresso}%` }}
+                                />
+                              </div>
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
-              
-               {/* Indicador de scroll */}
-              <div className="flex items-center justify-center gap-2 mb-6 text-sm text-muted-foreground">
-                <span>Use a roda do mouse para navegar (14 opções no total)</span>
+              </>
+            );
+          })()}
+        </div>
+
+        {/* ── Navegação: Cards coordinator-style (sempre visíveis) ── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+
+          {/* Marketing & Conteúdo */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Gift className="w-5 h-5 text-blue-500" />
+                Marketing & Conteúdo
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Gerencie benefícios, histórias inspiradoras, missões e recompensas para doadores.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'benefits' ? 'default' : 'outline'} onClick={() => setDmActiveSection('benefits')}>
+                  <Gift className="w-4 h-4 mr-2" />Benefícios
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'stories' ? 'default' : 'outline'} onClick={() => setDmActiveSection('stories')}>
+                  <Heart className="w-4 h-4 mr-2" />Histórias
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'missions' ? 'default' : 'outline'} onClick={() => setDmActiveSection('missions')}>
+                  <Target className="w-4 h-4 mr-2" />Missões
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'ganhadores' ? 'default' : 'outline'} onClick={() => setDmActiveSection('ganhadores')}>
+                  <Trophy className="w-4 h-4 mr-2" />Ganhadores
+                </Button>
+                <Button className="w-full col-span-2" size="sm" variant={dmActiveSection === 'auctions' ? 'default' : 'outline'} onClick={() => setDmActiveSection('auctions')}>
+                  <Gavel className="w-4 h-4 mr-2" />Leilões
+                </Button>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Navegação com scroll */}
-              <div className="relative py-8 overflow-visible">
-                  <div
-                    ref={tabsScrollRef}
-                    className="w-full h-auto flex justify-start gap-4 overflow-x-auto overflow-y-visible py-4 mb-6 bg-transparent border-none scrollbar-thin scroll-smooth px-2"
-                  >
-                    <TabsList className="flex gap-4 bg-transparent border-none h-auto" style={{ overflow: "visible" }}>
-                      <TabsTrigger
-                        value="benefits"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400"
-                        data-testid="tab-benefits"
-                      >
-                        <Gift className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">Benefícios</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="stories"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-pink-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:border-pink-400"
-                        data-testid="tab-stories"
-                      >
-                        <Heart className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
-                        <span className="text-center leading-tight font-bold text-xs">Histórias</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="auctions"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-orange-500/10 to-orange-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-orange-500 data-[state=active]:to-orange-600 data-[state=active]:text-white data-[state=active]:border-orange-400"
-                        data-testid="tab-auctions"
-                      >
-                        <Target className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">Leilões</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="missions"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-green-500/10 to-green-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-green-500 data-[state=active]:to-green-600 data-[state=active]:text-white data-[state=active]:border-green-400"
-                        data-testid="tab-missions"
-                      >
-                        <Calendar className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Missões</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="automation"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400"
-                        data-testid="tab-automation"
-                      >
-                        <Settings className="w-6 h-6 transition-transform group-hover:rotate-90 group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">Automação</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="donors"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400"
-                        data-testid="tab-donors"
-                      >
-                        <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Doadores</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="donor-origin"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-sky-500/10 to-sky-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-sky-500 data-[state=active]:to-sky-600 data-[state=active]:text-white data-[state=active]:border-sky-400"
-                        data-testid="tab-donor-origin"
-                      >
-                        <Monitor className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Origem Doadores</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="stripe"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-yellow-500 data-[state=active]:to-yellow-600 data-[state=active]:text-white data-[state=active]:border-yellow-400"
-                        data-testid="tab-stripe"
-                      >
-                        <DollarSign className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
-                        <span className="text-center leading-tight font-bold text-xs">Stripe</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="management"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-teal-500/10 to-teal-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-teal-500 data-[state=active]:to-teal-600 data-[state=active]:text-white data-[state=active]:border-teal-400"
-                        data-testid="tab-management"
-                      >
-                        <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Visão Gerencial</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="gestao-vista"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400"
-                        data-testid="tab-gestao-vista"
-                      >
-                        <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
-                        <span className="text-center leading-tight font-bold text-xs">Gestão à Vista</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="pagamentos-ingressos"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-emerald-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white data-[state=active]:border-emerald-400"
-                        data-testid="tab-pagamentos-ingressos"
-                      >
-                        <Ticket className="w-6 h-6 transition-transform group-hover:rotate-12 group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">Pag. Stripe</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="pagamentos-cielo"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-blue-500/10 to-blue-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-blue-500 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:border-blue-400"
-                        data-testid="tab-pagamentos-cielo"
-                      >
-                        <CreditCard className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Pag. Cielo</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="compradores-avulsos"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-rose-500/10 to-rose-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-rose-500 data-[state=active]:to-rose-600 data-[state=active]:text-white data-[state=active]:border-rose-400"
-                        data-testid="tab-compradores-avulsos"
-                      >
-                        <Phone className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Compradores Avulsos</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="estatisticas-ingressos"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-cyan-500/10 to-cyan-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-cyan-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:border-cyan-400"
-                        data-testid="tab-estatisticas-ingressos"
-                      >
-                        <BarChart3 className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-180" />
-                        <span className="text-center leading-tight font-bold text-xs">Estatísticas Ingressos</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="marketing-links"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-indigo-500/10 to-indigo-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-indigo-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white data-[state=active]:border-indigo-400"
-                        data-testid="tab-marketing-links"
-                      >
-                        <ExternalLink className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:-rotate-45" />
-                        <span className="text-center leading-tight font-bold text-xs">Marketing Links</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="converter-doacoes"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-purple-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-purple-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-purple-400"
-                        data-testid="tab-converter-doacoes"
-                      >
-                        <RefreshCw className="w-6 h-6 transition-transform group-hover:rotate-180 group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">🔄 Converter Doações</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="notifications"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400"
-                        data-testid="tab-notifications"
-                      >
-                        <MessageCircle className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-bounce" />
-                        <span className="text-center leading-tight font-bold text-xs">Notificações</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="gestao-equipe"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-violet-500/10 to-violet-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-violet-500 data-[state=active]:to-violet-600 data-[state=active]:text-white data-[state=active]:border-violet-400"
-                        data-testid="tab-gestao-equipe"
-                      >
-                        <Users className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Gestão Equipe</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="ganhadores"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-amber-500/10 to-amber-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-amber-500 data-[state=active]:to-amber-600 data-[state=active]:text-white data-[state=active]:border-amber-400"
-                        data-testid="tab-ganhadores"
-                      >
-                        <Trophy className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Ganhadores</span>
-                      </TabsTrigger>
-
-                      <TabsTrigger
-                        value="catraca-webhook"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-red-500/10 to-red-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-red-500 data-[state=active]:to-red-600 data-[state=active]:text-white data-[state=active]:border-red-400"
-                        data-testid="tab-catraca-webhook"
-                      >
-                        <Activity className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:animate-pulse" />
-                        <span className="text-center leading-tight font-bold text-xs">Catraca Intelbras</span>
-                      </TabsTrigger>
-
-
-                      <TabsTrigger
-                        value="instagram-analytics"
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl border-2 border-transparent bg-gradient-to-br from-pink-500/10 to-purple-600/10 backdrop-blur-sm transition-all duration-300 hover:scale-105 data-[state=active]:from-pink-500 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:border-pink-400"
-                        data-testid="tab-instagram-analytics"
-                      >
-                        <TrendingUp className="w-6 h-6 transition-transform group-hover:scale-110 group-hover:rotate-12" />
-                        <span className="text-center leading-tight font-bold text-xs">Instagram</span>
-                      </TabsTrigger>
-
-                      <button
-                        type="button"
-                        onClick={() => setImportOpen(true)}
-                        className="group relative flex flex-col items-center gap-2 p-4 text-sm font-semibold
-                                  h-auto min-h-[90px] min-w-[160px] flex-shrink-0 rounded-xl
-                                  border-2 border-transparent
-                                  bg-gradient-to-br from-slate-500/10 to-slate-600/10
-                                  backdrop-blur-sm transition-all duration-300
-                                  hover:scale-105 hover:border-slate-300"
-                      >
-                        <UploadCloud className="w-6 h-6 transition-transform group-hover:scale-110" />
-                        <span className="text-center leading-tight font-bold text-xs">Importar dados</span>
-                      </button>
-                    </TabsList>
-                  </div>
+          {/* Doadores & Financeiro */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Users className="w-5 h-5 text-green-600" />
+                Doadores & Financeiro
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Gerencie doadores Stripe, origens, Gestão à Vista e conversão de doações.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'donors' ? 'default' : 'outline'} onClick={() => setDmActiveSection('donors')}>
+                  <Users className="w-4 h-4 mr-2" />Doadores Stripe
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'donor-origin' ? 'default' : 'outline'} onClick={() => setDmActiveSection('donor-origin')}>
+                  <Globe className="w-4 h-4 mr-2" />Origem
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'gestao-vista' ? 'default' : 'outline'} onClick={() => setDmActiveSection('gestao-vista')}>
+                  <BarChart3 className="w-4 h-4 mr-2" />Gestão à Vista
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'converter-doacoes' ? 'default' : 'outline'} onClick={() => setDmActiveSection('converter-doacoes')}>
+                  <RefreshCw className="w-4 h-4 mr-2" />Converter
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'stripe' ? 'default' : 'outline'} onClick={() => setDmActiveSection('stripe')}>
+                  <CreditCard className="w-4 h-4 mr-2" />Gestão Stripe
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'dados-metricas' ? 'default' : 'outline'} onClick={() => setDmActiveSection('dados-metricas')}>
+                  <TrendingUp className="w-4 h-4 mr-2" />Dados e métricas
+                </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Automação & Comunicação */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Zap className="w-5 h-5 text-orange-500" />
+                Automação & Comunicação
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Webhooks, links de marketing, notificações push e Instagram Analytics.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'automation' ? 'default' : 'outline'} onClick={() => setDmActiveSection('automation')}>
+                  <Activity className="w-4 h-4 mr-2" />Automação
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'marketing-links' ? 'default' : 'outline'} onClick={() => setDmActiveSection('marketing-links')}>
+                  <Share2 className="w-4 h-4 mr-2" />Mkt Links
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'notifications' ? 'default' : 'outline'} onClick={() => setDmActiveSection('notifications')}>
+                  <MessageCircle className="w-4 h-4 mr-2" />Notificações
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'instagram-analytics' ? 'default' : 'outline'} onClick={() => setDmActiveSection('instagram-analytics')}>
+                  <TrendingUp className="w-4 h-4 mr-2" />Instagram
+                </Button>
+                <Button className="w-full col-span-2" size="sm" variant={dmActiveSection === 'push-notifications' ? 'default' : 'outline'} onClick={() => setDmActiveSection('push-notifications')}>
+                  <Zap className="w-4 h-4 mr-2" />Notificações Push
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Eventos & Scanner */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Calendar className="w-5 h-5 text-rose-600" />
+                Eventos & Scanner
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Portal de eventos do Instituto O Grito e gestão de usuários do scanner de ingressos.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'eventos-grito' ? 'default' : 'outline'} onClick={() => setDmActiveSection('eventos-grito')}>
+                  <Calendar className="w-4 h-4 mr-2" />Eventos Grito
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'scanner-management' ? 'default' : 'outline'} onClick={() => setDmActiveSection('scanner-management')}>
+                  <QrCode className="w-4 h-4 mr-2" />Scanner
+                </Button>
+                <Button className="w-full col-span-2" size="sm" variant={dmActiveSection === 'estatisticas-eventos' ? 'default' : 'outline'} onClick={() => setDmActiveSection('estatisticas-eventos')}>
+                  <BarChart3 className="w-4 h-4 mr-2" />Estatísticas de Eventos
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sistema & Admin */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Settings className="w-5 h-5 text-slate-600" />
+                Sistema & Admin
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Gestão de equipe, catraca Intelbras e importação de dados gerais.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'gestao-equipe' ? 'default' : 'outline'} onClick={() => setDmActiveSection('gestao-equipe')}>
+                  <Users className="w-4 h-4 mr-2" />Gestão Equipe
+                </Button>
+                <Button className="w-full" size="sm" variant={dmActiveSection === 'catraca-webhook' ? 'default' : 'outline'} onClick={() => setDmActiveSection('catraca-webhook')}>
+                  <Activity className="w-4 h-4 mr-2" />Catraca
+                </Button>
+                <Button className="w-full col-span-2" size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                  <UploadCloud className="w-4 h-4 mr-2" />Importar Dados
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+        </div>
+
+
+
+        {/* Seções de conteúdo — renderizadas abaixo dos cards de navegação */}
+        <Tabs value={dmActiveSection || '__none__'} onValueChange={setDmActiveSection} className="w-full">
 
               {/* Modal de Importação de Dados */}
               <Dialog open={importOpen} onOpenChange={(open) => { setImportOpen(open); if (!open) resetImportUI(); }}>
@@ -5612,7 +7466,7 @@ const syncStripeMutation = useMutation({
 
 
             {/* Benefits Tab */}
-            <TabsContent value="benefits" className="space-y-6 mt-6">
+            <TabsContent value="benefits" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Gerenciamento de Benefícios</h2>
@@ -5691,26 +7545,48 @@ const syncStripeMutation = useMutation({
                     <p>Nenhum benefício encontrado</p>
                   </div>
                 ) : (
-                  filteredBeneficios.map((beneficio: any) => (
-                    <Card key={beneficio.id} className="p-6">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-semibold">{beneficio.titulo}</h3>
-                            <Badge variant={beneficio.ativo ? "default" : "secondary"}>
+                  filteredBeneficios.map((beneficio: any) => {
+                    const isExpanded = expandedDescriptions.has(beneficio.id);
+                    const desc = beneficio.descricao || '';
+                    const isLong = desc.length > 120;
+                    return (
+                    <Card key={beneficio.id} className="p-4">
+                      <div className="flex justify-between items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center flex-wrap gap-2 mb-1">
+                            <h3 className="text-base font-semibold">{beneficio.titulo}</h3>
+                            <Badge variant={beneficio.ativo ? "default" : "secondary"} className="text-xs">
                               {beneficio.ativo ? 'Ativo' : 'Inativo'}
                             </Badge>
-                            <Badge variant="outline">{beneficio.categoria}</Badge>
+                            <Badge variant="outline" className="text-xs">{beneficio.categoria}</Badge>
                           </div>
-                          <p className="text-gray-600 mb-3">{beneficio.descricao}</p>
-                          <div className="flex gap-4 text-sm text-gray-500">
+                          {desc && (
+                            <div className="mb-2">
+                              <p className={`text-sm text-gray-600 ${!isExpanded && isLong ? 'line-clamp-2' : ''}`}>
+                                {desc}
+                              </p>
+                              {isLong && (
+                                <button
+                                  className="text-xs text-blue-500 hover:text-blue-700 mt-0.5"
+                                  onClick={() => setExpandedDescriptions(prev => {
+                                    const next = new Set(prev);
+                                    isExpanded ? next.delete(beneficio.id) : next.add(beneficio.id);
+                                    return next;
+                                  })}
+                                >
+                                  {isExpanded ? 'Ver menos ▲' : 'Ver mais ▼'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                             <span>Gritos mínimos: {beneficio.gritosMinimos || 0}</span>
                             <span>Planos: {beneficio.planosDisponiveis?.join(', ') || 'eco'}</span>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 shrink-0">
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={() => handleEditBenefit(beneficio)}
                             data-testid={`btn-edit-benefit-${beneficio.id}`}
@@ -5718,7 +7594,7 @@ const syncStripeMutation = useMutation({
                             <Edit className="w-4 h-4" />
                           </Button>
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="sm"
                             onClick={() => deleteBenefitMutation.mutate(beneficio.id)}
                             data-testid={`btn-delete-benefit-${beneficio.id}`}
@@ -5728,13 +7604,14 @@ const syncStripeMutation = useMutation({
                         </div>
                       </div>
                     </Card>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </TabsContent>
 
             {/* Inspiring Stories Tab */}
-            <TabsContent value="stories" className="space-y-6 mt-6">
+            <TabsContent value="stories" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Histórias Inspiradoras</h2>
@@ -5883,7 +7760,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Auctions Tab */}
-            <TabsContent value="auctions" className="space-y-6 mt-6">
+            <TabsContent value="auctions" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Gestão de Leilões de Benefícios</h2>
@@ -6378,7 +8255,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Mission Management Tab */}
-            <TabsContent value="missions" className="space-y-6 mt-6">
+            <TabsContent value="missions" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Gestão de Missões</h2>
@@ -6499,7 +8376,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Automation & Webhooks Tab */}
-            <TabsContent value="automation" className="space-y-6 mt-6">
+            <TabsContent value="automation" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Automação & Webhooks</h2>
@@ -6772,193 +8649,302 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Donor Dashboard Tab - NOVA VERSÃO (igual ao Leo) */}
-            <TabsContent value="donors" className="space-y-6 mt-6">
+            <TabsContent value="donors" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Dashboard de Doadores</h2>
-                  <p className="text-gray-600">Dados em tempo real do Stripe e doadores externos</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-center px-3 py-1.5 bg-gray-100 rounded-xl min-w-[90px]">
+                    <span className="text-2xl font-bold text-gray-900 leading-tight">
+                      {totalDoadoresStripe + (doadoresExternosDevData?.totalDoadores || 0)}
+                    </span>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">Externos + Aplicativo</span>
+                  </div>
+                  {/* Botão Doadores Externos */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowDoadoresExternosPopover(v => !v)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      Doadores Externos
+                      <span className="bg-orange-100 text-orange-800 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                        {doadoresExternosDevData?.totalDoadores || 0}
+                      </span>
+                    </button>
+                    {showDoadoresExternosPopover && (
+                      <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 z-50">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                          <span className="font-semibold text-gray-800 text-sm">Doadores Externos</span>
+                          <button onClick={() => setShowDoadoresExternosPopover(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+                        </div>
+                        <ul className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                          {loadingDoadoresExternos ? (
+                            <li className="py-3 px-4 text-gray-400 text-sm text-center">Carregando...</li>
+                          ) : (doadoresExternosDevData?.doadores || []).map((d: any, i: number) => (
+                            <li key={d.id || i} className="py-2.5 px-4 text-sm text-gray-700 hover:bg-orange-50 transition-colors">
+                              {d.nome}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => refetchDoadoresStripe()}
+                    disabled={loadingDoadoresStripe}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <svg className={`w-4 h-4 ${loadingDoadoresStripe ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    {loadingDoadoresStripe ? 'Atualizando...' : 'Atualizar Stripe'}
+                  </button>
                 </div>
               </div>
 
-              {/* Status de Doações */}
+              {/* Comparativo de Doadores */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Target className="w-5 h-5 text-purple-600" />
-                    Status de Doações
+                    <TrendingUp className="w-5 h-5 text-blue-600" />
+                    Comparativo de Doadores do Aplicativo
                   </CardTitle>
+                  <p className="text-sm text-gray-500">Visão histórica completa · Dados em tempo real do Stripe</p>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-5 gap-4">
-                    <div className="text-center p-4 bg-green-50 rounded-lg">
-                      <div className="text-3xl font-bold text-green-600">{porStatusStripe.active}</div>
-                      <p className="text-sm text-gray-600">Ativas</p>
-                      <p className="text-xs text-gray-400">Pagando normalmente</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-100">
+                      <div className="text-3xl font-bold text-blue-700">{(porStatusStripe.totalHistorico || 0).toLocaleString('pt-BR')}</div>
+                      <p className="text-sm font-medium text-blue-800 mt-1">Total Histórico</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Já doaram algum dia</p>
                     </div>
-                    <div className="text-center p-4 bg-blue-50 rounded-lg">
-                      <div className="text-3xl font-bold text-blue-600">{porStatusStripe.trialing}</div>
-                      <p className="text-sm text-gray-600">Em Teste</p>
-                      <p className="text-xs text-gray-400">Período de trial</p>
+                    <div className="text-center p-4 bg-green-50 rounded-lg border border-green-100">
+                      <div className="text-3xl font-bold text-green-700">{porStatusStripe.active + (porStatusStripe.trialing || 0)}</div>
+                      <p className="text-sm font-medium text-green-800 mt-1">Ativos Hoje</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Pagando atualmente</p>
                     </div>
-                    <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                      <div className="text-3xl font-bold text-yellow-600">{porStatusStripe.past_due}</div>
-                      <p className="text-sm text-gray-600">Pendentes</p>
-                      <p className="text-xs text-gray-400">Pagamento atrasado</p>
+                    <div className="text-center p-4 bg-red-50 rounded-lg border border-red-100">
+                      <div className="text-3xl font-bold text-red-700">{todosCancelados.length}</div>
+                      <p className="text-sm font-medium text-red-800 mt-1">Cancelaram</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Total histórico</p>
                     </div>
-                    <div className="text-center p-4 bg-red-50 rounded-lg">
-                      <div className="text-3xl font-bold text-red-600">{porStatusStripe.canceled}</div>
-                      <p className="text-sm text-gray-600">Canceladas</p>
-                      <p className="text-xs text-gray-400">Assinatura encerrada</p>
-                    </div>
-                    <div className="text-center p-4 bg-orange-50 rounded-lg">
-                      <div className="text-3xl font-bold text-orange-600">{doadoresExternosData?.totalDoadores || 0}</div>
-                      <p className="text-sm text-gray-600">Externos</p>
-                      <p className="text-xs text-gray-400">Doações fora do app</p>
+                    <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-100">
+                      <div className="text-3xl font-bold text-orange-600">{porStatusStripe.leads || 0}</div>
+                      <p className="text-sm font-medium text-orange-700 mt-1">Leads</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Tentaram mas não concluíram</p>
                     </div>
                   </div>
+                  {/* Taxa de Perda */}
+                  {(() => {
+                    const total = porStatusStripe.totalHistorico || 0;
+                    const cancelados = todosCancelados.length;
+                    const taxa = total > 0 ? ((cancelados / total) * 100) : 0;
+                    const taxaFmt = taxa.toFixed(1);
+                    const corBarra = taxa <= 10 ? 'bg-green-500' : taxa <= 25 ? 'bg-yellow-500' : 'bg-red-500';
+                    const corTexto = taxa <= 10 ? 'text-green-700' : taxa <= 25 ? 'text-yellow-700' : 'text-red-700';
+                    return (
+                      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-700">Taxa de Perda</p>
+                            <p className="text-xs text-gray-400">Cancelados ÷ Total histórico</p>
+                          </div>
+                          <span className={`text-2xl font-bold ${corTexto}`}>{taxaFmt}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className={`${corBarra} h-2 rounded-full transition-all`} style={{ width: `${Math.min(taxa, 100)}%` }} />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">{cancelados} de {total} doadores deixaram de contribuir</p>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
 
-              {/* Gráficos: Distribuição por Plano e Faixa de Valor */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Distribuição por Plano */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="w-5 h-5 text-blue-600" />
-                      Distribuição por Plano
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {porPlanoStripe.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={300}>
-                        <RechartsPieChart>
-                          <Pie
-                            data={porPlanoStripe.filter((p: any) => p.quantidade > 0)}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ plano, quantidade }: any) => `${plano.split(' ')[0]}: ${quantidade}`}
-                            outerRadius={100}
-                            fill="#8884d8"
-                            dataKey="quantidade"
-                          >
-                            {porPlanoStripe.filter((p: any) => p.quantidade > 0).map((entry: any, index: number) => (
-                              <Cell key={`cell-${index}`} fill={CORES_PLANO[index % CORES_PLANO.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value: any, name: string, props: any) => [
-                            `${value} doadores (R$ ${props.payload.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'})`,
-                            props.payload.plano
-                          ]} />
-                        </RechartsPieChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="flex items-center justify-center h-[300px] text-gray-400">
-                        Carregando dados...
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Distribuição por Faixa de Valor */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <BarChart3 className="w-5 h-5 text-indigo-600" />
-                      Distribuição por Faixa de Valor
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {distribuicaoPorValorStripe.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={distribuicaoPorValorStripe}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="faixa" />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="quantidade" fill="#6366f1" name="Doadores" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="flex items-center justify-center h-[250px] text-gray-400">
-                        Carregando dados...
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Gráfico de Motivos de Cancelamento */}
+              {/* Cancelamentos com filtro de período */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <PieChart className="w-5 h-5 text-red-600" />
-                    Motivos de Cancelamento
-                    <Badge variant="outline" className="ml-2">
-                      {porStatusStripe.canceled} cancelados
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {dadosMotivosCancelamento.length > 0 ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Gráfico de Pizza */}
-                      <ResponsiveContainer width="100%" height={300}>
-                        <RechartsPieChart>
-                          <Pie
-                            data={dadosMotivosCancelamento}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ motivo, quantidade }: any) => `${quantidade}`}
-                            outerRadius={100}
-                            fill="#8884d8"
-                            dataKey="quantidade"
-                          >
-                            {dadosMotivosCancelamento.map((entry: any, index: number) => (
-                              <Cell key={`cell-motivo-${index}`} fill={CORES_MOTIVO[index % CORES_MOTIVO.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip 
-                            formatter={(value: any, name: string, props: any) => [
-                              `${value} cancelamentos`,
-                              props.payload.motivo
-                            ]} 
-                          />
-                        </RechartsPieChart>
-                      </ResponsiveContainer>
-                      
-                      {/* Legenda com lista de motivos */}
-                      <div className="space-y-3">
-                        <h4 className="font-semibold text-gray-700">Ranking de Motivos</h4>
-                        {dadosMotivosCancelamento.map((item: any, index: number) => (
-                          <div key={item.motivo} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div 
-                                className="w-4 h-4 rounded-full" 
-                                style={{ backgroundColor: CORES_MOTIVO[index % CORES_MOTIVO.length] }}
-                              />
-                              <span className="text-sm font-medium text-gray-700">{item.motivo}</span>
-                            </div>
-                            <Badge 
-                              variant={index === 0 ? "destructive" : "secondary"}
-                              className="font-bold"
-                            >
-                              {item.quantidade}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <UserX className="w-5 h-5 text-red-600" />
+                      Cancelamentos por Período
+                      <Badge variant="destructive" className="ml-1">{canceladosFiltrados.length}</Badge>
+                    </CardTitle>
+                    {/* Botões de filtro */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => setFiltroCancel('historico')}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${filtroCancel === 'historico' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:border-red-400'}`}
+                      >
+                        Histórico Total
+                      </button>
+                      <button
+                        onClick={() => setFiltroCancel('ano')}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${filtroCancel === 'ano' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:border-red-400'}`}
+                      >
+                        Por Ano
+                      </button>
+                      <button
+                        onClick={() => setFiltroCancel('mes')}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${filtroCancel === 'mes' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300 hover:border-red-400'}`}
+                      >
+                        Por Mês
+                      </button>
                     </div>
+                  </div>
+                  {/* Seletores de Ano / Mês */}
+                  {(filtroCancel === 'ano' || filtroCancel === 'mes') && (
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-500">Ano:</span>
+                        <select
+                          value={filtroAnoCancel}
+                          onChange={(e) => setFiltroAnoCancel(Number(e.target.value))}
+                          className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-red-400"
+                        >
+                          {(anosDisponiveis.length > 0 ? anosDisponiveis : [new Date().getFullYear()]).map((ano) => (
+                            <option key={ano} value={ano}>{ano}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {filtroCancel === 'mes' && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-500">Mês:</span>
+                          <select
+                            value={filtroMesCancel}
+                            onChange={(e) => setFiltroMesCancel(Number(e.target.value))}
+                            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:outline-none focus:border-red-400"
+                          >
+                            {NOMES_MESES.map((m, i) => (
+                              <option key={i} value={i}>{m}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <span className="text-xs text-gray-400">
+                        {filtroCancel === 'mes'
+                          ? `${NOMES_MESES[filtroMesCancel]}/${filtroAnoCancel}`
+                          : `${filtroAnoCancel}`}
+                      </span>
+                    </div>
+                  )}
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {canceladosFiltrados.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">Nenhum cancelamento no período selecionado</p>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-[200px] text-gray-400">
-                      <PieChart className="w-12 h-12 mb-2" />
-                      <p>Nenhum cancelamento registrado</p>
+                    <div className="space-y-2">
+                      {canceladosFiltrados.map((d: any, i: number) => (
+                        <div key={d.id || i} className="flex items-center justify-between px-3 py-2 bg-red-50 rounded-lg border border-red-100">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-red-200 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs font-bold text-red-700">{(d.nome || '?').charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-800">{d.nome || '—'}</p>
+                              <p className="text-xs text-gray-400">{d.dataCancelamento ? `Cancelou em ${d.dataCancelamento}` : 'Data desconhecida'}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold text-red-700">R$ {(d.valor || 0).toFixed(2)}/mês</p>
+                            {d.plano && <p className="text-xs text-gray-400">{d.plano}</p>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </CardContent>
               </Card>
+
+
+              {/* Gráfico unificado: Plano + Faixa de Valor + Cancelamentos */}
+              {(() => {
+                const planosAtivos = porPlanoStripe.filter((p: any) => p.quantidade > 0);
+                const faixasAtivas = distribuicaoPorValorStripe.filter((f: any) => f.quantidade > 0);
+
+                const dadosGrafico = [
+                  ...planosAtivos.map((p: any, i: number) => ({
+                    nome: p.plano.split(' ')[0],
+                    valor: p.quantidade,
+                    cor: CORES_PLANO[i % CORES_PLANO.length],
+                    grupo: 'Plano',
+                  })),
+                  { nome: '', valor: 0, cor: 'transparent', grupo: 'sep1' },
+                  ...faixasAtivas.map((f: any) => ({
+                    nome: f.faixa,
+                    valor: f.quantidade,
+                    cor: '#6366f1',
+                    grupo: 'Faixa',
+                  })),
+                  { nome: '', valor: 0, cor: 'transparent', grupo: 'sep2' },
+                  ...dadosMotivosCancelamento.map((m: any, i: number) => ({
+                    nome: m.motivo.length > 14 ? m.motivo.substring(0, 13) + '…' : m.motivo,
+                    valor: m.quantidade,
+                    cor: CORES_MOTIVO[i % CORES_MOTIVO.length],
+                    grupo: 'Cancelamento',
+                  })),
+                ];
+
+                const CustomLabel = ({ x, y, width, value }: any) =>
+                  value > 0 ? (
+                    <text x={x + width / 2} y={y - 4} fill="#374151" textAnchor="middle" fontSize={11} fontWeight={600}>
+                      {value}
+                    </text>
+                  ) : null;
+
+                const grupos = [
+                  { label: 'Por Plano', cor: '#3b82f6' },
+                  { label: 'Por Faixa de Valor', cor: '#6366f1' },
+                  { label: 'Cancelamentos', cor: '#ef4444' },
+                ];
+
+                return (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <CardTitle className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                          <BarChart3 className="w-4 h-4 text-indigo-600" />
+                          Distribuição de Doadores
+                        </CardTitle>
+                        <div className="flex items-center gap-4">
+                          {grupos.map((g) => (
+                            <div key={g.label} className="flex items-center gap-1.5">
+                              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: g.cor }} />
+                              <span className="text-xs text-gray-500">{g.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={dadosGrafico} margin={{ top: 20, right: 8, left: -30, bottom: 0 }} barSize={28}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                          <XAxis
+                            dataKey="nome"
+                            tick={{ fontSize: 11, fill: '#6b7280' }}
+                            axisLine={false}
+                            tickLine={false}
+                          />
+                          <YAxis hide />
+                          <Tooltip
+                            formatter={(value: any, _: any, props: any) => [value, props.payload.grupo]}
+                            labelFormatter={(label: any) => label}
+                            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                          />
+                          <Bar dataKey="valor" radius={[4, 4, 0, 0]} label={<CustomLabel />}>
+                            {dadosGrafico.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={entry.cor} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
 
               {/* Lista Individual de Doadores - Stripe */}
               <Card>
@@ -6983,8 +8969,19 @@ const syncStripeMutation = useMutation({
                       />
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                  <div
+                    ref={(el) => {
+                      if (!el) return;
+                      let isDown = false, startX = 0, scrollLeft = 0;
+                      el.onmousedown = (e) => { isDown = true; el.style.cursor = 'grabbing'; startX = e.pageX - el.offsetLeft; scrollLeft = el.scrollLeft; };
+                      el.onmouseleave = () => { isDown = false; el.style.cursor = 'grab'; };
+                      el.onmouseup = () => { isDown = false; el.style.cursor = 'grab'; };
+                      el.onmousemove = (e) => { if (!isDown) return; e.preventDefault(); el.scrollLeft = scrollLeft - (e.pageX - el.offsetLeft - startX) * 1.5; };
+                    }}
+                    style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', cursor: 'grab' }}
+                    className="-mx-2 px-2 pb-1 scrollbar-hide">
+                    <p className="text-xs text-gray-400 text-center mb-1 md:hidden">← arraste para ver mais →</p>
+                    <table className="w-full min-w-[900px]">
                       <thead>
                         <tr className="border-b-2 border-gray-200">
                           <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
@@ -7013,8 +9010,34 @@ const syncStripeMutation = useMutation({
                           .map((doador: any, index: number) => (
                             <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
                               <td className="py-3 px-4 text-gray-800">{doador.nome}</td>
-                              <td className="py-3 px-4 text-gray-600 text-sm">{doador.telefone || '-'}</td>
-                              <td className="py-3 px-4 text-gray-600 text-sm truncate max-w-[200px]" title={doador.email}>{doador.email || '-'}</td>
+                              <td className="py-3 px-4 text-gray-600 text-sm">
+                                {doador.telefone ? (
+                                  <div className="flex items-center gap-1">
+                                    <span>{doador.telefone}</span>
+                                    <button
+                                      onClick={() => { navigator.clipboard.writeText(doador.telefone); setCopiedDonorPhone(doador.id); setTimeout(() => setCopiedDonorPhone(null), 1500); }}
+                                      className={`flex-shrink-0 transition-colors ${copiedDonorPhone === doador.id ? 'text-green-500' : 'text-gray-400 hover:text-blue-600'}`}
+                                      title="Copiar telefone"
+                                    >
+                                      {copiedDonorPhone === doador.id ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+                                ) : '-'}
+                              </td>
+                              <td className="py-3 px-4 text-gray-600 text-sm max-w-[220px]">
+                                {(doador.email && doador.email !== 'temp@temp.com') ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="truncate" title={doador.email}>{doador.email}</span>
+                                    <button
+                                      onClick={() => { navigator.clipboard.writeText(doador.email); setCopiedDonorId(doador.id); setTimeout(() => setCopiedDonorId(null), 1500); }}
+                                      className={`flex-shrink-0 transition-colors ${copiedDonorId === doador.id ? 'text-green-500' : 'text-gray-400 hover:text-blue-600'}`}
+                                      title="Copiar e-mail"
+                                    >
+                                      {copiedDonorId === doador.id ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+                                ) : <span className="text-gray-400">-</span>}
+                              </td>
                               <td className="py-3 px-4 text-right font-medium text-green-600">
                                 R$ {doador.valor?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
                               </td>
@@ -7089,52 +9112,11 @@ const syncStripeMutation = useMutation({
                 </CardContent>
               </Card>
 
-              {/* Lista de Doadores Externos */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-orange-600" />
-                    Doadores Externos - Doações fora do Aplicativo
-                  </CardTitle>
-                  <p className="text-sm text-gray-500">
-                    Total: {doadoresExternosData?.totalDoadores || 0} doadores | 
-                    Arrecadação: R$ {(doadoresExternosData?.arrecadacaoMensal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b-2 border-gray-200">
-                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Nome</th>
-                          <th className="text-right py-3 px-4 font-semibold text-gray-700">Valor/mês</th>
-                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Observação</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {doadoresExternosData?.doadores?.map((doador: any, index: number) => (
-                          <tr key={doador.id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="py-3 px-4 text-gray-800 font-medium">{doador.nome}</td>
-                            <td className="py-3 px-4 text-right font-medium text-orange-600">
-                              R$ {doador.valorMensal?.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) || '0,00'}
-                            </td>
-                            <td className="py-3 px-4 text-center text-gray-500 text-sm">{doador.observacao || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {(!doadoresExternosData?.doadores || doadoresExternosData.doadores.length === 0) && (
-                      <div className="text-center py-8 text-gray-400">
-                        Carregando doadores externos...
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+
             </TabsContent>
 
             {/* Donor Origin Tab - Aba separada de Origem */}
-            <TabsContent value="donor-origin" className="space-y-6 mt-6">
+            <TabsContent value="donor-origin" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Origem dos Doadores</h2>
@@ -7145,7 +9127,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Stripe Tab */}
-            <TabsContent value="stripe" className="space-y-6 mt-6">
+            <TabsContent value="stripe" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Gestão Stripe</h2>
@@ -7214,7 +9196,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Management View Tab */}
-            <TabsContent value="management" className="space-y-6 mt-6">
+            <TabsContent value="management" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Visão de Gestão</h2>
@@ -7317,7 +9299,7 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Nova aba: Gestão à Vista */}
-            <TabsContent value="gestao-vista" className="space-y-6 mt-6">
+            <TabsContent value="gestao-vista" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Gestão à Vista</h2>
@@ -7732,61 +9714,426 @@ const syncStripeMutation = useMutation({
             </TabsContent>
 
             {/* Nova aba: Pagamentos de Ingressos */}
-            <TabsContent value="pagamentos-ingressos" className="space-y-6 mt-6">
-              <PagamentosIngressosSection queryClient={queryClient} />
+                        {/* Nova aba: Pagamentos Cielo */}
+                        {/* Nova aba: Estatísticas de Ingressos */}
+                        {/* Nova aba: Marketing Links */}
+            <TabsContent value="dados-metricas" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <BarChart3 className="w-6 h-6 text-slate-700" />
+                    Dados e métricas
+                  </h3>
+                  <p className="text-gray-600">Cadastre indicadores com realizado e meta para alimentar o dashboard.</p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={String(marketingAno)} onValueChange={(v) => setMarketingAno(Number(v))}>
+                    <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[2024, 2025, 2026, 2027].map((anoOpt) => (
+                        <SelectItem key={anoOpt} value={String(anoOpt)}>{anoOpt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={marketingTrimestre} onValueChange={setMarketingTrimestre}>
+                    <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="T1">T1</SelectItem>
+                      <SelectItem value="T2">T2</SelectItem>
+                      <SelectItem value="T3">T3</SelectItem>
+                      <SelectItem value="T4">T4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={marketingCategoria} onValueChange={setMarketingCategoria}>
+                    <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="geral">Geral</SelectItem>
+                      <SelectItem value="captacao">Captação</SelectItem>
+                      <SelectItem value="conteudo">Conteúdo</SelectItem>
+                      <SelectItem value="automacao">Automação</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Card>
+                <CardHeader><CardTitle>Cadastrar nova métrica</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <Input
+                    placeholder="Nome da métrica"
+                    className="col-span-2 md:col-span-2"
+                    value={novaMetrica.nome}
+                    onChange={(e) => setNovaMetrica((prev) => ({ ...prev, nome: e.target.value }))}
+                  />
+                  <Select value={novaMetrica.trimestre} onValueChange={(v) => setNovaMetrica((prev) => ({ ...prev, trimestre: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Trimestre" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="T1">T1</SelectItem>
+                      <SelectItem value="T2">T2</SelectItem>
+                      <SelectItem value="T3">T3</SelectItem>
+                      <SelectItem value="T4">T4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={novaMetrica.categoria} onValueChange={(v) => setNovaMetrica((prev) => ({ ...prev, categoria: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="geral">Geral</SelectItem>
+                      <SelectItem value="captacao">Captação</SelectItem>
+                      <SelectItem value="conteudo">Conteúdo</SelectItem>
+                      <SelectItem value="automacao">Automação</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={novaMetrica.unidade} onValueChange={(v) => setNovaMetrica((prev) => ({ ...prev, unidade: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="numero">Número</SelectItem>
+                      <SelectItem value="moeda">Moeda (R$)</SelectItem>
+                      <SelectItem value="percentual">Percentual (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    placeholder="Realizado"
+                    value={novaMetrica.realizado}
+                    onChange={(e) => setNovaMetrica((prev) => ({ ...prev, realizado: e.target.value }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Meta"
+                    value={novaMetrica.meta}
+                    onChange={(e) => setNovaMetrica((prev) => ({ ...prev, meta: e.target.value }))}
+                  />
+                  <Button
+                    className="col-span-2 md:col-span-3"
+                    onClick={handleCriarMetrica}
+                    disabled={saveMetricaMutation.isPending}
+                  >
+                    {saveMetricaMutation.isPending ? 'Salvando...' : 'Salvar métrica'}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {marketingTrimestre !== 'todos' && (
+                <Card className="border-blue-200 bg-blue-50/50">
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2 text-sm text-blue-800 font-medium">
+                        <Copy className="w-4 h-4" />
+                        Copiar métricas do <strong>{marketingTrimestre}</strong> para:
+                      </div>
+                      {['T1','T2','T3','T4'].filter(t => t !== marketingTrimestre).map(destino => (
+                        <Button
+                          key={destino}
+                          size="sm"
+                          variant="outline"
+                          className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                          disabled={copiarTrimestreMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Copiar todas as métricas de ${marketingTrimestre} para ${destino}? Métricas já existentes no ${destino} não serão sobrescritas.`)) {
+                              copiarTrimestreMutation.mutate({ ano: marketingAno, trimestreOrigem: marketingTrimestre, trimestreDestino: destino });
+                            }
+                          }}
+                        >
+                          {copiarTrimestreMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : destino}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader><CardTitle>Métricas automáticas do app</CardTitle></CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    {[
+                      { chave: 'doadores', labelDefault: 'Doadores ativos', realizado: marketingMetrics.totalDoadores, metaDefault: 1000, unidadeDefault: 'numero' },
+                      { chave: 'arrecadacao_mensal', labelDefault: 'Arrecadação mensal', realizado: marketingMetrics.arrecadacaoMensal, metaDefault: 2000, unidadeDefault: 'moeda' },
+                      { chave: 'beneficios_ativos', labelDefault: 'Benefícios ativos', realizado: marketingMetrics.beneficiosAtivos, metaDefault: 20, unidadeDefault: 'numero' },
+                      { chave: 'historias_ativas', labelDefault: 'Histórias ativas', realizado: marketingMetrics.historiasAtivas, metaDefault: 20, unidadeDefault: 'numero' },
+                      { chave: 'missoes_ativas', labelDefault: 'Missões ativas', realizado: marketingMetrics.missoesAtivas, metaDefault: 50, unidadeDefault: 'numero' },
+                    ].map((item) => {
+                      const dbVal = metasFixasDb[item.chave];
+                      const nome = dbVal?.nome ?? item.labelDefault;
+                      const meta = dbVal?.meta ?? item.metaDefault;
+                      const unidade = dbVal?.unidade ?? item.unidadeDefault;
+                      const inversa = dbVal?.inversa ?? false;
+                      const isEditing = editingFixedChave === item.chave;
+                      const ed = editingFixedData;
+                      return (
+                        <div key={item.chave} className="border rounded-lg p-2 space-y-2">
+                          {isEditing && ed ? (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <p className="text-[10px] text-gray-400 mb-0.5">Nome</p>
+                                  <Input className="h-7 text-xs" value={ed.nome} onChange={(e) => setEditingFixedData((p: any) => ({ ...p, nome: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-gray-400 mb-0.5">Meta</p>
+                                  <Input type="number" className="h-7 text-xs" value={ed.meta} onChange={(e) => setEditingFixedData((p: any) => ({ ...p, meta: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-gray-400 mb-0.5">Unidade</p>
+                                  <Select value={ed.unidade} onValueChange={(v) => setEditingFixedData((p: any) => ({ ...p, unidade: v }))}>
+                                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="numero">Número</SelectItem>
+                                      <SelectItem value="moeda">Moeda (R$)</SelectItem>
+                                      <SelectItem value="percentual">Percentual (%)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-end">
+                                  <div className="flex items-center gap-1.5 p-1.5 rounded bg-orange-50 border border-orange-200 cursor-pointer w-full"
+                                    onClick={() => setEditingFixedData((p: any) => ({ ...p, inversa: !p.inversa }))}>
+                                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${ed.inversa ? 'bg-orange-500 border-orange-500' : 'border-gray-400'}`}>
+                                      {ed.inversa && <span className="text-white text-[9px] font-bold">✓</span>}
+                                    </div>
+                                    <span className="text-[10px] text-orange-700">Inversa</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button size="sm" className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 flex-1"
+                                  disabled={saveMetaFixaMutation.isPending}
+                                  onClick={() => saveMetaFixaMutation.mutate({ chave: item.chave, ano: marketingAno, nome: ed.nome, meta: Number(ed.meta), unidade: ed.unidade, inversa: ed.inversa })}>
+                                  <Save className="w-2.5 h-2.5 mr-1" />Salvar
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]"
+                                  onClick={() => { setEditingFixedChave(null); setEditingFixedData(null); }}>✕</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-gray-700">{nome}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-gray-400">Meta: {formatMetricValue(meta, unidade)}</span>
+                                <Badge variant="outline">{formatMetricValue(item.realizado, unidade)}</Badge>
+                                <button className="text-gray-400 hover:text-gray-600"
+                                  onClick={() => { setEditingFixedChave(item.chave); setEditingFixedData({ nome, meta: String(meta), unidade, inversa }); }}>
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle>Métricas customizadas</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {loadingMarketingMetricas ? (
+                      <p className="text-gray-500">Carregando métricas...</p>
+                    ) : marketingMetricasCustom.length === 0 ? (
+                      <p className="text-gray-500">Nenhuma métrica customizada cadastrada para o filtro selecionado.</p>
+                    ) : (
+                      marketingMetricasCustom.map((m) => {
+                        const isEditing = editingMetricId === m.id;
+                        const ed = isEditing ? editingMetricData : null;
+                        return (
+                          <div key={m.id} className="border rounded-lg p-3 space-y-2">
+                            {/* Header: nome + botões */}
+                            <div className="flex items-center justify-between gap-2">
+                              {isEditing ? (
+                                <Input
+                                  className="font-semibold h-7 text-sm"
+                                  value={ed.nome}
+                                  onChange={(e) => setEditingMetricData((prev: any) => ({ ...prev, nome: e.target.value }))}
+                                />
+                              ) : (
+                                <p className="font-semibold text-gray-900 text-sm truncate">{m.nome}</p>
+                              )}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isEditing ? (
+                                  <>
+                                    <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700"
+                                      disabled={saveMetricaMutation.isPending}
+                                      onClick={() => {
+                                        saveMetricaMutation.mutate({
+                                          id: m.id,
+                                          ano: marketingAno,
+                                          nome: ed.nome.trim(),
+                                          categoria: ed.categoria,
+                                          unidade: ed.unidade,
+                                          trimestre: ed.trimestre,
+                                          inversa: ed.inversa,
+                                          realizado: Number(ed.realizado || 0),
+                                          meta: Number(ed.meta || 0),
+                                          ordem: m.ordem || 0,
+                                        });
+                                        setEditingMetricId(null);
+                                        setEditingMetricData(null);
+                                      }}>
+                                      <Save className="w-3 h-3 mr-1" />Salvar
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                                      onClick={() => { setEditingMetricId(null); setEditingMetricData(null); }}>
+                                      <X className="w-3 h-3" />
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+                                      onClick={() => { setEditingMetricId(m.id); setEditingMetricData({ nome: m.nome, categoria: m.categoria, unidade: m.unidade, trimestre: m.trimestre || 'todos', realizado: m.realizado, meta: m.meta, inversa: Boolean(m.inversa) }); }}>
+                                      <Edit className="w-3 h-3 mr-1" />Editar
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700"
+                                      onClick={() => deleteMetricaMutation.mutate(m.id)}>
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {isEditing ? (
+                              /* Modo edição: todos os campos */
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs text-gray-500">Trimestre</Label>
+                                  <Select value={ed.trimestre} onValueChange={(v) => setEditingMetricData((prev: any) => ({ ...prev, trimestre: v }))}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="todos">Todos</SelectItem>
+                                      <SelectItem value="T1">T1</SelectItem>
+                                      <SelectItem value="T2">T2</SelectItem>
+                                      <SelectItem value="T3">T3</SelectItem>
+                                      <SelectItem value="T4">T4</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-gray-500">Categoria</Label>
+                                  <Select value={ed.categoria} onValueChange={(v) => setEditingMetricData((prev: any) => ({ ...prev, categoria: v }))}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="geral">Geral</SelectItem>
+                                      <SelectItem value="captacao">Captação</SelectItem>
+                                      <SelectItem value="conteudo">Conteúdo</SelectItem>
+                                      <SelectItem value="automacao">Automação</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-gray-500">Unidade</Label>
+                                  <Select value={ed.unidade} onValueChange={(v) => setEditingMetricData((prev: any) => ({ ...prev, unidade: v }))}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="numero">Número</SelectItem>
+                                      <SelectItem value="moeda">Moeda (R$)</SelectItem>
+                                      <SelectItem value="percentual">Percentual (%)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-gray-500">Realizado</Label>
+                                  <Input type="number" className="h-8 text-xs" value={ed.realizado} onChange={(e) => setEditingMetricData((prev: any) => ({ ...prev, realizado: e.target.value }))} />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-gray-500">Meta</Label>
+                                  <Input type="number" className="h-8 text-xs" value={ed.meta} onChange={(e) => setEditingMetricData((prev: any) => ({ ...prev, meta: e.target.value }))} />
+                                </div>
+                                <div className="col-span-2 flex items-center gap-2 p-2 rounded-md bg-orange-50 border border-orange-200 cursor-pointer"
+                                  onClick={() => setEditingMetricData((prev: any) => ({ ...prev, inversa: !prev.inversa }))}>
+                                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${ed.inversa ? 'bg-orange-500 border-orange-500' : 'border-gray-400'}`}>
+                                    {ed.inversa && <span className="text-white text-[10px] font-bold">✓</span>}
+                                  </div>
+                                  <span className="text-xs text-orange-800 font-medium">Métrica inversa — quanto menos, melhor (ex: Evadidos, Perdidos)</span>
+                                </div>
+                              </div>
+                            ) : (
+                              /* Modo visualização: progresso + barra */
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-gray-500">{m.categoria}</span>
+                                    {m.trimestre && m.trimestre !== 'todos' && (
+                                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-blue-300 text-blue-600">{m.trimestre}</Badge>
+                                    )}
+                                    {m.inversa && (
+                                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-orange-300 text-orange-600">↓ inv.</Badge>
+                                    )}
+                                  </div>
+                                  <span className={`font-semibold ${m.inversa ? (m.progresso >= 100 ? 'text-red-600' : m.progresso >= 80 ? 'text-amber-600' : 'text-emerald-600') : (m.progresso >= 100 ? 'text-emerald-600' : m.progresso >= 80 ? 'text-amber-600' : 'text-red-600')}`}>
+                                    {m.progresso.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${m.inversa ? (m.progresso >= 100 ? 'bg-red-500' : m.progresso >= 80 ? 'bg-amber-400' : 'bg-emerald-500') : (m.progresso >= 100 ? 'bg-emerald-500' : m.progresso >= 80 ? 'bg-amber-400' : 'bg-red-500')}`}
+                                    style={{ width: `${Math.min(m.progresso, 100)}%` }}
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
-            {/* Nova aba: Pagamentos Cielo */}
-            <TabsContent value="pagamentos-cielo" className="space-y-6 mt-6">
-              <PagamentosCieloSection queryClient={queryClient} />
-            </TabsContent>
-
-            {/* Nova aba: Estatísticas de Ingressos */}
-            <TabsContent value="estatisticas-ingressos" className="space-y-6 mt-6">
-              <EstatisticasIngressosSection queryClient={queryClient} />
-            </TabsContent>
-
-            {/* Nova aba: Marketing Links */}
-            <TabsContent value="marketing-links" className="space-y-6 mt-6">
+            <TabsContent value="marketing-links" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <MarketingLinksSection queryClient={queryClient} />
             </TabsContent>
 
             {/* Nova aba: Compradores Avulsos */}
-            <TabsContent value="compradores-avulsos" className="space-y-6 mt-6">
-              <CompradoresAvulsosSection queryClient={queryClient} />
-            </TabsContent>
-
-            {/* Nova aba: Converter Doações em Assinaturas */}
-            <TabsContent value="converter-doacoes" className="space-y-6 mt-6">
+                        {/* Nova aba: Converter Doações em Assinaturas */}
+            <TabsContent value="converter-doacoes" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <ConverterDoacoesSection queryClient={queryClient} />
             </TabsContent>
 
             {/* Nova aba: Notificações In-App e Push */}
-            <TabsContent value="notifications" className="space-y-6 mt-6">
+            <TabsContent value="notifications" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <NotificationsSection queryClient={queryClient} />
             </TabsContent>
 
+            {/* Notificações Push */}
+            <TabsContent value="push-notifications" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
+              <PushNotificationsSection />
+            </TabsContent>
+
             {/* Gestão de Equipe Tab */}
-            <TabsContent value="gestao-equipe" className="space-y-6 mt-6">
+            <TabsContent value="gestao-equipe" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <TeamManagementSection />
             </TabsContent>
 
             {/* Ganhadores de Benefícios Tab */}
-            <TabsContent value="ganhadores" className="space-y-6 mt-6">
+            <TabsContent value="ganhadores" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <GanhadoresSection queryClient={queryClient} />
             </TabsContent>
 
             {/* Catraca Intelbras / Webhook Tab */}
-            <TabsContent value="catraca-webhook" className="space-y-6 mt-6">
+            <TabsContent value="catraca-webhook" className="space-y-6 mt-6 bg-white rounded-xl shadow-sm p-6">
               <CatracaWebhookSection />
             </TabsContent>
 
-            <TabsContent value="instagram-analytics" className="mt-6">
+            <TabsContent value="instagram-analytics" className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
               <InstagramAnalyticsSection />
             </TabsContent>
+
+            <TabsContent value="eventos-grito" className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
+              <EventosGritoSection showStats={false} />
+            </TabsContent>
+
+            <TabsContent value="estatisticas-eventos" className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
+              <EventosGritoSection defaultTab="estatisticas" showStats={true} />
+            </TabsContent>
+
+            <TabsContent value="scanner-management" className="mt-6 bg-white rounded-xl shadow-sm overflow-hidden">
+              <ScannerManagementPanel />
+            </TabsContent>
             </Tabs>
-        </div>
-      </main>
+      </div>
 
       {/* Benefits Form Dialog */}
       <Dialog open={showBenefitForm} onOpenChange={setShowBenefitForm}>
@@ -8376,8 +10723,34 @@ const syncStripeMutation = useMutation({
                       <div className="grid gap-3 items-center text-sm min-w-max" style={{ gridTemplateColumns: '50px 140px 130px minmax(220px, 1fr) 110px 90px 90px 100px 80px 70px' }}>
                         <div className="font-mono text-gray-500">#{index + 1}</div>
                         <div className="font-semibold truncate" title={doador.nome}>{doador.nome || '-'}</div>
-                        <div className="text-gray-600 text-xs">{doador.telefone || '-'}</div>
-                        <div className="text-gray-600 text-xs font-mono" title={doador.email}>{doador.email || '-'}</div>
+                        <div className="text-gray-600 text-xs flex items-center gap-1">
+                          {doador.telefone ? (
+                            <>
+                              <span>{doador.telefone}</span>
+                              <button
+                                onClick={() => { navigator.clipboard.writeText(doador.telefone); setCopiedDonorPhone(doador.id); setTimeout(() => setCopiedDonorPhone(null), 1500); }}
+                                className={`flex-shrink-0 transition-colors ${copiedDonorPhone === doador.id ? 'text-green-500' : 'text-gray-400 hover:text-blue-600'}`}
+                                title="Copiar telefone"
+                              >
+                                {copiedDonorPhone === doador.id ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </>
+                          ) : '-'}
+                        </div>
+                        <div className="text-gray-600 text-xs font-mono flex items-center gap-1">
+                          {(doador.email && doador.email !== 'temp@temp.com') ? (
+                            <>
+                              <span className="truncate" title={doador.email}>{doador.email}</span>
+                              <button
+                                onClick={() => { navigator.clipboard.writeText(doador.email); setCopiedDonorId(doador.id); setTimeout(() => setCopiedDonorId(null), 1500); }}
+                                className={`flex-shrink-0 transition-colors ${copiedDonorId === doador.id ? 'text-green-500' : 'text-gray-400 hover:text-blue-600'}`}
+                                title="Copiar e-mail"
+                              >
+                                {copiedDonorId === doador.id ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </>
+                          ) : <span className="text-gray-400">-</span>}
+                        </div>
                       <div className="text-gray-600">
                         {new Date(doador.dataInicio).toLocaleDateString('pt-BR')}
                       </div>

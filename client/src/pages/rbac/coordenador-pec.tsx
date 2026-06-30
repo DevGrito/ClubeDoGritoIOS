@@ -1,13 +1,35 @@
-import React, { useState, useEffect } from "react";
-import { formatCPF } from "@/lib/utils";
+import React, { useState, useEffect, useMemo, lazy, Suspense } from "react";
+
+const GCS_PREFIX = /^https?:\/\/storage\.googleapis\.com\/[^/]+\//;
+function toProxyUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (GCS_PREFIX.test(url)) {
+    return `/api/gcs-foto-proxy?path=${encodeURIComponent(url.replace(GCS_PREFIX, ''))}`;
+  }
+  return url;
+}
+import PresencaManualSenhaCoordinatorModal from "@/components/presenca/PresencaManualSenhaCoordinatorModal";
+import { ChamadaPresencaNavButtons } from "@/components/presenca/ChamadaPresencaNavButtons";
+import { chamadaEstaPendente, chamadaTemFotoComprovante } from "@shared/chamada-presenca";
+import { excluirChamadaPendente } from "@/lib/excluirChamadaPendente";
+
+const ScannerPresencaModalLazy = lazy(() => import("@/components/presenca/ScannerPresencaModal"));
+import { formatCPF, cn } from "@/lib/utils";
+import { getDiasAulaParaTurma, getBrazilDateString, toYMDString } from "@/lib/class-days";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import FrequenciaTurmas from "@/components/FrequenciaTurmas";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { apiRequest, authFetch, queryClient } from "@/lib/queryClient";
+import { isPlanoStatusExibivel, labelPlanoStatusExibivel } from "@/lib/plano-aula-status";
+import RelatoriosAulasProfessoresSection from "@/components/coordenador/RelatoriosAulasProfessoresSection";
+import { logoutAndClearSession } from "@/lib/auth-session";
 import { Input } from "@/components/ui/input";
 import type { Project, Activity as PECActivity, ActivityInstance, User as UserType } from "@shared/schema";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,6 +40,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PrivacyPreferencesDropdownItem } from "@/components/PrivacyPreferencesMenuItem";
+import { LgpdLegalHeaderButtons, LgpdMeusDadosSettingsPanel } from "@/components/LgpdLegalMenuSection";
+import { openPrivacyPreferences } from "@/lib/consentManager";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
+import AreaConsentGate, { useAreaConsentReady } from "@/components/AreaConsentGate";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
@@ -71,9 +98,18 @@ import {
   Hand,
   Utensils,
   AlertCircle,
-  User,
+  AlertTriangle,
   TrendingUp,
   FileDown,
+  BarChart2,
+  Filter,
+  ChevronsUpDown,
+  Check,
+  Loader2,
+  MoreHorizontal,
+  Shield,
+  ScanLine,
+  // RefreshCw, // usado no painel de alertas de catraca (desativado)
 } from "lucide-react";
 import { InstanceForm, ActivityForm } from "@/components/pec/forms";
 import { TurmaDetailModal } from "@/components/pec/TurmaDetailModal";
@@ -81,26 +117,35 @@ import { ComprehensiveStudentForm } from "@/components/comprehensive-student-for
 import { ParticipanteDetalhesModal, type DetalhesSection } from "@/components/ParticipanteDetalhesModal";
 import AlterarSenha from "@/components/AlterarSenha";
 import CoordenadorDashboard from "@/components/CoordenadorDashboard";
+import { buildPeriodoQueryString, isFuturePeriodo, type PeriodoFiltro } from "@/lib/dashboardPeriodoFiltro";
 import GerenciarProfessores from "@/components/GerenciarProfessores";
+import NpsPesquisasSection from "@/components/NpsPesquisasSection";
 import { baixarListaAlunos } from "@/lib/pdfUtils";
 import VincularProfessoresTurma from "@/components/VincularProfessoresTurma";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import EventosGritoSection from "@/components/EventosGritoSection";
+import { gerarRelatorioTurma, type RelatorioDados } from "@/components/TurmaRelatorioInclusao";
 
 export default function CoordenadorPECPage() {
+  const fetch = authFetch;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { ready: consentReady, checking: consentChecking, markReady: setConsentReady } =
+    useAreaConsentReady("employees");
   const [activeSection, setActiveSection] = useState('dashboard');
   const lower = (v: any) => String(v ?? "").toLowerCase();
   
   // Estados para modais
   const [showNovaTurmaModal, setShowNovaTurmaModal] = useState(false);
+  const [showExcecaoModal, setShowExcecaoModal] = useState(false);
+  const [excecaoTurmaId, setExcecaoTurmaId] = useState("");
   const [showNovaOficinaModal, setShowNovaOficinaModal] = useState(false);
   const [showAdicionarAlunoModal, setShowAdicionarAlunoModal] = useState(false);
   const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
-  const [dashFiltroMes, setDashFiltroMes] = useState(0);
+  const [dashFiltroPeriodo, setDashFiltroPeriodo] = useState<PeriodoFiltro>("todos");
   const [editStudentCpf, setEditStudentCpf] = useState<string | undefined>(undefined);
   const [showNovaAvaliacaoModal, setShowNovaAvaliacaoModal] = useState(false);
   const [showNovoPlanoModal, setShowNovoPlanoModal] = useState(false);
@@ -126,11 +171,11 @@ export default function CoordenadorPECPage() {
     { label: 'Guarda compartilhada', contaComoPresenca: true },
     { label: 'Escola / Conflito de horário', contaComoPresenca: true },
     { label: 'Trabalho', contaComoPresenca: true },
-    { label: 'Transporte', contaComoPresenca: false },
-    { label: 'Família', contaComoPresenca: false },
-    { label: 'Compromisso pessoal', contaComoPresenca: false },
-    { label: 'Chuva/Clima', contaComoPresenca: false },
-    { label: 'Outro', contaComoPresenca: false },
+    { label: 'Transporte', contaComoPresenca: true },
+    { label: 'Família', contaComoPresenca: true },
+    { label: 'Compromisso pessoal', contaComoPresenca: true },
+    { label: 'Chuva/Clima', contaComoPresenca: true },
+    { label: 'Outro', contaComoPresenca: true },
     { label: 'Sem justificativa', contaComoPresenca: false },
   ];
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
@@ -147,8 +192,23 @@ export default function CoordenadorPECPage() {
   const [showPlanosAulaPecModal, setShowPlanosAulaPecModal] = useState(false);
   const [showRelatoriosAulaPecModal, setShowRelatoriosAulaPecModal] = useState(false);
   const [planoAulaPecDetalhes, setPlanoAulaPecDetalhes] = useState<any>(null);
-  const [relatorioAulaPecDetalhes, setRelatorioAulaPecDetalhes] = useState<any>(null);
   const [filtroProfPec, setFiltroProfPec] = useState("");
+  const [filtroProfAtivoPlanosP, setFiltroProfAtivoPlanosP] = useState("");
+  const [filtroTurmaAtivoPlanosP, setFiltroTurmaAtivoPlanosP] = useState("");
+  const [filtroDataInicioPlanosP, setFiltroDataInicioPlanosP] = useState("");
+  const [filtroDataFimPlanosP, setFiltroDataFimPlanosP] = useState("");
+  // Relatório de Turma PEC
+  const [relTurmaPecId, setRelTurmaPecId] = useState<string>('');
+  const [relTipoPec, setRelTipoPec] = useState<'mensal' | 'geral'>('mensal');
+  const [relMesPec, setRelMesPec] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [relDataInicioPec, setRelDataInicioPec] = useState<string>('');
+  const [relDataFimPec, setRelDataFimPec] = useState<string>('');
+  const [relLoadingPec, setRelLoadingPec] = useState(false);
+  const [relTurmaPecOpen, setRelTurmaPecOpen] = useState(false);
+  const [relTurmaPecBusca, setRelTurmaPecBusca] = useState('');
   const [turmaParaVincular, setTurmaParaVincular] = useState<any>(null);
   
   // Estados para alunos
@@ -165,6 +225,7 @@ export default function CoordenadorPECPage() {
   const [showInativarConfirmModal, setShowInativarConfirmModal] = useState(false);
   const [statusFilterAlunos, setStatusFilterAlunos] = useState<string>('ativos');
   const [searchTermAlunos, setSearchTermAlunos] = useState<string>('');
+  const [turmaFilterAlunos, setTurmaFilterAlunos] = useState<string>('todas');
 
 
 
@@ -316,24 +377,48 @@ const handleCommitImport = async () => {
   const [showNovaChamadaForm, setShowNovaChamadaForm] = useState(true);
   const [chamadaTurmaId, setChamadaTurmaId] = useState('');
   const [chamadaData, setChamadaData] = useState(new Date().toISOString().split('T')[0]);
-  const [presencasChamada, setPresencasChamada] = useState<{alunoId: number; alunoNome: string; alunoCpf: string; presente: boolean; justificativa?: string; justificativaObs?: string; viaCatraca?: boolean; horaEntrada?: string}[]>([]);
+  const [presencasChamada, setPresencasChamada] = useState<{alunoId: number; alunoNome: string; alunoCpf: string; presente: boolean; justificativa?: string; justificativaObs?: string; viaCatraca?: boolean; viaScanner?: boolean; horaEntrada?: string}[]>([]);
   const [expandedChamadaId, setExpandedChamadaId] = useState<number | null>(null);
+  const [soFaltasMap, setSoFaltasMap] = useState<Record<number, boolean>>({});
   const [fotoFile, setFotoFile] = useState<File | null>(null);
+  const [fotoFiles, setFotoFiles] = useState<File[]>([]);
   const [existingFotoUrl, setExistingFotoUrl] = useState<string | null>(null);
   const [editingChamadaId, setEditingChamadaId] = useState<number | null>(null);
   const pendingEditAttendanceRef = React.useRef<any[] | null>(null);
+  const [historicoTab, setHistoricoTab] = useState<'pendentes' | 'finalizadas'>('pendentes');
   const [historicoFiltroTurma, setHistoricoFiltroTurma] = useState('');
+  const [presencaTurmaBusca, setPresencaTurmaBusca] = useState('');
+  const [historicoTurmaBusca, setHistoricoTurmaBusca] = useState('');
   const [historicoFiltroDataInicio, setHistoricoFiltroDataInicio] = useState('');
   const [historicoFiltroDataFim, setHistoricoFiltroDataFim] = useState('');
+  const [fotosGaleriaDialog, setFotosGaleriaDialog] = useState<{ sessionId: number; urls: string[] } | null>(null);
+  const [fotosGaleriaLoading, setFotosGaleriaLoading] = useState(false);
+  const [fotoGaleriaFull, setFotoGaleriaFull] = useState<string | null>(null);
   const [modoManual, setModoManual] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [showModoManualDialog, setShowModoManualDialog] = useState(false);
   const [motivoManualSelect, setMotivoManualSelect] = useState('');
   const [descManual, setDescManual] = useState('');
   const [savingMotivoManual, setSavingMotivoManual] = useState(false);
   const [pinManual, setPinManual] = useState('');
   const [pinError, setPinError] = useState('');
-  const [catracaApplied, setCatracaApplied] = useState(false);
   const [catracaConnected, setCatracaConnected] = useState(false);
+
+  // Solicitar exclusão de chamada PEC
+  const [solicitarExclusaoPecDialog, setSolicitarExclusaoPecDialog] = useState<{
+    sessionId: number; activityInstanceId: number; turmaNome: string; data: string; presentes: number; total: number;
+  } | null>(null);
+  const [motivoExclusaoPec, setMotivoExclusaoPec] = useState('');
+  const [savingExclusaoPec, setSavingExclusaoPec] = useState(false);
+
+  const normalizeSessionId = (id: unknown): number | null => {
+    if (typeof id === "number" && Number.isFinite(id)) return id;
+    const raw = String(id ?? "").trim();
+    if (!raw) return null;
+    const numeric = raw.replace(/^pec_/, "");
+    const parsed = Number(numeric);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   
   // State do formulário de projetos
   const [projetoForm, setProjetoForm] = useState({
@@ -373,6 +458,7 @@ const handleCommitImport = async () => {
   // Buscar dados do coordenador
   const { data: coordData } = useQuery({
     queryKey: ['/api/coordenador/me'],
+    queryFn: async () => { const r = await fetch('/api/coordenador/me', { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
   });
 
 
@@ -435,6 +521,26 @@ const handleCommitImport = async () => {
     }
     salvarPerfilMutation.mutate(perfilData);
   };
+
+  // Estados para Remanejamentos e Cancelamentos PEC
+  const [excecaoTab, setExcecaoTab] = useState<"historico" | "registrar">("historico");
+  const [excecaoFiltroTipo, setExcecaoFiltroTipo] = useState<"todos" | "cancelamento" | "remanejamento">("todos");
+  const [excecaoFiltroTurmaId, setExcecaoFiltroTurmaId] = useState<string>("");
+  const [excecaoTurmaIdModal, setExcecaoTurmaIdModal] = useState<string>("");
+  const [excecaoFiltroTurmaOpen, setExcecaoFiltroTurmaOpen] = useState(false);
+  const [excecaoTurmaOpen, setExcecaoTurmaOpen] = useState(false);
+  const [excecaoDataOpen, setExcecaoDataOpen] = useState(false);
+  const [excecaoEditModal, setExcecaoEditModal] = useState(false);
+  const [excecaoEditando, setExcecaoEditando] = useState<any>(null);
+  const [editNovaDataPec, setEditNovaDataPec] = useState("");
+  const [editDataOriginalPec, setEditDataOriginalPec] = useState("");
+  const [editMotivoPec, setEditMotivoPec] = useState("");
+  const [excecaoDeleteId, setExcecaoDeleteId] = useState<number | null>(null);
+  const [excecaoDataOriginal, setExcecaoDataOriginal] = useState("");
+  const [excecaoTipo, setExcecaoTipo] = useState<"cancelamento" | "remanejamento">("cancelamento");
+  const [excecaoMotivo, setExcecaoMotivo] = useState("");
+  const [excecaoNovaData, setExcecaoNovaData] = useState("");
+  const [excecaoLoading, setExcecaoLoading] = useState(false);
 
   // Função para mudar seção e fazer scroll
   const changeSection = (section: string) => {
@@ -731,7 +837,8 @@ const handleCommitImport = async () => {
       if (!r.ok) throw new Error('Falha ao carregar planos de aula');
       return r.json();
     },
-    enabled: showPlanosAulaPecModal,
+    enabled: activeSection === 'planos-aula' || activeSection === 'relatorios-aulas',
+    staleTime: 0,
   });
 
   const { data: aulasRegistradasPec = [], isLoading: loadingRelatoriosPec } = useQuery({
@@ -741,7 +848,8 @@ const handleCommitImport = async () => {
       if (!r.ok) throw new Error('Falha ao carregar relatórios de aulas');
       return r.json();
     },
-    enabled: showRelatoriosAulaPecModal,
+    enabled: activeSection === 'relatorios-aulas',
+    staleTime: 0,
   });
 
   // Filtrar projetos baseado no status selecionado
@@ -762,6 +870,35 @@ const handleCommitImport = async () => {
     
   });
 
+  const turmasAtivasParaExcecao = (instances as any[])
+    .filter((instance: any) => {
+      const status = String(instance.situation || instance.status || "").toLowerCase();
+      return status === "ativo" || status === "execucao" || status === "em_andamento";
+    })
+    .sort((a: any, b: any) => String(a?.title || a?.name || "").localeCompare(String(b?.title || b?.name || ""), "pt-BR"));
+
+  const { data: excecaoDiasAula = { dias: [] } } = useQuery({
+    queryKey: ["/api/pec/instances/dias-aula", excecaoTurmaIdModal],
+    queryFn: async () => {
+      if (!excecaoTurmaIdModal) return { dias: [] };
+      const r = await fetch(`/api/pec/instances/${excecaoTurmaIdModal}/dias-aula`, { credentials: "include" });
+      if (!r.ok) return { dias: [] };
+      return r.json();
+    },
+    enabled: showExcecaoModal && !!excecaoTurmaIdModal,
+  });
+
+  const { data: excecoesTurma = [] } = useQuery({
+    queryKey: ["/api/pec/instances/excecoes", excecaoTurmaId],
+    queryFn: async () => {
+      if (!excecaoTurmaId) return [];
+      const r = await fetch(`/api/pec/instances/${excecaoTurmaId}/excecoes`, { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: activeSection === "chamadas" && !!excecaoTurmaId,
+  });
+
   // Query para buscar chamadas (sessions) do PEC - mesma tabela que Monitor/Professor PEC
   const { data: chamadasPEC = [] } = useQuery<any[]>({
     queryKey: ['/api/pec/sessions'],
@@ -776,6 +913,45 @@ const handleCommitImport = async () => {
     
   });
 
+  const pendentesChamadaCount = useMemo(() => {
+    return (Array.isArray(chamadasPEC) ? chamadasPEC : []).filter((c: any) =>
+      chamadaEstaPendente({
+        ...c,
+        tipo: "pec",
+        sessaoId: c.id,
+        presencas: c.attendance,
+      })
+    ).length;
+  }, [chamadasPEC]);
+
+  const datasAulaDisponiveisChamada = React.useMemo(() => {
+    const selectedTurma = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
+    if (!chamadaTurmaId || !selectedTurma) return [];
+
+    const classDates = getDiasAulaParaTurma(selectedTurma).map((d) => ({
+      value: d.date,
+      label: `${d.label}${d.dayOfWeek ? ` - ${d.dayOfWeek}` : ""}`,
+    }));
+    if (classDates.length === 0) return [];
+
+    const hoje = getBrazilDateString();
+    const datasComChamada = new Set(
+      (Array.isArray(chamadasPEC) ? chamadasPEC : [])
+        .filter((c: any) =>
+          String(c.activity_instance_id || c.grupoId || c.turmaId) === String(chamadaTurmaId)
+        )
+        .map((c: any) => toYMDString(c.date || c.data))
+    );
+    const semChamada = classDates.filter((d) => !datasComChamada.has(d.value));
+    const passadasAbertas = semChamada.filter((d) => d.value < hoje);
+    const hojeAberta = semChamada.find((d) => d.value === hoje);
+    const proximaAberta = semChamada.find((d) => d.value > hoje);
+    return [
+      ...passadasAbertas,
+      ...(hojeAberta ? [hojeAberta] : proximaAberta ? [proximaAberta] : []),
+    ];
+  }, [instances, chamadaTurmaId, chamadasPEC]);
+
   // Query para buscar dados de usuários
   const { data: usersData = [] } = useQuery<UserType[]>({
     queryKey: ['/api/users'],
@@ -784,10 +960,11 @@ const handleCommitImport = async () => {
   
   // Query para buscar alunos da turma selecionada para chamada
   const { data: alunosChamadaTurma = [], isLoading: loadingAlunosChamada } = useQuery<any[]>({
-    queryKey: ['/api/pec/turma-alunos', chamadaTurmaId],
+    queryKey: ['/api/pec/turma-alunos', chamadaTurmaId, chamadaData],
     queryFn: async () => {
       if (!chamadaTurmaId) return [];
-     const response = await fetch(`/api/pec/turma-alunos/${chamadaTurmaId}`, {
+      const dateParam = chamadaData ? `&date=${chamadaData}` : '';
+      const response = await fetch(`/api/pec/turma-alunos/${chamadaTurmaId}?includeEvadidos=false${dateParam}`, {
         credentials: "include",
       });
       if (!response.ok) return [];
@@ -798,35 +975,55 @@ const handleCommitImport = async () => {
 
   React.useEffect(() => {
     if (editingChamadaId || !chamadaTurmaId) return;
-    const DAY_MAP: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
-    const selectedTurma = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
-    const diasSemana = selectedTurma?.dias_semana || selectedTurma?.days_of_week || selectedTurma?.diasSemana || [];
-    const occStart = selectedTurma?.occurrence_start || selectedTurma?.start_date;
-    const occEnd = selectedTurma?.occurrence_end || selectedTurma?.end_date;
-    if (diasSemana.length > 0 && occStart && occEnd) {
-      const jsDays = diasSemana.map((d: string) => DAY_MAP[d]).filter((d: number | undefined) => d !== undefined);
-      const today = new Date().toISOString().split('T')[0];
-      const current = new Date(occStart + 'T00:00:00');
-      const end = new Date(occEnd + 'T00:00:00');
-      let firstValid = '';
-      let closestToToday = '';
-      while (current <= end) {
-        if (jsDays.includes(current.getDay())) {
-          const dateStr = current.toISOString().split('T')[0];
-          if (!firstValid) firstValid = dateStr;
-          if (dateStr <= today) closestToToday = dateStr;
-          if (dateStr >= today && !closestToToday) { closestToToday = dateStr; break; }
-        }
-        current.setDate(current.getDate() + 1);
-      }
-      setChamadaData(closestToToday || firstValid || today);
+    const hoje = new Date().toISOString().split('T')[0];
+    const hojeAberta = datasAulaDisponiveisChamada.find((d) => d.value === hoje);
+    const proximaAberta = datasAulaDisponiveisChamada.find((d) => d.value > hoje);
+    const passadasAbertas = datasAulaDisponiveisChamada.filter((d) => d.value < hoje);
+    const dataPreferencial = hojeAberta?.value || proximaAberta?.value || passadasAbertas[0]?.value || '';
+    if (!chamadaData || !datasAulaDisponiveisChamada.some((d) => d.value === chamadaData)) {
+      setChamadaData(dataPreferencial);
     }
-  }, [chamadaTurmaId, instances, editingChamadaId]);
+  }, [chamadaTurmaId, editingChamadaId, datasAulaDisponiveisChamada, chamadaData]);
 
   const { data: catracaLog, refetch: refetchCatracaLog } = useQuery<{ data: string; entradas: any[]; total: number }>({
     queryKey: ['/api/webhook/presenca-log'],
     enabled: activeSection === 'chamadas',
     refetchInterval: 30000,
+  });
+
+  // Painel laranja de alertas de catraca — desativado (reativar descomentando query + bloco JSX abaixo)
+  // const { data: alertasCatraca, refetch: refetchAlertasCatraca } = useQuery<{ alertas: any[]; total: number }>({
+  //   queryKey: ['/api/webhook/alertas-catraca'],
+  //   refetchInterval: 60000,
+  // });
+
+  // Queries de exceções PEC
+  const { data: excecoesPecTodas = [], refetch: refetchExcecoesPec } = useQuery<any[]>({
+    queryKey: ['/api/pec/activity-instances/excecoes/todas'],
+    enabled: activeSection === 'excecoes',
+  });
+
+  const { data: excecaoDiasAulaPec = { dias: [] } } = useQuery<{ dias: string[] }>({
+    queryKey: ['/api/pec/activity-instances/dias-aula', excecaoTurmaIdModal],
+    queryFn: async () => {
+      if (!excecaoTurmaIdModal) return { dias: [] };
+      const r = await fetch(`/api/pec/activity-instances/${excecaoTurmaIdModal}/dias-aula`, { credentials: 'include' });
+      if (!r.ok) return { dias: [] };
+      return r.json();
+    },
+    enabled: !!excecaoTurmaIdModal,
+  });
+
+  // Excecoes para a turma selecionada na chamada (para filtrar datas disponíveis)
+  const { data: excecoesChamadaTurma = [] } = useQuery<any[]>({
+    queryKey: ['/api/pec/activity-instances/excecoes', chamadaTurmaId],
+    queryFn: async () => {
+      if (!chamadaTurmaId) return [];
+      const r = await fetch(`/api/pec/activity-instances/${chamadaTurmaId}/excecoes`, { credentials: 'include' });
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!chamadaTurmaId && activeSection === 'chamadas',
   });
 
   const { data: pecSessionExistente } = useQuery<any>({
@@ -855,7 +1052,6 @@ const handleCommitImport = async () => {
         if (data.tipo === "presenca" && data.vertente === "pec") {
           refetchCatracaLog();
           queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date', chamadaTurmaId, chamadaData] });
-          setCatracaApplied(false);
         }
       } catch (_) {}
     };
@@ -891,7 +1087,6 @@ const handleCommitImport = async () => {
 
     // Modo NOVA CHAMADA: inicializar todos como ausentes
     if (!editingChamadaId) {
-      setCatracaApplied(false);
       const selectedTurmaData = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
       setModoManual(false); // Sempre inicia em modo facial
       setPresencasChamada(alunosChamadaTurma.map((aluno: any) => ({
@@ -907,33 +1102,44 @@ const handleCommitImport = async () => {
   React.useEffect(() => {
     if (editingChamadaId) return;
     if (!pecSessionExistente?.attendance) return;
-    if (presencasChamada.length === 0) return;
     const attendance = pecSessionExistente.attendance as any[];
-    const catracaEntries = attendance.filter((a: any) => a.origemCatraca === true && a.presente === true);
-    if (catracaEntries.length === 0) return;
-    if (catracaApplied) return;
+    const autoEntries = attendance.filter((a: any) => (a.origemCatraca === true || a.origemScanner === true) && a.presente === true);
+    if (autoEntries.length === 0) return;
 
-    const catracaCpfMap = new Map(catracaEntries.map((a: any) => [a.alunoCpf, a]));
-    const updated = presencasChamada.map(p => {
-      const entry = catracaCpfMap.get(p.alunoCpf);
-      if (entry) {
-        return { ...p, presente: true, viaCatraca: true, horaEntrada: entry.horaEntrada };
-      }
-      return p;
+    const cpfDigits = (cpf: unknown) => String(cpf ?? "").replace(/\D/g, "");
+    const autoCpfMap = new Map(autoEntries.map((a: any) => [cpfDigits(a.alunoCpf), a]));
+
+    setPresencasChamada((prev) => {
+      if (prev.length === 0) return prev;
+      return prev.map((p) => {
+        const entry = autoCpfMap.get(cpfDigits(p.alunoCpf));
+        if (entry) {
+          return {
+            ...p,
+            presente: true,
+            viaCatraca: entry.origemCatraca === true,
+            viaScanner: entry.origemScanner === true,
+            horaEntrada: entry.horaEntrada,
+          };
+        }
+        return p;
+      });
     });
-    setCatracaApplied(true);
-    setPresencasChamada(updated);
-  }, [pecSessionExistente, presencasChamada.length, editingChamadaId, catracaApplied]);
+  }, [pecSessionExistente, presencasChamada.length, editingChamadaId]);
 
   // Mutation para salvar chamada
   const salvarChamadaMutation = useMutation({
     mutationFn: async (vars?: { teveAlimentacao?: boolean | null }) => {
-      if (!fotoFile && !editingChamadaId) {
+      if (fotoFiles.length === 0 && !editingChamadaId) {
         throw new Error("É obrigatório enviar a foto comprovante para finalizar a chamada.");
       }
       const turma = instances.find((i: any) => i.id.toString() === chamadaTurmaId);
+      const sessionId = normalizeSessionId(editingChamadaId);
+      if (editingChamadaId && !sessionId) {
+        throw new Error("Não foi possível identificar a chamada para edição.");
+      }
       const url = editingChamadaId 
-        ? `/api/pec/sessions/${editingChamadaId}/editar`
+        ? `/api/pec/sessions/${sessionId}/editar`
         : '/api/pec/sessions';
       const method = editingChamadaId ? 'PUT' : 'POST';
       const response = await fetch(url, {
@@ -958,13 +1164,16 @@ const handleCommitImport = async () => {
           }))
         })
       });
-      if (!response.ok) throw new Error(editingChamadaId ? 'Erro ao atualizar chamada' : 'Erro ao salvar chamada');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || (editingChamadaId ? 'Erro ao atualizar chamada' : 'Erro ao salvar chamada'));
+      }
       const result = await response.json();
 
-      if (fotoFile) {
+      if (fotoFiles.length > 0) {
         try {
           const formData = new FormData();
-          formData.append('foto', fotoFile);
+          fotoFiles.forEach(f => formData.append('foto', f));
           formData.append('sessionId', String(result?.id || editingChamadaId || ''));
           await fetch('/api/pec/sessions/foto', {
             method: 'POST',
@@ -981,10 +1190,12 @@ const handleCommitImport = async () => {
     onSuccess: () => {
       toast({ title: 'Sucesso', description: editingChamadaId ? 'Chamada atualizada com sucesso!' : 'Chamada registrada com sucesso!' });
       queryClient.invalidateQueries({ queryKey: ['/api/pec/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date'] });
       setShowNovaChamadaForm(false);
       setChamadaTurmaId('');
       setPresencasChamada([]);
       setFotoFile(null);
+      setFotoFiles([]);
       setExistingFotoUrl(null);
       setEditingChamadaId(null);
       setEditingTeveAlimentacao(null);
@@ -996,13 +1207,20 @@ const handleCommitImport = async () => {
 
   // Query para buscar alunos da tabela aluno (todos os status para filtro funcionar no cliente)
   const { data: alunosData = [] } = useQuery<any[]>({
-    queryKey: ['/api/students/all', 'todos'],
+    queryKey: ['/api/students/all', 'todos', 'withTurmas'],
     queryFn: async () => {
-      const res = await fetch('/api/students/all?status=todos', { credentials: 'include' });
+      const res = await fetch('/api/students/all?status=todos&includeTurmas=true', { credentials: 'include' });
       if (!res.ok) throw new Error('Falha ao carregar alunos');
       return res.json();
     },
   });
+
+  const TURMAS_INATIVAS_SITUATIONS = ['encerrada', 'inativo', 'inativa', 'concluido', 'concluida'];
+  const turmasAtivasAluno = (turmas: any[] | undefined) =>
+    (turmas || []).filter((t: any) => {
+      const sit = String(t.situation || t.status || '').toLowerCase();
+      return !TURMAS_INATIVAS_SITUATIONS.includes(sit);
+    });
 
   const { data: turmasAtivasPec } = useQuery<{ totalAtivas: number; porProjeto: Array<{ projeto: string; total: number }> }>({
     queryKey: ['/api/gestao-vista/turmas-ativas-pec'],
@@ -1011,18 +1229,43 @@ const handleCommitImport = async () => {
   });
 
   const { data: dashboardDemografico, isLoading: loadingDemografico } = useQuery<any>({
-    queryKey: ['/api/coordenador/dashboard-demografico', dashFiltroAno, dashFiltroMes],
+    queryKey: ['/api/coordenador/dashboard-demografico', dashFiltroAno, dashFiltroPeriodo],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (dashFiltroAno) params.set('ano', String(dashFiltroAno));
-      if (dashFiltroMes) params.set('mes', String(dashFiltroMes));
-      const qs = params.toString();
-      const url = '/api/coordenador/dashboard-demografico' + (qs ? `?${qs}` : '');
+      const url = '/api/coordenador/dashboard-demografico' + buildPeriodoQueryString(dashFiltroAno, dashFiltroPeriodo);
       const response = await fetch(url, { credentials: "include" });
       if (!response.ok) throw new Error('Falha ao carregar dados demográficos');
       return response.json();
     },
+    enabled: !!coordenadorId,
+    placeholderData: keepPreviousData,
   });
+
+  // KPIs canônicos — mesma fonte do Monitor e do Gestão à Vista
+  const pecKpisUrl = `/api/pec/dashboard-kpis${buildPeriodoQueryString(dashFiltroAno || new Date().getFullYear(), dashFiltroPeriodo)}`;
+  const { data: pecKpis } = useQuery<any>({
+    queryKey: [pecKpisUrl],
+    staleTime: 60000,
+    refetchInterval: 120000,
+    placeholderData: keepPreviousData,
+  });
+
+  // Detecta período futuro — meses que ainda não ocorreram
+  const _hoje = new Date();
+  const isFuturePeriod = isFuturePeriodo(dashFiltroAno, dashFiltroPeriodo);
+
+  // Mesclado: KPIs canônicos (pecKpis) têm prioridade; demográficos complementam
+  const dashMerged = (pecKpis || dashboardDemografico) ? {
+    ...(dashboardDemografico ?? {}),
+    totalAlunos:    pecKpis?.atendidos        ?? dashboardDemografico?.totalAlunos     ?? 0,
+    horasAula:      pecKpis?.horasAula        ?? dashboardDemografico?.horasAula       ?? 0,
+    totalPresencas: pecKpis?.atendimentos     ?? dashboardDemografico?.totalPresencas  ?? 0,
+    alimentacao:    pecKpis?.alimentacao      ?? dashboardDemografico?.alimentacao     ?? 0,
+    frequenciaMedia: pecKpis?.frequenciaMedia ?? dashboardDemografico?.frequenciaMedia ?? 0,
+    evasao:         pecKpis?.evasao           ?? dashboardDemografico?.evasao          ?? 0,
+    nps:            pecKpis?.nps              ?? dashboardDemografico?.nps             ?? 0,
+    alunosFormados: pecKpis?.alunosFormados   ?? dashboardDemografico?.alunosFormados  ?? 0,
+    ...(isFuturePeriod ? { porGenero: [], porFaixaEtaria: [], porRacaCor: [], porPrograma: [] } : {}),
+  } : null;
 
   const getNomeAluno = (aluno: any) => {
     const nome =
@@ -1047,18 +1290,53 @@ const handleCommitImport = async () => {
     data_nascimento: aluno?.data_nascimento ?? null,
     genero: aluno?.genero ?? null,
     situacao_atendimento: aluno?.situacao_atendimento ?? "ativo",
+    turmas: aluno?.turmas || [],
   }));
 
-  const handleLogout = () => {
-    // remove só o que é do coordenador
-    localStorage.removeItem("coordenadorId");
-    localStorage.removeItem("coordenadorNome");
-    localStorage.removeItem("coordenadorEmail");
-    localStorage.removeItem("userPapel");
-    localStorage.removeItem("actorType");
-    sessionStorage.removeItem("coordenador_auth");
-    sessionStorage.removeItem("coordenador_data");
+  const turmasDisponiveisAlunos = useMemo(() => {
+    const turmaMap = new Map<number, string>();
+    students.forEach((aluno: any) => {
+      turmasAtivasAluno(aluno.turmas).forEach((turma: any) => {
+        if (typeof turma?.id === "number" && turma?.nome) {
+          turmaMap.set(turma.id, turma.nome);
+        }
+      });
+    });
+    return Array.from(turmaMap.entries())
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [students]);
 
+  const studentsFiltrados = useMemo(() => {
+    return [...students]
+      .sort((a: any, b: any) => {
+        const nomeA = (a.nome || "").trim().toLowerCase();
+        const nomeB = (b.nome || "").trim().toLowerCase();
+        return nomeA.localeCompare(nomeB, "pt-BR");
+      })
+      .filter((student: any) => {
+        const matchesSearch =
+          !searchTermAlunos ||
+          (student.nome || "").toLowerCase().includes(searchTermAlunos.toLowerCase()) ||
+          (student.cpf || "").includes(searchTermAlunos);
+        if (!matchesSearch) return false;
+        if (statusFilterAlunos === "ativos" && student.situacao_atendimento === "inativo") return false;
+        if (statusFilterAlunos === "inativos" && student.situacao_atendimento !== "inativo") return false;
+
+        const turmasAtivas = turmasAtivasAluno(student.turmas);
+        let matchesTurma = true;
+        if (turmaFilterAlunos === "sem_vinculo") {
+          matchesTurma = turmasAtivas.length === 0;
+        } else if (turmaFilterAlunos !== "todas") {
+          const selectedTurmaId = Number(turmaFilterAlunos);
+          matchesTurma = turmasAtivas.some((t: any) => t?.id === selectedTurmaId);
+        }
+        return matchesTurma;
+      });
+  }, [students, searchTermAlunos, statusFilterAlunos, turmaFilterAlunos]);
+
+  const handleLogout = async () => {
+    await logoutAndClearSession();
     toast({ title: "Logout realizado", description: "Você foi desconectado com sucesso." });
     setTimeout(() => (window.location.href = "/login/coordenador"), 500);
   };
@@ -1073,6 +1351,19 @@ const handleCommitImport = async () => {
     });
   };
 
+  if (consentChecking) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500" />
+      </div>
+    );
+  }
+  if (!consentReady) {
+    return (
+      <AreaConsentGate area="employees" onAccept={() => setConsentReady()} onNavigate={setLocation} />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -1086,6 +1377,7 @@ const handleCommitImport = async () => {
 
   return (
     <div className="min-h-screen bg-slate-900" data-testid="coordenador-pec-page">
+      <PresencaManualSenhaCoordinatorModal vertente="pec" vertenteLabel="PEC — Esporte-Cultura" />
       {/* Header */}
       <div className="bg-slate-900 border-b border-slate-700 px-4 py-4 md:px-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1100,65 +1392,100 @@ const handleCommitImport = async () => {
               <p className="text-slate-400" data-testid="text-username">Olá {perfilData.nome}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenImport}
-              data-testid="button-import"
-              className="border-orange-500 text-orange-600 hover:bg-orange-50"
-            >
-            <UploadCloud className="w-4 h-4 mr-2" />
-              Importar
-            </Button>
-            <Button 
-              variant="default" 
-              size="sm" 
-              onClick={handleExportReport}
-              data-testid="button-export"
-              className="bg-orange-500 hover:bg-orange-600"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Exportar
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
-              data-testid="button-transparencia"
-              className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Canal de Transparência
-            </Button>
+          <div className="flex items-center gap-2 justify-end">
+            {/* Desktop: botões visíveis */}
+            <div className="hidden sm:flex items-center gap-2 flex-wrap justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleOpenImport}
+                data-testid="button-import"
+                className="border-orange-500 text-orange-600 hover:bg-orange-50"
+              >
+                <UploadCloud className="w-4 h-4 mr-2" />
+                Importar
+              </Button>
+              <Button 
+                variant="default" 
+                size="sm" 
+                onClick={handleExportReport}
+                data-testid="button-export"
+                className="bg-orange-500 hover:bg-orange-600"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Exportar
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')}
+                data-testid="button-transparencia"
+                className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Canal de Transparência
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
+                    data-testid="button-plano-acao"
+                  >
+                    <ClipboardList className="w-4 h-4 mr-2" />
+                    Plano de Ação
+                    <ChevronDown className="w-4 h-4 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
+                    className="cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Monday
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
+                    className="cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Slack
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <LgpdLegalHeaderButtons />
+            </div>
+            {/* Mobile: menu recolhido */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="bg-blue-500 text-white hover:bg-blue-600 border-blue-500"
-                  data-testid="button-plano-acao"
-                >
-                  <ClipboardList className="w-4 h-4 mr-2" />
-                  Plano de Ação
-                  <ChevronDown className="w-4 h-4 ml-1" />
+                <Button variant="outline" size="sm" className="sm:hidden" data-testid="button-mobile-menu">
+                  <MoreHorizontal className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={() => window.open("https://monday.com/lang/pt", "_blank")}
-                  className="cursor-pointer"
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  Monday
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={handleOpenImport} className="cursor-pointer">
+                  <UploadCloud className="w-4 h-4 mr-2 text-orange-600" />
+                  Importar
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")}
-                  className="cursor-pointer"
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  Slack
+                <DropdownMenuItem onClick={handleExportReport} className="cursor-pointer">
+                  <Download className="w-4 h-4 mr-2 text-orange-600" />
+                  Exportar
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')} className="cursor-pointer">
+                  <ExternalLink className="w-4 h-4 mr-2 text-yellow-600" />
+                  Canal de Transparência
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.open("https://monday.com/lang/pt", "_blank")} className="cursor-pointer">
+                  <ClipboardList className="w-4 h-4 mr-2 text-blue-600" />
+                  Plano de Ação — Monday
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => window.open("https://slack.com/intl/pt-br/", "_blank")} className="cursor-pointer">
+                  <ClipboardList className="w-4 h-4 mr-2 text-blue-600" />
+                  Plano de Ação — Slack
+                </DropdownMenuItem>
+                <PrivacyPreferencesDropdownItem />
               </DropdownMenuContent>
             </DropdownMenu>
             <Button 
@@ -1167,8 +1494,8 @@ const handleCommitImport = async () => {
               onClick={handleLogout}
               data-testid="button-logout"
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sair
+              <LogOut className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Sair</span>
             </Button>
           </div>
         </div>
@@ -1177,17 +1504,62 @@ const handleCommitImport = async () => {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
         <CoordenadorDashboard
-          data={dashboardDemografico}
+          data={dashMerged}
           isLoading={loadingDemografico}
           filtroAno={dashFiltroAno}
-          filtroMes={dashFiltroMes}
-          onFilterChange={(ano, mes) => {
+          filtroPeriodo={dashFiltroPeriodo}
+          onFilterChange={(ano, periodo) => {
             setDashFiltroAno(ano);
-            setDashFiltroMes(mes);
+            setDashFiltroPeriodo(periodo);
           }}
           tipo="pec"
-          turmasAtivasPec={turmasAtivasPec}
+          turmasAtivasPec={isFuturePeriod ? undefined : turmasAtivasPec}
+          turmasDetalhadas={isFuturePeriod ? { ativas: [], concluidas: [] } : {
+            ativas: (instances as any[]).filter((i: any) => !['encerrada','inativo','inativa','concluido'].includes((i.situation || i.status || '').toLowerCase())).map((i: any) => ({ nome: i.title || i.nome || 'Turma', projeto: i.activity_name || i.program_name })),
+            concluidas: (instances as any[]).filter((i: any) => ['encerrada','inativo','inativa','concluido'].includes((i.situation || i.status || '').toLowerCase())).map((i: any) => ({ nome: i.title || i.nome || 'Turma', projeto: i.activity_name || i.program_name })),
+          }}
         />
+
+        {/* ── Alertas de Catraca: sessões criadas automaticamente (desativado — commit 39424c0a2, 13/05/2026) ──
+        {alertasCatraca && alertasCatraca.total > 0 && (
+          <div className="mb-6 rounded-lg border border-orange-300 bg-orange-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1">
+                <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold text-orange-800 text-sm">
+                    {alertasCatraca.total} alerta{alertasCatraca.total !== 1 ? 's' : ''} de catraca — sessão criada automaticamente
+                  </p>
+                  <p className="text-xs text-orange-700 mt-0.5 mb-3">
+                    As turmas abaixo tiveram presença registrada pela catraca sem que houvesse uma chamada/sessão aberta. Verifique os cadastros, horários e a rotina de chamada.
+                  </p>
+                  <div className="space-y-2">
+                    {alertasCatraca.alertas.slice(0, 5).map((alerta: any, idx: number) => (
+                      <div key={idx} className="bg-white rounded border border-orange-200 px-3 py-2 text-xs">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-medium text-gray-800">{alerta.nome_aluno}</span>
+                          <span className="text-orange-700 font-semibold">{alerta.turma_nome}</span>
+                          <span className="text-gray-500 font-mono">{alerta.data_evento} às {alerta.hora}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {alertasCatraca.total > 5 && (
+                      <p className="text-xs text-orange-600 text-center">+ {alertasCatraca.total - 5} alerta(s) adicionais — veja no painel Dev para detalhes completos</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => refetchAlertasCatraca()}
+                className="text-orange-500 hover:text-orange-700 flex-shrink-0"
+                title="Atualizar alertas"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+        */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           
@@ -1203,10 +1575,10 @@ const handleCommitImport = async () => {
               <p className="text-gray-600 text-sm">
                 Gerencie alunos, acompanhe desempenho e organize equipes esportivas.
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'projetos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'projetos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-projetos"
                   onClick={() => changeSection('projetos')}
                   size="sm"
@@ -1215,8 +1587,8 @@ const handleCommitImport = async () => {
                   Projetos
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'turmas' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'turmas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-turmas"
                   onClick={() => changeSection('turmas')}
                   size="sm"
@@ -1225,8 +1597,8 @@ const handleCommitImport = async () => {
                   Turmas
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'atletas' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'atletas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-atletas"
                   onClick={() => changeSection('atletas')}
                   size="sm"
@@ -1235,8 +1607,8 @@ const handleCommitImport = async () => {
                   Alunos
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'avaliacoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'avaliacoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-avaliacoes"
                   onClick={() => changeSection('avaliacoes')}
                   size="sm"
@@ -1245,14 +1617,23 @@ const handleCommitImport = async () => {
                   Avaliações Físicas
                 </Button>
                 <Button 
-                  className="w-full col-span-2" 
-                  variant={activeSection === 'chamadas' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'chamadas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-chamadas"
                   onClick={() => changeSection('chamadas')}
                   size="sm"
                 >
                   <CheckCircle className="w-4 h-4 mr-2" />
                   Chamadas
+                </Button>
+                <Button 
+                  
+                  variant="outline" className={activeSection === 'excecoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => changeSection('excecoes')}
+                  size="sm"
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Remanejamentos
                 </Button>
               </div>
             </CardContent>
@@ -1272,8 +1653,8 @@ const handleCommitImport = async () => {
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'modalidades' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'modalidades' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-modalidades"
                   onClick={() => changeSection('modalidades')}
                 >
@@ -1281,8 +1662,8 @@ const handleCommitImport = async () => {
                   Modalidades
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'treinamentos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'treinamentos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-treinamentos"
                   onClick={() => changeSection('treinamentos')}
                 >
@@ -1307,8 +1688,8 @@ const handleCommitImport = async () => {
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'oficinas' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'oficinas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-oficinas"
                   onClick={() => changeSection('oficinas')}
                 >
@@ -1316,8 +1697,8 @@ const handleCommitImport = async () => {
                   Oficinas Culturais
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'apresentacoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'apresentacoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-apresentacoes"
                   onClick={() => changeSection('apresentacoes')}
                 >
@@ -1342,17 +1723,17 @@ const handleCommitImport = async () => {
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full bg-red-500 hover:bg-red-600 text-white"
-                  variant={activeSection === 'eventos' ? 'default' : 'default'}
+                  variant="outline" className={activeSection === "eventos" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-eventos"
                   onClick={() => changeSection('eventos')}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Eventos
                 </Button>
+
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'competicoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'competicoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-competicoes"
                   onClick={() => changeSection('competicoes')}
                 >
@@ -1377,8 +1758,8 @@ const handleCommitImport = async () => {
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full"
-                  variant={activeSection === 'professores' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'professores' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-professores"
                   onClick={() => changeSection('professores')}
                 >
@@ -1386,17 +1767,17 @@ const handleCommitImport = async () => {
                   Gerenciar Professores
                 </Button>
                 <Button
-                  className="w-full"
                   variant="outline"
-                  onClick={() => { setFiltroProfPec(""); setShowPlanosAulaPecModal(true); }}
+                  className={activeSection === 'planos-aula' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setFiltroProfPec(""); setFiltroProfAtivoPlanosP(""); setFiltroTurmaAtivoPlanosP(""); setFiltroDataInicioPlanosP(""); setFiltroDataFimPlanosP(""); setPlanoAulaPecDetalhes(null); changeSection('planos-aula'); }}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Planos de Aula
                 </Button>
                 <Button
-                  className="w-full"
                   variant="outline"
-                  onClick={() => { setFiltroProfPec(""); setShowRelatoriosAulaPecModal(true); }}
+                  className={activeSection === 'relatorios-aulas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setFiltroProfPec(""); changeSection('relatorios-aulas'); }}
                 >
                   <ClipboardList className="w-4 h-4 mr-2" />
                   Relatórios de Aulas
@@ -1419,8 +1800,8 @@ const handleCommitImport = async () => {
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'relatorios' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'relatorios' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-relatorios"
                   onClick={() => changeSection('relatorios')}
                 >
@@ -1428,8 +1809,8 @@ const handleCommitImport = async () => {
                   Relatórios
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'frequencias' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'frequencias' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-frequencias"
                   onClick={() => changeSection('frequencias')}
                 >
@@ -1437,13 +1818,25 @@ const handleCommitImport = async () => {
                   Ver Frequências
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'nps' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => changeSection('nps')}
+                >
+                  <BarChart2 className="w-4 h-4 mr-2" />
+                  Pesquisas NPS
+                </Button>
+                <Button 
+                  
+                  variant="outline" className={activeSection === 'configuracoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-perfil"
                   onClick={() => changeSection('configuracoes')}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   Meu Perfil
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => openPrivacyPreferences()}>
+                  <Shield className="w-4 h-4 mr-2" />
+                  Privacidade e cookies
                 </Button>
               </div>
             </CardContent>
@@ -1473,7 +1866,7 @@ const handleCommitImport = async () => {
 
           {activeSection === 'atletas' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Gestão de Alunos</CardTitle>
                 <Button size="sm" className="bg-blue-500 hover:bg-blue-600" onClick={handleAdicionarAluno} data-testid="button-adicionar-aluno">
                   <Plus className="w-4 h-4 mr-2" />
@@ -1482,7 +1875,7 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input 
@@ -1502,13 +1895,32 @@ const handleCommitImport = async () => {
                         <SelectItem value="inativos">Inativos</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select value={turmaFilterAlunos} onValueChange={setTurmaFilterAlunos}>
+                      <SelectTrigger className="w-64" data-testid="select-filtro-turma-alunos">
+                        <SelectValue placeholder="Filtrar por turma" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">Todas as turmas</SelectItem>
+                        <SelectItem value="sem_vinculo">Sem oficina vinculada</SelectItem>
+                        {turmasDisponiveisAlunos.map((turma) => (
+                          <SelectItem key={turma.id} value={String(turma.id)}>
+                            {turma.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   {students.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       Nenhum aluno encontrado. Clique em "Adicionar Aluno" para cadastrar.
                     </div>
+                  ) : studentsFiltrados.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      Nenhum aluno encontrado para os filtros aplicados.
+                    </div>
                   ) : (
+                    <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -1516,32 +1928,19 @@ const handleCommitImport = async () => {
                           <TableHead>Nome</TableHead>
                           <TableHead>CPF</TableHead>
                           <TableHead>Telefone</TableHead>
+                          <TableHead>Nascimento</TableHead>
+                          <TableHead>Idade</TableHead>
+                          <TableHead>Oficinas / Turmas</TableHead>
                           <TableHead>Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {[...students]
-                          .sort((a: any, b: any) => {
-                            const nomeA = (a.nome || '').trim().toLowerCase();
-                              const nomeB = (b.nome || '').trim().toLowerCase();
-                            return nomeA.localeCompare(nomeB, 'pt-BR');
-                          })
-                          .filter((student: any) => {
-                            const matchesSearch = !searchTermAlunos || 
-                              (student.nome || '').toLowerCase().includes(searchTermAlunos.toLowerCase()) ||
-                              (student.cpf || '').includes(searchTermAlunos);
-                            if (!matchesSearch) return false;
-                            if (statusFilterAlunos === 'todos') return true;
-                            if (statusFilterAlunos === 'ativos') return student.situacao_atendimento !== 'inativo';
-                            if (statusFilterAlunos === 'inativos') return student.situacao_atendimento === 'inativo';
-                            return true;
-                          })
-                          .map((student: any) => (
+                        {studentsFiltrados.map((student: any) => (
                           <TableRow key={student.id || student.cpf}>
                             <TableCell>
                               {student.foto_perfil && student.foto_perfil.trim() ? (
                                 <img 
-                                  src={student.foto_perfil} 
+                                  src={toProxyUrl(student.foto_perfil)!} 
                                   alt={student.nome} 
                                   className="w-10 h-10 rounded-full object-cover"
                                 />
@@ -1556,6 +1955,35 @@ const handleCommitImport = async () => {
                             </TableCell>
                             <TableCell>{student.cpf || 'Não informado'}</TableCell>
                             <TableCell>{student.telefone || 'Não informado'}</TableCell>
+                            <TableCell>
+                              {(() => {
+                                const nasc = student.data_nascimento || student.dataNascimento;
+                                if (!nasc) return '-';
+                                const hoje = new Date();
+                                const n = new Date(nasc);
+                                if (isNaN(n.getTime())) return '-';
+                                let idade = hoje.getFullYear() - n.getUTCFullYear();
+                                const m = hoje.getMonth() - n.getUTCMonth();
+                                if (m < 0 || (m === 0 && hoje.getDate() < n.getUTCDate())) idade--;
+                                return `${idade} anos`;
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {turmasAtivasAluno(student.turmas).length > 0 ? (
+                                  turmasAtivasAluno(student.turmas).map((turma: any, idx: number) => (
+                                    <Badge
+                                      key={`${turma.id}-${idx}`}
+                                      className="bg-white border border-orange-500 text-orange-700 text-xs hover:bg-orange-50"
+                                    >
+                                      {turma.nome}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-sm text-gray-400">Sem oficina vinculada</span>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
                                 <Button 
@@ -1603,14 +2031,7 @@ const handleCommitImport = async () => {
                                       }
 
                                       // 3) Buscar documentos do aluno (✅ usa o cpf certo)
-                                    const userId = localStorage.getItem("userId");
-
-                                    const resDocs = await fetch(`/api/documentos/aluno/${cpfAluno}`, {
-                                      credentials: "include",
-                                      headers: {
-                                        "x-user-id": userId || "",
-                                      },
-                                    });
+                                    const resDocs = await authFetch(`/api/documentos/aluno/${cpfAluno}`);
                                       const docsJson = await resDocs.json();
 
                                       if (!resDocs.ok) {
@@ -1667,6 +2088,7 @@ const handleCommitImport = async () => {
                         ))}
                       </TableBody>
                     </Table>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -1677,9 +2099,144 @@ const handleCommitImport = async () => {
             <GerenciarProfessores programa="pec" />
           )}
 
+          {activeSection === 'planos-aula' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-6 h-6 text-teal-600" />
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900">Planos de Aula — Professores de PEC</h2>
+                    <p className="text-gray-500 text-sm">Visualize todos os planos de aula registrados pelos professores do programa.</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => changeSection('professores')} className="border-gray-200 text-gray-600 hover:bg-gray-100">
+                  ← Voltar
+                </Button>
+              </div>
+              {!planoAulaPecDetalhes && (
+                <div className="flex gap-2 flex-wrap items-center">
+                  <Input
+                    placeholder="Buscar por título..."
+                    value={filtroProfPec}
+                    onChange={e => setFiltroProfPec(e.target.value)}
+                    className="bg-white border-gray-300 text-gray-900 placeholder:text-gray-400 flex-1 min-w-[140px]"
+                  />
+                  <select
+                    value={filtroProfAtivoPlanosP}
+                    onChange={e => setFiltroProfAtivoPlanosP(e.target.value)}
+                    className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[140px]"
+                  >
+                    <option value="">Todos os professores</option>
+                    {[...new Set((planosAulaPec as any[]).map((p: any) => p.professorNome).filter(Boolean))].map((prof: any) => (
+                      <option key={prof} value={prof}>{prof}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={filtroTurmaAtivoPlanosP}
+                    onChange={e => setFiltroTurmaAtivoPlanosP(e.target.value)}
+                    className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[140px]"
+                  >
+                    <option value="">Todas as turmas</option>
+                    {[...new Set((planosAulaPec as any[]).map((p: any) => p.turmaNome).filter(Boolean))].map((turma: any) => (
+                      <option key={turma} value={turma}>{turma}</option>
+                    ))}
+                  </select>
+                  <div className="flex items-center gap-1 border border-gray-300 rounded-md px-3 py-1.5 bg-white">
+                    <span className="text-xs text-gray-500 shrink-0">De</span>
+                    <input type="date" value={filtroDataInicioPlanosP} onChange={e => setFiltroDataInicioPlanosP(e.target.value)} className="text-sm text-gray-700 bg-transparent focus:outline-none" />
+                    <span className="text-xs text-gray-400 shrink-0 px-1">até</span>
+                    <input type="date" value={filtroDataFimPlanosP} onChange={e => setFiltroDataFimPlanosP(e.target.value)} className="text-sm text-gray-700 bg-transparent focus:outline-none" />
+                  </div>
+                </div>
+              )}
+              {loadingPlanosPec ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500" />
+                </div>
+              ) : planosAulaPec.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                  <p>Nenhum plano de aula registrado ainda.</p>
+                </div>
+              ) : planoAulaPecDetalhes ? (
+                <div className="space-y-4">
+                  <Button variant="outline" size="sm" onClick={() => setPlanoAulaPecDetalhes(null)} className="border-gray-200 text-gray-600 hover:bg-gray-100">← Voltar para a lista</Button>
+                  <div className="bg-gray-50 rounded-lg p-5 space-y-3 border border-gray-200">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h3 className="text-lg font-semibold text-gray-900">{planoAulaPecDetalhes.titulo}</h3>
+                      {isPlanoStatusExibivel(planoAulaPecDetalhes.status) && (
+                        <Badge variant={planoAulaPecDetalhes.status === 'aplicado' ? 'secondary' : 'default'} className="capitalize">
+                          {labelPlanoStatusExibivel(planoAulaPecDetalhes.status)}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <div><span className="text-gray-500">Professor:</span> <span className="font-medium">{planoAulaPecDetalhes.professorNome || '—'}</span></div>
+                      <div><span className="text-gray-500">Turma:</span> <span>{planoAulaPecDetalhes.turmaNome}</span></div>
+                      <div><span className="text-gray-500">Data:</span> <span>{planoAulaPecDetalhes.data ? new Date(planoAulaPecDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
+                      {planoAulaPecDetalhes.duracaoMinutos && <div><span className="text-gray-500">Duração:</span> <span>{planoAulaPecDetalhes.duracaoMinutos} min</span></div>}
+                    </div>
+                    <div><p className="text-gray-500 text-sm font-medium mb-1">Objetivos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.objetivos}</p></div>
+                    <div><p className="text-gray-500 text-sm font-medium mb-1">Conteúdo</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.conteudo}</p></div>
+                    <div><p className="text-gray-500 text-sm font-medium mb-1">Metodologia</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.metodologia}</p></div>
+                    {planoAulaPecDetalhes.recursos && <div><p className="text-gray-500 text-sm font-medium mb-1">Recursos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.recursos}</p></div>}
+                    {planoAulaPecDetalhes.avaliacao && <div><p className="text-gray-500 text-sm font-medium mb-1">Avaliação</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.avaliacao}</p></div>}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    const filtrados = (planosAulaPec as any[]).filter((p: any) => {
+                      const textoOk = !filtroProfPec || (p.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase());
+                      const profOk = !filtroProfAtivoPlanosP || (p.professorNome || '') === filtroProfAtivoPlanosP;
+                      const turmaOk = !filtroTurmaAtivoPlanosP || (p.turmaNome || '') === filtroTurmaAtivoPlanosP;
+                      const dataOk = (!filtroDataInicioPlanosP || (p.data || '') >= filtroDataInicioPlanosP) && (!filtroDataFimPlanosP || (p.data || '') <= filtroDataFimPlanosP);
+                      return textoOk && profOk && turmaOk && dataOk;
+                    });
+                    return filtrados.length === 0 ? (
+                      <p className="text-center text-gray-500 py-4">Nenhum resultado para os filtros aplicados.</p>
+                    ) : filtrados.map((p: any) => (
+                      <div key={p.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-teal-400 transition-colors cursor-pointer" onClick={() => setPlanoAulaPecDetalhes(p)}>
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{p.titulo}</p>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              <span className="text-teal-600 font-medium">{p.professorNome || 'Professor'}</span>
+                              {' · '}{p.turmaNome}
+                              {' · '}{p.data ? new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                            </p>
+                          </div>
+                          {isPlanoStatusExibivel(p.status) && (
+                            <Badge variant={p.status === 'aplicado' ? 'secondary' : 'default'} className="shrink-0 capitalize text-xs">
+                              {labelPlanoStatusExibivel(p.status)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'relatorios-aulas' && (
+            <RelatoriosAulasProfessoresSection
+              vertente="pec"
+              title="Relatórios de Aulas — Professores de PEC"
+              subtitle="Aulas ministradas e registradas pelos professores do programa."
+              planos={planosAulaPec}
+              aulas={aulasRegistradasPec}
+              loadingPlanos={loadingPlanosPec}
+              loadingAulas={loadingRelatoriosPec}
+              onBack={() => { setFiltroProfPec(""); changeSection("professores"); }}
+              fotoSignedUrlBase="/api/coordenador/inclusao/aula"
+            />
+          )}
+
           {activeSection === 'avaliacoes' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Avaliações Físicas</CardTitle>
                 <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={handleNovaAvaliacao}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -1688,13 +2245,13 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar alunos..." className="pl-10" />
                     </div>
                     <Select>
-                      <SelectTrigger className="w-40">
+                      <SelectTrigger className="w-full sm:w-40">
                         <SelectValue placeholder="Tipo de Teste" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1725,7 +2282,7 @@ const handleCommitImport = async () => {
 
           {activeSection === 'projetos' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Gestão de Projetos</CardTitle>
                 <Button 
                   size="sm" 
@@ -1739,13 +2296,13 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar projetos..." className="pl-10" />
                     </div>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-40" data-testid="select-status-filter">
+                      <SelectTrigger className="w-full sm:w-40" data-testid="select-status-filter">
                         <SelectValue placeholder="Status" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1824,7 +2381,7 @@ const handleCommitImport = async () => {
           {activeSection === 'turmas' && (
             <Card>
               <CardHeader className="flex flex-col gap-4">
-                <div className="flex flex-row items-center justify-between w-full">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-3">
                   <CardTitle>Minhas Turmas</CardTitle>
                   <Button className="bg-green-500 hover:bg-green-600" onClick={handleNovaTurma}>
                     <Plus className="w-4 h-4 mr-2" />
@@ -1832,11 +2389,11 @@ const handleCommitImport = async () => {
                   </Button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Button variant={filtroStatusTurma === "todos" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("todos")}>Todas</Button>
-                  <Button variant={filtroStatusTurma === "ativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("ativo")}>Em Andamento</Button>
-                  <Button variant={filtroStatusTurma === "planejado" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("planejado")}>Planejadas</Button>
-                  <Button variant={filtroStatusTurma === "concluido" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("concluido")}>Concluídas</Button>
-                  <Button variant={filtroStatusTurma === "inativo" ? "default" : "outline"} size="sm" onClick={() => setFiltroStatusTurma("inativo")}>Inativas</Button>
+                  <Button variant="outline" className={filtroStatusTurma === "todos" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500" : ""} size="sm" onClick={() => setFiltroStatusTurma("todos")}>Todas</Button>
+                  <Button variant="outline" className={filtroStatusTurma === "ativo" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500" : ""} size="sm" onClick={() => setFiltroStatusTurma("ativo")}>Em Andamento</Button>
+                  <Button variant="outline" className={filtroStatusTurma === "planejado" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500" : ""} size="sm" onClick={() => setFiltroStatusTurma("planejado")}>Planejadas</Button>
+                  <Button variant="outline" className={filtroStatusTurma === "concluido" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500" : ""} size="sm" onClick={() => setFiltroStatusTurma("concluido")}>Concluídas</Button>
+                  <Button variant="outline" className={filtroStatusTurma === "inativo" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500" : ""} size="sm" onClick={() => setFiltroStatusTurma("inativo")}>Inativas</Button>
                 </div>
                 <div className="w-full">
                   <Input
@@ -1890,7 +2447,7 @@ const handleCommitImport = async () => {
                                  status === "inativo" ? "Inativa" : "Em Andamento"}
                               </Badge>
                             </div>
-                            <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                               <div>
                                 <span className="text-gray-500">Horário:</span>
                                 <p className="font-medium">{instance.start_time && instance.end_time ? `${instance.start_time} - ${instance.end_time}` : (instance.schedule || '- - -')}</p>
@@ -1983,8 +2540,9 @@ const handleCommitImport = async () => {
           )}
 
           {activeSection === 'chamadas' && (
+            <div className="space-y-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-green-500" />
                   Chamadas
@@ -2000,22 +2558,21 @@ const handleCommitImport = async () => {
                     </Badge>
                   )}
                 </CardTitle>
-                <Button 
-                  variant="outline"
-                  onClick={() => {
-                    if (showNovaChamadaForm) {
-                      setShowNovaChamadaForm(false);
-                      setEditingChamadaId(null);
-                      setFotoFile(null);
-                      setExistingFotoUrl(null);
-                    } else {
-                      handleChamadaManual();
-                    }
+                <ChamadaPresencaNavButtons
+                  modoHistorico={!showNovaChamadaForm}
+                  pendentesCount={pendentesChamadaCount}
+                  onNovaChamada={handleChamadaManual}
+                  onVerHistorico={() => {
+                    setShowNovaChamadaForm(false);
+                    setHistoricoTab("finalizadas");
+                    setEditingChamadaId(null);
                   }}
-                >
-                  <Clock className="w-4 h-4 mr-2" />
-                  {showNovaChamadaForm ? 'Ver Histórico' : 'Nova Chamada'}
-                </Button>
+                  onVerPendentes={() => {
+                    setShowNovaChamadaForm(false);
+                    setHistoricoTab("pendentes");
+                    setEditingChamadaId(null);
+                  }}
+                />
               </CardHeader>
               <CardContent>
                 {showNovaChamadaForm ? (
@@ -2023,12 +2580,31 @@ const handleCommitImport = async () => {
                     <div className="flex gap-4 items-end flex-wrap">
                       <div className="flex-1 min-w-[200px]">
                         <label className="block text-sm font-medium mb-2">Turma</label>
-                        <Select value={chamadaTurmaId} onValueChange={setChamadaTurmaId}>
+                        <Select value={chamadaTurmaId} onValueChange={(val) => { setChamadaTurmaId(val); setFotoFile(null); setExistingFotoUrl(null); setPresencaTurmaBusca(''); }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione a turma" />
                           </SelectTrigger>
                           <SelectContent>
-                            {instances.map((turma: any) => (
+                            <div className="px-2 pb-1 pt-1 sticky top-0 bg-white z-10" onKeyDown={e => e.stopPropagation()}>
+                              <input
+                                className="w-full rounded border border-gray-200 px-2 py-1 text-sm outline-none focus:border-blue-400"
+                                placeholder="Pesquisar turma..."
+                                value={presencaTurmaBusca}
+                                onChange={e => setPresencaTurmaBusca(e.target.value)}
+                                onKeyDown={e => e.stopPropagation()}
+                              />
+                            </div>
+                            {instances
+                              .filter((turma: any) => {
+                                const fim = turma.occurrence_end || turma.end_date || turma.period_end;
+                                if (fim) {
+                                  const today = new Date(); today.setHours(0,0,0,0);
+                                  return new Date(fim) >= today;
+                                }
+                                return true;
+                              })
+                              .filter((turma: any) => !presencaTurmaBusca || (turma.name || turma.title || '').toLowerCase().includes(presencaTurmaBusca.toLowerCase()))
+                              .map((turma: any) => (
                               <SelectItem key={turma.id} value={turma.id.toString()}>
                                 <div className="flex items-center gap-2">
                                   <span>{turma.name || turma.title}</span>
@@ -2046,85 +2622,69 @@ const handleCommitImport = async () => {
                       </div>
                       <div className="flex-1 min-w-[200px]">
                         <label className="block text-sm font-medium mb-2">Data da Aula</label>
-                        {(() => {
-                          const DAY_LABEL_TO_JS: Record<string, number> = { 'Segunda': 1, 'Terça': 2, 'Quarta': 3, 'Quinta': 4, 'Sexta': 5, 'Sábado': 6, 'Domingo': 0 };
-                          const JS_TO_DAY_LABEL: Record<number, string> = { 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 0: 'Domingo' };
-                          const selectedTurma = instances.find((t: any) => t.id.toString() === chamadaTurmaId);
-                          const diasSemana = selectedTurma?.dias_semana || selectedTurma?.days_of_week || selectedTurma?.diasSemana || [];
-                          const occStart = selectedTurma?.occurrence_start || selectedTurma?.start_date;
-                          const occEnd = selectedTurma?.occurrence_end || selectedTurma?.end_date;
-
-                          if (chamadaTurmaId && diasSemana.length > 0 && occStart && occEnd) {
-                            const jsDays = diasSemana.map((d: string) => DAY_LABEL_TO_JS[d]).filter((d: number | undefined) => d !== undefined);
-                            const classDates: { value: string; label: string }[] = [];
-                            const current = new Date(occStart + 'T00:00:00');
-                            const end = new Date(occEnd + 'T00:00:00');
-                            while (current <= end) {
-                              if (jsDays.includes(current.getDay())) {
-                                const dd = String(current.getDate()).padStart(2, '0');
-                                const mm = String(current.getMonth() + 1).padStart(2, '0');
-                                const yyyy = current.getFullYear();
-                                const dateStr = `${yyyy}-${mm}-${dd}`;
-                                const dayName = JS_TO_DAY_LABEL[current.getDay()] || '';
-                                classDates.push({ value: dateStr, label: `${dd}/${mm}/${yyyy} - ${dayName}` });
-                              }
-                              current.setDate(current.getDate() + 1);
-                            }
-
-                            return (
-                              <Select value={chamadaData} onValueChange={setChamadaData} disabled={!!editingChamadaId}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione a data da aula" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {classDates.map((d) => (
-                                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            );
-                          }
-
-                          return (
-                            <Input 
-                              type="date" 
-                              value={chamadaData}
-                              onChange={(e) => setChamadaData(e.target.value)}
-                              disabled={!!editingChamadaId}
-                            />
-                          );
-                        })()}
+                        {chamadaTurmaId && datasAulaDisponiveisChamada.length > 0 ? (
+                          <Select value={chamadaData} onValueChange={setChamadaData} disabled={!!editingChamadaId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a data da aula" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {datasAulaDisponiveisChamada.map((d) => (
+                                <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input 
+                            type="date" 
+                            value={chamadaData}
+                            onChange={(e) => setChamadaData(e.target.value)}
+                            disabled={!!editingChamadaId}
+                          />
+                        )}
                       </div>
                       {chamadaTurmaId && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {editingChamadaId ? (
-                            existingFotoUrl ? (
-                              <div className="flex items-center gap-2">
-                                <img src={existingFotoUrl} alt="Foto comprovante" className="w-10 h-10 rounded object-cover border" />
-                                <span className="text-xs text-gray-500">Foto comprovante (somente leitura)</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <Camera className="w-4 h-4 text-gray-400" />
-                                <span className="text-xs text-gray-500">Sem foto comprovante</span>
-                              </div>
-                            )
-                          ) : (
-                            <>
-                              <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">
-                                <Camera className="w-4 h-4 text-gray-500" />
-                                <span className="text-gray-600">{fotoFile ? fotoFile.name : 'Foto comprovante'}</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => setFotoFile(e.target.files?.[0] || null)}
-                                />
-                              </label>
-                              {fotoFile && (
-                                <img src={URL.createObjectURL(fotoFile)} alt="Preview" className="w-10 h-10 rounded object-cover border" />
-                              )}
-                            </>
+                        <div className="space-y-2">
+                          {editingChamadaId && existingFotoUrl && (
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Já tem foto. Selecione abaixo para adicionar mais:</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="flex items-center gap-2 cursor-pointer border rounded-lg px-3 py-2 text-sm hover:bg-gray-50">
+                              <Camera className="w-4 h-4 text-gray-500" />
+                              <span className="text-gray-600">
+                                {fotoFiles.length > 0 ? `${fotoFiles.length} foto(s) — adicionar mais` : 'Foto comprovante'}
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  setFotoFiles(prev => [...prev, ...files]);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            {fotoFiles.length === 0 && !editingChamadaId && (
+                              <span className="text-xs text-red-500 font-medium">* obrigatório</span>
+                            )}
+                          </div>
+                          {fotoFiles.length > 0 && (
+                            <div className="flex gap-2 flex-wrap">
+                              {fotoFiles.map((f, idx) => (
+                                <div key={idx} className="relative">
+                                  <img src={URL.createObjectURL(f)} alt={`Foto ${idx + 1}`} className="w-16 h-16 rounded object-cover border" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setFotoFiles(prev => prev.filter((_, i) => i !== idx))}
+                                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                  >×</button>
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       )}
@@ -2162,7 +2722,7 @@ const handleCommitImport = async () => {
                         <Button 
                           className="bg-green-500 hover:bg-green-600 w-full"
                           onClick={(e) => {
-                            const faltasSemJustif = presencasChamada.filter(p => !p.presente);
+                            const faltasSemJustif = presencasChamada.filter(p => !p.presente && !p.justificativa);
                             if (faltasSemJustif.length > 0 && !editingChamadaId) {
                               setModalJustFaltaItems(faltasSemJustif.map(a => ({
                                 cpf: a.alunoCpf,
@@ -2193,6 +2753,7 @@ const handleCommitImport = async () => {
                             setChamadaTurmaId('');
                             setPresencasChamada([]);
                             setFotoFile(null);
+                            setFotoFiles([]);
                             setExistingFotoUrl(null);
                           }}
                         >
@@ -2203,11 +2764,11 @@ const handleCommitImport = async () => {
                     </div>
                     
                     {chamadaTurmaId && !editingChamadaId && (
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-lg bg-gray-50 border">
+                        <div className="flex items-center gap-2 flex-1 flex-wrap">
                           {modoManual ? (
                             <>
-                              <Hand className="w-4 h-4 text-orange-500" />
+                              <Hand className="w-4 h-4 text-orange-500 shrink-0" />
                               <span className="text-sm font-medium text-orange-700">Modo Manual</span>
                               <span className="text-xs text-gray-500">- Marque presença manualmente</span>
                             </>
@@ -2224,33 +2785,74 @@ const handleCommitImport = async () => {
                             </>
                           )}
                         </div>
-                        <Button
-                          variant={modoManual ? "default" : "outline"}
-                          size="sm"
-                          className={modoManual ? "bg-orange-500 hover:bg-orange-600" : ""}
-                          onClick={() => {
-                            if (modoManual) {
-                              setModoManual(false);
-                            } else {
-                              setMotivoManualSelect('');
-                              setDescManual('');
-                              setShowModoManualDialog(true);
-                            }
-                          }}
-                        >
-                          {modoManual ? (
-                            <>
-                              <ScanFace className="w-4 h-4 mr-1" />
-                              Voltar p/ Facial
-                            </>
-                          ) : (
-                            <>
-                              <Hand className="w-4 h-4 mr-1" />
-                              Chamada Manual
-                            </>
-                          )}
-                        </Button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            size="sm"
+                            className="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold"
+                            onClick={() => setShowScanner(true)}
+                          >
+                            <ScanFace className="w-4 h-4 mr-1" />
+                            Chamada O Grito
+                          </Button>
+                          <Button
+                            variant={modoManual ? "default" : "outline"}
+                            size="sm"
+                            className={modoManual ? "bg-orange-500 hover:bg-orange-600 text-white" : "text-black hover:bg-gray-100 hover:text-black"}
+                            onClick={() => {
+                              if (modoManual) {
+                                setModoManual(false);
+                              } else {
+                                setMotivoManualSelect('');
+                                setDescManual('');
+                                setShowModoManualDialog(true);
+                              }
+                            }}
+                          >
+                            {modoManual ? (
+                              <>
+                                <ScanFace className="w-4 h-4 mr-1" />
+                                Voltar p/ Facial
+                              </>
+                            ) : (
+                              <>
+                                <Hand className="w-4 h-4 mr-1" />
+                                Chamada Manual
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
+                    )}
+
+                    {showScanner && chamadaTurmaId && chamadaData && (
+                      <Suspense fallback={
+                        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center">
+                          <div className="bg-slate-900 rounded-2xl border border-slate-700 p-8 flex flex-col items-center gap-3">
+                            <div className="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-slate-300 text-sm">Iniciando scanner...</p>
+                          </div>
+                        </div>
+                      }>
+                        <ScannerPresencaModalLazy
+                          turmaId={chamadaTurmaId}
+                          tipo="pec"
+                          data={chamadaData}
+                          onClose={() => setShowScanner(false)}
+                          onFinalize={() => {
+                            refetchCatracaLog();
+                            queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date', chamadaTurmaId, chamadaData] });
+                          }}
+                          onPresencaRegistrada={(cpf: string) => {
+                            const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                            setPresencasChamada(prev => prev.map(p =>
+                              p.alunoCpf.replace(/\D/g, '') === cpf.replace(/\D/g, '')
+                                ? { ...p, presente: true, viaScanner: true, horaEntrada: hora }
+                                : p
+                            ));
+                            queryClient.invalidateQueries({ queryKey: ['/api/pec/session-by-date', chamadaTurmaId, chamadaData] });
+                          }}
+                        />
+                      </Suspense>
                     )}
 
                     {chamadaTurmaId && catracaLog?.entradas && catracaLog.entradas.length > 0 && (
@@ -2324,13 +2926,19 @@ const handleCommitImport = async () => {
                               .map((aluno) => {
                                 const idx = aluno.originalIdx;
                                 return (
-                              <div key={aluno.alunoCpf} className={`flex items-center justify-between p-3 border rounded flex-wrap gap-2 ${!modoManual && !aluno.viaCatraca && !aluno.presente ? 'opacity-60' : ''}`}>
+                              <div key={aluno.alunoCpf} className={`flex items-center justify-between p-3 border rounded flex-wrap gap-2 ${!modoManual && !aluno.viaCatraca && !aluno.viaScanner && !aluno.presente ? 'opacity-60' : ''}`}>
                                 <div className="flex items-center gap-3">
                                   <User className="w-4 h-4 text-gray-400" />
                                   <span>{aluno.alunoNome}</span>
                                   {aluno.viaCatraca && aluno.horaEntrada && (
                                     <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px] px-1.5">
                                       <Zap className="w-2.5 h-2.5 mr-0.5 inline" />
+                                      {aluno.horaEntrada}
+                                    </Badge>
+                                  )}
+                                  {aluno.viaScanner && aluno.horaEntrada && (
+                                    <Badge variant="outline" className="text-cyan-600 border-cyan-200 bg-cyan-50 text-[10px] px-1.5">
+                                      <ScanLine className="w-2.5 h-2.5 mr-0.5 inline" />
                                       {aluno.horaEntrada}
                                     </Badge>
                                   )}
@@ -2384,7 +2992,7 @@ const handleCommitImport = async () => {
                                 {(modoManual || !!editingChamadaId) && aluno.presente === false && (
                                   <div className="w-full mt-1 space-y-1">
                                     <div className="flex flex-wrap gap-1">
-                                      {['Doença', 'Atestado médico', 'Escola', 'Trabalho', 'Transporte', 'Família', 'Compromisso pessoal', 'Chuva/Clima', 'Outro', 'Sem justificativa'].map((opcao) => (
+                                      {['Doença', 'Atestado médico', 'Guarda compartilhada', 'Escola / Conflito de horário', 'Trabalho', 'Transporte', 'Família', 'Compromisso pessoal', 'Chuva/Clima', 'Outro', 'Sem justificativa'].map((opcao) => (
                                         <button
                                           key={opcao}
                                           type="button"
@@ -2428,18 +3036,53 @@ const handleCommitImport = async () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Histórico de Presenças</h3>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <h3 className="font-semibold">Histórico de Presenças</h3>
+                      <div className="flex rounded-lg border overflow-hidden text-sm w-full sm:w-auto">
+                        <button
+                          onClick={() => setHistoricoTab('pendentes')}
+                          className={`flex-1 sm:flex-none px-4 py-1.5 font-medium transition-colors ${historicoTab === 'pendentes' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          Pendentes
+                          <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${historicoTab === 'pendentes' ? 'bg-orange-600' : 'bg-gray-200 text-gray-600'}`}>
+                            {chamadasPEC.filter((c: any) =>
+                              chamadaEstaPendente({ ...c, tipo: "pec", sessaoId: c.id, presencas: c.attendance })
+                            ).length}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => setHistoricoTab('finalizadas')}
+                          className={`flex-1 sm:flex-none px-4 py-1.5 font-medium transition-colors ${historicoTab === 'finalizadas' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          Finalizadas
+                          <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${historicoTab === 'finalizadas' ? 'bg-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                            {chamadasPEC.filter((c: any) =>
+                              chamadaTemFotoComprovante(c)
+                            ).length}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
                       <div>
                         <label className="text-sm font-medium">Turma</label>
-                        <Select value={historicoFiltroTurma} onValueChange={setHistoricoFiltroTurma}>
+                        <Select value={historicoFiltroTurma} onValueChange={(v) => { setHistoricoFiltroTurma(v); setHistoricoTurmaBusca(''); }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Todas as turmas" />
                           </SelectTrigger>
                           <SelectContent>
+                            <div className="px-2 pb-1 pt-1 sticky top-0 bg-white z-10" onKeyDown={e => e.stopPropagation()}>
+                              <input
+                                className="w-full rounded border border-gray-200 px-2 py-1 text-sm outline-none focus:border-blue-400"
+                                placeholder="Pesquisar turma..."
+                                value={historicoTurmaBusca}
+                                onChange={e => setHistoricoTurmaBusca(e.target.value)}
+                                onKeyDown={e => e.stopPropagation()}
+                              />
+                            </div>
                             <SelectItem value="todas">Todas as turmas</SelectItem>
-                            {instances.map((turma: any) => (
+                            {instances.filter((t: any) => !historicoTurmaBusca || (t.name || t.title || '').toLowerCase().includes(historicoTurmaBusca.toLowerCase())).map((turma: any) => (
                               <SelectItem key={turma.id} value={turma.name || turma.title}>{turma.name || turma.title}</SelectItem>
                             ))}
                           </SelectContent>
@@ -2463,10 +3106,18 @@ const handleCommitImport = async () => {
                       </div>
                     </div>
                     
-                    {chamadasPEC.length === 0 ? (
+                    {(() => {
+                      const filtered = chamadasPEC.filter((chamada: any) => {
+                        const temFoto = chamadaTemFotoComprovante(chamada);
+                        if (historicoTab === 'pendentes' && temFoto) return false;
+                        if (historicoTab === 'finalizadas' && !temFoto) return false;
+                        return true;
+                      });
+                      return filtered.length === 0;
+                    })() ? (
                       <div className="text-center py-8 text-gray-500">
                         <Calendar className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                        <p>Nenhuma chamada registrada ainda.</p>
+                        <p>{historicoTab === 'pendentes' ? 'Nenhuma chamada pendente de foto.' : 'Nenhuma chamada finalizada ainda.'}</p>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -2475,6 +3126,11 @@ const handleCommitImport = async () => {
                             const turma = instances.find((i: any) => i.id === chamada.activity_instance_id);
                             const turmaNome = turma?.name || turma?.title || '';
                             const dataAtividade = chamada.date?.split('T')[0] || '';
+                            
+                            // Filter by tab
+                            const temFoto = chamadaTemFotoComprovante(chamada);
+                            if (historicoTab === 'pendentes' && temFoto) return false;
+                            if (historicoTab === 'finalizadas' && !temFoto) return false;
                             
                             if (historicoFiltroTurma && historicoFiltroTurma !== 'todas' && turmaNome !== historicoFiltroTurma) {
                               return false;
@@ -2497,18 +3153,18 @@ const handleCommitImport = async () => {
                             return (
                               <div key={chamada.id} className="border rounded-lg overflow-hidden">
                                 <div 
-                                  className="p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 flex items-center justify-between"
+                                  className="p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 flex flex-col sm:flex-row sm:items-center gap-2"
                                   onClick={() => setExpandedChamadaId(isExpanded ? null : chamada.id)}
                                 >
-                                  <div className="flex items-center gap-3">
-                                    <Calendar className="w-4 h-4 text-gray-500" />
-                                    <span className="font-medium">
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <Calendar className="w-4 h-4 text-gray-500 shrink-0" />
+                                    <span className="font-medium shrink-0">
                                       {chamada.date?.split('T')[0]?.split('-').reverse().join('/') || ''}
                                     </span>
-                                    <span className="text-gray-500">-</span>
-                                    <span>{turmaName}</span>
+                                    <span className="text-gray-500 shrink-0">-</span>
+                                    <span className="truncate">{turmaName}</span>
                                   </div>
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-sm text-green-600 font-medium">
                                       {presentes}/{total} presentes
                                     </span>
@@ -2518,26 +3174,101 @@ const handleCommitImport = async () => {
                                     {chamada.teveAlimentacao === false && (
                                       <span className="text-xs bg-gray-100 text-gray-500 border border-gray-200 rounded px-1.5 py-0.5">Sem alimentação</span>
                                     )}
+                                    {(() => {
+                                      const fc = chamada.fotoComprovante;
+                                      const temFoto = fc ? (() => { try { const a = JSON.parse(fc); return Array.isArray(a) && a.length > 0; } catch { return true; } })() : false;
+                                      const fotoCount = fc ? (() => { try { const a = JSON.parse(fc); return Array.isArray(a) ? a.length : 1; } catch { return 1; } })() : 0;
+                                      return temFoto ? (
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            setFotosGaleriaLoading(true);
+                                            try {
+                                              const r = await fetch(`/api/pec/sessions/${chamada.id}/fotos`, { credentials: 'include' });
+                                              const d = await r.json();
+                                              setFotosGaleriaDialog({ sessionId: chamada.id, urls: d.urls || [] });
+                                            } catch { setFotosGaleriaDialog({ sessionId: chamada.id, urls: [] }); }
+                                            setFotosGaleriaLoading(false);
+                                          }}
+                                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                                        >
+                                          <Camera className="w-3.5 h-3.5" />
+                                          {fotoCount > 1 ? `${fotoCount} fotos` : 'Foto'}
+                                        </button>
+                                      ) : (
+                                        <span className="text-xs bg-orange-50 text-orange-600 border border-orange-200 rounded px-1.5 py-0.5">Sem foto</span>
+                                      );
+                                    })()}
                                     <Button
                                       variant="ghost"
                                       size="sm"
                                       className="h-7 px-2"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        const normalizedId = normalizeSessionId(chamada.id);
+                                        if (!normalizedId) {
+                                          toast({ title: 'Erro ao editar chamada', description: 'ID da chamada inválido.', variant: 'destructive' });
+                                          return;
+                                        }
                                         pendingEditAttendanceRef.current = chamada.attendance || [];
                                         setPresencasChamada([]);
-                                        setEditingChamadaId(chamada.id);
+                                        setEditingChamadaId(normalizedId);
                                         setChamadaTurmaId(String(chamada.activity_instance_id));
                                         setChamadaData(chamada.date?.split('T')[0] || new Date().toISOString().split('T')[0]);
                                         const fotoUrl = chamada.fotoComprovante || (chamada.attendance || []).find((a: any) => a.fotoComprovante)?.fotoComprovante || null;
                                         setExistingFotoUrl(fotoUrl);
                                         setFotoFile(null);
+                                        setFotoFiles([]);
                                         setEditingTeveAlimentacao(chamada.teveAlimentacao ?? null);
                                         setShowNovaChamadaForm(true);
                                       }}
                                     >
                                       <Pencil className="w-3.5 h-3.5 mr-1" />
                                       Editar
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const normalizedId = normalizeSessionId(chamada.id);
+                                        if (!normalizedId) return;
+                                        const dataStr = chamada.date?.split('T')[0] || '';
+                                        if (!chamadaTemFotoComprovante(chamada)) {
+                                          if (!confirm(`Excluir a chamada pendente de ${dataStr ? new Date(dataStr + 'T12:00:00').toLocaleDateString('pt-BR') : 'esta data'}?`)) return;
+                                          try {
+                                            await excluirChamadaPendente({
+                                              tipo: "pec",
+                                              sessionId: normalizedId,
+                                              data: dataStr,
+                                            });
+                                            toast({ title: "Chamada excluída", description: "O registro pendente foi removido." });
+                                            queryClient.invalidateQueries({ queryKey: ['/api/pec/sessions'] });
+                                          } catch (err: any) {
+                                            toast({
+                                              title: "Erro ao excluir",
+                                              description: err.message || "Não foi possível excluir.",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                          return;
+                                        }
+                                        const turma = instances.find((i: any) => i.id === chamada.activity_instance_id);
+                                        const turmaName = turma?.name || turma?.title || `Turma ${chamada.activity_instance_id}`;
+                                        setSolicitarExclusaoPecDialog({
+                                          sessionId: normalizedId,
+                                          activityInstanceId: chamada.activity_instance_id,
+                                          turmaNome: turmaName,
+                                          data: dataStr,
+                                          presentes,
+                                          total,
+                                        });
+                                        setMotivoExclusaoPec('');
+                                      }}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                      Excluir
                                     </Button>
                                     {isExpanded ? (
                                       <ChevronUp className="w-4 h-4 text-gray-500" />
@@ -2549,18 +3280,31 @@ const handleCommitImport = async () => {
                                 
                                 {isExpanded && chamada.attendance && chamada.attendance.length > 0 && (
                                   <div className="p-3 border-t bg-white">
-                                    <div className="text-sm font-medium mb-2 text-gray-600">Lista de Presença:</div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="text-sm font-medium text-gray-600">Lista de Presença:</div>
+                                      <button
+                                        onClick={() => setSoFaltasMap(prev => ({ ...prev, [chamada.id]: !prev[chamada.id] }))}
+                                        className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${soFaltasMap[chamada.id] ? 'bg-red-100 text-red-700 border-red-300 font-semibold' : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'}`}
+                                      >
+                                        <Filter className="w-3 h-3" />
+                                        {soFaltasMap[chamada.id] ? 'Ver todos' : 'Só faltas'}
+                                      </button>
+                                    </div>
                                     <div className="grid gap-2">
                                       {[...chamada.attendance]
                                         .sort((a: any, b: any) => (a.alunoNome || '').localeCompare(b.alunoNome || '', 'pt-BR'))
+                                        .filter((a: any) => soFaltasMap[chamada.id] ? !a.presente : true)
                                         .map((a: any, idx: number) => (
-                                          <div key={idx} className="flex items-center justify-between py-1 px-2 rounded bg-gray-50">
+                                          <div key={idx} className={`flex items-center justify-between py-1 px-2 rounded ${a.presente ? 'bg-green-50' : 'bg-red-50'}`}>
                                             <span className="text-sm">{a.alunoNome}</span>
                                             <span className={`text-xs font-medium ${a.presente ? 'text-green-600' : 'text-red-600'}`}>
                                               {a.presente ? 'Presente' : 'Falta'}
                                             </span>
                                           </div>
                                         ))}
+                                      {soFaltasMap[chamada.id] && chamada.attendance.filter((a: any) => !a.presente).length === 0 && (
+                                        <div className="text-center py-3 text-sm text-gray-500">Nenhuma falta registrada nesta aula.</div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -2573,11 +3317,305 @@ const handleCommitImport = async () => {
                 )}
               </CardContent>
             </Card>
+            </div>
+          )}
+
+          {activeSection === 'excecoes' && (() => {
+            const fmtDate = (d: string) => {
+              if (!d) return '';
+              return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            };
+            const excFiltered = (excecoesPecTodas as any[]).filter((e: any) => {
+              const tipoOk = excecaoFiltroTipo === 'todos' || e.tipo === excecaoFiltroTipo;
+              const turmaOk = !excecaoFiltroTurmaId || String(e.activityInstanceId) === excecaoFiltroTurmaId;
+              return tipoOk && turmaOk;
+            });
+            return (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Calendar className="w-4 h-4 text-yellow-500" />
+                    Remanejamentos e Cancelamentos de Aulas
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Tabs value={excecaoTab} onValueChange={(v) => setExcecaoTab(v as any)}>
+                    <TabsList className="mb-4">
+                      <TabsTrigger value="historico">Histórico</TabsTrigger>
+                      <TabsTrigger value="registrar">+ Registrar</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="historico">
+                      <div className="flex gap-3 mb-4 flex-wrap">
+                        <Popover open={excecaoFiltroTurmaOpen} onOpenChange={setExcecaoFiltroTurmaOpen}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" role="combobox" className="flex-1 min-w-[220px] justify-between font-normal">
+                              {excecaoFiltroTurmaId
+                                ? (instances as any[]).find((t: any) => String(t.id) === excecaoFiltroTurmaId)?.name || (instances as any[]).find((t: any) => String(t.id) === excecaoFiltroTurmaId)?.title || 'Turma'
+                                : 'Filtrar por turma'}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-full p-0" style={{ minWidth: '300px' }}>
+                            <Command>
+                              <CommandInput placeholder="Pesquisar turma..." />
+                              <CommandEmpty>Nenhuma turma encontrada.</CommandEmpty>
+                              <CommandGroup className="max-h-60 overflow-y-auto">
+                                <CommandItem value="__all__" onSelect={() => { setExcecaoFiltroTurmaId(''); setExcecaoFiltroTurmaOpen(false); }}>
+                                  <Check className={cn("mr-2 h-4 w-4", !excecaoFiltroTurmaId ? "opacity-100" : "opacity-0")} />
+                                  Todas as turmas
+                                </CommandItem>
+                                {(instances as any[]).map((t: any) => (
+                                  <CommandItem key={t.id} value={t.name || t.title} onSelect={() => { setExcecaoFiltroTurmaId(String(t.id)); setExcecaoFiltroTurmaOpen(false); }}>
+                                    <Check className={cn("mr-2 h-4 w-4", excecaoFiltroTurmaId === String(t.id) ? "opacity-100" : "opacity-0")} />
+                                    {t.name || t.title}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                        <Select value={excecaoFiltroTipo} onValueChange={(v) => setExcecaoFiltroTipo(v as any)}>
+                          <SelectTrigger className="w-44">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="todos">Todos</SelectItem>
+                            <SelectItem value="cancelamento">Cancelamentos</SelectItem>
+                            <SelectItem value="remanejamento">Remanejamentos</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {excFiltered.length === 0 ? (
+                        <p className="text-sm text-gray-400 italic">Nenhum registro encontrado.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {excFiltered.map((exc: any) => (
+                            <div key={exc.id} className="border rounded-lg p-3 flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  {exc.tipo === 'cancelamento' ? (
+                                    <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded font-medium">Cancelamento</span>
+                                  ) : (
+                                    <span className="bg-orange-100 text-orange-800 text-xs px-2 py-0.5 rounded font-medium border border-orange-200">Remanejamento</span>
+                                  )}
+                                  <span className="text-sm font-medium">
+                                    {fmtDate(exc.dataOriginal)}
+                                    {exc.tipo === 'remanejamento' && exc.novaData && (
+                                      <span className="text-gray-400"> → {fmtDate(exc.novaData)}</span>
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-orange-600 font-medium truncate">{exc.turmaNome}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{exc.motivo}</p>
+                              </div>
+                              <div className="flex gap-1 shrink-0">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                                  setExcecaoEditando(exc);
+                                  setEditNovaDataPec(exc.novaData || '');
+                                  setEditDataOriginalPec(exc.dataOriginal || '');
+                                  setEditMotivoPec(exc.motivo || '');
+                                  setExcecaoEditModal(true);
+                                }}>
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => setExcecaoDeleteId(exc.id)}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </TabsContent>
+                    <TabsContent value="registrar">
+                      <div className="space-y-4 max-w-lg">
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Turma <span className="text-red-500">*</span></label>
+                          <Popover open={excecaoTurmaOpen} onOpenChange={setExcecaoTurmaOpen}>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                                {excecaoTurmaIdModal
+                                  ? (instances as any[]).find((t: any) => String(t.id) === excecaoTurmaIdModal)?.name || (instances as any[]).find((t: any) => String(t.id) === excecaoTurmaIdModal)?.title
+                                  : 'Selecione uma turma...'}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-full p-0" style={{ minWidth: '320px' }}>
+                              <Command>
+                                <CommandInput placeholder="Pesquisar turma..." />
+                                <CommandEmpty>Nenhuma turma encontrada.</CommandEmpty>
+                                <CommandGroup className="max-h-60 overflow-y-auto">
+                                  {(instances as any[]).map((t: any) => (
+                                    <CommandItem key={t.id} value={t.name || t.title} onSelect={() => {
+                                      setExcecaoTurmaIdModal(String(t.id));
+                                      setExcecaoDataOriginal('');
+                                      setExcecaoTurmaOpen(false);
+                                    }}>
+                                      <Check className={cn("mr-2 h-4 w-4", excecaoTurmaIdModal === String(t.id) ? "opacity-100" : "opacity-0")} />
+                                      {t.name || t.title}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Aula afetada <span className="text-red-500">*</span></label>
+                          {!excecaoTurmaIdModal ? (
+                            <p className="text-sm text-gray-400 italic">Selecione uma turma primeiro</p>
+                          ) : excecaoDiasAulaPec.dias.length === 0 ? (
+                            <p className="text-sm text-gray-400 italic">Nenhuma aula encontrada para esta turma</p>
+                          ) : (
+                            <Popover open={excecaoDataOpen} onOpenChange={setExcecaoDataOpen}>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                                  {excecaoDataOriginal
+                                    ? new Date(excecaoDataOriginal + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })
+                                    : 'Selecione o dia da aula...'}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-full p-0" style={{ minWidth: '320px' }}>
+                                <Command>
+                                  <CommandInput placeholder="Pesquisar por data... (ex: 25/04)" />
+                                  <CommandEmpty>Nenhuma data encontrada.</CommandEmpty>
+                                  <CommandGroup className="max-h-64 overflow-y-auto">
+                                    {excecaoDiasAulaPec.dias.map((data: string) => {
+                                      const label = new Date(data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+                                      return (
+                                        <CommandItem key={data} value={label} onSelect={() => { setExcecaoDataOriginal(data); setExcecaoDataOpen(false); }}>
+                                          <Check className={cn("mr-2 h-4 w-4", excecaoDataOriginal === data ? "opacity-100" : "opacity-0")} />
+                                          {label}
+                                        </CommandItem>
+                                      );
+                                    })}
+                                  </CommandGroup>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Tipo <span className="text-red-500">*</span></label>
+                          <Select value={excecaoTipo} onValueChange={(v) => setExcecaoTipo(v as any)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="cancelamento">Cancelamento</SelectItem>
+                              <SelectItem value="remanejamento">Remanejamento</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Motivo <span className="text-red-500">*</span></label>
+                          <Input placeholder="Ex: Feriado, evento institucional..." value={excecaoMotivo} onChange={(e) => setExcecaoMotivo(e.target.value)} />
+                        </div>
+                        {excecaoTipo === 'remanejamento' && (
+                          <div>
+                            <label className="text-sm font-medium mb-1 block">Nova data <span className="text-red-500">*</span></label>
+                            <Input type="date" value={excecaoNovaData} onChange={(e) => setExcecaoNovaData(e.target.value)} />
+                          </div>
+                        )}
+                        <Button
+                          disabled={excecaoLoading || !excecaoTurmaIdModal || !excecaoDataOriginal || !excecaoMotivo || (excecaoTipo === 'remanejamento' && !excecaoNovaData)}
+                          onClick={async () => {
+                            setExcecaoLoading(true);
+                            try {
+                              const r = await fetch(`/api/pec/activity-instances/${excecaoTurmaIdModal}/excecao`, {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ dataOriginal: excecaoDataOriginal, tipo: excecaoTipo, motivo: excecaoMotivo, novaData: excecaoTipo === 'remanejamento' ? excecaoNovaData : undefined }),
+                              });
+                              if (!r.ok) throw new Error('Falha ao salvar');
+                              toast({ title: 'Registrado com sucesso!', description: `${excecaoTipo === 'cancelamento' ? 'Cancelamento' : 'Remanejamento'} salvo.` });
+                              setExcecaoTurmaIdModal(''); setExcecaoDataOriginal(''); setExcecaoMotivo(''); setExcecaoNovaData(''); setExcecaoTipo('cancelamento');
+                              refetchExcecoesPec();
+                              setExcecaoTab('historico');
+                            } catch { toast({ title: 'Erro ao salvar', variant: 'destructive' }); }
+                            finally { setExcecaoLoading(false); }
+                          }}
+                        >
+                          {excecaoLoading ? 'Salvando...' : 'Salvar'}
+                        </Button>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Modal de edição */}
+          {excecaoEditModal && excecaoEditando && (
+            <Dialog open={excecaoEditModal} onOpenChange={setExcecaoEditModal}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Editar {excecaoEditando.tipo === 'cancelamento' ? 'Cancelamento' : 'Remanejamento'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  {excecaoEditando.tipo === 'remanejamento' ? (
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Nova data</label>
+                      <Input type="date" value={editNovaDataPec} onChange={(e) => setEditNovaDataPec(e.target.value)} />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Data afetada</label>
+                      <Input type="date" value={editDataOriginalPec} onChange={(e) => setEditDataOriginalPec(e.target.value)} />
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Motivo</label>
+                    <Input value={editMotivoPec} onChange={(e) => setEditMotivoPec(e.target.value)} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setExcecaoEditModal(false)}>Cancelar</Button>
+                  <Button onClick={async () => {
+                    try {
+                      const body = excecaoEditando.tipo === 'remanejamento'
+                        ? { novaData: editNovaDataPec, motivo: editMotivoPec }
+                        : { dataOriginal: editDataOriginalPec, motivo: editMotivoPec };
+                      const r = await fetch(`/api/pec/excecoes/${excecaoEditando.id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                      if (!r.ok) throw new Error('Erro');
+                      toast({ title: 'Atualizado com sucesso!' });
+                      setExcecaoEditModal(false);
+                      refetchExcecoesPec();
+                    } catch { toast({ title: 'Erro ao atualizar', variant: 'destructive' }); }
+                  }}>Salvar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+
+          {/* Confirmação de exclusão */}
+          {excecaoDeleteId !== null && (
+            <AlertDialog open={excecaoDeleteId !== null} onOpenChange={(o) => { if (!o) setExcecaoDeleteId(null); }}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+                  <AlertDialogDescription>Tem certeza? Remanejamentos excluídos devolvem as presenças para a data original.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setExcecaoDeleteId(null)}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction className="bg-red-500 hover:bg-red-600" onClick={async () => {
+                    try {
+                      const r = await fetch(`/api/pec/excecoes/${excecaoDeleteId}`, { method: 'DELETE', credentials: 'include' });
+                      if (!r.ok) throw new Error('Erro');
+                      toast({ title: 'Excluído com sucesso!' });
+                      setExcecaoDeleteId(null);
+                      refetchExcecoesPec();
+                    } catch { toast({ title: 'Erro ao excluir', variant: 'destructive' }); }
+                  }}>Excluir</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
 
           {activeSection === 'modalidades' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Modalidades Esportivas</CardTitle>
                 <Button 
                   className="bg-orange-500 hover:bg-orange-600"
@@ -2661,7 +3699,7 @@ const handleCommitImport = async () => {
 
           {activeSection === 'treinamentos' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Planos de Treinamento</CardTitle>
                 <Button size="sm" className="bg-purple-500 hover:bg-purple-600" onClick={handleNovoPlano}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -2670,13 +3708,13 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar planos de treinamento..." className="pl-10" />
                     </div>
                     <Select>
-                      <SelectTrigger className="w-40">
+                      <SelectTrigger className="w-full sm:w-40">
                         <SelectValue placeholder="Modalidade" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2880,7 +3918,7 @@ const handleCommitImport = async () => {
 
           {activeSection === 'apresentacoes' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Apresentações</CardTitle>
                 <Button size="sm" className="bg-yellow-500 hover:bg-yellow-600" onClick={handleNovaApresentacao}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -2889,13 +3927,13 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar apresentações..." className="pl-10" />
                     </div>
                     <Select>
-                      <SelectTrigger className="w-32">
+                      <SelectTrigger className="w-full sm:w-32">
                         <SelectValue placeholder="Status" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2907,6 +3945,7 @@ const handleCommitImport = async () => {
                     </Select>
                   </div>
                   
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -2965,124 +4004,20 @@ const handleCommitImport = async () => {
                       </TableRow>
                     </TableBody>
                   </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           )}
 
           {activeSection === 'eventos' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Eventos Esportivos</CardTitle>
-                <Button size="sm" className="bg-red-500 hover:bg-red-600">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Novo Evento
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Buscar eventos..." className="pl-10" />
-                    </div>
-                    <Select>
-                      <SelectTrigger className="w-32">
-                        <SelectValue placeholder="Tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos</SelectItem>
-                        <SelectItem value="competicao">Competição</SelectItem>
-                        <SelectItem value="festival">Festival</SelectItem>
-                        <SelectItem value="torneio">Torneio</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="grid gap-4">
-                    {[
-                      {
-                        nome: 'Torneio Intermunicipal de Futebol',
-                        tipo: 'Torneio',
-                        data: '20/10/2025',
-                        local: 'Campo Principal',
-                        participantes: 8,
-                        status: 'Agendado'
-                      },
-                      {
-                        nome: 'Festival de Vôlei Jovem',
-                        tipo: 'Festival',
-                        data: '05/11/2025',
-                        local: 'Ginásio Municipal',
-                        participantes: 12,
-                        status: 'Planejamento'
-                      },
-                      {
-                        nome: 'Copa Instituto O Grito de Basquete',
-                        tipo: 'Competição',
-                        data: '18/09/2025',
-                        local: 'Quadra Coberta',
-                        participantes: 6,
-                        status: 'Realizado'
-                      }
-                    ].map((evento, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-red-500" />
-                            {evento.nome}
-                          </h3>
-                          <Badge className={
-                            evento.status === 'Agendado' ? 'bg-blue-100 text-blue-800' :
-                            evento.status === 'Realizado' ? 'bg-green-100 text-green-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }>
-                            {evento.status}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
-                          <div>
-                            <span className="text-gray-500">Tipo:</span>
-                            <p className="font-medium">{evento.tipo}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Data:</span>
-                            <p className="font-medium">{evento.data}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Local:</span>
-                            <p className="font-medium">{evento.local}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Equipes:</span>
-                            <p className="font-medium">{evento.participantes}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">
-                            <Eye className="w-4 h-4 mr-1" />
-                            Detalhes
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Edit className="w-4 h-4 mr-1" />
-                            Editar
-                          </Button>
-                          <Button size="sm" variant="outline">
-                            <Trophy className="w-4 h-4 mr-1" />
-                            Resultados
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <EventosGritoSection defaultTab="eventos" showStats={false} />
           )}
+
 
           {activeSection === 'competicoes' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <CardTitle>Competições</CardTitle>
                 <Button size="sm" className="bg-indigo-500 hover:bg-indigo-600">
                   <Plus className="w-4 h-4 mr-2" />
@@ -3091,13 +4026,13 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex gap-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input placeholder="Buscar competições..." className="pl-10" />
                     </div>
                     <Select>
-                      <SelectTrigger className="w-40">
+                      <SelectTrigger className="w-full sm:w-40">
                         <SelectValue placeholder="Modalidade" />
                       </SelectTrigger>
                       <SelectContent>
@@ -3109,6 +4044,7 @@ const handleCommitImport = async () => {
                     </Select>
                   </div>
                   
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -3167,6 +4103,7 @@ const handleCommitImport = async () => {
                       </TableRow>
                     </TableBody>
                   </Table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -3174,109 +4111,288 @@ const handleCommitImport = async () => {
 
 
           {activeSection === 'relatorios' && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Relatórios Gerenciais</CardTitle>
-                <Button size="sm" className="bg-gray-500 hover:bg-gray-600" onClick={handleExportReport}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Exportar Relatório
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <FileText className="w-5 h-5 text-blue-500" />
-                        <h3 className="font-semibold">Relatório de Alunos</h3>
+            <div className="space-y-6">
+              {/* ── Relatórios Gerenciais ────────────────────────────────────── */}
+              <Card>
+                <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <CardTitle>Relatórios Gerenciais</CardTitle>
+                  <Button size="sm" className="bg-gray-500 hover:bg-gray-600" onClick={handleExportReport}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Exportar Relatório
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <FileText className="w-5 h-5 text-blue-500" />
+                          <h3 className="font-semibold">Relatório de Alunos</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Dados completos dos alunos, modalidades e desempenho.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
                       </div>
-                      <p className="text-gray-600 text-sm mb-3">Dados completos dos alunos, modalidades e desempenho.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
+
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Activity className="w-5 h-5 text-purple-500" />
+                          <h3 className="font-semibold">Relatório de Treinamentos</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Progressão dos planos de treinamento e frequência.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
+                      </div>
+
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Music className="w-5 h-5 text-pink-500" />
+                          <h3 className="font-semibold">Relatório Cultural</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Atividades culturais, oficinas e apresentações.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
+                      </div>
+
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Trophy className="w-5 h-5 text-yellow-500" />
+                          <h3 className="font-semibold">Relatório de Eventos</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Eventos realizados, participação e resultados.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
+                      </div>
+
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Target className="w-5 h-5 text-green-500" />
+                          <h3 className="font-semibold">Relatório de Indicadores</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Indicadores de desempenho e metas alcançadas.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
+                      </div>
+
+                      <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-5 h-5 text-red-500" />
+                          <h3 className="font-semibold">Relatório de Frequência</h3>
+                        </div>
+                        <p className="text-gray-600 text-sm mb-3">Frequência e assiduidade dos participantes.</p>
+                        <Button size="sm" variant="outline" className="w-full">
+                          <Download className="w-4 h-4 mr-2" />
+                          Gerar Relatório
+                        </Button>
+                      </div>
                     </div>
-                    
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Activity className="w-5 h-5 text-purple-500" />
-                        <h3 className="font-semibold">Relatório de Treinamentos</h3>
+
+                    <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                      <h4 className="font-semibold mb-2">Relatório Mensal Automático</h4>
+                      <p className="text-gray-600 text-sm mb-3">
+                        Relatório completo gerado automaticamente todo mês com todos os indicadores do programa.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleExportReport}>
+                          <Download className="w-4 h-4 mr-2" />
+                          Baixar Último Relatório
+                        </Button>
+                        <Button size="sm" variant="outline">
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Programar Envio
+                        </Button>
                       </div>
-                      <p className="text-gray-600 text-sm mb-3">Progressão dos planos de treinamento e frequência.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Music className="w-5 h-5 text-pink-500" />
-                        <h3 className="font-semibold">Relatório Cultural</h3>
-                      </div>
-                      <p className="text-gray-600 text-sm mb-3">Atividades culturais, oficinas e apresentações.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Trophy className="w-5 h-5 text-yellow-500" />
-                        <h3 className="font-semibold">Relatório de Eventos</h3>
-                      </div>
-                      <p className="text-gray-600 text-sm mb-3">Eventos realizados, participação e resultados.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Target className="w-5 h-5 text-green-500" />
-                        <h3 className="font-semibold">Relatório de Indicadores</h3>
-                      </div>
-                      <p className="text-gray-600 text-sm mb-3">Indicadores de desempenho e metas alcançadas.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4 hover:shadow-md cursor-pointer">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Clock className="w-5 h-5 text-red-500" />
-                        <h3 className="font-semibold">Relatório de Frequência</h3>
-                      </div>
-                      <p className="text-gray-600 text-sm mb-3">Frequência e assiduidade dos participantes.</p>
-                      <Button size="sm" variant="outline" className="w-full">
-                        <Download className="w-4 h-4 mr-2" />
-                        Gerar Relatório
-                      </Button>
                     </div>
                   </div>
-                  
-                  <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-semibold mb-2">Relatório Mensal Automático</h4>
-                    <p className="text-gray-600 text-sm mb-3">
-                      Relatório completo gerado automaticamente todo mês com todos os indicadores do programa.
+                </CardContent>
+              </Card>
+
+              {/* ── Relatório de Turma ──────────────────────────────────────── */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileDown className="w-5 h-5 text-emerald-600" />
+                    Relatório de Turma
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-5">
+                    {/* Seleção de turma — combobox com busca */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-gray-700">Turma</label>
+                      <Popover open={relTurmaPecOpen} onOpenChange={setRelTurmaPecOpen}>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="group w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent hover:text-white focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <span className={relTurmaPecId ? 'text-foreground group-hover:text-white' : 'text-muted-foreground group-hover:text-white'}>
+                              {relTurmaPecId
+                                ? (instances as any[]).find((t: any) => String(t.id) === relTurmaPecId)?.title ?? 'Turma não encontrada'
+                                : 'Selecione ou busque uma turma…'}
+                            </span>
+                            <ChevronsUpDown className="w-4 h-4 ml-2 shrink-0 text-muted-foreground" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                          <Command>
+                            <CommandInput
+                              placeholder="Buscar turma…"
+                              value={relTurmaPecBusca}
+                              onValueChange={setRelTurmaPecBusca}
+                            />
+                            <CommandList>
+                              <CommandEmpty>Nenhuma turma encontrada.</CommandEmpty>
+                              <CommandGroup>
+                                {(instances as any[])
+                                  .filter((t: any) =>
+                                    !relTurmaPecBusca || (t.title || '').toLowerCase().includes(relTurmaPecBusca.toLowerCase())
+                                  )
+                                  .map((t: any) => (
+                                    <CommandItem
+                                      key={t.id}
+                                      value={t.title}
+                                      onSelect={() => {
+                                        const v = String(t.id);
+                                        setRelTurmaPecId(v);
+                                        if (relTipoPec === 'geral') {
+                                          if (t.occurrence_start) setRelDataInicioPec(t.occurrence_start.slice(0, 10));
+                                          if (t.occurrence_end)   setRelDataFimPec(t.occurrence_end.slice(0, 10));
+                                        }
+                                        setRelTurmaPecOpen(false);
+                                        setRelTurmaPecBusca('');
+                                      }}
+                                    >
+                                      <Check className={cn('w-4 h-4 mr-2', relTurmaPecId === String(t.id) ? 'opacity-100' : 'opacity-0')} />
+                                      {t.title}
+                                    </CommandItem>
+                                  ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {/* Tipo de relatório */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-gray-700">Tipo de Relatório</label>
+                      <div className="flex gap-3">
+                        {(['mensal', 'geral'] as const).map((t) => (
+                          <button
+                            key={t}
+                            onClick={() => setRelTipoPec(t)}
+                            className={`flex-1 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                              relTipoPec === t
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-emerald-400'
+                            }`}
+                          >
+                            {t === 'mensal' ? 'Mensal' : 'Geral (Período Completo)'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Período */}
+                    {relTipoPec === 'mensal' ? (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-gray-700">Mês / Ano</label>
+                        <Input
+                          type="month"
+                          value={relMesPec}
+                          onChange={(e) => setRelMesPec(e.target.value)}
+                          className="w-48"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex gap-4 flex-wrap">
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium text-gray-700">Data início</label>
+                          <Input
+                            type="date"
+                            value={relDataInicioPec}
+                            onChange={(e) => setRelDataInicioPec(e.target.value)}
+                            className="w-44"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium text-gray-700">Data fim</label>
+                          <Input
+                            type="date"
+                            value={relDataFimPec}
+                            onChange={(e) => setRelDataFimPec(e.target.value)}
+                            className="w-44"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botão gerar */}
+                    <Button
+                      disabled={relLoadingPec || !relTurmaPecId || (relTipoPec === 'geral' && (!relDataInicioPec || !relDataFimPec))}
+                      onClick={async () => {
+                        if (!relTurmaPecId) return;
+                        let dI: string, dF: string;
+                        if (relTipoPec === 'mensal') {
+                          const [ano, mes] = relMesPec.split('-').map(Number);
+                          dI = `${ano}-${String(mes).padStart(2, '0')}-01`;
+                          const ultimo = new Date(ano, mes, 0).getDate();
+                          dF = `${ano}-${String(mes).padStart(2, '0')}-${ultimo}`;
+                        } else {
+                          dI = relDataInicioPec;
+                          dF = relDataFimPec;
+                        }
+                        setRelLoadingPec(true);
+                        try {
+                          const resp = await fetch(
+                            `/api/pec/${relTurmaPecId}/relatorio-turma?dataInicio=${dI}&dataFim=${dF}`,
+                            { credentials: 'include' }
+                          );
+                          if (!resp.ok) throw new Error((await resp.json()).error || 'Erro na API');
+                          const dados: RelatorioDados = await resp.json();
+                          await gerarRelatorioTurma(dados, relTipoPec, dI, dF, 'Esporte e Cultura');
+                        } catch (err: any) {
+                          toast({ title: 'Erro ao gerar relatório', description: err.message || 'Tente novamente.', variant: 'destructive' });
+                        } finally {
+                          setRelLoadingPec(false);
+                        }
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {relLoadingPec ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Gerando PDF…
+                        </>
+                      ) : (
+                        <>
+                          <FileDown className="w-4 h-4 mr-2" />
+                          Gerar PDF
+                        </>
+                      )}
+                    </Button>
+
+                    <p className="text-xs text-gray-400">
+                      O PDF inclui: dados da turma, frequência por aula, lista de inscritos, evasão, alimentação, NPS e galeria de fotos.
                     </p>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleExportReport}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Baixar Último Relatório
-                      </Button>
-                      <Button size="sm" variant="outline">
-                        <Calendar className="w-4 h-4 mr-2" />
-                        Programar Envio
-                      </Button>
-                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeSection === 'nps' && (
+            <NpsPesquisasSection programa="pec" />
           )}
 
           {activeSection === 'configuracoes' && (
@@ -3286,6 +4402,8 @@ const handleCommitImport = async () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
+                  <PushNotificationSettings variant="panel" />
+                  <LgpdMeusDadosSettingsPanel />
                   <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-orange-500 rounded-full flex items-center justify-center">
                       <User className="w-8 h-8 text-white" />
@@ -3503,7 +4621,7 @@ const handleCommitImport = async () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1 block">Data Início</label>
                   <Input 
@@ -3580,7 +4698,7 @@ const handleCommitImport = async () => {
                 <label className="text-sm font-medium text-gray-500">Descrição</label>
                 <p className="text-gray-700 mt-1">{selectedProject.description || 'Sem descrição disponível'}</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Data de Início</label>
                   <p className="text-gray-700 mt-1">{selectedProject.period_start ? new Date(selectedProject.period_start).toLocaleDateString('pt-BR') : 'Não informada'}</p>
@@ -3653,7 +4771,7 @@ const handleCommitImport = async () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium mb-1 block">Data Início</label>
                   <Input 
@@ -3936,6 +5054,34 @@ const handleCommitImport = async () => {
         open={showVisualizarTurmaModal} 
         onOpenChange={setShowVisualizarTurmaModal}
         selectedInstance={selectedInstance}
+        onClickAluno={async (aluno: any) => {
+          const cpfAluno = String(aluno?.cpf || "").replace(/\D/g, "");
+          setShowStudentDetailsModal(true);
+          setLoadingStudentDetails(true);
+          try {
+            const resAluno = await fetch(`/api/students/${cpfAluno}`, { credentials: "include" });
+            const alunoJson = await resAluno.json();
+            const alunoData = alunoJson?.data ?? alunoJson;
+            setFullStudentData(alunoData ?? null);
+            try {
+              const resResp = await fetch(`/api/alunos/${cpfAluno}/responsaveis`, { credentials: "include" });
+              if (resResp.ok) {
+                const respData = await resResp.json();
+                setStudentResponsaveis(Array.isArray(respData) ? respData : []);
+              } else {
+                setStudentResponsaveis([]);
+              }
+            } catch { setStudentResponsaveis([]); }
+            const resDocs = await authFetch(`/api/documentos/aluno/${cpfAluno}`);
+            const docsJson = await resDocs.json();
+            setStudentDocumentos(Array.isArray(docsJson) ? docsJson : []);
+          } catch (err) {
+            console.error("Erro ao buscar dados do aluno:", err);
+            setStudentDocumentos([]);
+          } finally {
+            setLoadingStudentDetails(false);
+          }
+        }}
       />
 
       {/* Modal Editar Turma */}
@@ -3985,7 +5131,7 @@ const handleCommitImport = async () => {
         title="Detalhes Completos do Aluno"
         loading={loadingStudentDetails}
         color="orange"
-        foto={fullStudentData?.foto_perfil}
+        foto={toProxyUrl(fullStudentData?.foto_perfil)}
         nome={fullStudentData?.nome_completo}
         cpf={fullStudentData ? formatCPF(fullStudentData.cpf) : undefined}
         status={fullStudentData?.situacao_atendimento}
@@ -3994,7 +5140,7 @@ const handleCommitImport = async () => {
             title: "Identificação",
             icon: User,
             fields: [
-              { label: "Data de Nascimento", value: fullStudentData.data_nascimento },
+              { label: "Data de Nascimento", value: fullStudentData.data_nascimento ? new Date(String(fullStudentData.data_nascimento).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
               { label: "Gênero", value: fullStudentData.genero },
               { label: "Nº Matrícula", value: fullStudentData.numero_matricula },
               { label: "Estado Civil", value: fullStudentData.estado_civil },
@@ -4104,7 +5250,7 @@ const handleCommitImport = async () => {
             title: "Informações Administrativas",
             icon: Calendar,
             fields: [
-              { label: "Data de Entrada", value: fullStudentData.data_entrada },
+              { label: "Data de Entrada", value: fullStudentData.data_entrada ? new Date(String(fullStudentData.data_entrada).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
               { label: "Forma de Acesso", value: fullStudentData.forma_acesso },
               { label: "Situação Atendimento", value: fullStudentData.situacao_atendimento || 'Ativo' },
             ],
@@ -4324,7 +5470,7 @@ const handleCommitImport = async () => {
 
             {/* Modal Editar Aluno - Simplificado */}
       <Dialog open={showEditStudentModal} onOpenChange={setShowEditStudentModal}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-[95vw]">
           <DialogHeader>
             <DialogTitle>Editar Aluno</DialogTitle>
           </DialogHeader>
@@ -4332,7 +5478,7 @@ const handleCommitImport = async () => {
             <div className="space-y-4">
               <div className="flex justify-center">
                 {selectedStudent.foto_perfil && selectedStudent.foto_perfil.trim() ? (
-                  <img src={selectedStudent.foto_perfil} alt={selectedStudent.nome} className="w-20 h-20 rounded-full object-cover" />
+                  <img src={toProxyUrl(selectedStudent.foto_perfil)!} alt={selectedStudent.nome} className="w-20 h-20 rounded-full object-cover" />
                 ) : (
                   <div className="w-20 h-20 rounded-full bg-orange-100 flex items-center justify-center">
                     <User className="w-10 h-10 text-orange-500" />
@@ -4690,7 +5836,7 @@ const handleCommitImport = async () => {
         )}
       {/* Dialog justificativa Chamada Manual */}
       <Dialog open={showModoManualDialog} onOpenChange={setShowModoManualDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md w-[95vw]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span>✋</span> Chamada Manual
@@ -4715,25 +5861,22 @@ const handleCommitImport = async () => {
               </Select>
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido</label>
+              <label className="text-sm font-medium text-gray-700">Descreva brevemente o ocorrido <span className="text-red-500">*</span></label>
               <Textarea
-                placeholder="Descreva brevemente o ocorrido (opcional)..."
+                placeholder="Descreva brevemente o ocorrido..."
                 value={descManual}
                 onChange={(e) => setDescManual(e.target.value)}
                 className="h-20 resize-none"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">PIN de acesso <span className="text-red-500">*</span></label>
+              <label className="text-sm font-medium text-gray-700">Senha do coordenador <span className="text-red-500">*</span></label>
               <input
                 type="password"
-                maxLength={4}
-                inputMode="numeric"
-                pattern="[0-9]*"
                 value={pinManual}
-                onChange={(e) => { setPinManual(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
-                placeholder="••••"
-                className={`w-full border rounded-md px-3 py-2 text-sm text-center tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400 ${pinError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+                onChange={(e) => { setPinManual(e.target.value); setPinError(''); }}
+                placeholder="Senha alfanumérica"
+                className={`w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 ${pinError ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
               />
               {pinError && <p className="text-xs text-red-600">{pinError}</p>}
             </div>
@@ -4744,7 +5887,7 @@ const handleCommitImport = async () => {
             </Button>
             <Button
               className="bg-orange-500 hover:bg-orange-600"
-              disabled={!motivoManualSelect || pinManual.length < 4 || savingMotivoManual}
+              disabled={!motivoManualSelect || !descManual.trim() || !pinManual.trim() || savingMotivoManual}
               onClick={async () => {
                 setSavingMotivoManual(true);
                 setPinError('');
@@ -4753,19 +5896,24 @@ const handleCommitImport = async () => {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pin: pinManual }),
+                    body: JSON.stringify({ senha: pinManual, vertente: 'pec' }),
                   });
                   if (!pinRes.ok) {
-                    setPinError('PIN incorreto. Verifique e tente novamente.');
+                    setPinError('Senha incorreta ou expirada.');
                     setSavingMotivoManual(false);
                     return;
                   }
-                  const motivoFinal = descManual.trim() ? `${motivoManualSelect} — ${descManual.trim()}` : motivoManualSelect;
                   await fetch('/api/chamada-manual-log', {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ motivo: motivoFinal, data: new Date().toISOString().slice(0, 10) }),
+                    body: JSON.stringify({
+                      motivo: motivoManualSelect,
+                      observacao: descManual.trim(),
+                      vertente: 'pec',
+                      origem: 'coordenador',
+                      data: new Date().toISOString().slice(0, 10),
+                    }),
                   });
                   setShowModoManualDialog(false);
                   setMotivoManualSelect('');
@@ -4782,183 +5930,6 @@ const handleCommitImport = async () => {
             >
               {savingMotivoManual ? 'Validando...' : 'Confirmar e Abrir Chamada Manual'}
             </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Planos de Aula dos Professores de PEC */}
-      <Dialog open={showPlanosAulaPecModal} onOpenChange={setShowPlanosAulaPecModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-teal-500" />
-              Planos de Aula — Professores de PEC
-            </DialogTitle>
-            <DialogDescription className="text-gray-500">
-              Visualize todos os planos de aula registrados pelos professores do programa.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <Input
-              placeholder="Filtrar por professor ou título..."
-              value={filtroProfPec}
-              onChange={e => setFiltroProfPec(e.target.value)}
-            />
-
-            {loadingPlanosPec ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500" />
-              </div>
-            ) : planosAulaPec.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                <p>Nenhum plano de aula registrado ainda.</p>
-              </div>
-            ) : planoAulaPecDetalhes ? (
-              <div className="space-y-4">
-                <button className="text-sm text-blue-600 hover:underline" onClick={() => setPlanoAulaPecDetalhes(null)}>← Voltar para a lista</button>
-                <div className="border rounded-lg p-5 space-y-3 bg-gray-50">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h3 className="text-lg font-semibold">{planoAulaPecDetalhes.titulo}</h3>
-                    <Badge variant="outline" className="capitalize">{planoAulaPecDetalhes.status || 'rascunho'}</Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div><span className="text-gray-500">Professor:</span> <span className="font-medium">{planoAulaPecDetalhes.professorNome || '—'}</span></div>
-                    <div><span className="text-gray-500">Turma:</span> <span>{planoAulaPecDetalhes.turmaNome}</span></div>
-                    <div><span className="text-gray-500">Data:</span> <span>{planoAulaPecDetalhes.data ? new Date(planoAulaPecDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
-                    {planoAulaPecDetalhes.duracaoMinutos && <div><span className="text-gray-500">Duração:</span> <span>{planoAulaPecDetalhes.duracaoMinutos} min</span></div>}
-                  </div>
-                  <div><p className="text-gray-500 text-sm font-medium mb-1">Objetivos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.objetivos}</p></div>
-                  <div><p className="text-gray-500 text-sm font-medium mb-1">Conteúdo</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.conteudo}</p></div>
-                  <div><p className="text-gray-500 text-sm font-medium mb-1">Metodologia</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.metodologia}</p></div>
-                  {planoAulaPecDetalhes.recursos && <div><p className="text-gray-500 text-sm font-medium mb-1">Recursos</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.recursos}</p></div>}
-                  {planoAulaPecDetalhes.avaliacao && <div><p className="text-gray-500 text-sm font-medium mb-1">Avaliação</p><p className="text-sm whitespace-pre-wrap">{planoAulaPecDetalhes.avaliacao}</p></div>}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {planosAulaPec
-                  .filter((p: any) =>
-                    !filtroProfPec ||
-                    (p.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
-                    (p.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
-                  )
-                  .map((p: any) => (
-                    <div key={p.id} className="border rounded-lg p-4 hover:border-teal-500 hover:bg-teal-50 transition-colors cursor-pointer" onClick={() => setPlanoAulaPecDetalhes(p)}>
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{p.titulo}</p>
-                          <p className="text-sm text-gray-500 mt-0.5">
-                            <span className="text-teal-600 font-medium">{p.professorNome || 'Professor'}</span>
-                            {' · '}{p.turmaNome}
-                            {' · '}{p.data ? new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 capitalize text-xs">{p.status || 'rascunho'}</Badge>
-                      </div>
-                    </div>
-                  ))}
-                {planosAulaPec.filter((p: any) =>
-                  !filtroProfPec ||
-                  (p.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
-                  (p.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
-                ).length === 0 && (
-                  <p className="text-center text-gray-500 py-4">Nenhum resultado para o filtro aplicado.</p>
-                )}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Relatórios de Aulas dos Professores de PEC */}
-      <Dialog open={showRelatoriosAulaPecModal} onOpenChange={setShowRelatoriosAulaPecModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-teal-500" />
-              Relatórios de Aulas — Professores de PEC
-            </DialogTitle>
-            <DialogDescription className="text-gray-500">
-              Aulas ministradas e registradas pelos professores do programa.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <Input
-              placeholder="Filtrar por professor ou título..."
-              value={filtroProfPec}
-              onChange={e => setFiltroProfPec(e.target.value)}
-            />
-
-            {loadingRelatoriosPec ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-500" />
-              </div>
-            ) : aulasRegistradasPec.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                <p>Nenhuma aula registrada ainda.</p>
-              </div>
-            ) : relatorioAulaPecDetalhes ? (
-              <div className="space-y-4">
-                <button className="text-sm text-blue-600 hover:underline" onClick={() => setRelatorioAulaPecDetalhes(null)}>← Voltar para a lista</button>
-                <div className="border rounded-lg p-5 space-y-3 bg-gray-50">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h3 className="text-lg font-semibold">{relatorioAulaPecDetalhes.titulo}</h3>
-                    <Badge variant="outline" className="capitalize">{relatorioAulaPecDetalhes.statusAula || 'ministrada'}</Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div><span className="text-gray-500">Professor:</span> <span className="font-medium">{relatorioAulaPecDetalhes.professorNome || '—'}</span></div>
-                    <div><span className="text-gray-500">Turma:</span> <span>{relatorioAulaPecDetalhes.turmaNome}</span></div>
-                    <div><span className="text-gray-500">Data:</span> <span>{relatorioAulaPecDetalhes.data ? new Date(relatorioAulaPecDetalhes.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span></div>
-                    {relatorioAulaPecDetalhes.duracaoMinutos && <div><span className="text-gray-500">Duração:</span> <span>{relatorioAulaPecDetalhes.duracaoMinutos} min</span></div>}
-                  </div>
-                  <div><p className="text-gray-500 text-sm font-medium mb-1">Conteúdo Ministrado</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.conteudoMinistrado}</p></div>
-                  {relatorioAulaPecDetalhes.competenciasTrabalhas && <div><p className="text-gray-500 text-sm font-medium mb-1">Competências Trabalhadas</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.competenciasTrabalhas}</p></div>}
-                  {relatorioAulaPecDetalhes.observacoes && <div><p className="text-gray-500 text-sm font-medium mb-1">Observações</p><p className="text-sm whitespace-pre-wrap">{relatorioAulaPecDetalhes.observacoes}</p></div>}
-                  {relatorioAulaPecDetalhes.fotoComprovante && (
-                    <div>
-                      <p className="text-gray-500 text-sm font-medium mb-2">Foto Comprovante</p>
-                      <img src={relatorioAulaPecDetalhes.fotoComprovante} alt="Foto comprovante" className="rounded-lg max-h-48 object-cover border" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {aulasRegistradasPec
-                  .filter((a: any) =>
-                    !filtroProfPec ||
-                    (a.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
-                    (a.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
-                  )
-                  .map((a: any) => (
-                    <div key={a.id} className="border rounded-lg p-4 hover:border-teal-500 hover:bg-teal-50 transition-colors cursor-pointer" onClick={() => setRelatorioAulaPecDetalhes(a)}>
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{a.titulo}</p>
-                          <p className="text-sm text-gray-500 mt-0.5">
-                            <span className="text-teal-600 font-medium">{a.professorNome || 'Professor'}</span>
-                            {' · '}{a.turmaNome}
-                            {' · '}{a.data ? new Date(a.data + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
-                            {a.fotoComprovante && <span className="ml-2 text-green-600">· com foto</span>}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="shrink-0 capitalize text-xs">{a.statusAula || 'ministrada'}</Badge>
-                      </div>
-                    </div>
-                  ))}
-                {aulasRegistradasPec.filter((a: any) =>
-                  !filtroProfPec ||
-                  (a.professorNome || '').toLowerCase().includes(filtroProfPec.toLowerCase()) ||
-                  (a.titulo || '').toLowerCase().includes(filtroProfPec.toLowerCase())
-                ).length === 0 && (
-                  <p className="text-center text-gray-500 py-4">Nenhum resultado para o filtro aplicado.</p>
-                )}
-              </div>
-            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -5022,9 +5993,9 @@ const handleCommitImport = async () => {
                   </SelectContent>
                 </Select>
                 {MOTIVOS_FALTA_PEC.find(m => m.label === item.motivo)?.contaComoPresenca ? (
-                  <p className="text-xs text-green-600 font-medium">✓ Conta como presença</p>
+                  <p className="text-xs text-blue-600 font-medium">✓ Falta justificada — não penaliza a frequência</p>
                 ) : (
-                  <p className="text-xs text-red-500">✗ Não conta como presença</p>
+                  <p className="text-xs text-red-500 font-medium">✗ Conta como falta</p>
                 )}
                 <Textarea
                   placeholder="Observações (opcional)"
@@ -5096,6 +6067,239 @@ const handleCommitImport = async () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog Galeria de Fotos PEC */}
+      <Dialog open={showExcecaoModal} onOpenChange={(open) => {
+        setShowExcecaoModal(open);
+        if (!open) {
+          setExcecaoTurmaIdModal("");
+          setExcecaoTipo("cancelamento");
+          setExcecaoDataOriginal("");
+          setExcecaoMotivo("");
+          setExcecaoNovaData("");
+        }
+      }}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>Remanejar ou Cancelar Aula</DialogTitle>
+            <DialogDescription>
+              Registre uma ocorrência pontual sem alterar o calendário recorrente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Turma <span className="text-red-500">*</span></label>
+              <Select value={excecaoTurmaIdModal} onValueChange={(v) => { setExcecaoTurmaIdModal(v); setExcecaoDataOriginal(""); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a turma ativa..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {turmasAtivasParaExcecao.map((t: any) => (
+                    <SelectItem key={t.id} value={String(t.id)}>{t.title || t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Aula afetada <span className="text-red-500">*</span></label>
+              {!excecaoTurmaIdModal ? (
+                <p className="text-sm text-gray-400 italic">Selecione uma turma primeiro</p>
+              ) : (excecaoDiasAula as any).dias?.length === 0 ? (
+                <p className="text-sm text-gray-400 italic">Nenhuma aula encontrada para esta turma</p>
+              ) : (
+                <Select value={excecaoDataOriginal} onValueChange={setExcecaoDataOriginal}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o dia da aula..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {((excecaoDiasAula as any).dias || []).map((data: string) => (
+                      <SelectItem key={data} value={data}>
+                        {new Date(data + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Tipo <span className="text-red-500">*</span></label>
+              <Select value={excecaoTipo} onValueChange={(v) => setExcecaoTipo(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cancelamento">Cancelamento</SelectItem>
+                  <SelectItem value="remanejamento">Remanejamento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {excecaoTipo === "remanejamento" && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">Nova data da aula <span className="text-red-500">*</span></label>
+                <Input type="date" value={excecaoNovaData} onChange={e => setExcecaoNovaData(e.target.value)} />
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium mb-1 block">Motivo <span className="text-red-500">*</span></label>
+              <Textarea
+                placeholder="Explique o motivo do cancelamento ou remanejamento..."
+                value={excecaoMotivo}
+                onChange={e => setExcecaoMotivo(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExcecaoModal(false)}>Cancelar</Button>
+            <Button
+              disabled={excecaoLoading || !excecaoTurmaIdModal || !excecaoDataOriginal || !excecaoMotivo || (excecaoTipo === "remanejamento" && !excecaoNovaData)}
+              onClick={async () => {
+                setExcecaoLoading(true);
+                try {
+                  const r = await fetch(`/api/pec/instances/${excecaoTurmaIdModal}/excecao`, {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      dataOriginal: excecaoDataOriginal,
+                      tipo: excecaoTipo,
+                      motivo: excecaoMotivo,
+                      novaData: excecaoTipo === "remanejamento" ? excecaoNovaData : undefined,
+                    }),
+                  });
+                  if (!r.ok) throw new Error("Falha ao salvar");
+                  toast({ title: "Registrado com sucesso!", description: `${excecaoTipo === "cancelamento" ? "Cancelamento" : "Remanejamento"} salvo.` });
+                  setShowExcecaoModal(false);
+                } catch {
+                  toast({ title: "Erro ao salvar", variant: "destructive" });
+                } finally {
+                  setExcecaoLoading(false);
+                }
+              }}
+            >
+              {excecaoLoading ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!fotosGaleriaDialog} onOpenChange={() => { setFotosGaleriaDialog(null); setFotoGaleriaFull(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              Fotos da Chamada
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            {fotosGaleriaLoading ? (
+              <div className="flex justify-center py-8"><span className="text-gray-400 text-sm">Carregando fotos...</span></div>
+            ) : fotosGaleriaDialog?.urls.length === 0 ? (
+              <div className="text-center py-8 text-gray-400 text-sm">Nenhuma foto disponível.</div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                {(fotosGaleriaDialog?.urls || []).map((url, idx) => (
+                  <img
+                    key={idx}
+                    src={url}
+                    alt={`Foto ${idx + 1}`}
+                    className="w-full aspect-square object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setFotoGaleriaFull(url)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog foto full size */}
+      <Dialog open={!!fotoGaleriaFull} onOpenChange={() => setFotoGaleriaFull(null)}>
+        <DialogContent className="max-w-3xl p-2">
+          <DialogHeader><DialogTitle className="sr-only">Foto</DialogTitle></DialogHeader>
+          {fotoGaleriaFull && (
+            <img src={fotoGaleriaFull} alt="Foto comprovante" className="w-full rounded-lg object-contain max-h-[80vh]" />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Solicitar Exclusão de Chamada PEC */}
+      <Dialog open={!!solicitarExclusaoPecDialog} onOpenChange={(o) => { if (!o) { setSolicitarExclusaoPecDialog(null); setMotivoExclusaoPec(''); } }}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Solicitar Exclusão de Chamada
+            </DialogTitle>
+          </DialogHeader>
+          {solicitarExclusaoPecDialog && (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1 text-sm">
+                <div><span className="font-medium">Turma:</span> {solicitarExclusaoPecDialog.turmaNome}</div>
+                <div><span className="font-medium">Data:</span> {solicitarExclusaoPecDialog.data ? new Date(solicitarExclusaoPecDialog.data + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</div>
+                <div><span className="font-medium">Presenças:</span> {solicitarExclusaoPecDialog.presentes}/{solicitarExclusaoPecDialog.total}</div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Esta solicitação será enviada para o administrador, que deverá confirmar a exclusão definitiva da chamada.
+              </p>
+              <div>
+                <label className="text-sm font-medium block mb-1">Motivo <span className="text-red-500">*</span></label>
+                <textarea
+                  value={motivoExclusaoPec}
+                  onChange={(e) => setMotivoExclusaoPec(e.target.value)}
+                  placeholder="Descreva o motivo da exclusão..."
+                  className={`w-full border rounded-md p-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-red-300 ${!motivoExclusaoPec.trim() ? 'border-red-300' : 'border-gray-200'}`}
+                />
+                {!motivoExclusaoPec.trim() && (
+                  <p className="text-xs text-red-500 mt-1">O motivo é obrigatório.</p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setSolicitarExclusaoPecDialog(null); setMotivoExclusaoPec(''); }} disabled={savingExclusaoPec}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={savingExclusaoPec || !motivoExclusaoPec.trim()}
+              onClick={async () => {
+                if (!solicitarExclusaoPecDialog) return;
+                setSavingExclusaoPec(true);
+                try {
+                  const r = await fetch('/api/chamadas/solicitar-exclusao', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      tipo: 'pec',
+                      referenciaId: solicitarExclusaoPecDialog.sessionId,
+                      turmaId: solicitarExclusaoPecDialog.activityInstanceId,
+                      dataChamada: solicitarExclusaoPecDialog.data,
+                      turmaNome: solicitarExclusaoPecDialog.turmaNome,
+                      presentes: solicitarExclusaoPecDialog.presentes,
+                      totalParticipantes: solicitarExclusaoPecDialog.total,
+                      motivo: motivoExclusaoPec || null,
+                    }),
+                  });
+                  if (!r.ok) throw new Error('Falha ao enviar solicitação');
+                  toast({ title: 'Solicitação enviada!', description: 'A solicitação de exclusão foi enviada para o administrador.' });
+                  setSolicitarExclusaoPecDialog(null);
+                  setMotivoExclusaoPec('');
+                } catch {
+                  toast({ title: 'Erro', description: 'Não foi possível enviar a solicitação.', variant: 'destructive' });
+                } finally {
+                  setSavingExclusaoPec(false);
+                }
+              }}
+            >
+              {savingExclusaoPec ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+              Enviar Solicitação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </div>
     );
   }

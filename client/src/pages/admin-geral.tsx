@@ -22,6 +22,7 @@ import Logo from "@/components/logo";
 import BottomNav from "@/components/bottom-nav";
 import { isAdminByRole } from "@shared/conselho";
 import { useToast } from "@/hooks/use-toast";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 
 export default function AdminGeral() {
   const [, setLocation] = useLocation();
@@ -256,6 +257,76 @@ export default function AdminGeral() {
             ))}
           </div>
         </div>
+
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow border-yellow-200"
+          onClick={() => openPrivacyPreferences()}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-yellow-500 hover:bg-yellow-600 rounded-lg flex items-center justify-center text-white transition-colors">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-black text-sm">Privacidade e cookies</h4>
+                <p className="text-xs text-gray-600 mt-1">Preferências e leitura dos documentos legais</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ROPA — LGPD */}
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow border-blue-200"
+          onClick={() => setLocation("/admin/ropa")}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center text-white transition-colors">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-black text-sm">ROPA — Registro de Atividades de Tratamento</h4>
+                <p className="text-xs text-gray-600 mt-1">Gerencie o registro de operações de tratamento de dados (LGPD / GDPR Art. 30)</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow border-indigo-200"
+          onClick={() => setLocation("/admin/privacy-consents")}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center justify-center text-white transition-colors">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-black text-sm">Auditoria de Consentimentos</h4>
+                <p className="text-xs text-gray-600 mt-1">Consulte trilha LGPD com filtros e exporte CSV para análise do DPO</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Solicitações de Exclusão */}
+        <Card
+          className="cursor-pointer hover:shadow-md transition-shadow border-red-200"
+          onClick={() => setLocation("/admin/solicitacoes-exclusao")}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-red-500 hover:bg-red-600 rounded-lg flex items-center justify-center text-white transition-colors">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-black text-sm">Solicitações de Exclusão de Chamadas</h4>
+                <p className="text-xs text-gray-600 mt-1">Revisar e confirmar exclusões de chamadas solicitadas pelos coordenadores</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Security Notice */}
         <Card className="border-yellow-200 bg-yellow-50">

@@ -18,7 +18,7 @@ export function SplashGateComponent({ timeout = 1500 }: SplashGateProps) {
     // PRIMEIRO: Verificar se é uma rota pública de login
     const currentPath = window.location.pathname;
     console.log('🔍 [SPLASH GATE] Current path:', currentPath);
-    const publicRoutes = ['/login/coordenador', '/login/monitor', '/login/developer', '/login/marketing', '/scanner-login'];
+    const publicRoutes = ['/login/coordenador', '/login/monitor', '/login/developer', '/login/marketing', '/scanner-login', '/vendedor/outlet', '/confeccao'];
     
     if (publicRoutes.includes(currentPath)) {
       console.log('🔓 [SPLASH GATE] Rota pública de login detectada - bypass ativado:', currentPath);
@@ -193,10 +193,12 @@ function getDefaultRouteForRole(userPapel: string, userEmail?: string | null): s
       return '/admin-geral';
     // RBAC Roles - Rotas isoladas
     case 'professor':
-    case 'professor_pec':
-    case 'professor_inclusao':
     case 'professor_psico':
       return '/professor';
+    case 'professor_pec':
+      return '/professor/pec';
+    case 'professor_inclusao':
+      return '/professor/inclusao';
     case 'monitor':
     case 'monitor_pec':
     case 'monitor_inclusao':
@@ -208,6 +210,8 @@ function getDefaultRouteForRole(userPapel: string, userEmail?: string | null): s
       return '/coordenador/esporte-cultura';
     case 'coordenador_psico':
       return '/coordenador/psicossocial';
+    case 'tecnica_psico':
+      return '/tecnica/psicossocial';
     // Legacy roles
     case 'lider':
     case 'professor_lider':
@@ -218,7 +222,7 @@ function getDefaultRouteForRole(userPapel: string, userEmail?: string | null): s
     case 'conselheiro':
       return '/conselho';
     case 'patrocinador':
-      return '/patrocinador-dashboard';
+      return '/patrocinador';
     case 'responsavel':
       return '/responsavel';
     case 'colaborador':

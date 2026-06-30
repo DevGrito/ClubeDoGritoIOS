@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,8 @@ import { useProfileImage } from "@/hooks/useProfileImage";
 import CreditCardComponent from "@/components/CreditCard";
 import AddPaymentMethodFlow from "@/components/AddPaymentMethodFlow";
 import DonationHistoryDashboard from "@/components/DonationHistoryDashboard";
-import { loadStripe } from "@stripe/stripe-js";
 import { isLeoByRole } from "@shared/conselho";
-import { Elements, PaymentElement, useStripe, useElements, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 
 // Helper para garantir que userId seja sempre número
 const getUserId = (userData?: any): number => {
@@ -531,548 +531,7 @@ function SwipeableCardSelector({ onCardSelect, showSelectButton = false, instanc
   );
 }
 
-// Inicializar Stripe
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || '');
-
-// Apple Pay REMOVIDO do modal de adicionar cartão 
-// MOTIVO: Apple Pay não funciona com amount: 0 (Setup Intent)
-// Apple Pay permanece disponível apenas no fluxo de doação onde há valor real
-
-// Componente interno com PaymentElement MODERNO
-function StripeCardForm() {
-  const stripe = useStripe();
-  const elements = useElements();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { userData } = useUserData();
-  const userId = getUserId(userData); // Usar helper para garantir número
-  const [isLoading, setIsLoading] = useState(false);
-  const [isReady, setIsReady] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!stripe || !elements) {
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      if (!userId) {
-        throw new Error("Usuário não encontrado");
-      }
-
-      console.log('🔧 [PAYMENT ELEMENT] Criando payment method...');
-
-      // Confirmar setup intent usando PaymentElement moderno
-      const { error, setupIntent } = await stripe.confirmSetup({
-        elements,
-        confirmParams: {
-          return_url: window.location.origin,
-        },
-        redirect: 'if_required'
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Erro ao processar cartão');
-      }
-
-      if (setupIntent?.status === 'succeeded' && setupIntent.payment_method) {
-        console.log('✅ [PAYMENT ELEMENT] Setup intent confirmado:', setupIntent.id);
-        console.log('✅ [PAYMENT ELEMENT] Payment method criado:', setupIntent.payment_method);
-
-        // Agora enviar apenas o ID para o backend
-        const response = await apiRequest('/api/users/' + userId + '/payment-methods', {
-          method: 'POST',
-          body: JSON.stringify({ paymentMethodId: setupIntent.payment_method }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-      if (response.ok) {
-        toast({
-          title: "Cartão Adicionado",
-          description: "Seu novo cartão foi salvo com segurança!",
-        });
-
-        // Invalidar cache para atualizar lista de cartões
-        await queryClient.invalidateQueries({ 
-          queryKey: ['/api/users', userId, 'payment-methods'] 
-        });
-
-        // Limpar formulário (PaymentElement não tem método clear)
-        // Note: PaymentElement is automatically cleared after successful setup
-        } else {
-          throw new Error('Erro ao salvar cartão no servidor');
-        }
-      } else {
-        throw new Error('Setup Intent não foi confirmado corretamente');
-      }
-
-    } catch (error: any) {
-      console.error('❌ [PAYMENT ELEMENT] Erro:', error);
-      toast({
-        title: "Erro ao Adicionar Cartão",
-        description: error.message || "Não foi possível salvar o cartão. Tente novamente.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="w-full bg-white">
-      <div className="px-8 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-xl font-bold mb-3" style={{ color: '#000000', fontFamily: 'Inter' }}>
-            Adicionar novo cartão
-          </h1>
-          <p className="text-sm" style={{ color: '#666666', fontFamily: 'Inter' }}>
-            Preencha os dados do seu cartão para adicionar como opção de pagamento.
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* PaymentElement MODERNO - Layout vertical automático */}
-          <div className="rounded-xl p-6" style={{ backgroundColor: '#FFFFFF' }}>
-            <PaymentElement
-              onChange={(event) => {
-                setIsReady(event.complete);
-              }}
-            />
-          </div>
-
-          {/* Ícone de segurança - IGUAL AO FLUXO DE DOAÇÃO */}
-          <div className="flex items-center justify-center mt-6 text-sm" style={{ color: '#666666' }}>
-            <span className="mr-2">🛡️</span>
-            Seus dados estão seguros com criptografia Stripe
-          </div>
-
-          {/* Botão de ação - IGUAL AO FLUXO DE DOAÇÃO */}
-          <button
-            type="submit"
-            disabled={!isReady || isLoading}
-            className="w-full h-12 rounded-xl font-medium transition-all duration-300 mt-6"
-            style={{
-              backgroundColor: isReady && !isLoading ? '#FFD700' : '#E5E5E5',
-              color: isReady && !isLoading ? '#000000' : '#999999',
-              fontFamily: 'Inter'
-            }}
-          >
-            {isLoading ? 'Adicionando...' : 'Adicionar cartão'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// Componente wrapper com Elements Provider - PaymentElement precisa de clientSecret
-function AddCardForm() {
-  const [clientSecret, setClientSecret] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Criar um SetupIntent para adicionar cartão sem cobrança
-    const createSetupIntent = async () => {
-      try {
-        const userId = localStorage.getItem("userId");
-        if (!userId) return;
-
-        // Criar setup intent para adicionar cartão
-        const response = await fetch('/api/users/' + userId + '/setup-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ [SETUP INTENT] Dados recebidos:', data);
-          
-          if (data.clientSecret) {
-            setClientSecret(data.clientSecret);
-          } else {
-            console.error('❌ [SETUP INTENT] ClientSecret não encontrado na resposta');
-          }
-        } else {
-          console.error('❌ [SETUP INTENT] Erro na resposta:', response.status);
-        }
-      } catch (error) {
-        console.error('Erro ao criar setup intent:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    createSetupIntent();
-  }, []);
-
-  if (isLoading) {
-    return (
-      <div className="w-full bg-white flex items-center justify-center py-20">
-        <div className="text-center">
-          <div className="w-8 h-8 mx-auto border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p style={{ color: '#666666', fontFamily: 'Inter' }}>Carregando...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!clientSecret) {
-    return (
-      <div className="w-full bg-white flex items-center justify-center py-20">
-        <div className="text-center">
-          <p style={{ color: '#666666', fontFamily: 'Inter' }}>Erro ao carregar formulário de pagamento</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <Elements 
-      stripe={stripePromise} 
-      options={{ 
-        clientSecret,
-        appearance: {
-          theme: 'stripe',
-          variables: {
-            colorPrimary: '#FFD700',
-            colorBackground: '#ffffff',
-            colorText: '#000000',
-            fontFamily: 'Inter, sans-serif',
-            spacingUnit: '4px',
-            borderRadius: '12px'
-          }
-        }
-      }}
-    >
-      <StripeCardForm />
-    </Elements>
-  );
-}
-
-// Componente antigo com preview (mantenho para backup)
-function AddCardFormOld() {
-  const [cardData, setCardData] = useState({
-    number: '',
-    name: '',
-    expiry: '',
-    cvv: ''
-  });
-  const [isFlipped, setIsFlipped] = useState(false);
-  const { toast } = useToast();
-  const { userData } = useUserData();
-  const queryClient = useQueryClient();
-
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = matches && matches[0] || '';
-    const parts = [];
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    if (parts.length) {
-      return parts.join(' ');
-    } else {
-      return v;
-    }
-  };
-
-  const formatExpiry = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    if (v.length >= 2) {
-      return v.substring(0, 2) + '/' + v.substring(2, 4);
-    }
-    return v;
-  };
-
-  const validateExpiry = (expiry: string) => {
-    if (!expiry || expiry.length !== 5) return false;
-    const [month, year] = expiry.split('/');
-    const monthNum = parseInt(month);
-    const yearNum = parseInt('20' + year);
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1;
-    
-    if (monthNum < 1 || monthNum > 12) return false;
-    if (yearNum < currentYear) return false;
-    if (yearNum === currentYear && monthNum < currentMonth) return false;
-    if (yearNum > currentYear + 20) return false; // Máximo 20 anos no futuro
-    
-    return true;
-  };
-
-  const displayCardNumber = () => {
-    if (!cardData.number) return '•••• •••• •••• ••••';
-    const cleanNumber = cardData.number.replace(/\s/g, '');
-    const formatted = cleanNumber.padEnd(16, '•').replace(/(.{4})/g, '$1 ').trim();
-    return formatted;
-  };
-
-  const displayName = () => {
-    return cardData.name || 'SEU NOME AQUI';
-  };
-
-  const displayExpiry = () => {
-    return cardData.expiry || '••/••';
-  };
-
-  const detectCardBrand = (number: string) => {
-    const cleanNumber = number.replace(/\s/g, '');
-    if (/^4/.test(cleanNumber)) return 'visa';
-    if (/^5[1-5]/.test(cleanNumber) || /^2[2-7]/.test(cleanNumber)) return 'mastercard';
-    if (/^3[47]/.test(cleanNumber)) return 'amex';
-    if (/^6(?:011|5)/.test(cleanNumber)) return 'discover';
-    if (/^50[0-9]/.test(cleanNumber)) return 'elo';
-    return 'visa';
-  };
-
-  const getBrandName = (brand: string) => {
-    const names = {
-      visa: 'VISA',
-      mastercard: 'MASTERCARD',
-      amex: 'AMEX',
-      discover: 'DISCOVER',
-      elo: 'ELO'
-    };
-    return names[brand as keyof typeof names] || 'VISA';
-  };
-
-  const currentBrand = detectCardBrand(cardData.number);
-
-  return (
-    <div className="space-y-4 py-4">
-      {/* Formulário de cartão */}
-      <div className="grid grid-cols-1 gap-4">
-        {/* Número do cartão */}
-        <div>
-          <label className="text-sm text-gray-300 mb-2 block">Número do cartão</label>
-          <input
-            type="text"
-            placeholder="4716 8039 0213 1234"
-            value={cardData.number}
-            onChange={(e) => {
-              const formatted = formatCardNumber(e.target.value);
-              if (formatted.length <= 19) {
-                setCardData(prev => ({ ...prev, number: formatted }));
-              }
-            }}
-            className="w-full p-3 bg-gray-800 border-2 border-purple-500 rounded-lg text-white placeholder-gray-400 focus:border-purple-400 focus:outline-none transition-colors"
-            maxLength={19}
-          />
-        </div>
-        
-        {/* Nome do titular */}
-        <div>
-          <label className="text-sm text-gray-300 mb-2 block">Nome do titular</label>
-          <input
-            type="text"
-            placeholder="Nome como está no cartão"
-            value={cardData.name}
-            onChange={(e) => setCardData(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-            className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-purple-400 focus:outline-none transition-colors"
-          />
-        </div>
-        
-        {/* Validade e CVV */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm text-gray-300 mb-2 block">Validade</label>
-            <input
-              type="text"
-              placeholder="mm/aa"
-              value={cardData.expiry}
-              onChange={(e) => {
-                const formatted = formatExpiry(e.target.value);
-                if (formatted.length <= 5) {
-                  setCardData(prev => ({ ...prev, expiry: formatted }));
-                }
-              }}
-              className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-purple-400 focus:outline-none transition-colors"
-              maxLength={5}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-gray-300 mb-2 block flex items-center gap-1">
-              CVV 
-              <span className="text-gray-400 text-xs">ⓘ</span>
-            </label>
-            <input
-              type="text"
-              placeholder="•••"
-              value={cardData.cvv}
-              onFocus={() => setIsFlipped(true)}
-              onBlur={() => setIsFlipped(false)}
-              onChange={(e) => {
-                const value = e.target.value.replace(/[^0-9]/g, '');
-                if (value.length <= 4) {
-                  setCardData(prev => ({ ...prev, cvv: value }));
-                }
-              }}
-              className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-purple-400 focus:outline-none transition-colors"
-              maxLength={4}
-            />
-          </div>
-        </div>
-
-        {/* Preview do cartão */}
-        <div className="flex flex-col items-center mt-4">
-          <div 
-            className="relative w-full max-w-sm h-48"
-            style={{ perspective: '1000px' }}
-          >
-            <div 
-              className="relative w-full h-full transition-transform duration-700 preserve-3d"
-              style={{ 
-                transformStyle: 'preserve-3d',
-                transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
-              }}
-            >
-              {/* Frente do cartão */}
-              <div 
-                className="absolute inset-0 w-full h-full rounded-xl p-5 text-white shadow-lg"
-                style={{ 
-                  background: "linear-gradient(135deg, #dc2626 0%, #e11d48 25%, #be185d 50%, #9d174d 75%, #7c2d12 100%)",
-                  backfaceVisibility: "hidden"
-                }}
-              >
-                <div className="flex justify-between items-start mb-6">
-                  <div className="text-sm font-semibold">{getBrandName(currentBrand)}</div>
-                  <div className="text-xs">ⓘ</div>
-                </div>
-                <div className="space-y-3">
-                  <div className="text-base font-mono tracking-wider">
-                    {displayCardNumber()}
-                  </div>
-                  <div className="text-sm">
-                    <div className="text-xs text-gray-200">{displayName()}</div>
-                    <div className="text-xs">{displayExpiry()}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Verso do cartão */}
-              <div 
-                className="absolute inset-0 w-full h-full rounded-xl p-5 text-white shadow-lg"
-                style={{ 
-                  background: "linear-gradient(135deg, #dc2626 0%, #e11d48 25%, #be185d 50%, #9d174d 75%, #7c2d12 100%)",
-                  backfaceVisibility: "hidden",
-                  transform: "rotateY(180deg)"
-                }}
-              >
-                <div className="h-8 bg-black mt-4 mb-4"></div>
-                <div className="bg-white text-black text-center py-1 rounded text-sm font-mono">
-                  CVV: {cardData.cvv || '•••'}
-                </div>
-                <div className="text-xs text-gray-200 mt-4 text-center">
-                  Código de segurança
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Ícone de segurança */}
-          <div className="flex items-center justify-center mt-3 text-green-400 text-sm">
-            <span className="mr-2">🛡️</span>
-            Seus dados estão seguros
-          </div>
-        </div>
-
-        {/* Validação de data */}
-        {cardData.expiry && !validateExpiry(cardData.expiry) && (
-          <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 mt-2">
-            <p className="text-red-400 text-sm">
-              ⚠️ A data de validade deve ser do mês atual ou posterior
-            </p>
-          </div>
-        )}
-
-        {/* Debug das validações */}
-        <div className="text-xs text-gray-400 mt-2 space-y-1">
-          <div>Número: {cardData.number ? '✓' : '✗'} ({cardData.number ? 'OK' : 'VAZIO'})</div>
-          <div>Nome: {cardData.name ? '✓' : '✗'} ({cardData.name ? 'OK' : 'VAZIO'})</div>
-          <div>Data válida: {validateExpiry(cardData.expiry) ? '✓' : '✗'} ({cardData.expiry})</div>
-          <div>CVV: {cardData.cvv ? '✓' : '✗'} ({cardData.cvv ? 'OK' : 'VAZIO'})</div>
-          <div>LocalStorage UserID: {localStorage.getItem("userId") ? '✓' : '✗'} ({localStorage.getItem("userId")})</div>
-        </div>
-
-        {/* Botão de ação */}
-        <Button 
-          className="w-full bg-yellow-400 hover:bg-yellow-500 text-black font-semibold py-3 rounded-xl text-base mt-4 disabled:bg-gray-600 disabled:text-gray-400"
-          disabled={!cardData.number || !cardData.name || !validateExpiry(cardData.expiry) || !cardData.cvv || !localStorage.getItem("userId")}
-          onClick={async () => {
-            try {
-              const userId = localStorage.getItem("userId");
-              if (!userId) {
-                toast({
-                  title: "Erro",
-                  description: "Usuário não encontrado",
-                  variant: "destructive"
-                });
-                return;
-              }
-              
-              console.log('🔧 [FRONTEND] Enviando dados do cartão para API:', {
-                userId,
-                cardNumber: '****',
-                cardholderName: cardData.name,
-                expiry: cardData.expiry
-              });
-
-              // Salvar cartão no banco via Stripe
-              const response = await apiRequest('/api/payment-methods', {
-                method: 'POST',
-                body: JSON.stringify({
-                  cardNumber: cardData.number.replace(/\s/g, ''),
-                  expiryMonth: cardData.expiry.split('/')[0],
-                  expiryYear: '20' + cardData.expiry.split('/')[1],
-                  cvc: cardData.cvv,
-                  cardholderName: cardData.name,
-                  userId: userId
-                }),
-                headers: { 'Content-Type': 'application/json' }
-              });
-
-              const result = await response.json();
-              
-              console.log('✅ [FRONTEND] Resposta da API:', result);
-              
-              if (!result.success) {
-                throw new Error(result.message || 'Erro ao adicionar cartão');
-              }
-              
-              toast({
-                title: "Cartão Adicionado",
-                description: "Seu novo cartão foi salvo com segurança!",
-              });
-              
-              // Invalidar cache para atualizar lista de cartões
-              await queryClient.invalidateQueries({ 
-                queryKey: ['/api/users', userId, 'payment-methods'] 
-              });
-              
-              // Limpar formulário
-              setCardData({ number: '', name: '', expiry: '', cvv: '' });
-              setIsFlipped(false);
-            } catch (error: any) {
-              toast({
-                title: "Erro ao Adicionar Cartão",
-                description: "Não foi possível salvar o cartão. Tente novamente.",
-                variant: "destructive"
-              });
-            }
-          }}
-        >
-          Adicionar cartão
-        </Button>
-      </div>
-    </div>
-  );
-}
+// Adicionar cartão: AddPaymentMethodFlow (SetupIntent + paymentMethodId — SEC-006)
 
 // Componente animado para contar números
 function AnimatedCounter({ targetValue, delay = 0 }: { targetValue: number; delay?: number }) {
@@ -1158,10 +617,6 @@ function ImpactProgressBar({
         </span>
       </div>
       
-      {/* Informação do Mês */}
-      <div className="text-xs text-gray-500 text-center">
-        Mês {currentMonth}/12 • Faltam {mesesFaltando} {mesesFaltando === 1 ? 'mês' : 'meses'} para completar o ano
-      </div>
     </div>
   );
 }
@@ -1364,14 +819,17 @@ export default function Pagamentos() {
   
   const periodoInfo = periodicidadeInfo[periodicidade as keyof typeof periodicidadeInfo] || periodicidadeInfo.monthly;
   
+  const _annualValue  = (donationStats as any)?.metaAnual  ?? (backendImpactData as any)?.annualValue  ?? 0;
+  const _contributed  = (donationStats as any)?.totalDoado ?? (backendImpactData as any)?.realDonationsTotal ?? 0;
   const impactData = {
     mainCausa: userCausas.length > 0 ? userCausas[0] : 'cultura',
-    annualValue: (donationStats as any)?.metaAnual || (backendImpactData as any)?.annualValue || 118.80,
-    monthlyValue: (donationStats as any)?.valorMensal || (backendImpactData as any)?.monthlyContribution || 9.90,
-    valueContributed: (donationStats as any)?.totalDoado || (backendImpactData as any)?.realDonationsTotal || 0,
-    valueRemaining: ((donationStats as any)?.metaAnual || (backendImpactData as any)?.annualValue || 118.80) - ((donationStats as any)?.totalDoado || (backendImpactData as any)?.realDonationsTotal || 0),
-    progressPercentage: (donationStats as any)?.progresso || (backendImpactData as any)?.progressPercentage || 0,
-    currentMonth: (donationStats as any)?.mesesFaltando !== undefined ? (12 - (donationStats as any).mesesFaltando) : ((backendImpactData as any)?.currentMonth || 9),
+    annualValue: _annualValue,
+    monthlyValue: (donationStats as any)?.valorMensal ?? (backendImpactData as any)?.monthlyContribution ?? 0,
+    valueContributed: _contributed,
+    valueRemaining: Math.max(0, _annualValue - _contributed),
+    progressPercentage: (donationStats as any)?.progresso ?? (backendImpactData as any)?.progressPercentage ?? 0,
+    currentMonth: new Date().getMonth() + 1,
+    monthsDonated: (donationStats as any)?.mesesDoados ?? 0,
     periodicidade: periodicidade,
     periodosPorAno: periodoInfo.periodos,
     periodoLabel: periodoInfo.label
@@ -1639,9 +1097,11 @@ export default function Pagamentos() {
                       <span className="text-gray-700">Você tem acesso Influencer ao app. Obrigado por divulgar o Clube do Grito!</span>
                     ) : (
                       <>
-                        <span className="font-bold text-gray-900">Progresso do ano:</span> Seu impacto atual é de{' '}
-                        <span className="font-semibold text-gray-900">R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}</span>{' '}
-                        em {impactData.currentMonth} {impactData.currentMonth === 1 ? 'mês' : 'meses'}. Faltam{' '}
+                        Você apoiou o Grito em{' '}
+                        <span className="font-semibold text-gray-900">{impactData.monthsDonated} {impactData.monthsDonated === 1 ? 'mês' : 'meses'}</span>{' '}
+                        este ano, somando{' '}
+                        <span className="font-semibold text-gray-900">R$ {impactData.valueContributed.toFixed(2).replace('.', ',')}</span>.
+                        {' '}Faltam{' '}
                         <span className="font-semibold text-gray-900">R$ {impactData.valueRemaining.toFixed(2).replace('.', ',')}</span>{' '}
                         para completar sua meta anual.
                       </>
@@ -1804,24 +1264,24 @@ export default function Pagamentos() {
                 </div>
               )}
 
-              {/* Termos de Uso */}
+              {/* Privacidade e cookies */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
+                    openPrivacyPreferences();
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <BookOpen className="w-6 h-6 text-black" />
+                    <Shield className="w-6 h-6 text-black" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Termos de Uso
+                      Privacidade e cookies
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Segurança e clareza em cada passo.
+                      Preferências e leitura dos documentos legais
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
@@ -1839,7 +1299,7 @@ export default function Pagamentos() {
                       title: "Saindo da conta",
                       description: "Você será desconectado...",
                     });
-                    localStorage.clear();
+                    clearLocalStoragePreservingLgpd();
                     sessionStorage.clear();
                     setTimeout(() => window.location.href = "/entrar", 1000);
                   }}

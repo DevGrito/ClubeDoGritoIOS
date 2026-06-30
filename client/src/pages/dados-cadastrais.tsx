@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useProfileImage } from "@/hooks/useProfileImage";
 import { useUserData } from "@/hooks/useUserData";
 import { ProfileImageUploader } from "@/components/ProfileImageUploader";
+import { useAuthSession } from "@/hooks/useAuthSession";
 
 export default function DadosCadastrais() {
   const [, setLocation] = useLocation();
@@ -25,9 +26,10 @@ export default function DadosCadastrais() {
   });
   const { profileImage } = useProfileImage();
   const { userData, updateUserData } = useUserData();
+  const { data: authSession } = useAuthSession();
 
   // Detectar se o usuário é patrocinador
-  const userPapel = localStorage.getItem("userPapel") || "";
+  const userPapel = String(authSession?.papel || authSession?.role || localStorage.getItem("userPapel") || "");
   const isPatrocinador = userPapel === "patrocinador";
 
   // TRECHO ADICIONADO
@@ -149,7 +151,7 @@ export default function DadosCadastrais() {
                 className="cursor-pointer"
               >
                 <ProfileImageUploader
-                  userId={parseInt(localStorage.getItem("userId") || "0")}
+                  userId={Number(authSession?.id || userData?.id || 0)}
                   currentImage={profileImage}
                   size="md"
                 />

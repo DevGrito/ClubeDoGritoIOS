@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +33,8 @@ import {
   XCircle,
   Home,
   ArrowLeft,
-  ExternalLink
+  ExternalLink,
+  Eye
 } from "lucide-react";
 import Logo from "@/components/logo";
 import { useLocation } from "wouter";
@@ -41,9 +43,11 @@ import BottomNavigation from "@/components/bottom-navigation";
 import { useUserData } from "@/hooks/useUserData";
 import { useProfileImage } from "@/hooks/useProfileImage";
 import { UserAvatar } from "@/components/UserAvatar";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
 import { isLeoByRole } from "@shared/conselho";
 import { IndicacoesSection } from "@/components/profile/IndicacoesSection";
+import { marketingFetch } from "@/lib/marketingFetch";
 
 export default function Perfil() {
   const [, setLocation] = useLocation();
@@ -83,14 +87,21 @@ export default function Perfil() {
 
   // Buscar campanha ativa de marketing
   useEffect(() => {
-    fetch('/api/mkt/active-campaign')
-      .then(res => res.json())
-      .then(data => {
+    marketingFetch(
+      "/api/mkt/active-campaign",
+      undefined,
+      () => {
+        setActiveCampaign(null);
+      }
+    )
+      .then(async (res) => {
+        if (!res) return;
+        const data = await res.json();
         if (data.campaign) {
           setActiveCampaign(data.campaign);
         }
       })
-      .catch(err => console.error('Erro ao buscar campanha ativa:', err));
+      .catch((err) => console.error("Erro ao buscar campanha ativa:", err));
   }, []);
 
   const planDisplayNames = {
@@ -118,7 +129,7 @@ export default function Perfil() {
     });
     
     // Clear all storage completely
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     
     // Small delay to show toast, then redirect with full page reload
@@ -220,8 +231,8 @@ export default function Perfil() {
         {
           icon: Bell,
           label: "Notificações",
-          onClick: () => { },
-          active: false
+          onClick: () => setLocation("/configuracoes"),
+          active: true
         },
         {
           icon: Palette,
@@ -298,10 +309,16 @@ export default function Perfil() {
             active: true
           }
         ] : []),
+        {
+          icon: Eye,
+          label: "Meus dados (LGPD)",
+          onClick: () => setLocation("/meus-dados"),
+          active: true
+        },
         { 
-          icon: FileText, 
-          label: "Política de privacidade", 
-          onClick: () => setLocation("/termos-servicos?from=profile"),
+          icon: Shield, 
+          label: "Privacidade e cookies", 
+          onClick: () => openPrivacyPreferences(),
           active: true
         }
       ]
@@ -570,24 +587,49 @@ export default function Perfil() {
                 </div>
               )}
 
-              {/* Termos de Uso */}
+              {/* Meus dados LGPD */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
+                    setTimeout(() => setLocation("/meus-dados"), 150);
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <BookOpen className="w-6 h-6 text-black" />
+                    <Eye className="w-6 h-6 text-black" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Termos de Uso
+                      Meus dados (LGPD)
                     </h3>
                     <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                      Segurança e clareza em cada passo.
+                      Consultar, exportar ou solicitar exclusão dos seus dados
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              {/* Privacidade e cookies */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    openPrivacyPreferences();
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Privacidade e cookies
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
+                      Preferências e leitura dos documentos legais
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
@@ -601,7 +643,7 @@ export default function Perfil() {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                    window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                   }}
                 >
                   <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">

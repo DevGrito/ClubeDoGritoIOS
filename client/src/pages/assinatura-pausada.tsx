@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useLocation } from "wouter";
-import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, PaymentRequestButtonElement, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Smartphone, Check, Calendar, Sparkles, LogOut } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import coneImage from "../app-assets/image_1764861877259.png";
-import { planPrices, planDetails } from "@/lib/stripe";
+import { planPrices, planDetails, stripePromise } from "@/lib/stripe";
+import { authFetch } from "@/lib/queryClient";
 import useEmblaCarousel from 'embla-carousel-react';
 
 const periodicityLabels: Record<string, string> = {
@@ -26,8 +27,6 @@ const getPeriodicityText = (periodicity: string) => {
   };
   return texts[periodicity] || 'por mês';
 };
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || "pk_test_51RdaS1Qlsea8vAKZC1WmSHcCGXNGGTxJuLZ3iq90MUpeCxq5CUhj5C2QwmHWO008hWIMSaZ0yh75EzrSUpXyvTs6002cYD8L9l");
 
 interface PlanoAnterior {
   nome: string;
@@ -147,12 +146,7 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
           return;
         }
 
-        const response = await fetch('/api/billing/previous-plan', {
-          credentials: 'include',
-          headers: {
-            'x-user-id': userId
-          }
-        });
+        const response = await authFetch('/api/billing/previous-plan');
         
         if (response.ok) {
           const data = await response.json();
@@ -267,9 +261,9 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
         setIsProcessing(true);
 
         const userId = localStorage.getItem('userId') || '';
-        const setupResponse = await fetch('/api/billing/reactivate-with-setup', {
+        const setupResponse = await authFetch('/api/billing/reactivate-with-setup', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
             planoId: planoSelecionado?.id,
@@ -317,9 +311,9 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
 
         event.complete('success');
 
-        const confirmResponse = await fetch('/api/billing/reactivate-confirm', {
+        const confirmResponse = await authFetch('/api/billing/reactivate-confirm', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
             subscriptionId: setupData.subscriptionId,
@@ -399,9 +393,9 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
         throw new Error(pmError.message);
       }
 
-      const setupResponse = await fetch('/api/billing/reactivate-with-setup', {
+      const setupResponse = await authFetch('/api/billing/reactivate-with-setup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           planoId: planoSelecionado?.id,
@@ -440,9 +434,9 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
         }
       }
 
-      const confirmResponse = await fetch('/api/billing/reactivate-confirm', {
+      const confirmResponse = await authFetch('/api/billing/reactivate-confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           subscriptionId: setupData.subscriptionId,
@@ -537,7 +531,7 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
 
           <button
             onClick={() => {
-              localStorage.clear();
+              clearLocalStoragePreservingLgpd();
               sessionStorage.clear();
               setLocation('/');
               window.location.reload();
@@ -586,9 +580,9 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
     // Criar setup para obter clientSecret
     try {
       const userId = localStorage.getItem('userId') || '';
-      const setupResponse = await fetch('/api/billing/reactivate-with-setup', {
+      const setupResponse = await authFetch('/api/billing/reactivate-with-setup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           planoId: planId,
@@ -965,11 +959,12 @@ function PaymentFormWithSecret({
         event.complete('success');
 
         // Confirmar reativação no backend
-        const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+        const payResponse = await authFetch(`/api/subscriptions/${subscriptionId}/pay`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             paymentMethodId: event.paymentMethod.id,
+            userId: localStorage.getItem("userId") || undefined,
           })
         });
 
@@ -1052,11 +1047,12 @@ function PaymentFormWithSecret({
       }
 
       if (setupIntent?.status === 'succeeded') {
-        const payResponse = await fetch(`/api/subscriptions/${subscriptionId}/pay`, {
+        const payResponse = await authFetch(`/api/subscriptions/${subscriptionId}/pay`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             paymentMethodId: setupIntent.payment_method,
+            userId: localStorage.getItem("userId") || undefined,
           })
         });
 

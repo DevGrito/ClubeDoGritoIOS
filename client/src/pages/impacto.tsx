@@ -1,3 +1,4 @@
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
   import React, { useState, useEffect, useRef } from "react";
   import { useLocation } from "wouter";
   import { useUserData } from "@/hooks/useUserData";
@@ -7,11 +8,13 @@
   import Logo from "@/components/logo";
   import BottomNavigation from "@/components/bottom-navigation";
   import { StoriesViewerFinal } from '@/components/StoriesViewerFinal';
-  import { TrendingUp, Users, Target, Award, Heart, Rocket, Menu, User, Gift, CreditCard, BookOpen, ChevronRight, RefreshCw, LogOut, Shield, PieChart, UserCheck, Calendar, ExternalLink } from "lucide-react";
+  import { TrendingUp, Users, Target, Award, Heart, Rocket, Menu, User, Gift, CreditCard, BookOpen, ChevronRight, RefreshCw, LogOut, Shield, PieChart, UserCheck, Calendar, ExternalLink, Wrench } from "lucide-react";
   import { Cell, PieChart as RechartsPie, Pie, ResponsiveContainer, Legend, Tooltip } from 'recharts';
   import { useQuery, useQueryClient } from "@tanstack/react-query";
   import { StripeKeyManager } from "@/components/StripeKeyManager";
   import ImpactGestaoVista from "@/components/ImpactGestaoVista";
+  import GestaoVistaAreas from "@/components/GestaoVistaAreas";
+  import { openPrivacyPreferences } from "@/lib/consentManager";
 
   export default function Impacto() {
     const [, setLocation] = useLocation();
@@ -160,19 +163,6 @@
         const steps = 60;
         const stepTime = duration / steps;
 
-        // Animar Hora-aula
-        let currentHora = 0;
-        const horaIncrement = gestaoVistaData.counters.horaAula / steps;
-        const horaInterval = setInterval(() => {
-          currentHora += horaIncrement;
-          if (currentHora >= gestaoVistaData.counters.horaAula) {
-            setHoraAulaAnimated(gestaoVistaData.counters.horaAula);
-            clearInterval(horaInterval);
-          } else {
-            setHoraAulaAnimated(Math.floor(currentHora));
-          }
-        }, stepTime);
-
         // Animar Atendimentos
         let currentAtend = 0;
         const atendIncrement = gestaoVistaData.counters.atendimentos / steps;
@@ -200,7 +190,6 @@
         }, stepTime);
 
         return () => {
-          clearInterval(horaInterval);
           clearInterval(atendInterval);
           clearInterval(pessoasInterval);
         };
@@ -750,9 +739,9 @@
             </h2>
           </div>
 
-          {/* Gestão à Vista - PRIMEIRO */}
+          {/* Gestão à Vista */}
           <div className="mb-6">
-            <ImpactGestaoVista mostrarAlunosEmFormacao={localStorage.getItem('userPapel') === 'leo'} />
+            <GestaoVistaAreas />
           </div>
 
           {/* Título da Página */}
@@ -920,6 +909,13 @@
               ))}
             </div>
             */}
+            {/* Legenda dos dados demográficos */}
+            <div className="px-4 mb-3">
+              <p className="text-xs text-gray-500 text-center font-sans">
+                Dados Demográficos • PEC e Inclusão Produtiva • {anoDemografico}
+              </p>
+            </div>
+
             <div 
               ref={graficosScrollRef}
               className="overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory" 
@@ -1137,16 +1133,16 @@
               ))}
             </div>
             
-            {/* Legenda dos dados demográficos */}
-            <div className="px-4 mt-3">
-              <p className="text-xs text-gray-500 text-center font-sans">
-                Dados Demográficos • PEC e Inclusão Produtiva • {anoDemografico}
-              </p>
-            </div>
           </div>
 
           {/* Carrossel de Métricas (Horas/Aula e Impacto) */}
           <div className="mb-8">
+            {/* Legenda dos indicadores gerais */}
+            <div className="px-4 mb-3">
+              <p className="text-xs text-gray-500 text-center font-sans">
+                O Grito em Números • Indicadores Gerais
+              </p>
+            </div>
             <div 
               ref={metricasScrollRef}
               className="overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory" 
@@ -1446,24 +1442,24 @@
                   </div>
                 )}
 
-                {/* Termos de Uso */}
+                {/* Privacidade e cookies */}
                 <div>
                   <div
                     className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                     onClick={() => {
                       setShowHelpMenu(false);
-                      setTimeout(() => setLocation('/termos-servicos?from=help'), 150);
+                      openPrivacyPreferences();
                     }}
                   >
                     <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
-                      <BookOpen className="w-6 h-6 text-black" />
+                      <Shield className="w-6 h-6 text-black" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                        Termos de Uso
+                        Privacidade e cookies
                       </h3>
                       <p className="text-sm text-gray-600 mt-1 leading-relaxed" style={{ fontFamily: 'SF Pro Rounded, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' }}>
-                        Segurança e clareza em cada passo.
+                        Preferências e leitura dos documentos legais
                       </p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
@@ -1477,7 +1473,7 @@
                     className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                     onClick={() => {
                       setShowHelpMenu(false);
-                      window.open('https://complaint-tracker-OGRITO.replit.app', '_blank');
+                      window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank');
                     }}
                   >
                     <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1504,7 +1500,7 @@
                       setShowHelpMenu(false);
                       setTimeout(() => {
                         // Clear all localStorage data
-                        localStorage.clear();
+                        clearLocalStoragePreservingLgpd();
                         // Redirect to home page
                         setLocation('/');
                       }, 150);

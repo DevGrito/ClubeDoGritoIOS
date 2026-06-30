@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,14 @@ import {
   Menu,
   User,
   BarChart3,
-  ExternalLink
+  ExternalLink,
+  Shield,
+  Eye,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { openPrivacyPreferences } from "@/lib/consentManager";
 import { ProfileEditModal } from "@/components/profile/ProfileEditModal";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
 
 export default function PerfilPatrocinador() {
   const [, setLocation] = useLocation();
@@ -40,7 +45,7 @@ export default function PerfilPatrocinador() {
       description: "Você será desconectado...",
     });
     
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     
     setTimeout(() => {
@@ -63,14 +68,7 @@ export default function PerfilPatrocinador() {
     },
     {
       title: "Configurações",
-      items: [
-        { 
-          icon: Settings, 
-          label: "Configurações", 
-          onClick: () => setLocation("/configuracoes"),
-          active: false
-        }
-      ]
+      items: []
     },
     {
       title: "Suporte",
@@ -167,6 +165,9 @@ export default function PerfilPatrocinador() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
+                {section.title === "Configurações" ? (
+                  <PushNotificationSettings variant="inline" />
+                ) : (
                 <div className="space-y-1">
                   {section.items.map((item, itemIndex) => {
                     const Icon = item.icon;
@@ -192,6 +193,7 @@ export default function PerfilPatrocinador() {
                     );
                   })}
                 </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -309,13 +311,61 @@ export default function PerfilPatrocinador() {
                 <div className="border-b border-gray-100 mx-4"></div>
               </div>
 
+              {/* Privacidade e cookies */}
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    openPrivacyPreferences();
+                  }}
+                  data-testid="menu-privacidade"
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      Privacidade e cookies
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Preferências e leitura dos documentos legais
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
+              <div>
+                <div
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
+                  onClick={() => {
+                    setShowHelpMenu(false);
+                    setTimeout(() => setLocation("/meus-dados"), 150);
+                  }}
+                >
+                  <div className="w-12 h-12 bg-yellow-400 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Eye className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-base">Meus dados (LGPD)</h3>
+                    <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                      Consultar, exportar ou solicitar sobre seus dados
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </div>
+                <div className="border-b border-gray-100 mx-4"></div>
+              </div>
+
               {/* Canal de Transparência */}
               <div>
                 <div
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200 bg-gray-50"
                   onClick={() => {
                     setShowHelpMenu(false);
-                    window.open("https://complaint-tracker-OGRITO.replit.app", "_blank");
+                    window.open("https://canaldetransparencia.institutoogrito.com.br", "_blank");
                   }}
                   data-testid="menu-transparencia"
                 >

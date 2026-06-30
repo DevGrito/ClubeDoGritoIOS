@@ -45,6 +45,7 @@ export interface ConsolidatedUser {
   telefone: string;
   email: string;
   tipo: string;
+  papel: string;
   verificado: boolean;
   ativo: boolean;
   plano: string;
@@ -265,6 +266,7 @@ function formatUser(user: any): ConsolidatedUser {
     telefone: user.telefone,
     email: user.email || '',
     tipo: user.tipo || user.role || 'user',
+    papel: user.role || user.tipo || 'user',
     verificado: user.verificado || false,
     ativo: user.ativo || false,
     plano: user.plano || 'eco',

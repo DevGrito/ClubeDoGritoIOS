@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 import { formatCPF } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { apiRequest, authFetch, queryClient } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,12 +19,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { openPrivacyPreferences } from "@/lib/consentManager";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
+import AreaConsentGate, { useAreaConsentReady } from "@/components/AreaConsentGate";
+import { LgpdLegalHeaderButtons, LgpdMeusDadosSettingsPanel } from "@/components/LgpdLegalMenuSection";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import PsicoMonthlyReport from "@/components/psico/PsicoMonthlyReport";
-import CoordenadorDashboard from "@/components/CoordenadorDashboard";
+import CoordenadorDashboard, { DarkMetricCard } from "@/components/CoordenadorDashboard";
+import DashboardPeriodoFiltro from "@/components/dashboard/DashboardPeriodoFiltro";
+import { appendPeriodoParams, buildPeriodoQueryString, type PeriodoFiltro } from "@/lib/dashboardPeriodoFiltro";
+import { RelatoriosPanel } from "@/components/RelatoriosPanel";
 import { 
   Users,
   User,
@@ -54,10 +62,30 @@ import {
   ClipboardList,
   ChevronDown,
   ChevronRight,
-  Pencil
+  Pencil,
+  BarChart2,
+  Home,
+  Layers,
+  Loader2
 } from "lucide-react";
 import AlterarSenha from "@/components/AlterarSenha";
 import DemandaEspontaneaSection from "@/components/DemandaEspontaneaSection";
+import AtendidosComunidadeSection from "@/components/AtendidosComunidadeSection";
+import Favela3DSection from "@/components/Favela3DSection";
+import { PsicoPerfilModal } from "@/components/PsicoPerfilModal";
+import { fetchAtendidoPerfil } from "@/lib/psicoPerfilApi";
+import EventosGritoSection from "@/components/EventosGritoSection";
+import { getDiasAulaParaTurma, getBrazilDateString } from "@/lib/class-days";
+import {
+  buildIntervencaoObservacoes,
+  canEditIntervencaoPsico,
+  findChamadaParaIntervencao,
+  formatIntervencaoParticipantesResumo,
+  getIntervencaoParticipantesResumo,
+  intervencaoDataIso,
+  parseIntervencaoObservacoes,
+  participantesFromChamadaPresencas,
+} from "@/lib/psicoIntervencaoObs";
 
 const LOWER_WORDS_PT = new Set(['de','da','do','dos','das','e','em','por','para','com','a','o','as','os','ao','aos']);
 const normalizeName = (name: string) =>
@@ -65,11 +93,189 @@ const normalizeName = (name: string) =>
     i === 0 || !LOWER_WORDS_PT.has(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w
   ).join(' ');
 
+const MORADA_STATUS_OPTIONS = [
+  { value: "em_visita_tecnica", label: "Em visita técnica" },
+  { value: "ordem_servico_emitida", label: "Ordem de serviço emitida" },
+  { value: "sem_visita", label: "Sem visita" },
+  { value: "em_reformar", label: "Em reforma" },
+  { value: "em_pausa", label: "Em pausa" },
+  { value: "finalizado", label: "Finalizado" },
+] as const;
+
+const MORADA_COMODOS_OPTIONS = [
+  "Sala",
+  "Quarto",
+  "Cozinha",
+  "Copa",
+  "Banheiro",
+  "Garagem",
+  "Telhado",
+  "Laje",
+  "Fachada",
+  "Muro",
+  "Portão",
+  "Outros",
+] as const;
+
+function AlunosVinculoSection({ alunos, loading }: { alunos: any[]; loading: boolean }) {
+  const [busca, setBusca] = useState('');
+  const [filtro, setFiltro] = useState<'todos' | 'pec' | 'inclusao'>('todos');
+  const [perfilAluno, setPerfilAluno] = useState<any>(null);
+  const [perfilDados, setPerfilDados] = useState<any>(null);
+  const [perfilResponsavel, setPerfilResponsavel] = useState<any>(null);
+  const [perfilResponsaveis, setPerfilResponsaveis] = useState<any[]>([]);
+  const [loadingPerfil, setLoadingPerfil] = useState(false);
+
+  const abrirPerfil = async (a: any) => {
+    setPerfilAluno(a);
+    setPerfilDados(null);
+    setPerfilResponsavel(null);
+    setPerfilResponsaveis([]);
+    setLoadingPerfil(true);
+    try {
+      const data = await fetchAtendidoPerfil(a);
+      if (data.perfil) setPerfilDados(data.perfil);
+      if (data.responsavel) setPerfilResponsavel(data.responsavel);
+      if (Array.isArray(data.responsaveis)) setPerfilResponsaveis(data.responsaveis);
+    } catch { /* silencioso */ }
+    setLoadingPerfil(false);
+  };
+
+  const filtered = alunos
+    .filter((a) => {
+      if (filtro === 'pec' && a.programa !== 'pec') return false;
+      if (filtro === 'inclusao' && a.programa !== 'inclusao') return false;
+      if (!busca.trim()) return true;
+      const t = busca.toLowerCase();
+      return (a.nome || '').toLowerCase().includes(t) || (a.cpf || '').includes(busca);
+    })
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center gap-2"><Users className="w-5 h-5 text-green-500" /> Alunos com Vínculo em Turma</span>
+            <div className="flex items-center gap-1">
+              {(['todos', 'pec', 'inclusao'] as const).map((f) => (
+                <Button key={f} size="sm" variant={filtro === f ? 'default' : 'outline'}
+                  className={`text-xs px-3 ${f === 'pec' && filtro === f ? 'bg-yellow-500 hover:bg-yellow-600 border-yellow-500' : f === 'inclusao' && filtro === f ? 'bg-green-600 hover:bg-green-700 border-green-600' : ''}`}
+                  onClick={() => setFiltro(f)}>
+                  {f === 'todos' ? 'Todos' : f === 'pec' ? 'PEC' : 'Inclusão Produtiva'}
+                </Button>
+              ))}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+            <Input placeholder="Buscar aluno por nome ou CPF..." value={busca} onChange={(e) => setBusca(e.target.value)} className="pl-10" />
+          </div>
+          {loading ? (
+            <div className="text-center py-10 text-gray-500">Carregando alunos...</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>CPF</TableHead>
+                      <TableHead>Telefone</TableHead>
+                      <TableHead>Turmas</TableHead>
+                      <TableHead>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                          {busca ? 'Nenhum aluno encontrado para a busca.' : 'Nenhum aluno com vínculo em turma encontrado.'}
+                        </TableCell>
+                      </TableRow>
+                    ) : filtered.map((a: any) => (
+                      <TableRow key={a.id}>
+                        <TableCell className="font-medium">{a.nome || '-'}</TableCell>
+                        <TableCell className="text-sm font-mono text-gray-700">{formatCPF(a.cpf)}</TableCell>
+                        <TableCell className="text-sm text-gray-600">{a.telefone || '-'}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(a.turmas || []).map((t: any, ti: number) => (
+                              <Badge key={ti} variant="outline" className={`text-xs ${a.programa === 'pec' ? 'border-yellow-400 text-yellow-700 bg-yellow-50' : 'border-green-400 text-green-700 bg-green-50'}`}>
+                                {t.nome}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Button size="sm" variant="ghost" title="Ver dados completos" onClick={() => abrirPerfil(a)}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <p className="text-xs text-gray-400 mt-2 text-right">Total: {filtered.length} aluno{filtered.length !== 1 ? 's' : ''}</p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <PsicoPerfilModal
+        open={!!perfilAluno}
+        onClose={() => { setPerfilAluno(null); setPerfilDados(null); setPerfilResponsavel(null); setPerfilResponsaveis([]); }}
+        atendido={perfilAluno}
+        perfil={perfilDados}
+        responsavel={perfilResponsavel}
+        responsaveis={perfilResponsaveis}
+        loading={loadingPerfil}
+        turmas={perfilAluno?.turmas}
+        programa={perfilAluno?.programa}
+        mostrarHistorico={false}
+        fullProfile
+      />
+    </>
+  );
+}
+
 export default function CoordenadorPsicoPage() {
+  const fetch = authFetch;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { ready: consentReady, checking: consentChecking, markReady: setConsentReady } =
+    useAreaConsentReady("employees");
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [favela3dSubTab, setFavela3dSubTab] = useState<'atendidos' | 'registros'>('atendidos');
+  const [mapeamentoSubTab, setMapeamentoSubTab] = useState<'mapeamento' | 'moradas-gerais'>('mapeamento');
+  const [showMoradaReformaForm, setShowMoradaReformaForm] = useState(false);
+  const [moradaPartBusca, setMoradaPartBusca] = useState("");
+  const [moradaPartOpen, setMoradaPartOpen] = useState(false);
+  const [moradaPartFiltroVertente, setMoradaPartFiltroVertente] = useState<"todos" | "pec" | "inclusao" | "comunidade">("todos");
+  const [moradaComodos, setMoradaComodos] = useState<string[]>([]);
+  const [moradaEditId, setMoradaEditId] = useState<number | null>(null);
+  const [moradaMonitorId, setMoradaMonitorId] = useState<number | null>(null);
+  const [moradaDeleteId, setMoradaDeleteId] = useState<number | null>(null);
+  const [moradaForm, setMoradaForm] = useState({
+    participanteNome: "",
+    participanteCpf: "",
+    participanteOrigem: "",
+    semana: "1",
+    data: new Date().toISOString().split("T")[0],
+    status: "em_visita_tecnica",
+    outrosComodo: "",
+    observacoes: "",
+  });
+  const [mapData, setMapData] = useState(new Date().toISOString().slice(0, 10));
+  const [mapCasas, setMapCasas] = useState("");
+  const [mapObs, setMapObs] = useState("");
+  const [mapEditId, setMapEditId] = useState<number | null>(null);
+  const [mapEditMonitorId, setMapEditMonitorId] = useState<number | null>(null);
+  const [mapDeleteId, setMapDeleteId] = useState<number | null>(null);
   const changeSection = (section: string) => {
     setActiveSection(section);
     requestAnimationFrame(() => {
@@ -95,6 +301,18 @@ export default function CoordenadorPsicoPage() {
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
   const [showDeleteFamiliaDialog, setShowDeleteFamiliaDialog] = useState(false);
   const [showDeleteCasoDialog, setShowDeleteCasoDialog] = useState(false);
+  const [intervencaoFiltroAno, setIntervencaoFiltroAno] = useState(new Date().getFullYear());
+  const [intervencaoFiltroMes, setIntervencaoFiltroMes] = useState(0);
+  const [showNovaIntervencao, setShowNovaIntervencao] = useState(false);
+  const [intervencaoExpandida, setIntervencaoExpandida] = useState<string | null>(null);
+  const [expandedIVPart, setExpandedIVPart] = useState<Set<string>>(new Set());
+  const [intervencaoSubTab, setIntervencaoSubTab] = useState<"lista" | "registrar">("lista");
+  const [editIntervencaoId, setEditIntervencaoId] = useState<number | null>(null);
+  const [intervencaoForm, setIntervencaoForm] = useState({ titulo: '', tipo: 'outro', vertente: 'psicossocial', data: new Date().toISOString().split('T')[0], horario_inicio: '', horario_fim: '', participantes_presentes: 0, descricao: '', observacoes: '' });
+  const [intervAtivTurmaId, setIntervAtivTurmaId] = useState("");
+  const [intervAtivParticipantes, setIntervAtivParticipantes] = useState<{ id: string; nome: string; selecionado: boolean }[]>([]);
+  const [intervAtivChamada, setIntervAtivChamada] = useState<{ loaded: boolean; exists: boolean; presencas: Array<{ alunoCpf: string; nome: string; presente: boolean; justificativa?: string }> }>({ loaded: false, exists: false, presencas: [] });
+  const intervAtivPrevTurmaRef = useRef<string>("");
   const [confirmDeleteAtendido, setConfirmDeleteAtendido] = useState<{ open: boolean; id: number | null; nome: string }>({ open: false, id: null, nome: '' });
   const [confirmDeleteRegistro, setConfirmDeleteRegistro] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
   const [showViewCasoModal, setShowViewCasoModal] = useState(false);
@@ -116,15 +334,22 @@ export default function CoordenadorPsicoPage() {
   const [freqBusca, setFreqBusca] = useState('');
   const [freqExpandida, setFreqExpandida] = useState<string | null>(null);
   const [showCadastroAtendido, setShowCadastroAtendido] = useState(false);
-  const [cadastroAtendidoForm, setCadastroAtendidoForm] = useState({ nome: '', cpf: '', data_nascimento: '', telefone: '', endereco: '', observacoes: '' });
+  const [cadastroAtendidoForm, setCadastroAtendidoForm] = useState({
+    nome: '', cpf: '', data_nascimento: '', sexo: '', raca: '', telefone: '', email: '',
+    cep: '', endereco: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '',
+    numero_pessoas: '', criancas: '', adolescentes: '', adultos: '', idosos: '',
+    tem_cad_unico: '', tem_bolsa_familia: '', tem_bpc: '',
+    demandas: '', observacoes: '',
+  });
 
   const [confSubTab, setConfSubTab] = useState<"realizados" | "novo">("realizados");
   const [confSearchTerm, setConfSearchTerm] = useState("");
   const [confExpandedParticipante, setConfExpandedParticipante] = useState<string | null>(null);
   const [confExpandedRegistro, setConfExpandedRegistro] = useState<number | null>(null);
-  const [psicoRegistroForm, setPsicoRegistroForm] = useState({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
+  const [psicoRegistroForm, setPsicoRegistroForm] = useState({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteOrigem: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
   const [registroPartBusca, setRegistroPartBusca] = useState("");
   const [registroPartOpen, setRegistroPartOpen] = useState(false);
+  const [registroPartFiltroVertente, setRegistroPartFiltroVertente] = useState<"todos" | "pec" | "inclusao" | "comunidade">("todos");
   const [editRegistroId, setEditRegistroId] = useState<number | null>(null);
   const [editRegistroForm, setEditRegistroForm] = useState({ titulo: "", tipo: "", conteudo: "", participanteNome: "", data: "" });
   const [editRegistroPartBusca, setEditRegistroPartBusca] = useState("");
@@ -133,14 +358,20 @@ export default function CoordenadorPsicoPage() {
   // Estados para registros gerais (coordenador)
   const [geraisSubTab, setGeraisSubTab] = useState<"realizados" | "novo">("realizados");
   const [geraisSearchTerm, setGeraisSearchTerm] = useState("");
-  const [geraisForm, setGeraisForm] = useState({ tipo: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
+  const [geraisForm, setGeraisForm] = useState({ tipoGeral: "atendimento_coletivo", categoria: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
   const [editGeraisId, setEditGeraisId] = useState<number | null>(null);
-  const [editGeraisForm, setEditGeraisForm] = useState({ tipo: "", conteudo: "", participanteNome: "", data: "" });
+  const [editGeraisForm, setEditGeraisForm] = useState({ tipoGeral: "atendimento_coletivo", categoria: "", conteudo: "", participanteNome: "", data: "" });
   const [geraisColaboradoresIds, setGeraisColaboradoresIds] = useState<number[]>([]);
   const [geraisColabBusca, setGeraisColabBusca] = useState("");
   const [editGeraisColaboradoresIds, setEditGeraisColaboradoresIds] = useState<number[]>([]);
   const [editGeraisColabBusca, setEditGeraisColabBusca] = useState("");
   const [viewGeraisGeralRecord, setViewGeraisGeralRecord] = useState<any | null>(null);
+  const [geraisPartBusca, setGeraisPartBusca] = useState("");
+  const [geraisPartFiltroVertente, setGeraisPartFiltroVertente] = useState<"todos" | "pec" | "inclusao" | "comunidade">("todos");
+  const [geraisParticipantes, setGeraisParticipantes] = useState<{nome: string; cpf?: string; origem?: string}[]>([]);
+  const [editGeraisParticipantes, setEditGeraisParticipantes] = useState<{nome: string; cpf?: string; origem?: string}[]>([]);
+  const [editGeraisPartBusca, setEditGeraisPartBusca] = useState("");
+  const [editGeraisPartFiltro, setEditGeraisPartFiltro] = useState<"todos"|"pec"|"inclusao"|"comunidade">("todos");
 
   // Estados para formulários
   const [familiaForm, setFamiliaForm] = useState({
@@ -279,10 +510,13 @@ export default function CoordenadorPsicoPage() {
   const userId = finalId ? String(finalId) : null;
   const userName = "Coordenador";
   const userPapel = localStorage.getItem("userPapel");
+  const canDelete = userPapel !== "tecnica_psico";
 
   // Estados de filtro do dashboard
   const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
-  const [dashFiltroMes, setDashFiltroMes] = useState(0);
+  const [dashFiltroPeriodo, setDashFiltroPeriodo] = useState<PeriodoFiltro>("todos");
+  const [coordDashView, setCoordDashView] = useState<"psico" | "favela">("psico");
+  const [categoriaModalCoord, setCategoriaModalCoord] = useState<string | null>(null);
 
   // Query para buscar dados do dashboard do coordenador
   const { data: dashboardData, isLoading } = useQuery({
@@ -290,7 +524,6 @@ export default function CoordenadorPsicoPage() {
     queryFn: async () => {
       const response = await fetch(`/api/coordenador/dashboard/${userId}?area=psico`, {
         credentials: "include",
-        headers: { 'x-user-id': userId || '' },
       });
       if (!response.ok) throw new Error('Falha ao carregar dados do painel');
       return response.json();
@@ -300,14 +533,18 @@ export default function CoordenadorPsicoPage() {
 
   // Query para buscar dados demográficos do dashboard psico
   const { data: psicoDemogData, isLoading: isPsicoDemogLoading } = useQuery({
-    queryKey: ['/api/coordenador/dashboard-demografico-psico', dashFiltroAno, dashFiltroMes],
+    queryKey: ['/api/coordenador/dashboard-demografico-psico', dashFiltroAno, dashFiltroPeriodo],
     queryFn: async () => {
-      const response = await fetch(`/api/coordenador/dashboard-demografico-psico?ano=${dashFiltroAno}&mes=${dashFiltroMes}`, {
+      const response = await fetch(
+        `/api/coordenador/dashboard-demografico-psico${buildPeriodoQueryString(dashFiltroAno, dashFiltroPeriodo)}`,
+        {
         credentials: "include",
       });
       if (!response.ok) throw new Error('Falha ao carregar dashboard psico');
       return response.json();
     },
+    enabled: !!userId,
+    placeholderData: keepPreviousData,
   });
 
   // Query para buscar dados do perfil do coordenador
@@ -341,7 +578,6 @@ export default function CoordenadorPsicoPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId || ''
         },
         body: JSON.stringify({
           nomeResponsavel: data.nomeResponsavel,
@@ -374,7 +610,6 @@ export default function CoordenadorPsicoPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-id': userId || ''
           },
          body: JSON.stringify({
         familiaId: familia?.data?.id, // <-- backend retorna { success, data }
@@ -420,7 +655,6 @@ export default function CoordenadorPsicoPage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId || ''
         },
         body: JSON.stringify(data)
       });
@@ -458,7 +692,6 @@ export default function CoordenadorPsicoPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId || ''
         },
         body: JSON.stringify(data)
       });
@@ -494,7 +727,6 @@ export default function CoordenadorPsicoPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId || ''
         },
         body: JSON.stringify(data)
       });
@@ -535,7 +767,6 @@ export default function CoordenadorPsicoPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId || ''
         },
         body: JSON.stringify(data)
       });
@@ -619,7 +850,6 @@ export default function CoordenadorPsicoPage() {
       if (filtroPrograma && filtroPrograma !== 'todos') params.set('filtro', filtroPrograma);
       const response = await fetch(`/api/psico/participantes?${params.toString()}`, {
         credentials: "include",
-        headers: { 'x-user-id': userId || '' },
       });
 
       if (!response.ok) {
@@ -651,7 +881,6 @@ export default function CoordenadorPsicoPage() {
       const url = `/api/psico/atendimentos/participante?vinculoId=${selectedParticipante.vinculo_id}&programaOrigem=${selectedParticipante.programa_origem}`;
       const response = await fetch(url, {
         headers: {
-          'x-user-id': userId || ''
         }
       });
       if (!response.ok) throw new Error('Erro ao buscar histórico');
@@ -665,7 +894,6 @@ const syncParticipantesMutation = useMutation({
     const resp = await fetch('/api/psico/sync-participantes', {
       method: "POST",
       credentials: "include",
-      headers: { 'x-user-id': userId || '' },
     });
 
     const json = await resp.json().catch(() => ({}));
@@ -728,7 +956,6 @@ const syncParticipantesMutation = useMutation({
     queryKey: ['/api/psico/familias'],
     queryFn: async () => {
       const response = await fetch('/api/psico/familias', {
-        headers: { 'x-user-id': userId || '' }
       });
       if (!response.ok) throw new Error('Erro ao buscar famílias');
       return response.json();
@@ -741,7 +968,6 @@ const syncParticipantesMutation = useMutation({
     queryKey: ['/api/psico/casos'],
     queryFn: async () => {
       const response = await fetch('/api/psico/casos', {
-        headers: { 'x-user-id': userId || '' }
       });
       if (!response.ok) throw new Error('Erro ao buscar casos');
       return response.json();
@@ -755,7 +981,6 @@ const { data: atendimentos = [], isLoading: isLoadingAtendimentos } = useQuery({
   queryKey: ['/api/psico/atendimentos'],
   queryFn: async () => {
     const response = await fetch('/api/psico/atendimentos', {
-      headers: { 'x-user-id': userId || '' }
     });
     if (!response.ok) throw new Error('Erro ao buscar atendimentos');
     const result = await response.json();
@@ -777,7 +1002,6 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   queryKey: ['/api/psico/planos'],
   queryFn: async () => {
     const response = await fetch('/api/psico/planos', {
-      headers: { 'x-user-id': userId || '' }
     });
     if (!response.ok) throw new Error('Erro ao buscar planos');
     return response.json();
@@ -788,7 +1012,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   const { data: atendidosRegistrados = [], isLoading: loadingAtendidosReg } = useQuery({
     queryKey: ['/api/psico/coordenador/atendidos-registrados'],
     queryFn: async () => {
-      const res = await fetch(`/api/psico/coordenador/atendidos-registrados`, { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      const res = await fetch(`/api/psico/coordenador/atendidos-registrados`, { credentials: 'include' });
       if (!res.ok) return [];
       const json = await res.json();
       return json.atendidos || [];
@@ -799,29 +1023,371 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   const { data: atendidosComunidade = [], isLoading: loadingComunidade } = useQuery({
     queryKey: ['/api/psico/atendidos-comunidade'],
     queryFn: async () => {
-      const res = await fetch('/api/psico/atendidos-comunidade', { headers: { 'x-user-id': userId || '' } });
+      const res = await fetch('/api/psico/atendidos-comunidade', {});
       if (!res.ok) return [];
       return res.json();
     },
     enabled: !!userId && activeSection === 'participantes',
   });
 
+  const { data: alunosTurmasData = { alunos: [] }, isLoading: loadingAlunosTurmas } = useQuery({
+    queryKey: ['/api/psico/alunos-turmas'],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/alunos-turmas', { credentials: 'include' });
+      if (!res.ok) return { alunos: [] };
+      return res.json();
+    },
+    enabled: !!userId && activeSection === 'alunos',
+  });
+  const alunosLista: any[] = (alunosTurmasData as any)?.alunos || [];
+
   const { data: psicoDashStats } = useQuery({
     queryKey: ['/api/psico/dashboard-stats'],
     queryFn: async () => {
-      const res = await fetch(`/api/psico/dashboard-stats`, { headers: { 'x-user-id': userId || '' } });
+      const res = await fetch(`/api/psico/dashboard-stats`, {});
       if (!res.ok) return {};
       return res.json();
     },
     enabled: activeSection === 'participantes',
   });
 
+  // KPIs canônicos — fonte única de verdade para todos os dashboards psico
+  const { data: psicoKpis } = useQuery({
+    queryKey: ['/api/psico/dashboard-kpis', dashFiltroAno, dashFiltroPeriodo],
+    queryFn: async () => {
+      const url = `/api/psico/dashboard-kpis${buildPeriodoQueryString(dashFiltroAno, dashFiltroPeriodo)}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!userId,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: mapeamentosData, refetch: refetchMapeamentos } = useQuery({
+    queryKey: ['/api/mapeamentos/coordenador', dashFiltroAno, dashFiltroPeriodo],
+    queryFn: async () => {
+      const url = `/api/mapeamentos/coordenador${buildPeriodoQueryString(dashFiltroAno, dashFiltroPeriodo)}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return { data: [], total: 0, porMonitor: {} };
+      return res.json().catch(() => ({ data: [], total: 0, porMonitor: {} }));
+    },
+    enabled: !!userId && activeSection === 'mapeamento',
+  });
+
+  const { data: mapeamentosStats } = useQuery({
+    queryKey: ['/api/mapeamentos/stats', dashFiltroAno, dashFiltroPeriodo],
+    queryFn: async () => {
+      const url = `/api/mapeamentos/stats${buildPeriodoQueryString(dashFiltroAno, dashFiltroPeriodo)}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return { total: 0 };
+      return res.json().catch(() => ({ total: 0 }));
+    },
+    enabled: !!userId,
+  });
+
+  const criarMapeamentoCoordMutation = useMutation({
+    mutationFn: async (payload: { monitorId: number; data: string; casasMapeadas: number; observacao?: string }) => {
+      const res = await fetch("/api/mapeamentos", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Erro ao salvar mapeamento");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Mapeamento registrado!", description: "Casas mapeadas salvas com sucesso." });
+      setMapCasas("");
+      setMapObs("");
+      setMapData(new Date().toISOString().slice(0, 10));
+      setMapEditId(null);
+      setMapEditMonitorId(null);
+      refetchMapeamentos();
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível salvar o mapeamento.", variant: "destructive" }),
+  });
+  const atualizarMapeamentoCoordMutation = useMutation({
+    mutationFn: async (payload: { id: number; monitorId: number; data: string; casasMapeadas: number; observacao?: string }) => {
+      const res = await fetch("/api/mapeamentos/" + payload.id, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Erro ao atualizar mapeamento");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Mapeamento atualizado!", description: "Registro atualizado com sucesso." });
+      setMapCasas("");
+      setMapObs("");
+      setMapData(new Date().toISOString().slice(0, 10));
+      setMapEditId(null);
+      setMapEditMonitorId(null);
+      refetchMapeamentos();
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível atualizar o mapeamento.", variant: "destructive" }),
+  });
+  const excluirMapeamentoCoordMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch("/api/mapeamentos/" + id, {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error("Erro ao excluir mapeamento");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Mapeamento excluído", description: "Registro removido com sucesso." });
+      refetchMapeamentos();
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível excluir o mapeamento.", variant: "destructive" }),
+  });
+
+  const { data: moradasReformasData, refetch: refetchMoradasReformas } = useQuery({
+    queryKey: ['/api/moradas-gerais/reformas', 'coordenador'],
+    queryFn: async () => {
+      const res = await fetch('/api/moradas-gerais/reformas', { credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || 'Erro ao carregar moradas gerais');
+      }
+      return res.json();
+    },
+    enabled: !!userId,
+  });
+
+  const criarMoradaReformaMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch('/api/moradas-gerais/reformas', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Erro ao salvar reforma');
+      return res.json();
+    },
+    onSuccess: () => {
+      setMoradaForm({
+        participanteNome: "",
+        participanteCpf: "",
+        participanteOrigem: "",
+        semana: "1",
+        data: new Date().toISOString().split("T")[0],
+        status: "em_visita_tecnica",
+        outrosComodo: "",
+        observacoes: "",
+      });
+      setMoradaComodos([]);
+      setMoradaPartBusca("");
+      setMoradaEditId(null);
+      setMoradaMonitorId(null);
+      setShowMoradaReformaForm(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/moradas-gerais/reformas', 'coordenador'] });
+      refetchMoradasReformas();
+      toast({ title: "Reforma cadastrada", description: "Cadastro de reforma criado com sucesso." });
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível salvar a reforma.", variant: "destructive" }),
+  });
+  const atualizarMoradaReformaMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch(`/api/moradas-gerais/reformas/${payload.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Erro ao atualizar reforma');
+      return res.json();
+    },
+    onSuccess: () => {
+      setMoradaForm({
+        participanteNome: "",
+        participanteCpf: "",
+        participanteOrigem: "",
+        semana: "1",
+        data: new Date().toISOString().split("T")[0],
+        status: "em_visita_tecnica",
+        outrosComodo: "",
+        observacoes: "",
+      });
+      setMoradaComodos([]);
+      setMoradaPartBusca("");
+      setMoradaEditId(null);
+      setMoradaMonitorId(null);
+      setShowMoradaReformaForm(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/moradas-gerais/reformas', 'coordenador'] });
+      refetchMoradasReformas();
+      toast({ title: "Reforma atualizada", description: "Cadastro de reforma atualizado com sucesso." });
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível atualizar a reforma.", variant: "destructive" }),
+  });
+  const excluirMoradaReformaMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/moradas-gerais/reformas/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Erro ao excluir reforma');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/moradas-gerais/reformas', 'coordenador'] });
+      refetchMoradasReformas();
+      toast({ title: "Reforma excluída", description: "Cadastro removido com sucesso." });
+    },
+    onError: () => toast({ title: "Erro", description: "Não foi possível excluir a reforma.", variant: "destructive" }),
+  });
+  const moradasReformasList = ((moradasReformasData as any)?.data ?? []) as any[];
+  const moradaMonitoresOpcoes = (() => {
+    const porMonitor = (mapeamentosData as any)?.porMonitor ?? {};
+    if (Object.keys(porMonitor).length > 0) {
+      return Object.entries(porMonitor).map(([id, info]: [string, any]) => ({
+        id: Number(id),
+        nome: info.nome as string,
+      }));
+    }
+    const map = new Map<number, string>();
+    for (const r of moradasReformasList) {
+      const id = Number(r.monitor_id ?? r.monitorId);
+      if (id && !map.has(id)) {
+        map.set(id, r.monitor_nome || `Monitor #${id}`);
+      }
+    }
+    return Array.from(map.entries()).map(([id, nome]) => ({ id, nome }));
+  })();
+  const moradasResumo = {
+    total: moradasReformasList.length,
+    emAndamento: moradasReformasList.filter((r: any) => ["em_reformar", "em_pausa", "ordem_servico_emitida"].includes(r.status)).length,
+    finalizadas: moradasReformasList.filter((r: any) => r.status === "finalizado").length,
+    emVisita: moradasReformasList.filter((r: any) => r.status === "em_visita_tecnica").length,
+  };
+  const getMoradaStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      em_visita_tecnica: "Em visita técnica",
+      ordem_servico_emitida: "Ordem de serviço emitida",
+      sem_visita: "Sem visita",
+      em_reformar: "Em reforma",
+      em_pausa: "Em pausa",
+      finalizado: "Finalizado",
+    };
+    return labels[status] || status;
+  };
+  const moradasDashboardPorStatus = [
+    { key: "em_reformar", label: "Em reforma", color: "#f97316" },
+    { key: "em_pausa", label: "Em pausa", color: "#f59e0b" },
+    { key: "ordem_servico_emitida", label: "Ordem de serviço emitida", color: "#3b82f6" },
+    { key: "em_visita_tecnica", label: "Em visita técnica", color: "#06b6d4" },
+    { key: "sem_visita", label: "Sem visita", color: "#64748b" },
+    { key: "finalizado", label: "Finalizado", color: "#22c55e" },
+  ].map((item) => ({
+    label: item.label,
+    color: item.color,
+    value: moradasReformasList.filter((r: any) => r.status === item.key).length,
+  }));
+  const iniciarEdicaoMorada = (item: any) => {
+    const listaComodos = Array.isArray(item.comodos) ? item.comodos : [];
+    const outroComodo = (listaComodos.find((c: string) => String(c).startsWith("Outros:")) || "").replace(/^Outros:\s*/, "");
+    const comodosBase = listaComodos.map((c: string) => String(c).startsWith("Outros:") ? "Outros" : c);
+    setMoradaForm({
+      participanteNome: item.participanteNome || item.participante_nome || "",
+      participanteCpf: item.participanteCpf || item.participante_cpf || "",
+      participanteOrigem: item.participanteOrigem || item.participante_origem || "",
+      semana: String(item.semana || "1"),
+      data: String(item.data || "").split("T")[0],
+      status: item.status || "em_visita_tecnica",
+      outrosComodo: outroComodo,
+      observacoes: item.observacoes || "",
+    });
+    setMoradaComodos(comodosBase);
+    setMoradaPartBusca(item.participanteNome || item.participante_nome || "");
+    setMoradaEditId(Number(item.id));
+    setMoradaMonitorId(Number(item.monitor_id ?? item.monitorId) || null);
+    setShowMoradaReformaForm(true);
+  };
+
+  const { data: favela3dStatsCoord } = useQuery({
+    queryKey: ['/api/gestao-vista/favela3d', dashFiltroAno, dashFiltroPeriodo],
+    queryFn: async () => {
+      const params = new URLSearchParams({ ano: String(dashFiltroAno) });
+      appendPeriodoParams(params, dashFiltroPeriodo);
+      const res = await fetch(`/api/gestao-vista/favela3d?${params}`, { credentials: 'include' });
+      if (!res.ok) return {};
+      return res.json().catch(() => ({}));
+    },
+    enabled: !!userId,
+  });
+
+  const { data: catDetalhesCoord, isLoading: loadingCatDetalhesCoord } = useQuery({
+    queryKey: ['/api/favela3d/categoria', categoriaModalCoord, 'detalhes'],
+    queryFn: async () => {
+      const res = await fetch(`/api/favela3d/categoria/${categoriaModalCoord}/detalhes`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json().catch(() => null);
+    },
+    enabled: !!categoriaModalCoord,
+  });
+
+  const { data: gruposKpiCoord } = useQuery({
+    queryKey: ['/api/favela3d/grupos-kpi'],
+    queryFn: async () => {
+      const res = await fetch('/api/favela3d/grupos-kpi', { credentials: 'include' });
+      if (!res.ok) return { mulheres_pessoas: 0 };
+      return res.json().catch(() => ({ mulheres_pessoas: 0 }));
+    },
+    enabled: !!userId,
+  });
+
+  // Mescla KPIs canônicos sobre os dados demográficos do endpoint existente
+  // Prioridade: psicoKpis (sem auth, sempre disponível) > psicoDemogData (complementa)
+  const dashMergedPsico = (psicoKpis || psicoDemogData) ? {
+    ...(psicoDemogData ?? {}),
+    totalAlunos:                   psicoKpis?.atendidos             ?? psicoDemogData?.totalAlunos             ?? 0,
+    alunosAtivos:                  psicoKpis?.atendidos             ?? psicoDemogData?.alunosAtivos            ?? 0,
+    alunosInativos:                0,
+    evasao:                        0,
+    nps:                           0,
+    porPrograma:                   psicoDemogData?.porPrograma      ?? [],
+    porGenero:                     [],
+    porFaixaEtaria:                [],
+    porRacaCor:                    [],
+    // atendimentos = RC individual + demandas espontâneas — sempre via psicoKpis (fonte única de verdade)
+    horasAula:                     (psicoKpis?.atendimentos ?? 0) + (psicoKpis?.demandasEspontaneas ?? 0),
+    atendimentos:                  (psicoKpis?.atendimentos ?? 0) + (psicoKpis?.demandasEspontaneas ?? 0),
+    // breakdown por origem do atendido (PEC / Inclusão / Demanda Espontânea)
+    // Usa a mesma fonte canônica do card de atendimentos para manter paridade com a tela de monitor.
+    atendimentosPEC:               psicoKpis?.atendimentosPEC               ?? psicoDemogData?.atendimentosPEC               ?? 0,
+    atendimentosInclusao:          psicoKpis?.atendimentosInclusao          ?? psicoDemogData?.atendimentosInclusao          ?? 0,
+    atendimentosDemandaEspontanea: psicoKpis?.atendimentosDemandaEspontanea ?? psicoDemogData?.atendimentosDemandaEspontanea ?? 0,
+    visitasDomiciliares:   psicoKpis?.visitas               ?? psicoDemogData?.visitasDomiciliares   ?? 0,
+    visitasPEC:            psicoDemogData?.visitasPEC            ?? 0,
+    visitasInclusao:       psicoDemogData?.visitasInclusao       ?? 0,
+    visitasDemandaEspontanea: psicoDemogData?.visitasDemandaEspontanea ?? 0,
+    atendimentosColetivos: psicoKpis?.atendimentosColetivos ?? psicoDemogData?.atendimentosColetivos ?? 0,
+    intervencoes:          psicoKpis?.intervencoes          ?? 0,
+    espacoOGrito:          psicoKpis?.espacoOGrito          ?? psicoDemogData?.espacoOGrito          ?? 0,
+    workshop:              psicoKpis?.workshop              ?? 0,
+    demandasEspontaneas:   psicoKpis?.demandasEspontaneas   ?? psicoDemogData?.demandasEspontaneas   ?? 0,
+    psicoFamilias:         psicoKpis?.familias              ?? psicoDemogData?.psicoFamilias          ?? 0,
+    psicoCasos:            psicoKpis?.casosAtivos           ?? psicoDemogData?.psicoCasos            ?? 0,
+    frequenciaMedia:       psicoKpis?.resolutividade        ?? psicoDemogData?.frequenciaMedia        ?? 0,
+    alunosFormados:        psicoKpis?.casosEncerrados       ?? psicoDemogData?.alunosFormados         ?? 0,
+    visitasFavela3d:       psicoKpis?.visitasFavela3d       ?? psicoDemogData?.visitasFavela3d       ?? 0,
+    atendimentosFavela3d:  psicoKpis?.atendimentosFavela3d  ?? psicoDemogData?.atendimentosFavela3d  ?? 0,
+    mulheres_pessoas:      (gruposKpiCoord as any)?.mulheres_pessoas  ?? 0,
+    mulheres_encontros:    (gruposKpiCoord as any)?.mulheres_encontros ?? 0,
+  } : null;
+
   const { data: freqChamadasData = { chamadas: [] }, isLoading: loadingFreqChamadas } = useQuery({
     queryKey: ['/api/psico/chamadas', freqPrograma, freqTurmaId],
     queryFn: async () => {
       let url = `/api/psico/chamadas?programa=${freqPrograma}`;
       if (freqTurmaId) url += `&turmaId=${freqTurmaId}`;
-      const res = await fetch(url, { headers: { 'x-user-id': userId || '' } });
+      const res = await fetch(url, {});
       if (!res.ok) return { chamadas: [] };
       return res.json().catch(() => ({ chamadas: [] }));
     },
@@ -833,13 +1399,13 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     queryKey: ['/api/psico/freq-turmas', freqPrograma, userId],
     queryFn: async () => {
       if (freqPrograma === 'pec') {
-        const res = await fetch('/api/pec/instances', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+        const res = await fetch('/api/pec/instances', { credentials: 'include' });
         const json = await res.json().catch(() => []);
         if (!res.ok) return [];
         const arr = Array.isArray(json) ? json : [];
         return arr.map((t: any) => ({ id: t.id, nome: t.name || t.title || `Turma ${t.id}` }));
       } else {
-        const res = await fetch('/api/turmas-inclusao', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+        const res = await fetch('/api/turmas-inclusao', { credentials: 'include' });
         const json = await res.json().catch(() => []);
         if (!res.ok) return [];
         const arr = Array.isArray(json) ? json : [];
@@ -852,25 +1418,25 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   const { data: todosAtendidosParaAtendimento = [] } = useQuery({
     queryKey: ['/api/psico/todos-atendidos-para-atendimento'],
     queryFn: async () => {
-      const res = await fetch('/api/psico/todos-atendidos-para-atendimento', { headers: { 'x-user-id': userId || '' } });
+      const res = await fetch('/api/psico/todos-atendidos-para-atendimento', {});
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!userId && (activeSection === 'atendimentos' || activeSection === 'confidencial' || showAtendimentoModal),
+    enabled: !!userId && (activeSection === 'atendimentos' || activeSection === 'confidencial' || activeSection === 'registros-gerais' || activeSection === 'mapeamento' || showAtendimentoModal),
   });
 
   const cadastroAtendidoMutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest('/api/psico/atendidos-comunidade', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId || '' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, coordenador_id: userId ? parseInt(userId) : null }),
       });
     },
     onSuccess: () => {
       toast({ title: "Atendido cadastrado com sucesso!" });
       setShowCadastroAtendido(false);
-      setCadastroAtendidoForm({ nome: '', cpf: '', data_nascimento: '', telefone: '', endereco: '', observacoes: '' });
+      setCadastroAtendidoForm({ nome: '', cpf: '', data_nascimento: '', sexo: '', raca: '', telefone: '', email: '', cep: '', endereco: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', numero_pessoas: '', criancas: '', adolescentes: '', adultos: '', idosos: '', tem_cad_unico: '', tem_bolsa_familia: '', tem_bpc: '', demandas: '', observacoes: '' });
       queryClient.invalidateQueries({ queryKey: ['/api/psico/atendidos-comunidade'] });
       queryClient.invalidateQueries({ queryKey: ['/api/psico/todos-atendidos-para-atendimento'] });
     },
@@ -883,7 +1449,6 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     mutationFn: async (id: number) => {
       return apiRequest(`/api/psico/atendidos-comunidade/${id}`, {
         method: 'DELETE',
-        headers: { 'x-user-id': userId || '' },
       });
     },
     onSuccess: () => {
@@ -896,7 +1461,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   const { data: coordRegistrosConf = [], isLoading: loadingRegistrosConf } = useQuery({
     queryKey: ['/api/psico/coordenador/registros-confidenciais'],
     queryFn: async () => {
-      const res = await fetch('/api/psico/coordenador/registros-confidenciais', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      const res = await fetch('/api/psico/coordenador/registros-confidenciais', { credentials: 'include' });
       const json = await res.json().catch(() => []);
       if (!res.ok) throw new Error(json?.error || "Falha ao buscar registros");
       return Array.isArray(json) ? json : [];
@@ -915,7 +1480,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
       queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-confidenciais'] });
       toast({ title: "Registro salvo!" });
       setConfSubTab("realizados");
-      setPsicoRegistroForm({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
+      setPsicoRegistroForm({ titulo: "", tipo: "atendimento_individual", conteudo: "", participanteNome: "", participanteCpf: "", participanteOrigem: "", participanteDataNascimento: "", data: new Date().toISOString().split("T")[0] });
     },
     onError: (error: any) => toast({ title: "Erro ao salvar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
   });
@@ -950,7 +1515,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   const { data: coordRegistrosGerais = [], isLoading: loadingRegistrosGerais } = useQuery({
     queryKey: ['/api/psico/coordenador/registros-gerais'],
     queryFn: async () => {
-      const res = await fetch('/api/psico/coordenador/registros-gerais', { credentials: 'include', headers: { 'x-user-id': userId || '' } });
+      const res = await fetch('/api/psico/coordenador/registros-gerais', { credentials: 'include' });
       const json = await res.json().catch(() => []);
       if (!res.ok) throw new Error(json?.error || "Falha ao buscar registros gerais");
       return Array.isArray(json) ? json : [];
@@ -959,13 +1524,15 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   });
 
   const { data: colaboradoresDataPsico } = useQuery<any>({
-    queryKey: ["/api/colaboradores"],
+    queryKey: ["/api/colaboradores", "includeInactive"],
     queryFn: async () => {
-      const res = await fetch(`/api/colaboradores?pageSize=200`, { credentials: "include" });
+      const res = await fetch(`/api/colaboradores?pageSize=200&includeInactive=1`, { credentials: "include" });
       return res.json();
     },
   });
-  const todosColaboradoresPsico: any[] = (colaboradoresDataPsico?.items || []).sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+  const colaboradoresCatalogoPsico: any[] = (colaboradoresDataPsico?.items || []).sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+  const todosColaboradoresPsico: any[] = colaboradoresCatalogoPsico.filter((c: any) => c.ativo !== false);
+  const nomeColaboradorPsicoPorId = (id: number) => colaboradoresCatalogoPsico.find((c: any) => c.id === id)?.nome;
 
   // Query para acompanhamentos pedagógicos dos professores
   const { data: todosAcompanhamentos = [] } = useQuery({
@@ -978,6 +1545,262 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     enabled: !!userId && activeSection === 'acompanhamentos',
   });
 
+  // Query para registros de intervenções psicossociais
+  const { data: todasIntervencoes = [], refetch: refetchIntervencoes } = useQuery({
+    queryKey: ['/api/psico/intervencoes', intervencaoFiltroAno, intervencaoFiltroMes],
+    queryFn: async () => {
+      const params = new URLSearchParams({ ano: String(intervencaoFiltroAno) });
+      if (intervencaoFiltroMes > 0) params.set('mes', String(intervencaoFiltroMes));
+      const res = await fetch(`/api/psico/intervencoes?${params}`, { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!userId && activeSection === 'intervencoes',
+  });
+
+  const { data: intervChamadasListaData = { chamadas: [] } } = useQuery({
+    queryKey: ['/api/psico/chamadas-interv-lista', intervencaoFiltroAno],
+    queryFn: async () => {
+      const res = await fetch('/api/psico/chamadas', { credentials: 'include' });
+      const json = await res.json().catch(() => ({ chamadas: [] }));
+      if (!res.ok) return { chamadas: [] };
+      return { chamadas: json.chamadas ?? [] };
+    },
+    enabled: !!userId && activeSection === 'intervencoes',
+  });
+  const intervChamadasLista = (() => {
+    const todas = (intervChamadasListaData as { chamadas?: unknown[] }).chamadas ?? [];
+    const ano = intervencaoFiltroAno;
+    return todas.filter((c: any) => {
+      const d = intervencaoDataIso(c.data);
+      return d && parseInt(d.slice(0, 4), 10) === ano;
+    });
+  })();
+
+  const { data: intervAtivTurmas = [] } = useQuery({
+    queryKey: ['/api/psico/interv-turmas', intervencaoForm.vertente, userId],
+    queryFn: async () => {
+      if (intervencaoForm.vertente === "pec") {
+        const res = await fetch('/api/pec/instances', { credentials: 'include' });
+        const json = await res.json().catch(() => []);
+        if (!res.ok) return [];
+        const arr = Array.isArray(json) ? json : [];
+        return arr.map((t: any) => ({ ...t, id: t.id, nome: t.name || t.title || t.nome || `Turma ${t.id}` }));
+      }
+      if (intervencaoForm.vertente === "inclusao") {
+        const res = await fetch('/api/turmas-inclusao', { credentials: 'include' });
+        const json = await res.json().catch(() => []);
+        if (!res.ok) return [];
+        const arr = Array.isArray(json) ? json : (json?.data ?? []);
+        return arr.map((t: any) => ({ ...t, id: t.id, nome: t.nome || t.title || `Turma ${t.id}` }));
+      }
+      return [];
+    },
+    enabled: !!userId && activeSection === 'intervencoes' && intervencaoSubTab === 'registrar' && (intervencaoForm.vertente === 'pec' || intervencaoForm.vertente === 'inclusao'),
+  });
+
+  const { data: intervAtivChamadasData = { chamadas: [] } } = useQuery({
+    queryKey: ['/api/psico/chamadas-interv', intervencaoForm.vertente, intervAtivTurmaId],
+    queryFn: async () => {
+      if (!intervAtivTurmaId) return { chamadas: [] };
+      const url = `/api/psico/chamadas?programa=${intervencaoForm.vertente}&turmaId=${intervAtivTurmaId}`;
+      const res = await fetch(url, { credentials: 'include' });
+      const json = await res.json().catch(() => ({ chamadas: [] }));
+      if (!res.ok) return { chamadas: [] };
+      return json;
+    },
+    enabled: !!userId && activeSection === 'intervencoes' && intervencaoSubTab === 'registrar' && !!intervAtivTurmaId && (intervencaoForm.vertente === 'pec' || intervencaoForm.vertente === 'inclusao'),
+  });
+
+  const intervAtivDiasAulaReal: { date: string; label: string; dayOfWeek: string }[] = (() => {
+    if (!intervAtivTurmaId) return [];
+    const turmaSel = (intervAtivTurmas as any[]).find((t: any) => String(t.id) === String(intervAtivTurmaId));
+    if (!turmaSel) return [];
+    const hoje = getBrazilDateString();
+    return getDiasAulaParaTurma(turmaSel).filter(d => d.date <= hoje).sort((a, b) => a.date.localeCompare(b.date));
+  })();
+
+  const intervAtivDatasComChamada = new Set<string>(
+    (((intervAtivChamadasData as any)?.chamadas) || [])
+      .filter((c: any) => String(c.turmaId) === String(intervAtivTurmaId))
+      .map((c: any) => (c.data || '').split('T')[0])
+  );
+
+  useEffect(() => {
+    if (!intervAtivTurmaId) return;
+    if (intervAtivDiasAulaReal.length === 0) return;
+    const turmaChanged = intervAtivPrevTurmaRef.current !== intervAtivTurmaId;
+    if (!turmaChanged) return;
+    const diasComChamada = intervAtivDiasAulaReal.filter(d => intervAtivDatasComChamada.has(d.date));
+    const melhorData = diasComChamada[diasComChamada.length - 1] || intervAtivDiasAulaReal[intervAtivDiasAulaReal.length - 1];
+    const dataAlvo = melhorData?.date || '';
+    if (dataAlvo) {
+      intervAtivPrevTurmaRef.current = intervAtivTurmaId;
+      setIntervencaoForm((f) => ({ ...f, data: dataAlvo }));
+    }
+  }, [intervAtivTurmaId, intervAtivDiasAulaReal.length, intervAtivDatasComChamada.size]);
+
+  useEffect(() => {
+    if (!(intervencaoForm.vertente === "pec" || intervencaoForm.vertente === "inclusao")) {
+      setIntervAtivTurmaId("");
+      setIntervAtivParticipantes([]);
+      setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+      return;
+    }
+    setIntervAtivTurmaId("");
+    setIntervAtivParticipantes([]);
+    setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+    setIntervencaoForm((f) => ({ ...f, data: new Date().toISOString().split("T")[0] }));
+  }, [intervencaoForm.vertente]);
+
+  useEffect(() => {
+    setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+    if (!intervAtivTurmaId || !intervencaoForm.data) return;
+    const chamadas: any[] = ((intervAtivChamadasData as any)?.chamadas || []);
+    const chamadaDoDia = chamadas.find((c: any) =>
+      String(c.turmaId) === String(intervAtivTurmaId) &&
+      (c.data || '').split('T')[0] === intervencaoForm.data
+    );
+    if (chamadaDoDia && chamadaDoDia.presencas) {
+      const presencasList = Array.isArray(chamadaDoDia.presencas) ? chamadaDoDia.presencas : [];
+      const presencasNormalizadas = presencasList.map((p: any) => ({
+        alunoCpf: p.alunoCpf || "",
+        nome: (p.nome || "Sem nome").replace(/^\s+|\s+$/g, ''),
+        presente: p.presente !== false,
+        justificativa: p.justificativa || '',
+      }));
+      setIntervAtivChamada({
+        loaded: true,
+        exists: true,
+        presencas: presencasNormalizadas,
+      });
+      setIntervAtivParticipantes(participantesFromChamadaPresencas(presencasNormalizadas));
+    } else {
+      setIntervAtivParticipantes([]);
+      setIntervAtivChamada({ loaded: true, exists: false, presencas: [] });
+    }
+  }, [intervAtivTurmaId, intervencaoForm.data, (intervAtivChamadasData as any)?.chamadas?.length]);
+
+  const carregarParticipantesIntervTurma = async (turmaId: string) => {
+    if (!turmaId || !(intervencaoForm.vertente === "pec" || intervencaoForm.vertente === "inclusao")) {
+      setIntervAtivParticipantes([]);
+      return;
+    }
+    try {
+      const url = intervencaoForm.vertente === "inclusao"
+        ? `/api/monitor/${userId}/alunos?programType=inclusao&turmaId=${turmaId}`
+        : `/api/monitor/${userId}/alunos?programType=pec&grupoId=${turmaId}`;
+      const res = await fetch(url, { credentials: "include" });
+      const json = await res.json().catch(() => []);
+      const lista = Array.isArray(json) ? json : (json?.participantes || json?.data || []);
+      setIntervAtivParticipantes(
+        lista.map((a: any) => ({
+          id: String(a.cpf || a.id || a.participante_id || ""),
+          nome: (a.nome || a.nome_completo || a.nomeCompleto || "Sem nome").replace(/^\s+|\s+$/g, ''),
+          selecionado: true,
+        })).filter((p: any) => p.id && p.id !== "undefined")
+      );
+    } catch {
+      setIntervAtivParticipantes([]);
+    }
+  };
+
+  const resetIntervencaoForm = () => {
+    setEditIntervencaoId(null);
+    setIntervencaoForm({
+      titulo: '', tipo: 'outro', vertente: 'psicossocial',
+      data: new Date().toISOString().split('T')[0],
+      horario_inicio: '', horario_fim: '', participantes_presentes: 0,
+      descricao: '', observacoes: '',
+    });
+    setIntervAtivTurmaId("");
+    setIntervAtivParticipantes([]);
+    setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+  };
+
+  const startEditIntervencao = async (iv: any) => {
+    const obs = iv.observacoes || iv.observacao || "";
+    const { participantesNomes, observacoesLimpa } = parseIntervencaoObservacoes(obs);
+    const grupoId = iv.grupo != null && iv.grupo !== "" ? String(iv.grupo) : "";
+    const vertente = iv.vertente || "psicossocial";
+    setEditIntervencaoId(Number(iv.id));
+    setIntervencaoForm({
+      titulo: iv.titulo || "",
+      tipo: iv.tipo || "outro",
+      vertente,
+      data: intervencaoDataIso(iv.data) || new Date().toISOString().split("T")[0],
+      horario_inicio: iv.horarioInicio || iv.horario_inicio || "",
+      horario_fim: iv.horarioFim || iv.horario_fim || "",
+      participantes_presentes: iv.participantes_presentes ?? iv.participantesPresentes ?? 0,
+      descricao: iv.descricao || "",
+      observacoes: observacoesLimpa,
+    });
+    setIntervAtivTurmaId(grupoId);
+    setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+    setIntervencaoSubTab("registrar");
+    setIntervencaoExpandida(null);
+    if (grupoId && (vertente === "pec" || vertente === "inclusao")) {
+      await carregarParticipantesIntervTurma(grupoId);
+      if (participantesNomes.length > 0) {
+        const nomesLower = new Set(participantesNomes.map((n) => n.toLowerCase()));
+        setIntervAtivParticipantes((prev) =>
+          prev.map((p) => ({ ...p, selecionado: nomesLower.has(p.nome.toLowerCase()) }))
+        );
+      }
+    } else {
+      setIntervAtivParticipantes([]);
+    }
+  };
+
+  const buildIntervencaoPayload = () => {
+    const participantesSelecionados = intervAtivParticipantes.filter((p) => p.selecionado);
+    const turmaObj = (intervAtivTurmas as any[]).find((t: any) => String(t.id) === String(intervAtivTurmaId));
+    const turmaNomeStr = turmaObj?.nome || (intervAtivTurmaId ? `Turma ${intervAtivTurmaId}` : undefined);
+    const totalEsperados =
+      intervAtivChamada.exists && intervAtivChamada.presencas.length > 0
+        ? intervAtivChamada.presencas.length
+        : intervAtivParticipantes.length;
+    return {
+      ...intervencaoForm,
+      observacoes: buildIntervencaoObservacoes(
+        intervencaoForm.observacoes || "",
+        turmaNomeStr,
+        participantesSelecionados.map((p) => p.nome),
+        totalEsperados
+      ),
+      participantes_presentes: participantesSelecionados.length || intervencaoForm.participantes_presentes || 0,
+      participantes_esperados: totalEsperados,
+      grupo: intervAtivTurmaId || undefined,
+    };
+  };
+
+  const createIntervencaoMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest('/api/psico/intervencoes', { method: 'POST', body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/intervencoes'] });
+      toast({ title: 'Intervenção registrada!' });
+      setShowNovaIntervencao(false);
+      resetIntervencaoForm();
+      setIntervencaoSubTab("lista");
+    },
+    onError: (error: any) => toast({ title: 'Erro ao registrar intervenção', description: error.message || 'Tente novamente.', variant: 'destructive' }),
+  });
+
+  const updateIntervencaoMutation = useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; [key: string]: unknown }) => {
+      return apiRequest(`/api/psico/intervencoes/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/psico/intervencoes'] });
+      toast({ title: 'Intervenção atualizada!' });
+      resetIntervencaoForm();
+      setIntervencaoSubTab("lista");
+    },
+    onError: (error: any) => toast({ title: 'Erro ao atualizar intervenção', description: error.message || 'Tente novamente.', variant: 'destructive' }),
+  });
+
   const createGeraisMutation = useMutation({
     mutationFn: async (data: any) => {
       return apiRequest('/api/psico/coordenador/registros-gerais', { method: 'POST', body: JSON.stringify(data) });
@@ -986,9 +1809,11 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
       queryClient.invalidateQueries({ queryKey: ['/api/psico/coordenador/registros-gerais'] });
       toast({ title: "Registro salvo!" });
       setGeraisSubTab("realizados");
-      setGeraisForm({ tipo: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
+      setGeraisForm({ tipoGeral: "atendimento_coletivo", categoria: "espaco_o_grito", conteudo: "", participanteNome: "", participanteCpf: "", data: new Date().toISOString().split("T")[0] });
       setGeraisColaboradoresIds([]);
       setGeraisColabBusca("");
+      setGeraisParticipantes([]);
+      setGeraisPartBusca("");
     },
     onError: (error: any) => toast({ title: "Erro ao salvar registro", description: error.message || "Tente novamente.", variant: "destructive" }),
   });
@@ -1113,7 +1938,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearLocalStoragePreservingLgpd();
     sessionStorage.clear();
     window.location.href = "/login/coordenador";
   };
@@ -1147,7 +1972,6 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
       const response = await fetch('/api/psico/import', {
         method: 'POST',
         headers: {
-          'x-user-id': userId || ''
         },
         body: formData
       });
@@ -1219,6 +2043,19 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     });
   };
 
+  if (consentChecking) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500" />
+      </div>
+    );
+  }
+  if (!consentReady) {
+    return (
+      <AreaConsentGate area="employees" onAccept={() => setConsentReady()} onNavigate={setLocation} />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -1272,7 +2109,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => window.open('https://complaint-tracker-OGRITO.replit.app', '_blank')}
+              onClick={() => window.open('https://canaldetransparencia.institutoogrito.com.br', '_blank')}
               data-testid="button-transparencia"
               className="bg-yellow-400 text-black hover:bg-yellow-500 border-yellow-400"
             >
@@ -1309,6 +2146,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <LgpdLegalHeaderButtons tone="dark" />
             <Button 
               variant="outline" 
               size="sm" 
@@ -1324,15 +2162,189 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6 md:px-6 md:py-8">
+        {/* Toggle Psico / Favela 3D + Filtros */}
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          <div className="flex rounded-lg overflow-hidden border border-slate-600">
+            <button
+              onClick={() => setCoordDashView("psico")}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${coordDashView === "psico" ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"}`}
+            >Psico Social</button>
+            {canDelete && <button
+              onClick={() => setCoordDashView("favela")}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors ${coordDashView === "favela" ? "bg-orange-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700"}`}
+            >Favela 3D</button>}
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <DashboardPeriodoFiltro
+              ano={dashFiltroAno}
+              periodo={dashFiltroPeriodo}
+              onChange={(ano, periodo) => { setDashFiltroAno(ano); setDashFiltroPeriodo(periodo); }}
+              minAno={2025}
+              variant="dark"
+            />
+          </div>
+        </div>
+
+        {coordDashView === "psico" && (
         <CoordenadorDashboard
-          data={psicoDemogData}
-          isLoading={isPsicoDemogLoading}
+          data={dashMergedPsico}
+          isLoading={isPsicoDemogLoading && !psicoKpis}
           tipo="psico"
           filtroAno={dashFiltroAno}
-          filtroMes={dashFiltroMes}
-          onFilterChange={(ano, mes) => { setDashFiltroAno(ano); setDashFiltroMes(mes); }}
+          filtroPeriodo={dashFiltroPeriodo}
+          ocultarFiltroPeriodo
+          onFilterChange={(ano, periodo) => { setDashFiltroAno(ano); setDashFiltroPeriodo(periodo); }}
           titleOverride="Psicossocial"
+          casasMapeadas={(mapeamentosStats as any)?.total ?? 0}
+          moradasGeraisStats={{ total: moradasReformasList.length, porStatus: moradasDashboardPorStatus }}
         />
+        )}
+
+        {coordDashView === "favela" && (
+        <div className="rounded-2xl border border-slate-700 bg-slate-900 shadow-xl p-3 sm:p-5 mb-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1.5 h-10 rounded-full bg-gradient-to-b from-orange-500 to-amber-400" />
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold text-white">Visão Geral</h2>
+              <p className="text-sm text-slate-400 font-medium">Favela 3D</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {/* Linha 1 — KPIs estáticos */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+              <DarkMetricCard icon={Home}     label="Famílias Cadastradas" value={(favela3dStatsCoord as any)?.familias ?? 0}  accentColor="#f97316" />
+              <DarkMetricCard icon={Home}     label="Visitas"               value={(favela3dStatsCoord as any)?.visitas ?? 0}   accentColor="#06b6d4" />
+              <DarkMetricCard icon={Activity} label="Atendimentos"          value={(favela3dStatsCoord as any)?.atendimentos_individuais ?? 0} accentColor="#8b5cf6" />
+            </div>
+            {/* Linha 2 — Cards clicáveis por categoria */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+              {[
+                { key: "gerando_lideranca", label: "Gerando Liderança", count: (favela3dStatsCoord as any)?.gerando_lideranca ?? 0, color: "#fbbf24" },
+                { key: "assembleia",        label: "Assembleia",        count: (favela3dStatsCoord as any)?.assembleia         ?? 0, color: "#fb923c" },
+                { key: "grupo_mulheres",    label: "Grupo de Mulheres", count: (favela3dStatsCoord as any)?.grupo_mulheres     ?? 0, color: "#f472b6" },
+              ].map(cat => (
+                <button
+                  key={cat.key}
+                  onClick={() => setCategoriaModalCoord(cat.key)}
+                  className="relative rounded-xl border border-slate-700 border-l-4 bg-gradient-to-br from-slate-800 to-slate-900 shadow-lg p-3 sm:p-4 text-left transition-all duration-200 hover:shadow-xl hover:scale-[1.01] cursor-pointer"
+                  style={{borderLeftColor: cat.color}}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{backgroundColor: `${cat.color}22`, border: `1px solid ${cat.color}44`}}>
+                      <Users className="w-4 h-4" style={{color: cat.color}} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] sm:text-[11px] text-slate-400 font-medium uppercase leading-tight tracking-wide">{cat.label}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap">Ver →</span>
+                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{cat.count}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">registros</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        )}
+
+        {/* Modal de detalhes demográficos da categoria — coordenador psico */}
+        <Dialog open={!!categoriaModalCoord} onOpenChange={open => !open && setCategoriaModalCoord(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {categoriaModalCoord === "gerando_lideranca" && "Gerando Liderança"}
+                {categoriaModalCoord === "assembleia" && "Assembleia"}
+                {categoriaModalCoord === "grupo_mulheres" && "Grupo de Mulheres"}
+                {" — Detalhes"}
+              </DialogTitle>
+              <DialogDescription>Registros coletivos e dados demográficos dos participantes</DialogDescription>
+            </DialogHeader>
+            {loadingCatDetalhesCoord ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+              </div>
+            ) : catDetalhesCoord ? (
+              <div className="space-y-5">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-orange-700">{catDetalhesCoord.totalRegistros}</div>
+                    <div className="text-xs text-orange-500">Registros</div>
+                  </div>
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-purple-700">{catDetalhesCoord.totalPessoas}</div>
+                    <div className="text-xs text-purple-500">Pessoas (total)</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-700">{catDetalhesCoord.idadeMedia ?? "—"}</div>
+                    <div className="text-xs text-blue-500">Idade média</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">Gênero</div>
+                    {Object.entries(catDetalhesCoord.porGenero || {}).length === 0 ? (
+                      <div className="text-xs text-gray-400">Sem dados</div>
+                    ) : Object.entries(catDetalhesCoord.porGenero || {}).map(([g, n]) => (
+                      <div key={g} className="flex justify-between text-sm py-0.5">
+                        <span className="text-gray-600 capitalize">{g}</span>
+                        <span className="font-semibold text-gray-800">{n as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">Índice GF</div>
+                    {Object.entries(catDetalhesCoord.porIgf || {}).length === 0 ? (
+                      <div className="text-xs text-gray-400">Sem dados</div>
+                    ) : Object.entries(catDetalhesCoord.porIgf || {}).map(([igf, n]) => (
+                      <div key={igf} className="flex justify-between text-sm py-0.5">
+                        <span className="font-mono text-gray-600">{igf}</span>
+                        <span className="font-semibold text-gray-800">{n as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">Raça/Cor</div>
+                    {Object.entries(catDetalhesCoord.porRaca || {}).length === 0 ? (
+                      <div className="text-xs text-gray-400">Sem dados</div>
+                    ) : Object.entries(catDetalhesCoord.porRaca || {}).map(([r, n]) => (
+                      <div key={r} className="flex justify-between text-sm py-0.5">
+                        <span className="text-gray-600 capitalize">{r}</span>
+                        <span className="font-semibold text-gray-800">{n as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-gray-700 mb-2">Registros ({catDetalhesCoord.totalRegistros})</div>
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {(catDetalhesCoord.registros || []).map((reg: any) => (
+                      <div key={reg.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-gray-800">{reg.titulo || "Sem título"}</span>
+                          <span className="text-xs text-gray-400">{reg.data ? new Date(reg.data + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</span>
+                        </div>
+                        <div className="text-xs text-gray-600 mb-2 line-clamp-2">{reg.conteudo}</div>
+                        {(reg.participantes || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {(reg.participantes || []).map((p: any) => (
+                              <span key={p.id} className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full">{p.nome}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {(catDetalhesCoord.registros || []).length === 0 && (
+                      <div className="text-sm text-gray-400 text-center py-4">Nenhum registro nesta categoria ainda</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-500 text-center py-8">Erro ao carregar dados</div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
 
@@ -1350,8 +2362,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'familias' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'familias' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-familias"
                   onClick={() => changeSection('familias')}
                 >
@@ -1359,8 +2371,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Famílias
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'casos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'casos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-casos"
                   onClick={() => changeSection('casos')}
                 >
@@ -1385,8 +2397,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'participantes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'participantes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-participantes"
                   onClick={() => changeSection('participantes')}
                 >
@@ -1394,12 +2406,20 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Ver Atendidos
                 </Button>
                 <Button
-                  className="w-full"
-                  variant={activeSection === 'demanda' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'demanda' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   onClick={() => changeSection('demanda')}
                 >
                   <HeartHandshake className="w-4 h-4 mr-2" />
-                  Demanda Espontânea
+                  Atendidos Comunidade
+                </Button>
+                <Button
+                  
+                  variant="outline" className={activeSection === 'alunos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => changeSection('alunos')}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Ver Alunos
                 </Button>
               </div>
             </CardContent>
@@ -1419,21 +2439,29 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'frequencias' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'frequencias' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   onClick={() => changeSection('frequencias')}
                 >
                   <Calendar className="w-4 h-4 mr-2" />
                   Ver Frequências
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'acompanhamentos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'acompanhamentos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-acompanhamentos-freq"
                   onClick={() => changeSection('acompanhamentos')}
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Acompanhamentos
+                </Button>
+                <Button 
+                  
+                  variant="outline" className={activeSection === 'intervencoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => changeSection('intervencoes')}
+                >
+                  <Activity className="w-4 h-4 mr-2" />
+                  Registros de Intervenções
                 </Button>
               </div>
             </CardContent>
@@ -1453,8 +2481,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'confidencial' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'confidencial' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-confidencial"
                   onClick={() => changeSection('confidencial')}
                 >
@@ -1462,8 +2490,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Registros Confidenciais
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'registros-gerais' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'registros-gerais' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-registros-gerais"
                   onClick={() => changeSection('registros-gerais')}
                 >
@@ -1488,8 +2516,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'violacoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'violacoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-violacoes"
                   onClick={() => changeSection('violacoes')}
                 >
@@ -1497,8 +2525,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Violações de Direitos
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'medidas' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'medidas' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-medidas"
                   onClick={() => changeSection('medidas')}
                 >
@@ -1523,8 +2551,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'rede' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'rede' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-rede"
                   onClick={() => changeSection('rede')}
                 >
@@ -1532,8 +2560,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Rede de Serviços
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'encaminhamentos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'encaminhamentos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-encaminhamentos"
                   onClick={() => changeSection('encaminhamentos')}
                 >
@@ -1541,8 +2569,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Encaminhamentos
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'grupos' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'grupos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-grupos"
                   onClick={() => changeSection('grupos')}
                 >
@@ -1568,8 +2596,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </p>
               <div className="space-y-2">
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'relatorios' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'relatorios' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-relatorios"
                   onClick={() => changeSection('relatorios')}
                 >
@@ -1577,17 +2605,109 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                   Relatórios
                 </Button>
                 <Button 
-                  className="w-full" 
-                  variant={activeSection === 'configuracoes' ? 'default' : 'outline'}
+                  
+                  variant="outline" className={activeSection === 'configuracoes' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
                   data-testid="button-perfil"
                   onClick={() => changeSection('configuracoes')}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   Meu Perfil
                 </Button>
+                <Button variant="outline" className="w-full" onClick={() => openPrivacyPreferences()}>
+                  <Shield className="w-4 h-4 mr-2" />
+                  Privacidade e cookies
+                </Button>
               </div>
             </CardContent>
           </Card>
+
+          {/* Eventos */}
+          <Card data-testid="card-eventos-grito">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Calendar className="w-5 h-5 text-red-500" />
+                Eventos
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Crie e gerencie eventos do Instituto O Grito.
+              </p>
+              <div className="space-y-2">
+                <Button
+                  
+                  variant="outline" className={activeSection === 'eventos-grito' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => changeSection('eventos-grito')}
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Eventos
+                </Button>
+
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Favela 3D */}
+          {canDelete && <Card className={"border-2 transition-all " + (activeSection === "favela3d" ? "border-purple-500 bg-purple-50" : "border-gray-200")}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Home className="w-5 h-5 text-purple-500" />
+                Favela 3D
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Mapeamento e acompanhamento de famílias do projeto Favela 3D.</p>
+              <div className="space-y-2">
+                <Button
+                  
+                  variant="outline" className={activeSection === "favela3d" && favela3dSubTab === "atendidos" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setFavela3dSubTab("atendidos"); changeSection("favela3d"); }}
+                >
+                  <Home className="w-4 h-4 mr-2" />
+                  Atendidos Favela 3D
+                </Button>
+                <Button
+                  
+                  variant="outline" className={activeSection === "favela3d" && favela3dSubTab === "registros" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setFavela3dSubTab("registros"); changeSection("favela3d"); }}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Registros Favela 3D
+                </Button>
+              </div>
+            </CardContent>
+          </Card>}
+
+          {/* Mapeamento e moradas gerais */}
+          {canDelete && <Card className={"border-2 transition-all " + (activeSection === "mapeamento" ? "border-teal-500 bg-teal-50" : "border-gray-200")}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Layers className="w-5 h-5 text-teal-500" />
+                Mapeamento e moradas gerais
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-gray-600 text-sm">Controle de casas mapeadas no território.</p>
+              <div className="space-y-2">
+                <Button
+                  
+                  variant="outline" className={activeSection === "mapeamento" && mapeamentoSubTab === "mapeamento" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setMapeamentoSubTab("mapeamento"); changeSection("mapeamento"); }}
+                >
+                  <Layers className="w-4 h-4 mr-2" />
+                  Mapeamento
+                </Button>
+                <Button
+                  
+                  variant="outline" className={activeSection === "mapeamento" && mapeamentoSubTab === "moradas-gerais" ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  onClick={() => { setMapeamentoSubTab("moradas-gerais"); changeSection("mapeamento"); }}
+                >
+                  <Layers className="w-4 h-4 mr-2" />
+                  Moradas gerais
+                </Button>
+              </div>
+            </CardContent>
+          </Card>}
 
         </div>
 
@@ -1743,6 +2863,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                         variant="ghost" 
                                         size="sm" 
                                         className="text-red-600 hover:text-red-700"
+                                        style={{ display: canDelete ? undefined : "none" }}
                                         data-testid={`button-delete-family-${familia.id}`}
                                         onClick={() => {
                                           setSelectedFamilia(familia);
@@ -2044,6 +3165,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                           variant="ghost" 
                                           size="sm" 
                                           className="text-red-600 hover:text-red-700"
+                                          style={{ display: canDelete ? undefined : "none" }}
                                           data-testid={`button-delete-case-${caso.id}`}
                                           onClick={() => {
                                             setSelectedCaso(caso);
@@ -2215,10 +3337,6 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                     <div className="bg-blue-50 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-blue-700">{(psicoDashStats as any)?.data?.visitaDomiciliar || 0}</div>
                       <div className="text-xs text-blue-600">Visitas Domiciliares</div>
-                    </div>
-                    <div className="bg-green-50 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold text-green-700">{(psicoDashStats as any)?.data?.atendimentoColetivo || 0}</div>
-                      <div className="text-xs text-green-600">Atend. Coletivos</div>
                     </div>
                     <div className="bg-yellow-50 rounded-lg p-3 text-center">
                       <div className="text-2xl font-bold text-yellow-700">{(psicoDashStats as any)?.data?.espacoOGrito || 0}</div>
@@ -2468,7 +3586,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                             onChange={(e) => {
                               setRegistroPartBusca(e.target.value);
                               setRegistroPartOpen(true);
-                              setPsicoRegistroForm({...psicoRegistroForm, participanteNome: e.target.value, participanteCpf: "", participanteDataNascimento: ""});
+                              setPsicoRegistroForm({...psicoRegistroForm, participanteNome: e.target.value, participanteCpf: "", participanteOrigem: "", participanteDataNascimento: ""});
                             }}
                             onFocus={() => { setRegistroPartOpen(true); setRegistroPartBusca(psicoRegistroForm.participanteNome || ""); }}
                             onBlur={() => setTimeout(() => setRegistroPartOpen(false), 200)}
@@ -2476,22 +3594,31 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           />
                           {registroPartOpen && (() => {
                             const todosParticipantes = (todosAtendidosParaAtendimento as any[] || []);
-                            const filtrados = registroPartBusca.trim()
-                              ? todosParticipantes.filter((p: any) => 
-                                  (p.label || p.nome || "").toLowerCase().includes(registroPartBusca.toLowerCase()) ||
-                                  (p.cpf || "").includes(registroPartBusca)
-                                )
-                              : todosParticipantes;
-                            if (filtrados.length === 0 && registroPartBusca.trim().length >= 2) return (
-                              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-                                <p className="text-xs text-gray-500 mb-1">Nenhum participante encontrado.</p>
-                                <p className="text-xs text-purple-600 font-medium">O nome digitado será usado como novo participante.</p>
-                              </div>
-                            );
-                            if (filtrados.length === 0) return null;
+                            const filtrados = todosParticipantes.filter((p: any) => {
+                              if (registroPartFiltroVertente !== "todos" && p.origem !== registroPartFiltroVertente) return false;
+                              if (!registroPartBusca.trim()) return true;
+                              return (p.label || p.nome || "").toLowerCase().includes(registroPartBusca.toLowerCase()) ||
+                                (p.cpf || "").includes(registroPartBusca);
+                            });
                             return (
-                              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                {filtrados.slice(0, 20).map((p: any, i: number) => (
+                              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                                <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
+                                  {(["todos", "pec", "inclusao", "comunidade"] as const).map((f) => (
+                                    <button key={f} type="button"
+                                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${registroPartFiltroVertente === f ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"}`}
+                                      onMouseDown={(e) => { e.preventDefault(); setRegistroPartFiltroVertente(f); }}>
+                                      {f === "todos" ? "Todos" : f === "pec" ? "PEC" : f === "inclusao" ? "Inclusão" : "Comunidade"}
+                                    </button>
+                                  ))}
+                                </div>
+                                {filtrados.length === 0 && registroPartBusca.trim().length >= 2 ? (
+                                  <div className="p-3">
+                                    <p className="text-xs text-gray-500 mb-1">Nenhum participante encontrado.</p>
+                                    <p className="text-xs text-purple-600 font-medium">O nome digitado será usado como novo participante.</p>
+                                  </div>
+                                ) : filtrados.length === 0 ? (
+                                  <div className="p-3 text-xs text-gray-400 text-center">Nenhum resultado.</div>
+                                ) : filtrados.slice(0, 20).map((p: any, i: number) => (
                                   <button
                                     key={p.id || i}
                                     type="button"
@@ -2500,7 +3627,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                       const nome = p.nome || p.label || "";
                                       const cpf = p.cpf || "";
                                       const dataNasc = p.data_nascimento || "";
-                                      setPsicoRegistroForm({...psicoRegistroForm, participanteNome: nome, participanteCpf: cpf, participanteDataNascimento: dataNasc});
+                                      setPsicoRegistroForm({...psicoRegistroForm, participanteNome: nome, participanteCpf: cpf, participanteOrigem: p.origem || "", participanteDataNascimento: dataNasc});
                                       setRegistroPartBusca(nome);
                                       setRegistroPartOpen(false);
                                     }}
@@ -2515,7 +3642,13 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                             );
                           })()}
                           {psicoRegistroForm.participanteNome && !registroPartOpen && (
-                            <button type="button" className="absolute right-2 top-8 text-gray-400 hover:text-red-500 text-xs" onClick={() => { setPsicoRegistroForm({...psicoRegistroForm, participanteNome: "", participanteCpf: "", participanteDataNascimento: ""}); setRegistroPartBusca(""); }}>✕</button>
+                            <button type="button" className="absolute right-2 top-8 text-gray-400 hover:text-red-500 text-xs" onClick={() => { setPsicoRegistroForm({...psicoRegistroForm, participanteNome: "", participanteCpf: "", participanteOrigem: "", participanteDataNascimento: ""}); setRegistroPartBusca(""); }}>✕</button>
+                          )}
+                          {psicoRegistroForm.participanteNome && !psicoRegistroForm.participanteCpf && !registroPartOpen && (
+                            <p className="text-xs text-amber-600 mt-1">⚠ Selecione da lista para vincular o CPF automaticamente.</p>
+                          )}
+                          {psicoRegistroForm.participanteNome && psicoRegistroForm.participanteCpf && !registroPartOpen && (
+                            <p className="text-xs text-green-600 mt-1">✓ CPF vinculado: {psicoRegistroForm.participanteCpf}</p>
                           )}
                         </div>
                       </div>
@@ -2676,10 +3809,10 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     }}>
                                     <Pencil className="w-3.5 h-3.5" />
                                   </Button>
-                                  <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                                  {canDelete && <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
                                     onClick={() => setConfirmDeleteRegistro({ open: true, id: r.id })}>
                                     <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
+                                  </Button>}
                                 </div>
                               </button>
                               {isRegExpanded && (
@@ -2785,25 +3918,86 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="text-sm font-medium mb-1 block">Tipo</label>
-                          <Select value={geraisForm.tipo} onValueChange={(v) => { setGeraisForm({...geraisForm, tipo: v}); setGeraisColaboradoresIds([]); setGeraisColabBusca(""); }}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
+                          <Select value={geraisForm.tipoGeral} onValueChange={(v) => { setGeraisForm({...geraisForm, tipoGeral: v, categoria: "", participanteNome: "", participanteCpf: ""}); setGeraisColaboradoresIds([]); setGeraisColabBusca(""); setGeraisPartBusca(""); setGeraisParticipantes([]); }}>
+                            <SelectTrigger><SelectValue placeholder="Selecione o tipo..." /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                              <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
+                              <SelectItem value="atendimento_coletivo">Atendimento Coletivo</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
+                        {geraisForm.tipoGeral && (
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Categoria</label>
+                          <Select value={geraisForm.categoria} onValueChange={(v) => { setGeraisForm({...geraisForm, categoria: v, participanteNome: "", participanteCpf: ""}); setGeraisColaboradoresIds([]); setGeraisColabBusca(""); setGeraisPartBusca(""); setGeraisParticipantes([]); }}>
+                            <SelectTrigger><SelectValue placeholder="Selecione a categoria..." /></SelectTrigger>
+                            <SelectContent>
+                              {geraisForm.tipoGeral === "atendimento_coletivo" && <>
+                                <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
+                                <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
+                                <SelectItem value="workshop">Workshop</SelectItem>
+                              </>}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        )}
                         <div>
                           <label className="text-sm font-medium mb-1 block">Data</label>
                           <Input type="date" value={geraisForm.data} onChange={(e) => setGeraisForm({...geraisForm, data: e.target.value})} />
                         </div>
-                        {geraisForm.tipo !== "espaco_o_grito" && (
-                        <div>
-                          <label className="text-sm font-medium mb-1 block">Participante (opcional)</label>
-                          <Input value={geraisForm.participanteNome} onChange={(e) => setGeraisForm({...geraisForm, participanteNome: e.target.value})} placeholder="Nome do participante" />
+                        {(geraisForm.categoria === "caravana_comunitaria" || geraisForm.categoria === "workshop") && (
+                        <div className="md:col-span-2">
+                          <label className="text-sm font-medium mb-1 block">Participantes <span className="text-gray-400 text-xs">({geraisParticipantes.length} selecionado(s))</span></label>
+                          <div className="flex items-center gap-1 mb-2">
+                            {(["todos", "pec", "inclusao", "comunidade"] as const).map((f) => (
+                              <button key={f} type="button"
+                                className={`text-xs px-2 py-0.5 rounded border transition-colors ${geraisPartFiltroVertente === f ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"}`}
+                                onClick={() => setGeraisPartFiltroVertente(f)}>
+                                {f === "todos" ? "Todos" : f === "pec" ? "PEC" : f === "inclusao" ? "Inclusão" : "Comunidade"}
+                              </button>
+                            ))}
+                          </div>
+                          <Input className="mb-2" placeholder="Filtrar participantes..." value={geraisPartBusca} onChange={(e) => setGeraisPartBusca(e.target.value)} />
+                          <div className="border rounded-lg max-h-52 overflow-y-auto bg-white">
+                            {(() => {
+                              const todos = (todosAtendidosParaAtendimento as any[] || []);
+                              const filtrados = todos.filter((p: any) => {
+                                if (geraisPartFiltroVertente !== "todos") {
+                                  const orig = (p.origem || "").toLowerCase();
+                                  if (geraisPartFiltroVertente === "pec" && orig !== "pec") return false;
+                                  if (geraisPartFiltroVertente === "inclusao" && orig !== "inclusao") return false;
+                                  if (geraisPartFiltroVertente === "comunidade" && orig !== "comunidade") return false;
+                                }
+                                if (!geraisPartBusca.trim()) return true;
+                                return (p.nome || p.label || "").toLowerCase().includes(geraisPartBusca.toLowerCase()) || (p.cpf || "").includes(geraisPartBusca);
+                              });
+                              if (filtrados.length === 0) return <div className="px-3 py-4 text-sm text-gray-400 text-center">Nenhum participante encontrado</div>;
+                              return filtrados.slice(0, 50).map((p: any, i: number) => {
+                                const nome = p.nome || p.label || "";
+                                const checked = geraisParticipantes.some(x => x.nome === nome);
+                                return (
+                                  <label key={p.id || i} className="flex items-center gap-2 px-3 py-2 hover:bg-purple-50 cursor-pointer border-b last:border-0">
+                                    <input type="checkbox" checked={checked} onChange={() => setGeraisParticipantes(prev => checked ? prev.filter(x => x.nome !== nome) : [...prev, { nome, cpf: p.cpf || "", origem: p.origem || "" }])} className="w-4 h-4 accent-purple-600" />
+                                    <span className="text-sm text-gray-800 flex-1">{nome}</span>
+                                    {p.cpf && <span className="text-xs text-gray-400">{p.cpf}</span>}
+                                    <span className="text-xs text-gray-400">{p.origem === 'inclusao' ? 'Inclusão' : p.origem === 'pec' ? 'PEC' : 'Comunidade'}</span>
+                                  </label>
+                                );
+                              });
+                            })()}
+                          </div>
+                          {geraisParticipantes.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {geraisParticipantes.map((p, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded-full">
+                                  {p.nome}
+                                  <button type="button" onClick={() => setGeraisParticipantes(prev => prev.filter((_, idx) => idx !== i))} className="hover:text-red-600 ml-0.5">✕</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         )}
-                        {geraisForm.tipo === "espaco_o_grito" && (
+                        {geraisForm.categoria === "espaco_o_grito" && (
                           <div className="md:col-span-2">
                             <label className="text-sm font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400 text-xs">({geraisColaboradoresIds.length} selecionado(s))</span></label>
                             <Input className="mb-2" placeholder="Filtrar colaboradores..." value={geraisColabBusca} onChange={(e) => setGeraisColabBusca(e.target.value)} />
@@ -2828,7 +4022,18 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           <Textarea value={geraisForm.conteudo} onChange={(e) => setGeraisForm({...geraisForm, conteudo: e.target.value})} placeholder="Descreva o registro..." rows={4} />
                         </div>
                       </div>
-                      <Button onClick={() => createGeraisMutation.mutate({ ...geraisForm, colaboradoresIds: geraisForm.tipo === "espaco_o_grito" ? geraisColaboradoresIds : null })} disabled={createGeraisMutation.isPending || !geraisForm.conteudo.trim() || (geraisForm.tipo === "espaco_o_grito" && geraisColaboradoresIds.length === 0)} className="bg-blue-600 hover:bg-blue-700">
+                      <Button onClick={() => {
+                        const isMultiPart = geraisForm.categoria === "caravana_comunitaria" || geraisForm.categoria === "workshop";
+                        createGeraisMutation.mutate({
+                          tipo: geraisForm.tipoGeral,
+                          categoria: geraisForm.categoria,
+                          conteudo: geraisForm.conteudo,
+                          data: geraisForm.data,
+                          participanteNome: isMultiPart ? (geraisParticipantes.length > 0 ? JSON.stringify(geraisParticipantes.map(p => p.nome)) : null) : geraisForm.participanteNome,
+                          participanteCpf: isMultiPart ? null : geraisForm.participanteCpf,
+                          colaboradoresIds: geraisForm.categoria === "espaco_o_grito" ? geraisColaboradoresIds : null,
+                        });
+                      }} disabled={createGeraisMutation.isPending || !geraisForm.tipoGeral || !geraisForm.categoria || !geraisForm.conteudo.trim() || (geraisForm.categoria === "espaco_o_grito" && geraisColaboradoresIds.length === 0)} className="bg-blue-600 hover:bg-blue-700">
                         {createGeraisMutation.isPending ? "Salvando..." : "Salvar Registro"}
                       </Button>
                     </div>
@@ -2847,19 +4052,77 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                             {editGeraisId === r.id ? (
                               <div className="space-y-2">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  <Select value={editGeraisForm.tipo} onValueChange={(v) => { setEditGeraisForm({...editGeraisForm, tipo: v}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); }}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                                      <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                  <div>
+                                    <label className="text-xs font-medium mb-1 block">Tipo</label>
+                                    <Select value={editGeraisForm.tipoGeral} onValueChange={(v) => { setEditGeraisForm({...editGeraisForm, tipoGeral: v, categoria: ""}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditGeraisParticipantes([]); setEditGeraisPartBusca(""); }}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="atendimento_coletivo">Atendimento Coletivo</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-medium mb-1 block">Categoria</label>
+                                    <Select value={editGeraisForm.categoria} onValueChange={(v) => { setEditGeraisForm({...editGeraisForm, categoria: v}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditGeraisParticipantes([]); setEditGeraisPartBusca(""); }}>
+                                      <SelectTrigger><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        {editGeraisForm.tipoGeral === "atendimento_coletivo" && <>
+                                          <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
+                                          <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
+                                          <SelectItem value="workshop">Workshop</SelectItem>
+                                        </>}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                   <Input type="date" value={editGeraisForm.data} onChange={(e) => setEditGeraisForm({...editGeraisForm, data: e.target.value})} />
                                 </div>
-                                {editGeraisForm.tipo !== "espaco_o_grito" && (
-                                  <Input value={editGeraisForm.participanteNome} onChange={(e) => setEditGeraisForm({...editGeraisForm, participanteNome: e.target.value})} placeholder="Participante" />
+                                {(editGeraisForm.categoria === "caravana_comunitaria" || editGeraisForm.categoria === "workshop") && (
+                                  <div>
+                                    <label className="text-xs font-medium mb-1 block">Participantes <span className="text-gray-400">({editGeraisParticipantes.length} selecionado(s))</span></label>
+                                    <div className="flex items-center gap-1 mb-1">
+                                      {(["todos", "pec", "inclusao", "comunidade"] as const).map((f) => (
+                                        <button key={f} type="button"
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${editGeraisPartFiltro === f ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"}`}
+                                          onClick={() => setEditGeraisPartFiltro(f)}>
+                                          {f === "todos" ? "Todos" : f === "pec" ? "PEC" : f === "inclusao" ? "Inclusão" : "Comunidade"}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <Input className="mb-1" placeholder="Filtrar participantes..." value={editGeraisPartBusca} onChange={(e) => setEditGeraisPartBusca(e.target.value)} />
+                                    <div className="border rounded-lg max-h-40 overflow-y-auto bg-white">
+                                      {(() => {
+                                        const todos = (todosAtendidosParaAtendimento as any[] || []);
+                                        const filtrados = todos.filter((p: any) => {
+                                          if (editGeraisPartFiltro !== "todos") { const orig = (p.origem || "").toLowerCase(); if (editGeraisPartFiltro === "pec" && orig !== "pec") return false; if (editGeraisPartFiltro === "inclusao" && orig !== "inclusao") return false; if (editGeraisPartFiltro === "comunidade" && orig !== "comunidade") return false; }
+                                          if (!editGeraisPartBusca.trim()) return true;
+                                          return (p.nome || p.label || "").toLowerCase().includes(editGeraisPartBusca.toLowerCase()) || (p.cpf || "").includes(editGeraisPartBusca);
+                                        });
+                                        if (filtrados.length === 0) return <div className="px-3 py-3 text-xs text-gray-400 text-center">Nenhum participante</div>;
+                                        return filtrados.slice(0, 50).map((p: any, i: number) => {
+                                          const nome = p.nome || p.label || "";
+                                          const checked = editGeraisParticipantes.some(x => x.nome === nome);
+                                          return (
+                                            <label key={p.id || i} className="flex items-center gap-2 px-2 py-1.5 hover:bg-purple-50 cursor-pointer border-b last:border-0">
+                                              <input type="checkbox" checked={checked} onChange={() => setEditGeraisParticipantes(prev => checked ? prev.filter(x => x.nome !== nome) : [...prev, { nome, cpf: p.cpf || "", origem: p.origem || "" }])} className="w-3.5 h-3.5 accent-purple-600" />
+                                              <span className="text-xs text-gray-800 flex-1">{nome}</span>
+                                              <span className="text-xs text-gray-400">{p.origem === 'inclusao' ? 'Inclusão' : p.origem === 'pec' ? 'PEC' : 'Comunidade'}</span>
+                                            </label>
+                                          );
+                                        });
+                                      })()}
+                                    </div>
+                                    {editGeraisParticipantes.length > 0 && (
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {editGeraisParticipantes.map((p, i) => (
+                                          <span key={i} className="inline-flex items-center gap-1 bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded-full">
+                                            {p.nome}<button type="button" onClick={() => setEditGeraisParticipantes(prev => prev.filter((_, idx) => idx !== i))} className="hover:text-red-600 ml-0.5">✕</button>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
-                                {editGeraisForm.tipo === "espaco_o_grito" && (
+                                {editGeraisForm.categoria === "espaco_o_grito" && (
                                   <div>
                                     <label className="text-xs font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400">({editGeraisColaboradoresIds.length} selecionado(s))</span></label>
                                     <Input className="mb-1" placeholder="Filtrar..." value={editGeraisColabBusca} onChange={(e) => setEditGeraisColabBusca(e.target.value)} />
@@ -2878,18 +4141,23 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                 )}
                                 <Textarea value={editGeraisForm.conteudo} onChange={(e) => setEditGeraisForm({...editGeraisForm, conteudo: e.target.value})} rows={3} />
                                 <div className="flex gap-2">
-                                  <Button size="sm" onClick={() => updateGeraisMutation.mutate({ id: r.id, ...editGeraisForm, colaboradoresIds: editGeraisForm.tipo === "espaco_o_grito" ? editGeraisColaboradoresIds : null })} disabled={updateGeraisMutation.isPending}>Salvar</Button>
-                                  <Button size="sm" variant="outline" onClick={() => { setEditGeraisId(null); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); }}>Cancelar</Button>
+                                  <Button size="sm" onClick={() => {
+                                    const isMP = editGeraisForm.categoria === "caravana_comunitaria" || editGeraisForm.categoria === "workshop";
+                                    updateGeraisMutation.mutate({ id: r.id, tipo: editGeraisForm.tipoGeral, categoria: editGeraisForm.categoria, conteudo: editGeraisForm.conteudo, data: editGeraisForm.data, participanteNome: isMP ? (editGeraisParticipantes.length > 0 ? JSON.stringify(editGeraisParticipantes.map(p => p.nome)) : null) : editGeraisForm.participanteNome, colaboradoresIds: editGeraisForm.categoria === "espaco_o_grito" ? editGeraisColaboradoresIds : null });
+                                  }} disabled={updateGeraisMutation.isPending}>Salvar</Button>
+                                  <Button size="sm" variant="outline" onClick={() => { setEditGeraisId(null); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditGeraisParticipantes([]); setEditGeraisPartBusca(""); }}>Cancelar</Button>
                                 </div>
                               </div>
                             ) : (() => {
-                                const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                                const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                                const categoriaDisplay = r.categoria ? tipoLabels[r.categoria] || r.categoria : null;
+                                const tipoDisplay = tipoLabels[r.tipo] || r.tipo;
                                 let colaboradoresIdsList2: number[] = [];
                                 let colaboradoresDisplay2 = "";
                                 if (r.colaboradoresIds) {
                                   try {
                                     colaboradoresIdsList2 = JSON.parse(r.colaboradoresIds);
-                                    const nomes = colaboradoresIdsList2.map((id: number) => todosColaboradoresPsico.find((c: any) => c.id === id)?.nome).filter(Boolean);
+                                    const nomes = colaboradoresIdsList2.map((id: number) => nomeColaboradorPsicoPorId(id)).filter(Boolean);
                                     colaboradoresDisplay2 = nomes.join(", ");
                                   } catch {}
                                 }
@@ -2897,8 +4165,26 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                               <>
                                 <div className="flex justify-between items-start">
                                   <div>
-                                    <Badge variant="outline" className="text-xs mb-1 text-blue-700 border-blue-300">{tipoLabels[r.tipo] || r.tipo}</Badge>
-                                    {r.participanteNome && <p className="text-sm font-medium text-gray-700">{r.participanteNome}</p>}
+                                    <Badge variant="outline" className="text-xs mb-1 text-gray-500 border-gray-300 mr-1">{tipoDisplay}</Badge>
+                                    {categoriaDisplay && <Badge variant="outline" className="text-xs mb-1 text-blue-700 border-blue-300">{categoriaDisplay}</Badge>}
+                                    {r.participanteNome && (() => {
+                                      const cat = r.categoria || r.tipo;
+                                      const isMP = cat === "caravana_comunitaria" || cat === "workshop";
+                                      if (isMP) {
+                                        try {
+                                          const partic = JSON.parse(r.participanteNome) as string[];
+                                          if (Array.isArray(partic) && partic.length > 0) {
+                                            return (
+                                              <details className="text-xs mt-0.5">
+                                                <summary className="cursor-pointer text-purple-700 font-medium select-none list-none flex items-center gap-1"><span className="inline-block w-3 h-3 mr-0.5">▶</span>Participantes ({partic.length})</summary>
+                                                <ul className="mt-1 pl-4 space-y-0.5 text-gray-700">{partic.map((n, i) => <li key={i} className="list-disc">{n}</li>)}</ul>
+                                              </details>
+                                            );
+                                          }
+                                        } catch {}
+                                      }
+                                      return <p className="text-sm font-medium text-gray-700">{r.participanteNome}</p>;
+                                    })()}
                                     {colaboradoresDisplay2 && (
                                       <details className="text-xs">
                                         <summary className="cursor-pointer text-green-700 font-medium select-none list-none flex items-center gap-1">
@@ -2906,7 +4192,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                           Colaboradores ({colaboradoresIdsList2.length})
                                         </summary>
                                         <ul className="mt-1 pl-4 space-y-0.5 text-gray-700">
-                                          {[...colaboradoresIdsList2].map((id: number) => ({ id, nome: (todosColaboradoresPsico as any[]).find((c: any) => c.id === id)?.nome })).filter(x => x.nome).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }) => (
+                                          {[...colaboradoresIdsList2].map((id: number) => ({ id, nome: nomeColaboradorPsicoPorId(id) })).filter(x => x.nome).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }) => (
                                             <li key={id} className="list-disc">{nome}</li>
                                           ))}
                                         </ul>
@@ -2918,14 +4204,26 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     <Button size="sm" variant="ghost" className="text-gray-400 hover:text-blue-600 h-7 w-7 p-0" onClick={() => setViewGeraisGeralRecord({ ...r, colaboradoresIdsList2 })}>
                                       <Eye className="w-3 h-3" />
                                     </Button>
-                                    {r.criadoPorUserId === userId && (
+                                    {String(r.criadoPorUserId) === String(userId) && (
                                       <>
-                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditGeraisId(r.id); setEditGeraisForm({ tipo: r.tipo, conteudo: r.conteudo, participanteNome: r.participanteNome || "", data: r.data }); setEditGeraisColaboradoresIds(colaboradoresIdsList2); setEditGeraisColabBusca(""); }}>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+  setEditGeraisId(r.id);
+  const editCat = r.categoria || r.tipo;
+  setEditGeraisForm({ tipoGeral: r.tipo === "atendimento_coletivo" ? r.tipo : "atendimento_coletivo", categoria: editCat, conteudo: r.conteudo, participanteNome: r.participanteNome || "", data: r.data });
+  setEditGeraisColaboradoresIds(colaboradoresIdsList2);
+  setEditGeraisColabBusca("");
+  setEditGeraisPartBusca("");
+  setEditGeraisPartFiltro("todos");
+  const isMP = editCat === "caravana_comunitaria" || editCat === "workshop";
+  if (isMP && r.participanteNome) {
+    try { const arr = JSON.parse(r.participanteNome); setEditGeraisParticipantes(Array.isArray(arr) ? arr.map((n: string) => ({ nome: n })) : []); } catch { setEditGeraisParticipantes([]); }
+  } else { setEditGeraisParticipantes([]); }
+}}>
                                           <Pencil className="w-3 h-3" />
                                         </Button>
-                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => deleteGeraisMutation.mutate(r.id)} disabled={deleteGeraisMutation.isPending}>
+                                        {canDelete && <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => deleteGeraisMutation.mutate(r.id)} disabled={deleteGeraisMutation.isPending}>
                                           <Trash2 className="w-3 h-3 text-red-500" />
-                                        </Button>
+                                        </Button>}
                                       </>
                                     )}
                                   </div>
@@ -2954,9 +4252,18 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                     return tipoLabels[viewGeraisGeralRecord.tipo] || viewGeraisGeralRecord.tipo;
                   })()}
                 </DialogTitle>
-                <DialogDescription>
-                  {viewGeraisGeralRecord?.data ? new Date(viewGeraisGeralRecord.data + "T12:00:00").toLocaleDateString("pt-BR") : ""}
-                  {viewGeraisGeralRecord?.criadoPorRole && ` · Criado por: ${viewGeraisGeralRecord.criadoPorRole === 'coordenador' ? 'Coordenador' : 'Monitor'}`}
+                <DialogDescription asChild>
+                  <div className="space-y-1.5 mt-1">
+                    {viewGeraisGeralRecord?.categoria && (() => {
+                      const catLabels: Record<string, string> = { espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop" };
+                      const label = catLabels[viewGeraisGeralRecord.categoria] || viewGeraisGeralRecord.categoria;
+                      return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{label}</span>;
+                    })()}
+                    <p className="text-xs text-muted-foreground">
+                      {viewGeraisGeralRecord?.data ? new Date(viewGeraisGeralRecord.data + "T12:00:00").toLocaleDateString("pt-BR") : ""}
+                      {viewGeraisGeralRecord?.criadoPorRole && ` · Criado por: ${viewGeraisGeralRecord.criadoPorRole === 'coordenador' ? 'Coordenador' : 'Monitor'}`}
+                    </p>
+                  </div>
                 </DialogDescription>
               </DialogHeader>
               {viewGeraisGeralRecord && (
@@ -2971,7 +4278,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                     <div>
                       <p className="text-xs font-semibold text-green-700 mb-1">Colaboradores presentes ({viewGeraisGeralRecord.colaboradoresIdsList2.length})</p>
                       <ul className="space-y-0.5 pl-3">
-                        {[...viewGeraisGeralRecord.colaboradoresIdsList2].map((id: number) => ({ id, nome: (todosColaboradoresPsico as any[]).find((c: any) => c.id === id)?.nome })).filter((x: any) => x.nome).sort((a: any, b: any) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }: any) => (
+                        {[...viewGeraisGeralRecord.colaboradoresIdsList2].map((id: number) => ({ id, nome: nomeColaboradorPsicoPorId(id) })).filter((x: any) => x.nome).sort((a: any, b: any) => a.nome.localeCompare(b.nome, 'pt-BR')).map(({ id, nome }: any) => (
                           <li key={id} className="text-sm text-gray-700 list-disc">{nome}</li>
                         ))}
                       </ul>
@@ -3755,127 +5062,32 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
           )}
 
           {activeSection === 'demanda' && (
-            <DemandaEspontaneaSection
-              userId={String(userId || "")}
-              userRole="coordenador_psico"
-            />
-          )}
-
-
-          {activeSection === 'relatorios' && (
             <Card>
-              <CardHeader>
-                <CardTitle>Relatórios</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-semibold mb-2 flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-blue-500" />
-                        Relatório de Famílias Atendidas
-                      </h3>
-                      <p className="text-gray-600 text-sm mb-3">
-                        Gere relatórios detalhados das famílias em acompanhamento.
-                      </p>
-                      <div className="space-y-2">
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Período" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="mensal">Mensal</SelectItem>
-                            <SelectItem value="trimestral">Trimestral</SelectItem>
-                            <SelectItem value="semestral">Semestral</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button className="w-full bg-blue-500 hover:bg-blue-600">
-                          <Download className="w-4 h-4 mr-2" />
-                          Gerar Relatório
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-semibold mb-2 flex items-center gap-2">
-                        <Target className="w-4 h-4 text-green-500" />
-                        Relatório de Casos Ativos
-                      </h3>
-                      <p className="text-gray-600 text-sm mb-3">
-                        Análise dos casos em acompanhamento e resolutividade.
-                      </p>
-                      <div className="space-y-2">
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Tipo de caso" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="todos">Todos os casos</SelectItem>
-                            <SelectItem value="criticos">Casos críticos</SelectItem>
-                            <SelectItem value="violacao">Violação de direitos</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button className="w-full bg-green-500 hover:bg-green-600">
-                          <Download className="w-4 h-4 mr-2" />
-                          Gerar Relatório
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-4">Relatórios Gerados Recentemente</h3>
-                    <div className="space-y-2">
-                      {[
-                        { nome: 'Famílias Atendidas - Setembro 2025', data: '26/09/2025', tipo: 'PDF' },
-                        { nome: 'Casos Críticos - Agosto 2025', data: '25/08/2025', tipo: 'PDF' },
-                        { nome: 'Indicadores Mensais - Setembro 2025', data: '24/09/2025', tipo: 'Excel' }
-                      ].map((relatorio, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 border rounded">
-                          <div>
-                            <p className="font-medium">{relatorio.nome}</p>
-                            <p className="text-sm text-gray-500">Gerado em {relatorio.data}</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{relatorio.tipo}</Badge>
-                            <Button size="sm" variant="outline">
-                              <Download className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+              <CardContent className="p-4">
+                <AtendidosComunidadeSection
+                  userId={String(userId || "")}
+                  userRole="coordenador_psico"
+                />
               </CardContent>
             </Card>
           )}
 
+          {activeSection === 'alunos' && (
+            <AlunosVinculoSection alunos={alunosLista} loading={loadingAlunosTurmas} />
+          )}
+
+  
+
           {activeSection === 'relatorios' && (
             <Card>
               <CardHeader>
-                <CardTitle>Relatórios Mensais</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-500" />
+                  Relatórios Gerenciais
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-6">
-                  <div className="border rounded-lg p-4">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                      <FileText className="w-4 h-4" />
-                      Exportar Relatório Mensal
-                    </h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Gere um relatório mensal no formato PDF seguindo o padrão do Instituto O Grito.
-                      O relatório incluirá todos os atendimentos do mês selecionado.
-                    </p>
-                    
-                    <PsicoMonthlyReport
-                      month={new Date().toISOString().slice(0, 7)}
-                      familias={Array.isArray(familias) ? familias : []}
-                      atendimentos={Array.isArray(atendimentos) ? atendimentos : []}
-                      casos={Array.isArray(casos) ? casos : []}
-                    />
-                  </div>
-                </div>
+                <RelatoriosPanel vertente="psico" />
               </CardContent>
             </Card>
           )}
@@ -3926,6 +5138,389 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
             </div>
           )}
 
+          {activeSection === 'intervencoes' && (
+            <Card>
+              <CardContent className="p-4">
+              <div className="space-y-4">
+              <div className="flex gap-2 border-b pb-2">
+                <button
+                  onClick={() => setIntervencaoSubTab("lista")}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${intervencaoSubTab === "lista" ? "bg-purple-100 text-purple-700 border-b-2 border-purple-600" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Atividades Realizadas
+                </button>
+                <button
+                  onClick={() => setIntervencaoSubTab("registrar")}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${intervencaoSubTab === "registrar" ? "bg-purple-100 text-purple-700 border-b-2 border-purple-600" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Registrar Nova
+                </button>
+              </div>
+
+              {intervencaoSubTab === "registrar" && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+                  <h4 className="font-semibold text-purple-800">
+                    {editIntervencaoId ? "Editar Atividade" : "Registrar Atividade"}
+                  </h4>
+                  <div className="mb-3">
+                    <label className="text-sm font-medium mb-1 block">Programa</label>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant={intervencaoForm.vertente === "pec" ? "default" : "outline"}
+                        onClick={() => setIntervencaoForm({ ...intervencaoForm, vertente: "pec" })}
+                        className={intervencaoForm.vertente === "pec" ? "bg-yellow-500 hover:bg-yellow-600" : ""}
+                      >
+                        PEC
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={intervencaoForm.vertente === "inclusao" ? "default" : "outline"}
+                        onClick={() => setIntervencaoForm({ ...intervencaoForm, vertente: "inclusao" })}
+                        className={intervencaoForm.vertente === "inclusao" ? "bg-green-600 hover:bg-green-700" : ""}
+                      >
+                        Inclusão Produtiva
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={intervencaoForm.vertente === "psicossocial" ? "default" : "outline"}
+                        onClick={() => setIntervencaoForm({ ...intervencaoForm, vertente: "psicossocial" })}
+                        className={intervencaoForm.vertente === "psicossocial" ? "bg-purple-600 hover:bg-purple-700" : ""}
+                      >
+                        Psicossocial
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Título</label>
+                      <Input value={intervencaoForm.titulo} onChange={(e) => setIntervencaoForm({ ...intervencaoForm, titulo: e.target.value })} placeholder="Ex: Roda de conversa sobre ansiedade" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Tipo</label>
+                      <Select value={intervencaoForm.tipo} onValueChange={(v) => setIntervencaoForm({ ...intervencaoForm, tipo: v })}>
+                        <SelectTrigger><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="roda_de_conversa">Roda de Conversa</SelectItem>
+                          <SelectItem value="atendimento_grupo">Atendimento em Grupo</SelectItem>
+                          <SelectItem value="acao_socioemocional">Ação ou intervenção socioemocional</SelectItem>
+                          <SelectItem value="oficina">Oficina</SelectItem>
+                          <SelectItem value="palestra">Palestra</SelectItem>
+                          <SelectItem value="reuniao">Reunião</SelectItem>
+                          <SelectItem value="visita_domiciliar">Visita Domiciliar</SelectItem>
+                          <SelectItem value="encaminhamento">Encaminhamento</SelectItem>
+                          <SelectItem value="outro">Outro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(intervencaoForm.vertente === "pec" || intervencaoForm.vertente === "inclusao") && (
+                      <div>
+                        <label className="text-sm font-medium mb-1 block">Turma ({intervencaoForm.vertente === "pec" ? "PEC" : "Inclusão"})</label>
+                        <Select
+                          value={intervAtivTurmaId}
+                          onValueChange={async (v) => {
+                            setIntervAtivTurmaId(v);
+                            setIntervencaoForm({ ...intervencaoForm, data: "" });
+                            setIntervAtivChamada({ loaded: false, exists: false, presencas: [] });
+                            await carregarParticipantesIntervTurma(v);
+                          }}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione a turma" /></SelectTrigger>
+                          <SelectContent>
+                            {(intervAtivTurmas as any[]).map((t: any) => (
+                              <SelectItem key={String(t.id)} value={String(t.id)}>
+                                {t.nome || `Turma ${t.id}`}
+                              </SelectItem>
+                            ))}
+                            {(intervAtivTurmas as any[]).length === 0 && (
+                              <SelectItem value="__none" disabled>Nenhuma turma disponível</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Data da Aula</label>
+                      {(intervencaoForm.vertente === "pec" || intervencaoForm.vertente === "inclusao") ? (
+                        <Select
+                          value={intervencaoForm.data}
+                          onValueChange={(v) => setIntervencaoForm({ ...intervencaoForm, data: v })}
+                          disabled={!intervAtivTurmaId}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione a data" /></SelectTrigger>
+                          <SelectContent>
+                            {intervAtivDiasAulaReal.map((d) => (
+                              <SelectItem key={d.date} value={d.date}>
+                                {d.label} ({d.dayOfWeek})
+                              </SelectItem>
+                            ))}
+                            {intervAtivDiasAulaReal.length === 0 && (
+                              <SelectItem value="__none" disabled>Nenhuma data disponível</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input type="date" value={intervencaoForm.data} onChange={(e) => setIntervencaoForm({ ...intervencaoForm, data: e.target.value })} />
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Participantes</label>
+                      <Input type="number" min={0} value={intervencaoForm.participantes_presentes} onChange={(e) => setIntervencaoForm({ ...intervencaoForm, participantes_presentes: Number(e.target.value) || 0 })} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Horário Início</label>
+                      <Input type="time" value={intervencaoForm.horario_inicio || ""} onChange={(e) => setIntervencaoForm({ ...intervencaoForm, horario_inicio: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1 block">Horário Fim</label>
+                      <Input type="time" value={intervencaoForm.horario_fim || ""} onChange={(e) => setIntervencaoForm({ ...intervencaoForm, horario_fim: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Descrição</label>
+                    <textarea
+                      className="w-full border rounded-lg p-2 text-sm min-h-[80px]"
+                      value={intervencaoForm.descricao}
+                      onChange={(e) => setIntervencaoForm({ ...intervencaoForm, descricao: e.target.value })}
+                      placeholder="Descreva a atividade realizada, objetivos, metodologia..."
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Observação</label>
+                    <textarea
+                      className="w-full border rounded-lg p-2 text-sm min-h-[60px]"
+                      value={intervencaoForm.observacoes}
+                      onChange={(e) => setIntervencaoForm({ ...intervencaoForm, observacoes: e.target.value })}
+                      placeholder="Observações adicionais sobre a atividade..."
+                    />
+                  </div>
+                  {intervAtivParticipantes.length > 0 && (
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-sm font-medium">Participantes ({intervAtivParticipantes.filter(p => p.selecionado).length}/{intervAtivParticipantes.length})</label>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setIntervAtivParticipantes(intervAtivParticipantes.map(p => ({ ...p, selecionado: true })))}>
+                            Todos
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setIntervAtivParticipantes(intervAtivParticipantes.map(p => ({ ...p, selecionado: false })))}>
+                            Nenhum
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border rounded-lg bg-white">
+                        {intervAtivParticipantes.map((p, idx) => (
+                          <label key={p.id || idx} className="flex items-center gap-2 px-3 py-1.5 border-b last:border-b-0 hover:bg-gray-50 cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              checked={p.selecionado}
+                              onChange={() => {
+                                const updated = [...intervAtivParticipantes];
+                                updated[idx] = { ...updated[idx], selecionado: !updated[idx].selecionado };
+                                setIntervAtivParticipantes(updated);
+                              }}
+                              className="rounded"
+                            />
+                            {p.nome}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {intervAtivTurmaId && intervencaoForm.data && intervAtivChamada.loaded && (
+                    <div className="border border-purple-200 rounded-lg p-3 bg-white">
+                      <h5 className="font-semibold text-purple-800 mb-2 flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Chamada do Dia
+                      </h5>
+                      {intervAtivChamada.exists ? (
+                        <div>
+                          <p className="text-xs text-green-700 mb-2">Chamada encontrada! Os participantes presentes foram adicionados automaticamente.</p>
+                          <div className="flex gap-3 mb-2 text-sm">
+                            <span className="text-green-600 font-medium">{intervAtivChamada.presencas.filter(p => p.presente).length} presentes</span>
+                            <span className="text-red-600 font-medium">{intervAtivChamada.presencas.filter(p => !p.presente).length} ausentes</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-3">
+                          <p className="text-sm text-amber-700">Nenhuma chamada registrada para esta data.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={() => { resetIntervencaoForm(); setIntervencaoSubTab("lista"); }}>Cancelar</Button>
+                    <Button
+                      disabled={
+                        (createIntervencaoMutation.isPending || updateIntervencaoMutation.isPending)
+                        || !intervencaoForm.titulo || !intervencaoForm.data
+                      }
+                      onClick={() => {
+                        const payload = buildIntervencaoPayload();
+                        if (editIntervencaoId) {
+                          updateIntervencaoMutation.mutate({ id: editIntervencaoId, ...payload });
+                        } else {
+                          createIntervencaoMutation.mutate(payload);
+                        }
+                      }}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      {createIntervencaoMutation.isPending || updateIntervencaoMutation.isPending
+                        ? 'Salvando...'
+                        : editIntervencaoId ? 'Salvar alterações' : 'Salvar Intervenção'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {intervencaoSubTab === "lista" && (
+                <div className="space-y-3">
+                  <div className="flex gap-3 flex-wrap">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Ano</label>
+                      <Select value={String(intervencaoFiltroAno)} onValueChange={(v) => setIntervencaoFiltroAno(Number(v))}>
+                        <SelectTrigger className="w-[90px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {[2024, 2025, 2026, 2027].map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 block mb-1">Mês</label>
+                      <Select value={String(intervencaoFiltroMes)} onValueChange={(v) => setIntervencaoFiltroMes(Number(v))}>
+                        <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">Todos</SelectItem>
+                          {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
+                            <SelectItem key={i+1} value={String(i+1)}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {todasIntervencoes.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 border rounded-lg">
+                      Nenhuma atividade registrada ainda
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(todasIntervencoes as any[]).map((iv: any) => {
+                        const tipoLabel: Record<string, string> = { roda_de_conversa: "Roda de Conversa", atendimento_grupo: "Atendimento em Grupo", oficina: "Ação ou intervenção socioemocional", acao_socioemocional: "Ação ou intervenção socioemocional", palestra: "Palestra", visita_domiciliar: "Visita Domiciliar", encaminhamento: "Encaminhamento", outro: "Outro", reforco: "Reforço", recreativa: "Recreativa" };
+                        const isExpanded = intervencaoExpandida === String(iv.id);
+                        const obs = iv.observacoes || iv.observacao || "";
+                        const {
+                          turmaNome: displayTurma,
+                          participantesNomes: displayParticipantes,
+                          participantesEsperados: esperadosObs,
+                          observacoesLimpa: obsClean,
+                        } = parseIntervencaoObservacoes(obs);
+                        const chamadaRef = findChamadaParaIntervencao(
+                          intervChamadasLista,
+                          iv,
+                          displayTurma
+                        );
+                        const { presentes, esperados } = getIntervencaoParticipantesResumo(
+                          iv,
+                          displayParticipantes,
+                          esperadosObs,
+                          chamadaRef
+                        );
+                        const vertLabel = iv.vertente === "pec" ? "PEC" : iv.vertente === "inclusao" ? "Inclusão Produtiva" : iv.vertente === "psicossocial" ? "Psicossocial" : iv.vertente === "todos" ? "Todas" : iv.vertente || "";
+                        return (
+                          <div key={iv.id} className="border rounded-lg p-3 hover:bg-gray-50 cursor-pointer" onClick={() => setIntervencaoExpandida(isExpanded ? null : String(iv.id))}>
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <h4 className="font-medium text-sm">{iv.titulo}</h4>
+                                <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
+                                  <Badge variant="outline" className="text-xs">{tipoLabel[iv.tipo] || iv.tipo}</Badge>
+                                  <span>{iv.data ? new Date(iv.data).toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "-"}</span>
+                                  {iv.horarioInicio && <span>{iv.horarioInicio} - {iv.horarioFim}</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Badge variant="outline" className="border-green-500 text-green-600 text-xs">registrada</Badge>
+                                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div className="mt-3 pt-3 border-t space-y-2 text-sm text-gray-900" onClick={(e) => e.stopPropagation()}>
+                                {displayTurma && (
+                                  <div className="flex gap-2"><span className="font-medium text-gray-500 min-w-[100px]">Turma:</span><span>{displayTurma}</span></div>
+                                )}
+                                {vertLabel && (
+                                  <div className="flex gap-2"><span className="font-medium text-gray-500 min-w-[100px]">Vertente:</span><span>{vertLabel}</span></div>
+                                )}
+                                {iv.monitor_nome && (
+                                  <div className="flex gap-2"><span className="font-medium text-gray-500 min-w-[100px]">Monitor:</span><span className="text-purple-600">{iv.monitor_nome}</span></div>
+                                )}
+                                {iv.descricao && (
+                                  <div><span className="font-medium text-gray-500 block">Descrição:</span><p className="text-gray-900 whitespace-pre-wrap mt-1">{iv.descricao}</p></div>
+                                )}
+                                <div className="flex gap-2">
+                                  <span className="font-medium text-gray-500 min-w-[100px]">Participantes:</span>
+                                  <span>{formatIntervencaoParticipantesResumo(presentes, esperados)}</span>
+                                </div>
+                                {obsClean && (
+                                  <div><span className="font-medium text-gray-500 block">Observações:</span><p className="text-gray-700 italic mt-1">{obsClean}</p></div>
+                                )}
+                                {canEditIntervencaoPsico(iv, userId) && (
+                                  <div className="pt-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs border-purple-300 text-purple-700 hover:bg-purple-50"
+                                      onClick={() => startEditIntervencao(iv)}
+                                    >
+                                      <Pencil className="w-3 h-3 mr-1" /> Editar
+                                    </Button>
+                                  </div>
+                                )}
+                                {displayParticipantes.length > 0 && (() => {
+                                  const MAX_VISIBLE = 3;
+                                  const isOpen = expandedIVPart.has(String(iv.id));
+                                  const visibleList = isOpen ? displayParticipantes : displayParticipantes.slice(0, MAX_VISIBLE);
+                                  const hasMore = displayParticipantes.length > MAX_VISIBLE;
+                                  return (
+                                    <div>
+                                      <button type="button" onClick={() => setExpandedIVPart(prev => { const next = new Set(prev); if (next.has(String(iv.id))) next.delete(String(iv.id)); else next.add(String(iv.id)); return next; })} className="font-medium text-gray-500 flex items-center gap-1 hover:text-gray-700">
+                                        Alunos presentes ({displayParticipantes.length})
+                                        {hasMore && <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
+                                      </button>
+                                      <div className="mt-1 space-y-0.5">
+                                        {visibleList.map((nome: string, i: number) => (
+                                          <div key={i} className="text-xs text-gray-900 pl-2 border-l-2 border-gray-200">{nome}</div>
+                                        ))}
+                                        {hasMore && !isOpen && (
+                                          <button type="button" onClick={() => setExpandedIVPart(prev => { const next = new Set(prev); next.add(String(iv.id)); return next; })} className="text-xs text-purple-600 hover:text-purple-700 pl-2">
+                                            +{displayParticipantes.length - MAX_VISIBLE} mais...
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === 'eventos-grito' && (
+            <Card>
+              <CardContent className="p-4">
+                <EventosGritoSection defaultTab="eventos" showStats={false} />
+              </CardContent>
+            </Card>
+          )}
+
+
           {activeSection === 'configuracoes' && (
             <Card>
               <CardHeader>
@@ -3933,6 +5528,8 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
+                  <PushNotificationSettings variant="panel" />
+                  <LgpdMeusDadosSettingsPanel />
                   <div className="border rounded-lg p-4">
                     <h3 className="font-semibold mb-4 flex items-center gap-2">
                       <Users className="w-4 h-4" />
@@ -3997,6 +5594,493 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === 'favela3d' && canDelete && (
+            <Card>
+              <CardContent className="pt-6">
+                <Favela3DSection
+                  userId={String(coordenadorId || "")}
+                  userRole="coordenador_psico"
+                  initialTab={favela3dSubTab}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === 'mapeamento' && canDelete && (
+            <Card>
+              <CardContent className="pt-6">
+                {mapeamentoSubTab === 'mapeamento' ? (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-teal-600" />
+                      <h2 className="text-lg font-semibold text-gray-800">Mapeamento e moradas gerais</h2>
+                    </div>
+
+                    {/* Total Geral */}
+                    <div className="bg-teal-50 border border-teal-200 rounded-lg p-5 text-center">
+                      <p className="text-sm text-teal-700 font-medium">Total Geral de Casas Mapeadas</p>
+                      <p className="text-5xl font-bold text-teal-700 mt-1">{(mapeamentosData as any)?.total ?? 0}</p>
+                    </div>
+
+                    {/* Formulário de registro */}
+                    <div className="border rounded-lg p-5 space-y-4">
+                      <p className="font-semibold text-gray-700">{mapEditId ? "Editar Mapeamento" : "Registrar Novo Mapeamento"}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <Label>Data do mapeamento</Label>
+                          <Input type="date" value={mapData} onChange={e => setMapData(e.target.value)} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Casas mapeadas</Label>
+                          <Input type="number" min={1} placeholder="0" value={mapCasas} onChange={e => setMapCasas(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Observação (opcional)</Label>
+                        <Textarea rows={3} placeholder="Rua, beco, área mapeada..." value={mapObs} onChange={e => setMapObs(e.target.value)} />
+                      </div>
+                      <Button
+                        className="w-full sm:w-auto"
+                        disabled={!mapCasas || !mapData || criarMapeamentoCoordMutation.isPending || atualizarMapeamentoCoordMutation.isPending}
+                        onClick={() => {
+                          if (!mapCasas || !mapData) return;
+                          const payload = {
+                            monitorId: Number(mapEditMonitorId || userId),
+                            data: mapData,
+                            casasMapeadas: Number(mapCasas),
+                            observacao: mapObs || undefined,
+                          };
+                          if (mapEditId) {
+                            atualizarMapeamentoCoordMutation.mutate({ ...payload, id: mapEditId });
+                          } else {
+                            if (!userId) return;
+                            criarMapeamentoCoordMutation.mutate(payload);
+                          }
+                        }}
+                      >
+                        {(criarMapeamentoCoordMutation.isPending || atualizarMapeamentoCoordMutation.isPending)
+                          ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          : <Plus className="w-4 h-4 mr-2" />}
+                        {mapEditId ? "Salvar alterações" : "Registrar Mapeamento"}
+                      </Button>
+                      {mapEditId && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setMapEditId(null);
+                            setMapEditMonitorId(null);
+                            setMapCasas("");
+                            setMapObs("");
+                            setMapData(new Date().toISOString().slice(0, 10));
+                          }}
+                        >
+                          Cancelar edição
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Lista agrupada por monitor */}
+                    <div>
+                      <p className="font-semibold text-gray-700 mb-3">Mapeamentos por Responsável</p>
+                      {Object.keys((mapeamentosData as any)?.porMonitor ?? {}).length === 0 ? (
+                        <p className="text-gray-400 text-sm text-center py-6">Nenhum mapeamento registrado ainda.</p>
+                      ) : (
+                        <div className="space-y-4">
+                          {Object.entries((mapeamentosData as any)?.porMonitor ?? {}).map(([monId, info]: [string, any]) => (
+                            <div key={monId} className="border rounded-lg p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="font-semibold text-gray-800">{info.nome}</p>
+                                <span className="bg-teal-100 text-teal-700 text-sm font-bold px-3 py-1 rounded-full">{info.total} casas</span>
+                              </div>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Data</TableHead>
+                                    <TableHead>Casas</TableHead>
+                                    <TableHead>Observação</TableHead>
+                                    <TableHead className="text-right">Ações</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {info.registros.map((r: any) => (
+                                    <TableRow key={r.id}>
+                                      <TableCell>{new Date((r.data?.split('T')[0] ?? '') + 'T12:00:00').toLocaleDateString('pt-BR')}</TableCell>
+                                      <TableCell className="font-semibold">{r.casas_mapeadas}</TableCell>
+                                      <TableCell className="text-gray-500">{r.observacao || '—'}</TableCell>
+                                      <TableCell className="text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-7 w-7"
+                                            onClick={() => {
+                                              setMapEditId(Number(r.id));
+                                              setMapEditMonitorId(Number(r.monitor_id));
+                                              setMapData(String(r.data || "").split("T")[0]);
+                                              setMapCasas(String(r.casas_mapeadas ?? ""));
+                                              setMapObs(r.observacao || "");
+                                            }}
+                                          >
+                                            <Pencil className="w-4 h-4" />
+                                          </Button>
+                                          <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-7 w-7 text-red-600 hover:text-red-700"
+                                            onClick={() => setMapDeleteId(Number(r.id))}
+                                            disabled={excluirMapeamentoCoordMutation.isPending || !canDelete}
+                                            style={{ display: canDelete ? undefined : "none" }}
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                              <AlertDialog open={mapDeleteId !== null} onOpenChange={(open) => { if (!open) setMapDeleteId(null); }}>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Apagar mapeamento</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Deseja realmente apagar este registro de mapeamento?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel disabled={excluirMapeamentoCoordMutation.isPending}>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-red-600 hover:bg-red-700"
+                                      disabled={excluirMapeamentoCoordMutation.isPending}
+                                      onClick={() => {
+                                        if (!mapDeleteId) return;
+                                        excluirMapeamentoCoordMutation.mutate(mapDeleteId);
+                                        setMapDeleteId(null);
+                                      }}
+                                    >
+                                      {excluirMapeamentoCoordMutation.isPending ? "Apagando..." : "Apagar"}
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-teal-600" />
+                      <h2 className="text-lg font-semibold text-gray-800">Moradas gerais</h2>
+                    </div>
+                    <div className="border rounded-lg p-4 space-y-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-purple-700">{moradasResumo.total}</p>
+                          <p className="text-xs text-purple-700">Reformas Cadastradas</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-blue-700">{moradasResumo.emVisita}</p>
+                          <p className="text-xs text-blue-700">Em Visita Técnica</p>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-amber-700">{moradasResumo.emAndamento}</p>
+                          <p className="text-xs text-amber-700">Em Andamento</p>
+                        </div>
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                          <p className="text-2xl font-bold text-emerald-700">{moradasResumo.finalizadas}</p>
+                          <p className="text-xs text-emerald-700">Finalizadas</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-sm text-gray-600">Cadastre e acompanhe as reformas das moradas gerais.</p>
+                        <Button
+                          onClick={() => setShowMoradaReformaForm(prev => !prev)}
+                          className="bg-purple-600 hover:bg-purple-700"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Cadastrar reforma
+                        </Button>
+                      </div>
+
+                      {showMoradaReformaForm && (
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+                          <h4 className="font-semibold text-purple-800">{moradaEditId ? "Editar cadastro de reforma" : "Novo cadastro de reforma"}</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Monitor responsável</label>
+                              <Select
+                                value={moradaMonitorId ? String(moradaMonitorId) : ""}
+                                onValueChange={(v) => setMoradaMonitorId(Number(v))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione o monitor" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {moradaMonitoresOpcoes.map((m) => (
+                                    <SelectItem key={m.id} value={String(m.id)}>{m.nome}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="relative">
+                              <label className="text-sm font-medium mb-1 block">Participante</label>
+                              <Input
+                                value={moradaPartOpen ? moradaPartBusca : moradaForm.participanteNome}
+                                onChange={(e) => {
+                                  setMoradaPartBusca(e.target.value);
+                                  setMoradaPartOpen(true);
+                                  setMoradaForm({
+                                    ...moradaForm,
+                                    participanteNome: e.target.value,
+                                    participanteCpf: "",
+                                    participanteOrigem: "",
+                                  });
+                                }}
+                                onFocus={() => { setMoradaPartOpen(true); setMoradaPartBusca(moradaForm.participanteNome || ""); }}
+                                onBlur={() => setTimeout(() => setMoradaPartOpen(false), 200)}
+                                placeholder="Buscar por nome (PEC/Inclusão/Comunidade)"
+                              />
+                              {moradaPartOpen && (() => {
+                                const todosParticipantes = (todosAtendidosParaAtendimento as any[] || []);
+                                const filtrados = todosParticipantes.filter((p: any) => {
+                                  if (moradaPartFiltroVertente !== "todos" && p.origem !== moradaPartFiltroVertente) return false;
+                                  if (!moradaPartBusca.trim()) return true;
+                                  return (p.label || p.nome || "").toLowerCase().includes(moradaPartBusca.toLowerCase()) ||
+                                    (p.cpf || "").includes(moradaPartBusca);
+                                });
+                                return (
+                                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                                    <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50 sticky top-0">
+                                      {(["todos", "pec", "inclusao", "comunidade"] as const).map((f) => (
+                                        <button key={f} type="button"
+                                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${moradaPartFiltroVertente === f ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-100"}`}
+                                          onMouseDown={(e) => { e.preventDefault(); setMoradaPartFiltroVertente(f); }}>
+                                          {f === "todos" ? "Todos" : f === "pec" ? "PEC" : f === "inclusao" ? "Inclusão" : "Comunidade"}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    {filtrados.length === 0 ? (
+                                      <div className="p-3 text-xs text-gray-400 text-center">Nenhum resultado.</div>
+                                    ) : filtrados.slice(0, 20).map((p: any, i: number) => (
+                                      <button
+                                        key={p.id || i}
+                                        type="button"
+                                        className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                        onClick={() => {
+                                          const nome = p.nome || p.label || "";
+                                          const cpf = p.cpf || "";
+                                          setMoradaForm({
+                                            ...moradaForm,
+                                            participanteNome: nome,
+                                            participanteCpf: cpf,
+                                            participanteOrigem: p.origem || "",
+                                          });
+                                          setMoradaPartBusca(nome);
+                                          setMoradaPartOpen(false);
+                                        }}
+                                      >
+                                        <span className="font-medium text-gray-900">{p.nome || p.label}</span>
+                                        {p.cpf && <span className="text-xs text-gray-400">{formatCPF(p.cpf)}</span>}
+                                        <span className="text-xs text-gray-400 ml-auto">{p.origem === 'inclusao' ? 'Inclusão' : p.origem === 'pec' ? 'PEC' : 'Comunidade'}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Semana</label>
+                              <Select value={moradaForm.semana} onValueChange={(v) => setMoradaForm({ ...moradaForm, semana: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="1">1° Semana</SelectItem>
+                                  <SelectItem value="2">2° Semana</SelectItem>
+                                  <SelectItem value="3">3° Semana</SelectItem>
+                                  <SelectItem value="4">4° Semana</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Data</label>
+                              <Input type="date" value={moradaForm.data} onChange={(e) => setMoradaForm({ ...moradaForm, data: e.target.value })} />
+                            </div>
+
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Status</label>
+                              <Select value={moradaForm.status} onValueChange={(v) => setMoradaForm({ ...moradaForm, status: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {MORADA_STATUS_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-sm font-medium mb-2 block">Cômodo (múltipla seleção)</label>
+                            <div className="border rounded-lg bg-white max-h-40 overflow-y-auto">
+                              {MORADA_COMODOS_OPTIONS.map((item) => (
+                                <label key={item} className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 last:border-0 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={moradaComodos.includes(item)}
+                                    onChange={() => {
+                                      setMoradaComodos(prev => prev.includes(item) ? prev.filter(c => c !== item) : [...prev, item]);
+                                    }}
+                                  />
+                                  <span>{item}</span>
+                                </label>
+                              ))}
+                            </div>
+                            {moradaComodos.includes("Outros") && (
+                              <Input
+                                className="mt-2"
+                                placeholder="Informe outro cômodo"
+                                value={moradaForm.outrosComodo}
+                                onChange={(e) => setMoradaForm({ ...moradaForm, outrosComodo: e.target.value })}
+                              />
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="text-sm font-medium mb-1 block">Observações</label>
+                            <Textarea
+                              rows={3}
+                              placeholder="Descreva detalhes da reforma..."
+                              value={moradaForm.observacoes}
+                              onChange={(e) => setMoradaForm({ ...moradaForm, observacoes: e.target.value })}
+                            />
+                          </div>
+
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="outline" onClick={() => {
+                              setShowMoradaReformaForm(false);
+                              setMoradaEditId(null);
+                              setMoradaMonitorId(null);
+                            }}>Cancelar</Button>
+                            <Button
+                              className="bg-purple-600 hover:bg-purple-700"
+                              disabled={
+                                !userId ||
+                                !moradaMonitorId ||
+                                !moradaForm.participanteNome ||
+                                !moradaForm.data ||
+                                moradaComodos.length === 0 ||
+                                criarMoradaReformaMutation.isPending ||
+                                atualizarMoradaReformaMutation.isPending
+                              }
+                              onClick={() => {
+                                if (!moradaMonitorId) {
+                                  toast({ title: "Monitor obrigatório", description: "Selecione o monitor responsável pela reforma.", variant: "destructive" });
+                                  return;
+                                }
+                                const comodosSelecionados = moradaComodos.includes("Outros") && moradaForm.outrosComodo.trim()
+                                  ? [...moradaComodos.filter(c => c !== "Outros"), `Outros: ${moradaForm.outrosComodo.trim()}`]
+                                  : moradaComodos;
+                                const payload = {
+                                  monitorId: moradaMonitorId,
+                                  participanteNome: moradaForm.participanteNome,
+                                  participanteCpf: moradaForm.participanteCpf || undefined,
+                                  participanteOrigem: moradaForm.participanteOrigem || undefined,
+                                  semana: Number(moradaForm.semana),
+                                  data: moradaForm.data,
+                                  status: moradaForm.status,
+                                  comodos: comodosSelecionados,
+                                  observacoes: moradaForm.observacoes || undefined,
+                                };
+                                if (moradaEditId) {
+                                  atualizarMoradaReformaMutation.mutate({ ...payload, id: moradaEditId });
+                                } else {
+                                  criarMoradaReformaMutation.mutate(payload);
+                                }
+                              }}
+                            >
+                              {(criarMoradaReformaMutation.isPending || atualizarMoradaReformaMutation.isPending)
+                                ? "Salvando..."
+                                : moradaEditId ? "Salvar alterações" : "Salvar cadastro"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold text-gray-700">Reformas cadastradas</p>
+                        {moradasReformasList.length === 0 ? (
+                          <p className="text-sm text-gray-400 border rounded-lg p-4 text-center">Nenhuma reforma cadastrada ainda.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {moradasReformasList.map((item: any) => (
+                              <div key={item.id} className="border rounded-lg p-3 bg-white">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <p className="font-medium text-sm text-gray-800">{item.participanteNome || item.participante_nome}</p>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{item.semana}° Semana</span>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => iniciarEdicaoMorada(item)}>
+                                      <Pencil className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7 text-red-600 hover:text-red-700"
+                                      disabled={excluirMoradaReformaMutation.isPending}
+                                      onClick={() => {
+                                        setMoradaDeleteId(Number(item.id));
+                                      }}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {item.monitor_nome ? `${item.monitor_nome} • ` : ""}
+                                  {new Date(item.data + "T12:00:00").toLocaleDateString("pt-BR")} • {getMoradaStatusLabel(item.status)}
+                                </p>
+                                <p className="text-xs text-gray-600 mt-1">Cômodos: {(item.comodos || []).join(", ")}</p>
+                                {item.observacoes && <p className="text-xs text-gray-700 mt-1">{item.observacoes}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <AlertDialog open={moradaDeleteId !== null} onOpenChange={(open) => { if (!open) setMoradaDeleteId(null); }}>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Apagar registro de morada</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Deseja realmente apagar este registro? Esta ação não pode ser desfeita.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel disabled={excluirMoradaReformaMutation.isPending}>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-red-600 hover:bg-red-700"
+                              disabled={excluirMoradaReformaMutation.isPending}
+                              onClick={() => {
+                                if (!moradaDeleteId) return;
+                                excluirMoradaReformaMutation.mutate(moradaDeleteId);
+                                setMoradaDeleteId(null);
+                              }}
+                            >
+                              {excluirMoradaReformaMutation.isPending ? "Apagando..." : "Apagar"}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -5986,44 +8070,109 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
         onOpenChange={setShowAlterarSenhaModal}
       />
 
-      <Dialog open={showCadastroAtendido} onOpenChange={setShowCadastroAtendido}>
-        <DialogContent className="sm:max-w-lg">
+
+            <Dialog open={showCadastroAtendido} onOpenChange={setShowCadastroAtendido}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Cadastrar Atendido da Comunidade</DialogTitle>
-            <DialogDescription>Preencha os dados do atendido. Após cadastrar, ele ficará disponível para registro de atendimentos.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-purple-600" />
+              Cadastrar Pessoa — Atendidos Comunidade
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Nome *</Label>
-              <Input value={cadastroAtendidoForm.nome} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, nome: e.target.value }))} placeholder="Nome completo" />
-            </div>
-            <div>
-              <Label>CPF</Label>
-              <Input value={cadastroAtendidoForm.cpf} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, cpf: e.target.value }))} placeholder="000.000.000-00" />
-            </div>
-            <div>
-              <Label>Data de Nascimento</Label>
-              <Input type="date" value={cadastroAtendidoForm.data_nascimento} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, data_nascimento: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Telefone</Label>
-              <Input value={cadastroAtendidoForm.telefone} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
-            </div>
-            <div>
-              <Label>Endereço</Label>
-              <Input value={cadastroAtendidoForm.endereco} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Endereço completo" />
-            </div>
-            <div>
-              <Label>Observações</Label>
-              <Textarea value={cadastroAtendidoForm.observacoes} onChange={(e) => setCadastroAtendidoForm(f => ({ ...f, observacoes: e.target.value }))} placeholder="Observações adicionais..." rows={3} />
-            </div>
-          </div>
-          <DialogFooter>
+          {(() => {
+            const f = cadastroAtendidoForm;
+            const set = (k: string, v: string) => setCadastroAtendidoForm(prev => ({ ...prev, [k]: v }));
+            const GENEROS = ["Masculino", "Feminino", "Não-binário", "Prefiro não informar"];
+            const RACAS = ["Branca", "Preta", "Parda", "Amarela", "Indígena", "Não informado"];
+            const SIM_NAO = ["Sim", "Não", "Não informado"];
+            return (
+              <div className="space-y-6 pt-2">
+                {/* Identificação */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-gray-800 border-b pb-1">Identificação</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Nome completo *</Label><Input value={f.nome} onChange={e => set("nome", e.target.value)} placeholder="Nome completo" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">CPF</Label><Input value={f.cpf} onChange={e => set("cpf", e.target.value)} placeholder="000.000.000-00" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Data de Nascimento</Label><Input type="date" value={f.data_nascimento} onChange={e => set("data_nascimento", e.target.value)} /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Gênero</Label>
+                      <Select value={f.sexo} onValueChange={v => set("sexo", v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{GENEROS.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Raça/Cor</Label>
+                      <Select value={f.raca} onValueChange={v => set("raca", v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{RACAS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Telefone</Label><Input value={f.telefone} onChange={e => set("telefone", e.target.value)} placeholder="(00) 00000-0000" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">E-mail</Label><Input value={f.email} onChange={e => set("email", e.target.value)} placeholder="email@exemplo.com" /></div>
+                  </div>
+                </div>
+                {/* Endereço */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-gray-800 border-b pb-1">Endereço</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">CEP</Label><Input value={f.cep} onChange={e => set("cep", e.target.value)} placeholder="00000-000" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Logradouro</Label><Input value={f.endereco} onChange={e => set("endereco", e.target.value)} placeholder="Rua, Avenida..." /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Número</Label><Input value={f.numero} onChange={e => set("numero", e.target.value)} placeholder="Nº" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Complemento</Label><Input value={f.complemento} onChange={e => set("complemento", e.target.value)} placeholder="Apto, Bloco..." /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Bairro</Label><Input value={f.bairro} onChange={e => set("bairro", e.target.value)} placeholder="Bairro" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Cidade</Label><Input value={f.cidade} onChange={e => set("cidade", e.target.value)} placeholder="Cidade" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Estado</Label><Input value={f.estado} onChange={e => set("estado", e.target.value)} placeholder="UF" maxLength={2} /></div>
+                  </div>
+                </div>
+                {/* Composição Familiar */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-gray-800 border-b pb-1">Composição Familiar</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Total de pessoas</Label><Input type="number" min={0} value={f.numero_pessoas} onChange={e => set("numero_pessoas", e.target.value)} placeholder="0" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Crianças</Label><Input type="number" min={0} value={f.criancas} onChange={e => set("criancas", e.target.value)} placeholder="0" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Adolescentes</Label><Input type="number" min={0} value={f.adolescentes} onChange={e => set("adolescentes", e.target.value)} placeholder="0" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Adultos</Label><Input type="number" min={0} value={f.adultos} onChange={e => set("adultos", e.target.value)} placeholder="0" /></div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Idosos</Label><Input type="number" min={0} value={f.idosos} onChange={e => set("idosos", e.target.value)} placeholder="0" /></div>
+                  </div>
+                </div>
+                {/* Benefícios Sociais */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-gray-800 border-b pb-1">Benefícios Sociais</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">CadÚnico</Label>
+                      <Select value={f.tem_cad_unico} onValueChange={v => set("tem_cad_unico", v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{SIM_NAO.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Bolsa Família</Label>
+                      <Select value={f.tem_bolsa_familia} onValueChange={v => set("tem_bolsa_familia", v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{SIM_NAO.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">BPC</Label>
+                      <Select value={f.tem_bpc} onValueChange={v => set("tem_bpc", v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{SIM_NAO.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                {/* Demandas e Observações */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-gray-800 border-b pb-1">Demandas e Observações</h3>
+                  <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Demandas</Label><Textarea value={f.demandas} onChange={e => set("demandas", e.target.value)} placeholder="Principais demandas identificadas..." rows={3} /></div>
+                  <div className="space-y-1"><Label className="text-sm font-medium text-gray-700">Observações</Label><Textarea value={f.observacoes} onChange={e => set("observacoes", e.target.value)} placeholder="Observações gerais..." rows={3} /></div>
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex justify-end gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setShowCadastroAtendido(false)}>Cancelar</Button>
-            <Button onClick={() => { if (!cadastroAtendidoForm.nome.trim()) { toast({ title: "Nome é obrigatório", variant: "destructive" }); return; } cadastroAtendidoMutation.mutate(cadastroAtendidoForm); }} disabled={cadastroAtendidoMutation.isPending}>
-              {cadastroAtendidoMutation.isPending ? "Salvando..." : "Cadastrar"}
+            <Button onClick={() => { if (!cadastroAtendidoForm.nome.trim()) { toast({ title: "Nome é obrigatório", variant: "destructive" }); return; } cadastroAtendidoMutation.mutate(cadastroAtendidoForm); }} disabled={cadastroAtendidoMutation.isPending} className="bg-purple-600 hover:bg-purple-700 text-white">
+              {cadastroAtendidoMutation.isPending ? "Salvando..." : "Cadastrar Pessoa"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

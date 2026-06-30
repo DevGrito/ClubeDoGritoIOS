@@ -347,7 +347,6 @@ export default function BeneficioDetalhes() {
         method: "POST",
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId
         },
         body: JSON.stringify({
           valorLance: valorLanceCustomizado,

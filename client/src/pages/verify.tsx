@@ -8,11 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import Logo from "@/components/logo";
 import Loading from "@/components/loading";
 import { ArrowLeft, MessageSquare } from "lucide-react";
-import { registerForPushNotifications, getStoredToken, detectPlatform, saveTokenLocally } from "@/lib/pushNotifications";
 
 const verifySchema = z.object({
   codigo: z.string().length(6, "Código deve ter 6 dígitos"),
@@ -136,36 +135,6 @@ export default function Verify() {
         localStorage.setItem("conselhoStatus", userData.conselhoStatus);
       }
       
-      // ✅ ATUALIZAR TOKEN FCM COM ID DO USUÁRIO (background, não bloqueia)
-      if (userData.id) {
-        const existingToken = getStoredToken();
-        if (existingToken) {
-          // Se já tem token FCM salvo, atualizar no servidor com o userId e plataforma correta
-          const platform = detectPlatform();
-          console.log(`🔔 VERIFY.TSX: Atualizando token FCM com userId: ${userData.id}, platform: ${platform}`);
-          fetch("/api/push/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              token: existingToken,
-              userId: userData.id,
-              platform: platform,
-            }),
-          }).catch(err => console.log("⚠️ Push token update error:", err));
-        } else {
-          // Se não tem token, tentar registrar (não bloqueia o login)
-          console.log("🔔 VERIFY.TSX: Registrando para push notifications");
-          registerForPushNotifications(userData.id)
-            .then(token => {
-              if (token) {
-                saveTokenLocally(token);
-                console.log("✅ VERIFY.TSX: Token FCM salvo localmente");
-              }
-            })
-            .catch(err => console.log("⚠️ Push registration error:", err));
-        }
-      }
-      
       toast({
         title: "Sucesso!",
         description: "Telefone verificado com sucesso",
@@ -183,14 +152,20 @@ export default function Verify() {
           
           const userPapel = userData.role || userData.papel;
           console.log(`🔄 VERIFY.TSX: Papel do usuário: ${userPapel}`);
+
+          queryClient.invalidateQueries();
           
           switch (userPapel) {
             // RBAC Roles - Rotas isoladas
             case "professor":
-            case "professor_pec":
-            case "professor_inclusao":
             case "professor_psico":
               setLocation("/professor");
+              break;
+            case "professor_pec":
+              setLocation("/professor/pec");
+              break;
+            case "professor_inclusao":
+              setLocation("/professor/inclusao");
               break;
             case "monitor":
             case "monitor_pec":
@@ -205,6 +180,7 @@ export default function Verify() {
               setLocation("/coordenador/esporte-cultura");
               break;
             case "coordenador_psico":
+            case "tecnica_psico":
               setLocation("/coordenador/psicossocial");
               break;
             // Legacy roles

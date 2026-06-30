@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Users,
   BookOpen,
@@ -14,6 +15,8 @@ import {
   BarChart3,
   Percent,
   Filter,
+  X,
+  ChevronDown,
 } from "lucide-react";
 import {
   BarChart,
@@ -26,6 +29,12 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import DashboardPeriodoFiltro from "@/components/dashboard/DashboardPeriodoFiltro";
+import {
+  buildPeriodoQueryString,
+  filterByPeriodo,
+  type PeriodoFiltro,
+} from "@/lib/dashboardPeriodoFiltro";
 
 const useAnimatedCounter = (endValue: number, duration: number = 1200) => {
   const [count, setCount] = useState(0);
@@ -118,6 +127,23 @@ function MetricCard({
   );
 }
 
+function DarkMetricCard({ icon: Icon, label, value, suffix = "", colorRgb, onClick }: { icon: any; label: string; value: number; suffix?: string; colorRgb: string; onClick?: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      className={`rounded-xl p-4 ${onClick ? "cursor-pointer hover:brightness-110" : ""} relative`}
+      style={{ background: `rgba(${colorRgb},0.15)`, border: `1px solid rgba(${colorRgb},0.3)` }}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <Icon className="w-4 h-4" style={{ color: `rgba(${colorRgb},0.95)` }} />
+        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: `rgba(${colorRgb},0.85)` }}>{label}</span>
+      </div>
+      <div className="text-3xl font-bold text-white"><AnimatedNumber value={value} suffix={suffix} /></div>
+      {onClick && <ChevronDown className="absolute bottom-2 right-2 w-3 h-3 text-slate-500" />}
+    </div>
+  );
+}
+
 type FrequencyBarProps = {
   label: string;
   value: number;
@@ -161,74 +187,38 @@ type MonitorDashboardProps = {
   psicoRegistrosConf?: any[];
   isLoading?: boolean;
   titulo?: string;
-  onFilterChange?: (ano: number, mes: number) => void;
+  onFilterChange?: (ano: number, periodo: PeriodoFiltro) => void;
   filtroAno?: number;
-  filtroMes?: number;
+  filtroPeriodo?: PeriodoFiltro;
   meusAlunos?: number;
   alunosFormados?: number;
+  alunosEmFormacao?: number;
+  frequenciaMedia?: number;
+  filterByTurmas?: boolean;
 };
 
-const MESES_MONITOR = [
-  { value: 0, label: "Todos" },
-  { value: 1, label: "Jan" },
-  { value: 2, label: "Fev" },
-  { value: 3, label: "Mar" },
-  { value: 4, label: "Abr" },
-  { value: 5, label: "Mai" },
-  { value: 6, label: "Jun" },
-  { value: 7, label: "Jul" },
-  { value: 8, label: "Ago" },
-  { value: 9, label: "Set" },
-  { value: 10, label: "Out" },
-  { value: 11, label: "Nov" },
-  { value: 12, label: "Dez" },
-];
-
-function filterByDate(items: any[], ano: number, mes: number, dateField: string = 'created_at'): any[] {
-  if (!items || !Array.isArray(items)) return [];
-  return items.filter(item => {
-    const dateStr = item[dateField] || item.createdAt || item.created_at || item.data;
-    if (!dateStr) return true;
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return true;
-    const itemYear = d.getFullYear();
-    const itemMonth = d.getMonth() + 1;
-    if (mes === 0) {
-      return itemYear === ano;
-    }
-    return itemYear === ano && itemMonth === mes;
-  });
-}
-
-function FilterBar({ ano, mes, onFilterChange, config }: { ano: number; mes: number; onFilterChange: (ano: number, mes: number) => void; config: any }) {
-  const currentYear = new Date().getFullYear();
-  const anos = [];
-  for (let y = currentYear; y >= 2025; y--) anos.push(y);
-
+function FilterBar({
+  ano,
+  periodo,
+  onFilterChange,
+}: {
+  ano: number;
+  periodo: PeriodoFiltro;
+  onFilterChange: (ano: number, periodo: PeriodoFiltro) => void;
+}) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <div className="flex items-center gap-1.5 text-xs text-gray-500">
         <Filter className="w-3.5 h-3.5" />
         <span>Filtrar:</span>
       </div>
-      <select
-        value={ano}
-        onChange={(e) => onFilterChange(Number(e.target.value), mes)}
-        className={`text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-${config.accent}-300`}
-      >
-        {anos.map((y) => (
-          <option key={y} value={y}>{y}</option>
-        ))}
-      </select>
-      <select
-        value={mes}
-        onChange={(e) => onFilterChange(ano, Number(e.target.value))}
-        className={`text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-${config.accent}-300`}
-      >
-        {MESES_MONITOR.map((m) => (
-          <option key={m.value} value={m.value}>{m.label}</option>
-        ))}
-      </select>
+      <DashboardPeriodoFiltro
+        ano={ano}
+        periodo={periodo}
+        onChange={onFilterChange}
+        minAno={2026}
+        variant="light"
+      />
     </div>
   );
 }
@@ -265,6 +255,144 @@ const VERTENTE_CONFIG = {
 
 const PIE_COLORS = ["#f97316", "#10b981", "#8b5cf6", "#3b82f6", "#ef4444", "#eab308"];
 
+// ── Modal dark de detalhamento de atendidos ──────────────────────────────────
+function DarkBreakdownModal({
+  porPrograma, porGenero, porFaixaEtaria, porRacaCor, total, onClose,
+}: {
+  porPrograma: {name:string;value:number}[];
+  porGenero: {name:string;value:number}[];
+  porFaixaEtaria: {name:string;value:number}[];
+  porRacaCor: {name:string;value:number}[];
+  total: number;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"programa"|"genero"|"faixa"|"raca">("programa");
+  const tabs = [
+    { key: "programa" as const, label: "Por Programa" },
+    { key: "genero" as const, label: "Por Gênero" },
+    { key: "faixa" as const, label: "Faixa Etária" },
+    { key: "raca" as const, label: "Raça/Cor" },
+  ];
+  const chartMap = { programa: porPrograma, genero: porGenero, faixa: porFaixaEtaria, raca: porRacaCor };
+  const currentData = (chartMap[activeTab] || []).filter(d => d.value > 0);
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] max-w-5xl h-[90vh] sm:h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-700 shrink-0">
+          <div>
+            <h3 className="text-base sm:text-xl font-bold text-white">Detalhamento de Atendidos</h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">Total de atendidos: <span className="font-semibold text-orange-400">{total.toLocaleString("pt-BR")}</span></p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <div className="flex gap-1.5 px-4 sm:px-5 py-2 sm:py-3 bg-slate-800 border-b border-slate-700 overflow-x-auto shrink-0">
+          {tabs.map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${activeTab === tab.key ? "bg-orange-500 text-white shadow-sm" : "text-slate-400 hover:bg-slate-700"}`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-auto p-4 sm:p-6 bg-slate-900">
+          {currentData.length > 0 ? (
+            <div className="flex items-center justify-center h-full min-h-[300px]">
+              <div className="w-full h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={currentData} dataKey="value" cx="50%" cy="50%" innerRadius="20%" outerRadius="45%" paddingAngle={2}
+                      label={({ name, value, percent, cx, cy, midAngle, outerRadius: oR }) => {
+                        const RADIAN = Math.PI / 180;
+                        const radius = oR * 1.35;
+                        const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                        const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                        return <text x={x} y={y} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central" fontSize={11} fontWeight={600} fill="#e2e8f0">{`${name}: ${value} (${(percent*100).toFixed(0)}%)`}</text>;
+                      }}
+                      labelLine={{ stroke: "#475569", strokeWidth: 1 }}
+                    >
+                      {currentData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => [v, "Quantidade"]} contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-slate-500">
+              <Users className="w-16 h-16 mx-auto mb-3 text-slate-700" />
+              <p className="text-lg">Sem dados disponíveis</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal dark de turmas totais ───────────────────────────────────────────────
+function DarkTurmasModal({
+  ativas, concluidas, onClose,
+}: {
+  ativas: {nome: string; projeto?: string}[];
+  concluidas: {nome: string; projeto?: string}[];
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"ativas"|"concluidas">("ativas");
+  const lista = activeTab === "ativas" ? ativas : concluidas;
+  const total = ativas.length + concluidas.length;
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] max-w-2xl h-[85vh] sm:h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-700 shrink-0">
+          <div>
+            <h3 className="text-base sm:text-xl font-bold text-white">Minhas Turmas Totais</h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              Total: <span className="font-semibold text-orange-400">{total}</span>
+              <span className="mx-2 text-slate-600">|</span>
+              Ativas: <span className="font-semibold text-emerald-400">{ativas.length}</span>
+              <span className="mx-2 text-slate-600">|</span>
+              Concluídas: <span className="font-semibold text-slate-400">{concluidas.length}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-700 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <div className="flex gap-1.5 px-4 sm:px-5 py-2 sm:py-3 bg-slate-800 border-b border-slate-700 shrink-0">
+          <button onClick={() => setActiveTab("ativas")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === "ativas" ? "bg-emerald-500 text-white" : "text-slate-400 hover:bg-slate-700"}`}>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Turmas Ativas ({ativas.length})
+          </button>
+          <button onClick={() => setActiveTab("concluidas")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === "concluidas" ? "bg-slate-600 text-white" : "text-slate-400 hover:bg-slate-700"}`}>
+            <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" /> Turmas Concluídas ({concluidas.length})
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 sm:p-5 bg-slate-900">
+          {lista.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <BookOpen className="w-12 h-12 mx-auto mb-3 text-slate-700" />
+              <p>Nenhuma turma {activeTab === "ativas" ? "ativa" : "concluída"}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {lista.map((turma, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-slate-800 border border-slate-700">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${activeTab === "ativas" ? "bg-emerald-400" : "bg-slate-500"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{turma.nome}</p>
+                    {turma.projeto && <p className="text-xs text-slate-500 truncate">{turma.projeto}</p>}
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${activeTab === "ativas" ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-700 text-slate-400"}`}>
+                    {activeTab === "ativas" ? "Ativa" : "Concluída"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MonitorDashboard({
   vertente,
   dashboardData,
@@ -283,13 +411,16 @@ export default function MonitorDashboard({
   titulo,
   onFilterChange,
   filtroAno,
-  filtroMes,
+  filtroPeriodo = "todos",
   meusAlunos,
   alunosFormados,
+  alunosEmFormacao,
+  frequenciaMedia,
+  filterByTurmas = false,
 }: MonitorDashboardProps) {
   const config = VERTENTE_CONFIG[vertente];
   const ano = filtroAno ?? new Date().getFullYear();
-  const mes = filtroMes ?? 0;
+  const periodo = filtroPeriodo ?? "todos";
 
   if (isLoading) {
     return (
@@ -307,17 +438,17 @@ export default function MonitorDashboard({
   }
 
   const painelTitulo = titulo || "Painel do Monitor";
-  const filterProps = onFilterChange ? { ano, mes, onFilterChange, config } : null;
+  const filterProps = onFilterChange ? { ano, periodo, onFilterChange } : null;
 
   if (vertente === "pec") {
-    return <PecDashboard config={config} dashboardData={dashboardData} alunosPec={alunosPec} monitorGruposData={monitorGruposData} atividadesData={atividadesData} historicoChamadas={historicoChamadas} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroMes={mes} meusAlunos={meusAlunos} alunosFormados={alunosFormados} />;
+    return <PecDashboard config={config} dashboardData={dashboardData} alunosPec={alunosPec} monitorGruposData={monitorGruposData} atividadesData={atividadesData} historicoChamadas={historicoChamadas} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroPeriodo={periodo} meusAlunos={meusAlunos} alunosFormados={alunosFormados} filterByTurmas={filterByTurmas} />;
   }
 
   if (vertente === "inclusao") {
-    return <InclusaoDashboard config={config} participantesInclusao={participantesInclusao} gruposInclusaoData={gruposInclusaoData} monitorGruposData={monitorGruposData} atividadesData={atividadesData} historicoChamadas={historicoChamadas} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroMes={mes} meusAlunos={meusAlunos} alunosFormados={alunosFormados} />;
+    return <InclusaoDashboard config={config} participantesInclusao={participantesInclusao} gruposInclusaoData={gruposInclusaoData} monitorGruposData={monitorGruposData} atividadesData={atividadesData} historicoChamadas={historicoChamadas} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroPeriodo={periodo} meusAlunos={meusAlunos} alunosFormados={alunosFormados} alunosEmFormacao={alunosEmFormacao} frequenciaMedia={frequenciaMedia} filterByTurmas={filterByTurmas} />;
   }
 
-  return <PsicoDashboard config={config} psicoAtendidos={psicoAtendidos} psicoTurmas={psicoTurmas} psicoHistoricoChamadas={psicoHistoricoChamadas} psicoAtividades={psicoAtividades} psicoRegistrosConf={psicoRegistrosConf} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroMes={mes} />;
+  return <PsicoDashboard config={config} psicoAtendidos={psicoAtendidos} psicoTurmas={psicoTurmas} psicoHistoricoChamadas={psicoHistoricoChamadas} psicoAtividades={psicoAtividades} psicoRegistrosConf={psicoRegistrosConf} titulo={painelTitulo} filterProps={filterProps} filtroAno={ano} filtroPeriodo={periodo} />;
 }
 
 function PecDashboard({
@@ -330,125 +461,185 @@ function PecDashboard({
   titulo = "Painel do Monitor",
   filterProps,
   filtroAno,
-  filtroMes,
+  filtroPeriodo = "todos",
   meusAlunos,
   alunosFormados,
+  filterByTurmas = false,
 }: any) {
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showTurmas, setShowTurmas] = useState(false);
+  const [showAllTurmas, setShowAllTurmas] = useState(false);
+
   const ano = filtroAno ?? new Date().getFullYear();
-  const mes = filtroMes ?? 0;
+  const periodo: PeriodoFiltro = filtroPeriodo ?? filterProps?.periodo ?? "todos";
 
-  const allAlunos = filterByDate(Array.isArray(alunosPec) ? alunosPec : [], ano, mes);
+  // KPIs canônicos do backend (fonte única de verdade)
+  // Usa queryKey com URL completa p/ o fetcher padrão adicionar x-user-id header
+  const allTurmasForFilter = Array.isArray(monitorGruposData) ? monitorGruposData : [];
+  const hasNoTurmas = filterByTurmas && allTurmasForFilter.length === 0;
+  const turmaIdsParam = filterByTurmas && allTurmasForFilter.length > 0
+    ? `&turmaIds=${allTurmasForFilter.map((t: any) => t.id).join(',')}`
+    : '';
+  const pecKpisUrl = `/api/pec/dashboard-kpis${buildPeriodoQueryString(ano, periodo)}${turmaIdsParam}`;
+  const { data: pecKpis, isLoading: pecKpisLoading } = useQuery<any>({
+    queryKey: [pecKpisUrl],
+    staleTime: 60000,
+    refetchInterval: 120000,
+    enabled: !hasNoTurmas,
+  });
+
+  const allAlunos = filterByPeriodo(Array.isArray(alunosPec) ? alunosPec : [], ano, periodo);
   const totalAlunos = allAlunos.length;
-  const alunosAtivos = allAlunos.filter((a: any) => a.status !== "inativo").length;
-  const alunosInativos = totalAlunos - alunosAtivos;
-  const turmasAtivas = (monitorGruposData || []).filter((g: any) => g.status !== "inativo" && g.status !== "finalizado").length;
-  const totalTurmas = monitorGruposData?.length ?? 0;
-  const filteredAtividades = filterByDate(atividadesData || [], ano, mes);
-  const totalAtividades = filteredAtividades.length;
+  // Atendidos: fonte canônica filtrada por período (nunca usa meusAlunos/totalAlunos não-filtrados)
+  const totalAtendidos = pecKpis?.atendidos ?? 0;
 
-  const chamadas = filterByDate(Array.isArray(historicoChamadas) ? historicoChamadas : [], ano, mes);
+  const allTurmas = Array.isArray(monitorGruposData) ? monitorGruposData : [];
+  const inativaStatuses = ["inativo", "finalizado", "concluido", "concluída"];
+  const turmasAtivasList = allTurmas
+    .filter((g: any) => !inativaStatuses.includes((g.status || "").toLowerCase()))
+    .map((g: any) => ({ nome: g.nome || g.name || "Turma", projeto: g.projeto || g.programa || g.projeto_nome }));
+  const turmasConcluidasList = allTurmas
+    .filter((g: any) => inativaStatuses.includes((g.status || "").toLowerCase()))
+    .map((g: any) => ({ nome: g.nome || g.name || "Turma", projeto: g.projeto || g.programa || g.projeto_nome }));
+  const totalTurmas = allTurmas.length;
+  const totalAtividades = Array.isArray(atividadesData) ? atividadesData.length : 0;
+
+  const chamadas = filterByPeriodo(Array.isArray(historicoChamadas) ? historicoChamadas : [], ano, periodo);
   const totalChamadas = chamadas.length;
   const totalPresentes = chamadas.reduce((sum: number, c: any) => {
     const presencas = c.presencas || c.presencaList || [];
-    return sum + presencas.filter((p: any) => p.presente || p.status === 'falta_justificada' || (!p.presente && p.justificativa && p.justificativa !== 'Sem justificativa')).length;
+    return sum + presencas.filter((p: any) => p.presente || p.status === 'falta_justificada' || p.status === 'presente' || (!p.presente && p.justificativa && p.justificativa !== 'Sem justificativa')).length;
   }, 0);
   const totalRegistrosPresenca = chamadas.reduce((sum: number, c: any) => {
     const presencas = c.presencas || c.presencaList || [];
     return sum + presencas.length;
   }, 0);
-  const taxaFrequencia = totalRegistrosPresenca > 0 ? Math.round((totalPresentes / totalRegistrosPresenca) * 100) : 0;
+  const localFreq = totalRegistrosPresenca > 0 ? Math.round((totalPresentes / totalRegistrosPresenca) * 100) : (dashboardData?.frequenciaMedia ?? 0);
+  // Frequência: usa fonte canônica (sessions JSON, exclui falta_justificada) ou fallback local
+  const taxaFrequencia = hasNoTurmas ? 0 : (pecKpis?.frequenciaMedia ?? localFreq);
 
-  const turmasComAlunos = (monitorGruposData || []).map((g: any) => ({
-    name: (g.nome || g.name || "").substring(0, 12),
+  // Dados demográficos a partir de alunosPec
+  function groupBy(arr: any[], fn: (item: any) => string): {name: string; value: number}[] {
+    const map: Record<string, number> = {};
+    for (const item of arr) {
+      const key = fn(item) || "Não informado";
+      map[key] = (map[key] || 0) + 1;
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value);
+  }
+  function calcFaixaEtaria(dataNasc: string): string {
+    if (!dataNasc) return "Não informado";
+    const age = new Date().getFullYear() - new Date(dataNasc).getFullYear();
+    if (age < 12) return "< 12 anos";
+    if (age < 18) return "12-17 anos";
+    if (age < 25) return "18-24 anos";
+    if (age < 35) return "25-34 anos";
+    if (age < 50) return "35-49 anos";
+    return "50+ anos";
+  }
+  const porGenero = groupBy(allAlunos, a => a.genero || a.gender);
+  const porRacaCor = groupBy(allAlunos, a => a.cor_raca || a.raca_cor || a.raca || a.cor);
+  const porFaixaEtaria = groupBy(allAlunos, a => calcFaixaEtaria(a.data_nascimento || a.dataNascimento));
+  const porPrograma = groupBy(allAlunos, a => a.programa || a.projeto || a.projeto_nome || "PEC");
+
+  const turmasComAlunosSorted = allTurmas.map((g: any) => ({
+    name: (g.nome || g.name || "").substring(0, 22),
     alunos: g.totalAlunos || g.alunos || g.total_alunos || 0,
-  })).filter((t: any) => t.name).slice(0, 6);
+  })).filter((t: any) => t.name).sort((a: any, b: any) => b.alunos - a.alunos);
+  const turmasComAlunos = showAllTurmas ? turmasComAlunosSorted : turmasComAlunosSorted.slice(0, 5);
 
   return (
-    <div className={`rounded-2xl border ${config.borderAccent} bg-white shadow-sm p-4 md:p-6 mb-6`}>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-2 h-8 rounded-full bg-gradient-to-b ${config.gradientFrom} ${config.gradientTo}`} />
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{titulo}</h2>
-            <p className={`text-xs ${config.textAccent} font-medium`}>{config.title}</p>
+    <>
+      <div className="rounded-2xl p-5 mb-6" style={{background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'}}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-2 h-8 rounded-full bg-gradient-to-b ${config.gradientFrom} ${config.gradientTo}`} />
+            <div>
+              <h2 className="text-lg font-bold text-white">{titulo}</h2>
+              <p className={`text-xs ${config.textAccent} font-medium`}>{config.title}</p>
+            </div>
           </div>
+          {filterProps && <FilterBar {...filterProps} />}
         </div>
-        {filterProps && <FilterBar {...filterProps} />}
-      </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div className="rounded-xl p-4 border bg-orange-50 border-orange-100 transition-all hover:shadow-md">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-lg bg-orange-500 flex items-center justify-center shrink-0">
-              <Users className="w-5 h-5 text-white" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs text-gray-500">Meus Alunos</p>
-              <p className="text-xl font-bold text-gray-900"><AnimatedNumber value={meusAlunos ?? totalAlunos} /></p>
-            </div>
-          </div>
-          <div className="flex gap-3 mt-1 pt-2 border-t border-orange-200/60 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-xs text-gray-600">Ativos: <span className="font-semibold">{alunosAtivos}</span></span>
-            </div>
-            {alunosFormados !== undefined ? (
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-purple-500" />
-                <span className="text-xs text-gray-600">Formados: <span className="font-semibold">{alunosFormados}</span></span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-red-400" />
-                <span className="text-xs text-gray-600">Inativos: <span className="font-semibold">{alunosInativos}</span></span>
-              </div>
-            )}
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <DarkMetricCard icon={Users} label="Atendidos" value={totalAtendidos} colorRgb="234,88,12" onClick={() => setShowBreakdown(true)} />
+          <DarkMetricCard icon={BookOpen} label="Minhas Turmas Totais" value={totalTurmas} colorRgb="59,130,246" onClick={() => setShowTurmas(true)} />
+          <DarkMetricCard icon={Activity} label="Oficinas/Atividades" value={totalAtividades} colorRgb="16,185,129" />
+          <DarkMetricCard icon={Percent} label="Frequência Média" value={taxaFrequencia} suffix="%" colorRgb="245,158,11" />
         </div>
-        <MetricCard icon={BookOpen} label="Turmas Ativas" value={turmasAtivas} color="bg-blue-500" bgColor="bg-blue-50" borderColor="border-blue-100" />
-        <MetricCard icon={Activity} label="Oficinas/Atividades" value={totalAtividades} color="bg-emerald-500" bgColor="bg-emerald-50" borderColor="border-emerald-100" />
-        <MetricCard icon={Percent} label="Frequência Média" value={taxaFrequencia} suffix="%" color="bg-amber-500" bgColor="bg-amber-50" borderColor="border-amber-100" />
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {turmasComAlunos.length > 0 && (
-          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-            <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-orange-500" />
-              Alunos por Turma
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {turmasComAlunos.length > 0 && (
+            <div className="rounded-xl p-4 border border-slate-700 bg-slate-800/50 md:col-span-2">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-orange-400" />
+                  Alunos por Turma
+                  <span className="text-xs text-slate-500 font-normal">
+                    {showAllTurmas ? `(${turmasComAlunosSorted.length} turmas)` : `(top 5 de ${turmasComAlunosSorted.length})`}
+                  </span>
+                </p>
+                {turmasComAlunosSorted.length > 5 && (
+                  <button
+                    onClick={() => setShowAllTurmas(v => !v)}
+                    className="text-xs text-orange-400 hover:text-orange-300 border border-orange-400/30 hover:border-orange-300/50 rounded-md px-2 py-1 transition-colors"
+                  >
+                    {showAllTurmas ? '▲ Ver menos' : `▼ Ver todas (${turmasComAlunosSorted.length})`}
+                  </button>
+                )}
+              </div>
+              <div style={{ height: Math.max(200, turmasComAlunos.length * 48) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={turmasComAlunos} layout="vertical" margin={{ top: 4, right: 40, left: 4, bottom: 4 }} barCategoryGap="35%">
+                    <XAxis type="number" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#cbd5e1' }} width={140} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', color: '#f1f5f9', borderRadius: 8 }} />
+                    <Bar dataKey="alunos" fill="#f97316" radius={[0, 6, 6, 0]} barSize={20} label={{ position: 'right', fontSize: 11, fill: '#94a3b8' }} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl p-4 border border-slate-700 bg-slate-800/50">
+            <p className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-400" />
+              Resumo Geral
             </p>
-            <div className="h-32">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={turmasComAlunos} margin={{ top: 0, right: 5, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  <Bar dataKey="alunos" fill="#f97316" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-          <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-green-500" />
-            Resumo Geral
-          </p>
-          <div className="space-y-2">
-            <FrequencyBar label="Presença" value={totalPresentes} total={totalRegistrosPresenca} color="bg-green-500" />
-            <div className="flex justify-between text-xs pt-1 border-t border-gray-200 mt-2">
-              <span className="text-gray-500">Total de chamadas</span>
-              <span className="font-semibold">{totalChamadas}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Turmas totais</span>
-              <span className="font-semibold">{totalTurmas}</span>
+            <div className="space-y-2">
+              <FrequencyBar label="Presença" value={totalPresentes} total={totalRegistrosPresenca} color="bg-green-500" />
+              <div className="flex justify-between text-xs pt-1 border-t border-slate-700 mt-2">
+                <span className="text-slate-400">Total de chamadas</span>
+                <span className="font-semibold text-slate-200">{totalChamadas}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Turmas totais</span>
+                <span className="font-semibold text-slate-200">{totalTurmas}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {showBreakdown && (
+        <DarkBreakdownModal
+          porPrograma={porPrograma}
+          porGenero={porGenero}
+          porFaixaEtaria={porFaixaEtaria}
+          porRacaCor={porRacaCor}
+          total={totalAtendidos}
+          onClose={() => setShowBreakdown(false)}
+        />
+      )}
+      {showTurmas && (
+        <DarkTurmasModal
+          ativas={turmasAtivasList}
+          concluidas={turmasConcluidasList}
+          onClose={() => setShowTurmas(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -456,91 +647,121 @@ function InclusaoDashboard({
   config,
   participantesInclusao,
   gruposInclusaoData,
-  monitorGruposData,
-  atividadesData,
   historicoChamadas,
   titulo = "Painel do Monitor",
   filterProps,
   filtroAno,
-  filtroMes,
+  filtroPeriodo = "todos",
   meusAlunos,
   alunosFormados,
+  alunosEmFormacao,
+  frequenciaMedia,
+  filterByTurmas,
 }: any) {
+  const [showTurmasInclusao, setShowTurmasInclusao] = useState(false);
+
   const ano = filtroAno ?? new Date().getFullYear();
-  const mes = filtroMes ?? 0;
+  const periodo: PeriodoFiltro = filtroPeriodo ?? filterProps?.periodo ?? "todos";
 
-  const participantes = filterByDate(Array.isArray(participantesInclusao) ? participantesInclusao : [], ano, mes);
-  const participantesAtivos = participantes.filter((p: any) => p.status !== "inativo").length;
-  const displayMeusAlunos = meusAlunos ?? participantesAtivos;
+  const participantes = Array.isArray(participantesInclusao) ? participantesInclusao : [];
 
-  const turmas = Array.isArray(gruposInclusaoData) ? gruposInclusaoData : [];
-  const turmasMonitor = Array.isArray(monitorGruposData) ? monitorGruposData : [];
-  const allTurmas = [...turmas, ...turmasMonitor];
-  const turmasAtivas = allTurmas.filter((t: any) => t.status !== "inativo" && t.status !== "finalizado").length;
+  // Para inclusão do professor, as turmas chegam em gruposInclusaoData.
+  // monitorGruposData é usado nos fluxos de monitor/PEC.
+  const turmasList = Array.isArray(gruposInclusaoData) ? gruposInclusaoData : [];
+  const turmaIds = turmasList.map((t: any) => t.id).filter(Boolean);
+  const hasNoTurmas = filterByTurmas && turmaIds.length === 0;
 
-  const filteredAtividades = filterByDate(atividadesData || [], ano, mes);
-  const totalAtividades = filteredAtividades.length;
+  const displayMeusAlunos = hasNoTurmas
+    ? 0
+    : (meusAlunos ?? participantes.filter((p: any) => p.hasTurma === true).length);
+  const displayFormados = hasNoTurmas
+    ? 0
+    : (alunosFormados ?? 0);
+  const displayEmFormacao = hasNoTurmas
+    ? 0
+    : (alunosEmFormacao ?? Math.max(0, displayMeusAlunos - displayFormados));
 
-  const chamadas = filterByDate(Array.isArray(historicoChamadas) ? historicoChamadas : [], ano, mes);
+  const turmasMonitor = Array.isArray(gruposInclusaoData) ? gruposInclusaoData : [];
+  const allTurmasInclusao = turmasMonitor;
+
+  const chamadas = filterByPeriodo(Array.isArray(historicoChamadas) ? historicoChamadas : [], ano, periodo);
   const totalChamadas = chamadas.length;
   const totalPresentes = chamadas.reduce((sum: number, c: any) => {
     const presencas = c.presencas || c.presencaList || [];
-    return sum + presencas.filter((p: any) => p.presente || p.status === 'falta_justificada' || (!p.presente && p.justificativa && p.justificativa !== 'Sem justificativa')).length;
+    return sum + presencas.filter((p: any) => p.presente).length;
   }, 0);
   const totalRegistros = chamadas.reduce((sum: number, c: any) => {
     const presencas = c.presencas || c.presencaList || [];
     return sum + presencas.length;
   }, 0);
-  const taxaFrequencia = totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : 0;
+  const taxaFrequencia = hasNoTurmas
+    ? 0
+    : (frequenciaMedia ?? (totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : 0));
 
 
   return (
-    <div className={`rounded-2xl border ${config.borderAccent} bg-white shadow-sm p-4 md:p-6 mb-6`}>
+    <>
+    <div className="rounded-2xl p-5 mb-6" style={{background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)'}}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <div className={`w-2 h-8 rounded-full bg-gradient-to-b ${config.gradientFrom} ${config.gradientTo}`} />
           <div>
-            <h2 className="text-lg font-bold text-gray-900">{titulo}</h2>
+            <h2 className="text-lg font-bold text-white">{titulo}</h2>
             <p className={`text-xs ${config.textAccent} font-medium`}>{config.title}</p>
           </div>
         </div>
         {filterProps && <FilterBar {...filterProps} />}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <MetricCard icon={Users} label="Meus Alunos" value={displayMeusAlunos} color="bg-green-500" bgColor="bg-green-50" borderColor="border-green-100" />
-        {alunosFormados !== undefined && <MetricCard icon={GraduationCap} label="Alunos Formados" value={alunosFormados} color="bg-purple-500" bgColor="bg-purple-50" borderColor="border-purple-100" />}
-        <MetricCard icon={Briefcase} label="Turmas" value={turmasAtivas} color="bg-blue-500" bgColor="bg-blue-50" borderColor="border-blue-100" />
-        <MetricCard icon={Activity} label="Atividades" value={totalAtividades} color="bg-emerald-500" bgColor="bg-emerald-50" borderColor="border-emerald-100" />
-        <MetricCard icon={Percent} label="Frequência Média" value={taxaFrequencia} suffix="%" color="bg-teal-500" bgColor="bg-teal-50" borderColor="border-teal-100" />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <DarkMetricCard icon={Users} label="Atendidos" value={displayMeusAlunos} colorRgb="16,185,129" />
+        <DarkMetricCard icon={BookOpen} label="Minhas Turmas Totais" value={allTurmasInclusao.length} colorRgb="59,130,246" onClick={() => setShowTurmasInclusao(true)} />
+        <DarkMetricCard icon={GraduationCap} label="Alunos Formados" value={displayFormados} colorRgb="139,92,246" />
+        <DarkMetricCard icon={Clock} label="Em Formação" value={displayEmFormacao} colorRgb="14,165,233" />
+        <DarkMetricCard icon={Percent} label="Frequência Média" value={taxaFrequencia} suffix="%" colorRgb="20,184,166" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-          <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <div className="rounded-xl p-4 border border-slate-700 bg-slate-800/50">
+          <p className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-green-500" />
             Resumo Geral
           </p>
           <div className="space-y-2">
             <FrequencyBar label="Presença" value={totalPresentes} total={totalRegistros} color="bg-green-500" />
-            <div className="flex justify-between text-xs pt-1 border-t border-gray-200 mt-2">
-              <span className="text-gray-500">Total de chamadas</span>
-              <span className="font-semibold">{totalChamadas}</span>
+            <div className="flex justify-between text-xs pt-1 border-t border-slate-700 mt-2">
+              <span className="text-slate-400">Total de chamadas</span>
+              <span className="font-semibold text-slate-200">{totalChamadas}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Meus Alunos</span>
-              <span className="font-semibold">{displayMeusAlunos}</span>
+              <span className="text-slate-400">Atendidos</span>
+              <span className="font-semibold text-slate-200">{displayMeusAlunos}</span>
             </div>
-            {alunosFormados !== undefined && (
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-500">Alunos formados</span>
-                <span className="font-semibold">{alunosFormados}</span>
-              </div>
-            )}
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400">Alunos formados</span>
+              <span className="font-semibold text-slate-200">{displayFormados}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400">Em formação</span>
+              <span className="font-semibold text-slate-200">{displayEmFormacao}</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    {showTurmasInclusao && (
+      <DarkTurmasModal
+        ativas={allTurmasInclusao
+          .filter((t: any) => !["inativo","finalizado","concluido","concluída"].includes((t.status||"").toLowerCase()))
+          .map((t: any) => ({ nome: t.nome || t.name || "Turma", projeto: t.programa || t.projeto }))}
+        concluidas={allTurmasInclusao
+          .filter((t: any) => ["inativo","finalizado","concluido","concluída"].includes((t.status||"").toLowerCase()))
+          .map((t: any) => ({ nome: t.nome || t.name || "Turma", projeto: t.programa || t.projeto }))}
+        onClose={() => setShowTurmasInclusao(false)}
+      />
+    )}
+  </>
   );
 }
 
@@ -554,16 +775,16 @@ function PsicoDashboard({
   titulo = "Painel do Monitor",
   filterProps,
   filtroAno,
-  filtroMes,
+  filtroPeriodo = "todos",
 }: any) {
   const ano = filtroAno ?? new Date().getFullYear();
-  const mes = filtroMes ?? 0;
+  const periodo: PeriodoFiltro = filtroPeriodo ?? filterProps?.periodo ?? "todos";
 
-  const atendidos = filterByDate(Array.isArray(psicoAtendidos) ? psicoAtendidos : [], ano, mes);
+  const atendidos = filterByPeriodo(Array.isArray(psicoAtendidos) ? psicoAtendidos : [], ano, periodo);
   const turmas = Array.isArray(psicoTurmas) ? psicoTurmas : [];
-  const chamadas = filterByDate(Array.isArray(psicoHistoricoChamadas) ? psicoHistoricoChamadas : [], ano, mes);
-  const atividades = filterByDate(Array.isArray(psicoAtividades) ? psicoAtividades : [], ano, mes);
-  const registros = filterByDate(Array.isArray(psicoRegistrosConf) ? psicoRegistrosConf : [], ano, mes);
+  const chamadas = filterByPeriodo(Array.isArray(psicoHistoricoChamadas) ? psicoHistoricoChamadas : [], ano, periodo);
+  const atividades = filterByPeriodo(Array.isArray(psicoAtividades) ? psicoAtividades : [], ano, periodo);
+  const registros = filterByPeriodo(Array.isArray(psicoRegistrosConf) ? psicoRegistrosConf : [], ano, periodo);
 
   const totalAtendidos = atendidos.length;
   const totalTurmas = turmas.length;

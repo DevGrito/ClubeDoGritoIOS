@@ -20,7 +20,7 @@ export default function PaymentErrorDemo() {
           {/* Error Icon */}
           <div className="mb-8">
             <img 
-              src="attached_assets/OPPS_Prancheta 1 1_1756924526569.png" 
+              src="/assets/migrated/OPPS_Prancheta 1 1_1756924526569.png" 
               alt="Ops! Algo não deu certo" 
               className="w-44 h-44 mx-auto"
             />

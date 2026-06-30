@@ -8,6 +8,7 @@ import Logo from "@/components/logo";
 import BottomNav from "@/components/bottom-nav";
 import { useLocation } from "wouter";
 import useActivityTracker from "@/hooks/useActivityTracker";
+import { sanitizeHtml } from "@/lib/sanitizeHtml";
 
 interface WordPressPost {
   id: number;
@@ -276,7 +277,7 @@ export default function Noticias() {
                 {/* Content */}
                 <div 
                   className="prose prose-sm max-w-none text-gray-700"
-                  dangerouslySetInnerHTML={{ __html: selectedPost.content.rendered }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedPost.content.rendered) }}
                 />
 
 

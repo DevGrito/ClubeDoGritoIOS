@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, Clock, UserPlus, Wifi, WifiOff, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, authFetch } from "@/lib/queryClient";
 import { formatCPF } from "@/lib/utils";
 
 interface Presenca {
@@ -63,7 +63,7 @@ export default function AulasHojePanel({ modulo, turmaId, userId, participantes 
     queryFn: async () => {
       const params = new URLSearchParams({ modulo });
       if (turmaId) params.set("turma_id", String(turmaId));
-      const res = await fetch(`/api/aulas/hoje?${params}`, { credentials: "include", headers: { "x-user-id": userId } });
+      const res = await authFetch(`/api/aulas/hoje?${params}`);
       if (!res.ok) throw new Error("Erro ao buscar aulas de hoje");
       return res.json();
     },

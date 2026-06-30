@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
-interface Props { ano: string; mes: string; }
+import { buildQp, type PeriodoFiltro, periodoLabel, periodoMesUnico } from "./shared";
+
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 const GENERO_COLORS = ['#facc15', '#eab308', '#ca8a04', '#a16207'];
 const RACA_COLORS   = ['#fde047', '#facc15', '#eab308', '#ca8a04', '#a16207'];
@@ -17,21 +19,21 @@ function DemoCard({
   colors: string[];
 }) {
   return (
-    <div className="bg-slate-800/60 rounded-xl border border-slate-700/40 overflow-hidden flex flex-col h-full">
+    <div className="bg-slate-800/60 rounded-xl border border-slate-700/40 flex flex-col h-full">
       <div className="px-3 py-2 border-b border-slate-700/40">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-white">{title}</p>
       </div>
       <div className="p-3 flex flex-col flex-1">
         <div className="flex items-center gap-3 flex-1">
-          <div className="w-[110px] h-[110px] flex-shrink-0">
+          <div className="w-[120px] h-[120px] flex-shrink-0">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
                 <Pie
                   data={data}
                   cx="50%"
                   cy="50%"
-                  innerRadius={26}
-                  outerRadius={50}
+                  innerRadius={28}
+                  outerRadius={48}
                   paddingAngle={2}
                   dataKey="value"
                   stroke="#0f172a"
@@ -66,16 +68,23 @@ function DemoCard({
   );
 }
 
-export default function TabDemografico({ ano }: Props) {
+const MESES_NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+export default function TabDemografico({ ano, periodo }: Props) {
+  const mesNum = periodoMesUnico(periodo);
+  const periodoLabelText = periodoLabel(periodo, ano);
+
   const { data: demograficos, isLoading: loadingDemo } = useQuery<any>({
     queryKey: ['/api/dados-demograficos', ano],
     queryFn: () => fetch(`/api/dados-demograficos?ano=${ano}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
+  const gvUrl = `/api/gestao-vista${buildQp(ano, periodo)}`;
+
   const { data: gv, isLoading: loadingGv } = useQuery<any>({
-    queryKey: ['/api/gestao-vista', ano, 'todos'],
-    queryFn: () => fetch(`/api/gestao-vista?ano=${ano}`).then(r => r.json()),
+    queryKey: ['/api/gestao-vista', ano, periodo],
+    queryFn: () => fetch(gvUrl).then(r => r.json()),
     refetchInterval: 60000,
   });
 
@@ -103,25 +112,26 @@ export default function TabDemografico({ ano }: Props) {
     <div className="flex flex-col gap-3 h-full">
 
       {/* ── Total + breakdown por programa ── */}
-      <div className="bg-slate-800/60 rounded-xl border border-slate-700/40 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center gap-8">
+      <div className="bg-slate-800/60 rounded-xl border border-slate-700/40 px-4 py-3 flex-shrink-0">
+        {/* Mobile: empilhado; Desktop: lado a lado */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           {/* Total */}
-          <div className="text-center border-r border-slate-700/50 pr-8">
-            <p className="text-6xl font-bold text-white tabular-nums leading-none">
+          <div className="text-center sm:border-r sm:border-slate-700/50 sm:pr-8 flex-shrink-0">
+            <p className="text-4xl sm:text-6xl font-bold text-white tabular-nums leading-none">
               {total.toLocaleString('pt-BR')}
             </p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-2">
-              Total de pessoas impactadas em {ano}
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">
+              Total impactados em {periodoLabelText}
             </p>
           </div>
           {/* Programas */}
-          <div className="flex flex-1 gap-4">
+          <div className="grid grid-cols-3 sm:flex sm:flex-1 gap-2 sm:gap-4">
             {programas.map((p) => (
-              <div key={p.nome} className="flex-1 rounded-xl border border-slate-700/40 px-4 py-3 bg-slate-900/80">
-                <p className="text-2xl font-bold text-white tabular-nums leading-none">
+              <div key={p.nome} className="flex-1 rounded-xl border border-slate-700/40 px-3 py-2 bg-slate-900/80">
+                <p className="text-xl sm:text-2xl font-bold text-white tabular-nums leading-none">
                   {p.valor.toLocaleString('pt-BR')}
                 </p>
-                <p className="text-[11px] mt-1.5 font-medium text-white">{p.nome}</p>
+                <p className="text-[10px] sm:text-[11px] mt-1 font-medium text-white leading-tight">{p.nome}</p>
               </div>
             ))}
           </div>
@@ -135,7 +145,7 @@ export default function TabDemografico({ ano }: Props) {
       </div>
 
       {/* ── Dados demográficos (PEC + Inclusão) ── */}
-      <div className="grid grid-cols-3 gap-3 flex-1 min-h-0">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 min-h-0">
         <DemoCard title="Gênero"       data={genero}  colors={GENERO_COLORS} />
         <DemoCard title="Raça / Cor"   data={racaCor} colors={RACA_COLORS}   />
         <DemoCard title="Faixa Etária" data={idade}   colors={IDADE_COLORS}  />

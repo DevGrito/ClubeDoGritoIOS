@@ -1,8 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { getPct, getColor, SectorCard, MESES_PT } from "./shared";
+import {
+  getPct, getColor, SectorCard, MESES_PT, type PeriodoFiltro,
+  isPeriodoTodos, isPeriodoMulti, periodoMesUnico, periodoMesesLista,
+  periodoUltimoMes, metaFnPeriodo,
+} from "./shared";
 
-interface Props { ano: string; mes: string; }
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 const META_SEGUIDORES_ANUAL  = 15000;
 const SEGUIDORES_BASE        = 11538;
@@ -24,9 +28,9 @@ function MKpiCard({ label, valor, meta, inverse = false, format = 'number' as 'n
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full">
       <p className="text-[11px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
-      <div className="flex-1 flex items-center gap-2 py-1">
-        <span className="text-4xl font-bold text-white tabular-nums leading-none">{dVal}</span>
-        <span className="text-[13px] text-slate-500 leading-none">/ {dMeta}</span>
+      <div className="flex-1 flex flex-col justify-center py-1 min-w-0">
+        <span className="text-2xl sm:text-3xl font-bold text-white tabular-nums leading-none truncate">{dVal}</span>
+        <span className="text-[11px] text-slate-500 leading-none mt-0.5">/ {dMeta}</span>
       </div>
       <div className="flex justify-between items-end">
         {note ? <span className="text-[9px] text-slate-500 leading-tight">{note}</span> : <span />}
@@ -42,8 +46,8 @@ function MSection({ title }: { title: string }) {
   );
 }
 
-export default function TabMarketing({ ano, mes }: Props) {
-  const is2026 = ano === '2026';
+export default function TabMarketing({ ano, periodo }: Props) {
+  const is2026 = parseInt(ano) >= 2026;
 
   const { data: indMkt } = useQuery<any>({
     queryKey: ['/api/indicadores-marketing', ano],
@@ -52,7 +56,8 @@ export default function TabMarketing({ ano, mes }: Props) {
   });
 
   const { data: doadores } = useQuery<any>({
-    queryKey: ['/api/doadores/stats'],
+    queryKey: ['/api/doadores/stats', ano],
+    queryFn: async () => { const r = await fetch(`/api/doadores/stats?ano=${ano}`, { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
     refetchInterval: 60000,
   });
 
@@ -68,6 +73,19 @@ export default function TabMarketing({ ano, mes }: Props) {
     refetchInterval: 300000,
   });
 
+  // Query histórico de doadores ativos/evadidos por mês
+  const { data: doadoresHistorico } = useQuery<any>({
+    queryKey: ['/api/doadores/historico-mensal', ano],
+    queryFn: () => fetch(`/api/doadores/historico-mensal?ano=${ano}`, { credentials: 'include' }).then(r => r.json()),
+    refetchInterval: 300000,
+  });
+  const { data: doadoresExternosMkt } = useQuery<any>({
+    queryKey: ['/api/doadores-externos'],
+    queryFn: () => fetch('/api/doadores-externos').then(r => r.json()),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
   const mkt     = indMkt?.data;
   const segRows: any[] = segMensal?.data || [];
   const igFollowers = igMetrics?.data?.followers_total  || 0;
@@ -77,39 +95,76 @@ export default function TabMarketing({ ano, mes }: Props) {
   const igEngaged   = igMetrics?.data?.accounts_engaged || 0;
   const igClicks    = igMetrics?.data?.website_clicks   || 0;
 
-  const doadoresAtivos   = (doadores?.porStatus?.active || 0) + (doadores?.porStatus?.trialing || 0);
-  const doadoresEvadidos = doadores?.porStatus?.canceled || 0;
-
   const segByMes: Record<string, any> = {};
   for (const r of segRows) segByMes[String(r.mes)] = r;
-  const mesData = segByMes[mes];
+  const mesUnico = periodoMesUnico(periodo);
+  const mesData = mesUnico ? segByMes[String(mesUnico)] : undefined;
+  const mesesPeriodo = periodoMesesLista(periodo);
+  const multi = isPeriodoMulti(periodo);
 
   const acumulado   = (key: string) => segRows.reduce((acc, r) => acc + (r[key] || 0), 0);
+  const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
+  const acumuladoPeriodo = (key: string) =>
+    segRows.filter((r: any) => mesesPeriodo.includes(Number(r.mes))).reduce((acc: number, r: any) => acc + (r[key] || 0), 0);
 
-  // Meta proporcional ao mês vigente (igual aos outros indicadores)
-  const mesNum = mes !== 'todos' ? Number(mes) : new Date().getMonth() + 1;
+  // Histórico de doadores — calculado DEPOIS de trimMeses para evitar TDZ
+  const histRows: any[] = doadoresHistorico?.data || [];
+  const histByMes: Record<number, any> = {};
+  for (const r of histRows) histByMes[Number(r.mes)] = r;
 
-  const segGanhos     = is2026 ? (mes === 'todos' ? acumulado('seguidores_ganhos')  : (mesData?.seguidores_ganhos  ?? 0)) : (mkt?.seguidores_ganhos      || 0);
-  const metaGanhos    = is2026 ? Math.round(META_GANHOS_ANUAL * mesNum / 12)  : (mkt?.seguidores_ganhos_meta  || 1);
-  const segPerdidos   = is2026 ? (mes === 'todos' ? acumulado('seguidores_perdidos') : (mesData?.seguidores_perdidos ?? 0)) : (mkt?.seguidores_perdidos     || 0);
-  const metaPerdidos  = is2026 ? Math.round(META_PERDIDOS_ANUAL * mesNum / 12) : (mkt?.seguidores_perdidos_meta || 1);
-  const totalSeguidores = mes === 'todos'
+  const extMkt = doadoresExternosMkt?.totalDoadores || 0;
+  const doadoresAtivos = (() => {
+    if (multi && mesesPeriodo.length > 0) {
+      const lastAvail = [...mesesPeriodo].reverse().find(m => histByMes[m]);
+      if (lastAvail) {
+        const h = histByMes[lastAvail];
+        return (Number(h.total_ativos ?? 0) || (Number(h.ativos ?? 0) + Number(h.trialing ?? 0))) + extMkt;
+      }
+    }
+    if (mesUnico && histByMes[mesUnico]) {
+      const h = histByMes[mesUnico];
+      return (Number(h.total_ativos ?? 0) || (Number(h.ativos ?? 0) + Number(h.trialing ?? 0))) + extMkt;
+    }
+    // "Todos" → snapshot atual do Stripe + externos
+    return (doadores?.porStatus?.active || 0) + (doadores?.porStatus?.trialing || 0) + extMkt;
+  })();
+  const doadoresEvadidos = (() => {
+    if (multi && mesesPeriodo.length > 0) {
+      return mesesPeriodo.reduce((acc, m) => acc + (histByMes[m]?.evadidos ?? 0), 0);
+    }
+    if (mesUnico && histByMes[mesUnico]) {
+      return Number(histByMes[mesUnico].evadidos ?? 0);
+    }
+    // "Todos" → maior entre soma do snapshot e Stripe ao vivo (snapshot pode estar desatualizado)
+    const somaSnapshot = histRows.reduce((acc, r) => acc + (Number(r.evadidos) || 0), 0);
+    const liveCount = doadores?.porStatus?.canceled || 0;
+    return Math.max(somaSnapshot, liveCount);
+  })();
+
+  const segGanhos   = is2026
+    ? (multi ? acumuladoPeriodo('seguidores_ganhos')  : isPeriodoTodos(periodo) ? acumulado('seguidores_ganhos')  : (mesData?.seguidores_ganhos  ?? 0))
+    : (mkt?.seguidores_ganhos  || 0);
+  const metaGanhos  = is2026 ? metaFn(META_GANHOS_ANUAL)   : (mkt?.seguidores_ganhos_meta  || 1);
+  const segPerdidos = is2026
+    ? (multi ? acumuladoPeriodo('seguidores_perdidos') : isPeriodoTodos(periodo) ? acumulado('seguidores_perdidos') : (mesData?.seguidores_perdidos ?? 0))
+    : (mkt?.seguidores_perdidos || 0);
+  const metaPerdidos = is2026 ? metaFn(META_PERDIDOS_ANUAL) : (mkt?.seguidores_perdidos_meta || 1);
+  const ultimoMesPeriodo = multi ? periodoUltimoMes(periodo) : 0;
+  const totalSeguidores = multi
+    ? (segRows.find((r: any) => Number(r.mes) === ultimoMesPeriodo)?.total_seguidores
+       ?? segRows.filter((r: any) => mesesPeriodo.includes(Number(r.mes))).slice(-1)[0]?.total_seguidores
+       ?? igFollowers
+       ?? SEGUIDORES_BASE)
+    : isPeriodoTodos(periodo)
     ? (igFollowers || (segRows.length > 0 ? segRows[segRows.length - 1].total_seguidores : SEGUIDORES_BASE))
     : (mesData?.total_seguidores ?? igFollowers ?? SEGUIDORES_BASE);
-  const metaDoadores = Math.round(META_DOADORES_ANUAL * mesNum / 12);
-  const metaEvadidos = Math.round(META_EVADIDOS_ANUAL * mesNum / 12);
-  const noteDoadoresAtivos = mesNum < 12
-    ? `Meta até ${MESES_PT[mesNum - 1]}: ${metaDoadores.toLocaleString('pt-BR')} (Anual: ${META_DOADORES_ANUAL.toLocaleString('pt-BR')})`
-    : undefined;
-  const noteDoadoresEvadidos = mesNum < 12
-    ? `Meta até ${MESES_PT[mesNum - 1]}: ${metaEvadidos.toLocaleString('pt-BR')} (Anual: ${META_EVADIDOS_ANUAL.toLocaleString('pt-BR')})`
-    : undefined;
-  const noteSegGanhos = is2026 && mesNum < 12
-    ? `Meta até ${MESES_PT[mesNum - 1]}: ${metaGanhos.toLocaleString('pt-BR')} (Anual: ${META_GANHOS_ANUAL.toLocaleString('pt-BR')})`
-    : undefined;
-  const noteSegPerdidos = is2026 && mesNum < 12
-    ? `Meta até ${MESES_PT[mesNum - 1]}: ${metaPerdidos.toLocaleString('pt-BR')} (Anual: ${META_PERDIDOS_ANUAL.toLocaleString('pt-BR')})`
-    : undefined;
+  const metaDoadores = metaFn(META_DOADORES_ANUAL);
+  const metaEvadidos = metaFn(META_EVADIDOS_ANUAL);
+  const hasHistorico = histRows.length > 0;
+  const noteDoadoresAtivos   = `Meta anual: ${META_DOADORES_ANUAL.toLocaleString('pt-BR')}`;
+  const noteDoadoresEvadidos = `Meta anual: < ${META_EVADIDOS_ANUAL.toLocaleString('pt-BR')}`;
+  const noteSegGanhos   = is2026 ? `Meta anual: ${META_GANHOS_ANUAL.toLocaleString('pt-BR')}` : undefined;
+  const noteSegPerdidos = is2026 ? `Meta anual: ${META_PERDIDOS_ANUAL.toLocaleString('pt-BR')}` : undefined;
 
   const mesAtual = new Date().getMonth() + 1;
   const anoAtual = new Date().getFullYear();
@@ -169,8 +224,8 @@ export default function TabMarketing({ ano, mes }: Props) {
         <div className="bg-slate-800/70 rounded-xl border border-slate-700/50 p-4 flex flex-col flex-1">
           <p className="text-white font-bold text-sm mb-0.5">Evolução de Seguidores</p>
           <p className="text-slate-400 text-xs mb-3">Seguidores ganhos e perdidos por mês</p>
-          <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height={200}>
               <LineChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                 <XAxis dataKey="mes" stroke="#64748b" fontSize={10} tickLine={false} />

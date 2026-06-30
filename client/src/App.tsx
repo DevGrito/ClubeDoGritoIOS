@@ -1,5 +1,10 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense, useRef } from "react";
+import { iosPushNeedsHomeScreen } from "@/utils/device";
+import {
+  usePushNotificationsContext,
+  PushNotificationsProvider,
+} from "@/contexts/PushNotificationsContext";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -18,6 +23,16 @@ import DonationFlow from "@/pages/donation-flow";
 import StripePayment from "@/pages/stripe-payment";
 import PaymentErrorDemo from "@/pages/payment-error-demo";
 import TermosServicos from "@/pages/termos-servicos";
+import TermosDeUso from "@/pages/termos-de-uso";
+import PoliticaDePrivacidade from "@/pages/politica-de-privacidade";
+import PoliticaDeCookies from "@/pages/politica-de-cookies";
+import PoliticaDeUsoDeImagem from "@/pages/politica-de-uso-de-imagem";
+import DireitosDoTitular from "@/pages/direitos-do-titular";
+import MeusDados from "@/pages/meus-dados";
+import AdminRopa from "@/pages/admin-ropa";
+import TermoConsentimentoResponsavel from "@/pages/termo-consentimento-responsavel";
+import MenorSemConsentimento from "@/pages/menor-sem-consentimento";
+import AutorizacaoResponsavel from "@/pages/autorizacao-responsavel";
 import Entrar from "@/pages/entrar";
 import Verify from "@/pages/verify";
 // Removed VerifyDonation import to maintain stability
@@ -34,10 +49,17 @@ import Sobre from "@/pages/sobre";
 import Conselho from "@/pages/conselho";
 
 import LeoMartins from "@/pages/leo-martins";
+import AdminGeral from "@/pages/admin-geral";
 import AguardandoAprovacao from "@/pages/aguardando-aprovacao";
-import Professor from "@/pages/professor";
 import PecCoordenador from "@/pages/pec-coordenador";
 import Aluno from "@/pages/aluno";
+import AlunoLogin from "@/pages/aluno-login";
+import EventosHome from "@/pages/eventos-home";
+import EventoDetalhe from "@/pages/evento-detalhe";
+import EventoCheckout from "@/pages/evento-checkout";
+import EventosAdmin from "@/pages/eventos-admin";
+import EventosCadastro from "@/pages/eventos-cadastro";
+import EventosPerfil from "@/pages/eventos-perfil";
 import DevPage from "@/pages/dev";
 import PatrocinadorDashboard from "@/pages/patrocinador-dashboard";
 import PerfilPatrocinador from "@/pages/perfil-patrocinador";
@@ -53,7 +75,7 @@ import Beneficios from "@/pages/beneficios";
 import BeneficioDetalhes from "@/pages/beneficio-detalhes";
 import MissoesSemanais from "@/pages/missoes-semanais";
 import Missoes from "@/pages/missoes";
-import DevMarketing from "@/pages/dev-marketing";
+const DevMarketing = lazy(() => import("@/pages/dev-marketing"));
 import DashboardLancamento from "@/pages/painel/dashboard-lancamento";
 import CreditCardDemo from "@/pages/credit-card-demo";
 import MeusLances from "@/pages/meus-lances";
@@ -62,25 +84,20 @@ import ReativarAssinatura from "@/pages/reativar-assinatura";
 import DevModeBanner from "@/components/DevModeBanner";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AutoRedirect from "@/components/AutoRedirect";
-import { NotificationPermissionPrompt } from "@/components/NotificationPermissionPrompt";
 import { InAppNotification } from "@/components/InAppNotification";
+import PrivacyConsentBootstrap from "@/components/PrivacyConsentBootstrap";
 import GritoIntro from "@/pages/grito-intro";
 import GritoSelection from "@/pages/grito-selection";
 import GestaoVista from "@/pages/gestao-vista";
-import GestaoVistaDashboard from "@/pages/gestao-vista-dashboard";
 import DashboardGestaoVista from "@/pages/dashboard-gestao-vista/index";
-import PagamentoIngresso from "@/pages/pagamento-ingresso";
-import IngressoSucesso from "@/pages/ingresso-sucesso";
-import IngressoPage from "@/pages/ingresso";
-import IngressoDemoPage from "@/pages/ingresso-demo";
-import IngressoResgateIdentificar from "@/pages/ingresso-resgate-identificar";
-import IngressoResgateConfirmar from "@/pages/ingresso-resgate-confirmar";
-import IngressoListaCotaPage from "@/pages/ingresso-lista-cota";
-import IngressoAvulsoResgatar from "@/pages/ingresso-avulso-resgatar";
+import GestaoVistaPreview from "@/pages/gestao-vista-preview";
 import PagamentoAprovado from "@/pages/pagamento-aprovado";
 import PagamentoReprovado from "@/pages/pagamento-reprovado";
 import ScannerPage from "@/pages/scanner";
 import ScannerLogin from "@/pages/scanner-login";
+import TabletChamadaPage from "@/pages/tablet-chamada";
+import TabletChamadaLogin from "@/pages/tablet-chamada-login";
+import { TabletChamadaProtectedRoute } from "@/components/TabletChamadaProtectedRoute";
 import CoordenadorLogin from "@/pages/coordenador-login";
 import MonitorLogin from "@/pages/monitor-login";
 import ProfessorLogin from "@/pages/professor-login";
@@ -91,19 +108,26 @@ import AdminConciliarPix from "@/pages/admin-conciliar-pix";
 import AdminManualSubscription from "@/pages/admin-manual-subscription";
 import AdminMigrateDonors from "@/pages/admin-migrate-donors";
 import AdminRelatorioAssinaturas from "@/pages/admin-relatorio-assinaturas";
+import AdminSolicitacoesExclusao from "@/pages/admin-solicitacoes-exclusao";
+import AdminPrivacyConsents from "@/pages/admin-privacy-consents";
 import Subscriptions from "@/pages/Subscriptions";
-import IngressosEsgotados from "@/pages/ingressos-esgotados";
 
 // RBAC Pages
 import ProfessorPage from "@/pages/rbac/professor";
-import MonitorPage from "@/pages/rbac/monitor";
+const MonitorPage = lazy(() => import("@/pages/rbac/monitor"));
 import MarketingPage from "@/pages/rbac/marketing";
 import CoordenadorInclusaoPage from "@/pages/rbac/coordenador-inclusao";
 import CoordenadorPECPage from "@/pages/rbac/coordenador-pec";
 import CoordenadorPsicoPage from "@/pages/rbac/coordenador-psico";
+import TecnicaPsicoPage from "@/pages/rbac/tecnica-psico";
 import VendedorOutletPage from "@/pages/rbac/vendedor-outlet";
+import ConfeccaoPage from "@/pages/rbac/confeccao";
+import CoordenadorNegociosPage from "@/pages/rbac/coordenador-negocios";
+import CoordenadorAlmoxarifadoPage from "@/pages/rbac/coordenador-almoxarifado";
 
 import NotFound from "@/pages/not-found";
+import TermosGuard from "@/components/TermosGuard";
+import AlunoTermosGuard from "@/components/AlunoTermosGuard";
 
 // Componente para redirecionamento
 function RedirectComponent({ to }: { to: string }) {
@@ -123,12 +147,16 @@ function Router() {
         <PageTransition key={location}>
           <Switch>
       {/* Rotas de login DEVEM vir ANTES da rota "/" para evitar redirecionamento */}
+      <Route path="/login/aluno" component={AlunoLogin} />
+      <Route path="/menor/sem-consentimento" component={MenorSemConsentimento} />
+      <Route path="/menor/autorizacao-responsavel" component={AutorizacaoResponsavel} />
       <Route path="/login/coordenador" component={CoordenadorLogin} />
       <Route path="/login/monitor" component={MonitorLogin} />
       <Route path="/login/professor" component={ProfessorLogin} />
       <Route path="/login/developer" component={DevLogin} />
       <Route path="/login/marketing" component={MarketingLogin} />
       <Route path="/scanner-login" component={ScannerLogin} />
+      <Route path="/tablet/chamada/login" component={TabletChamadaLogin} />
       
       <Route path="/" component={Plans} />
       <Route path="/splash-gate" component={SplashGate} />
@@ -141,6 +169,12 @@ function Router() {
       <Route path="/reativar-assinatura" component={ReativarAssinatura} />
       <Route path="/payment-error" component={PaymentErrorDemo} />
       <Route path="/termos-servicos" component={TermosServicos} />
+      <Route path="/termos-de-uso" component={TermosDeUso} />
+      <Route path="/politica-de-privacidade" component={PoliticaDePrivacidade} />
+      <Route path="/politica-de-cookies" component={PoliticaDeCookies} />
+      <Route path="/politica-de-uso-de-imagem" component={PoliticaDeUsoDeImagem} />
+      <Route path="/direitos-do-titular" component={DireitosDoTitular} />
+      <Route path="/termo-consentimento-responsavel" component={TermoConsentimentoResponsavel} />
       <Route path="/entrar" component={Entrar} />
       <Route path="/verify" component={Verify} />
       {/* Removed verify-donation route to maintain stability */}
@@ -149,7 +183,7 @@ function Router() {
       <Route path="/tdoador">
         {() => (
           <ProtectedRoute allowedRoles={['doador', 'user', 'leo']} routeName="/tdoador">
-            <Welcome />
+            <TermosGuard><Welcome /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -158,7 +192,7 @@ function Router() {
       <Route path="/professor/pec">
         {() => (
           <ProtectedRoute allowedRoles={['professor', 'professor_pec']} routeName="/professor/pec">
-            <ProfessorPage />
+            <TermosGuard><ProfessorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -166,7 +200,15 @@ function Router() {
       <Route path="/professor/inclusao">
         {() => (
           <ProtectedRoute allowedRoles={['professor', 'professor_inclusao']} routeName="/professor/inclusao">
-            <ProfessorPage />
+            <TermosGuard><ProfessorPage /></TermosGuard>
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/professor">
+        {() => (
+          <ProtectedRoute allowedRoles={['professor', 'professor_psico']} routeName="/professor">
+            <TermosGuard><ProfessorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -174,7 +216,7 @@ function Router() {
       <Route path="/monitor/pec">
         {() => (
           <ProtectedRoute allowedRoles={['monitor', 'monitor_pec']} routeName="/monitor/pec">
-            <MonitorPage />
+            <TermosGuard><MonitorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -182,7 +224,7 @@ function Router() {
       <Route path="/monitor/inclusao">
         {() => (
           <ProtectedRoute allowedRoles={['monitor', 'monitor_inclusao']} routeName="/monitor/inclusao">
-            <MonitorPage />
+            <TermosGuard><MonitorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -190,7 +232,7 @@ function Router() {
      <Route path="/monitor/psico">
         {() => (
           <ProtectedRoute allowedRoles={['monitor_psico']} routeName="/monitor/psico">
-            <MonitorPage />
+            <TermosGuard><MonitorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -201,7 +243,7 @@ function Router() {
             allowedRoles={['monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico']}
             routeName="/monitor"
           >
-            <MonitorPage />
+            <TermosGuard><MonitorPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -209,14 +251,14 @@ function Router() {
       <Route path="/rbac/marketing">
         {() => (
           <ProtectedRoute allowedRoles={['marketing']} routeName="/rbac/marketing">
-            <MarketingPage />
+            <TermosGuard><MarketingPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
       <Route path="/coordenador/inclusao-produtiva">
         {() => (
           <ProtectedRoute allowedRoles={['coordenador_inclusao']} routeName="/coordenador/inclusao-produtiva">
-            <CoordenadorInclusaoPage />
+            <TermosGuard><CoordenadorInclusaoPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -224,7 +266,7 @@ function Router() {
       <Route path="/coordenador/esporte-cultura">
         {() => (
           <ProtectedRoute allowedRoles={['coordenador_pec']} routeName="/coordenador/esporte-cultura">
-            <CoordenadorPECPage />
+            <TermosGuard><CoordenadorPECPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -232,17 +274,46 @@ function Router() {
       <Route path="/coordenador/psicossocial">
         {() => (
           <ProtectedRoute allowedRoles={['coordenador_psico']} routeName="/coordenador/psicossocial">
-            <CoordenadorPsicoPage />
+            <TermosGuard><CoordenadorPsicoPage /></TermosGuard>
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/tecnica/psicossocial">
+        {() => (
+          <ProtectedRoute allowedRoles={['tecnica_psico']} routeName="/tecnica/psicossocial">
+            <TermosGuard><TecnicaPsicoPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
 
       <Route path="/vendedor/outlet" component={VendedorOutletPage} />
+      <Route path="/confeccao" component={ConfeccaoPage} />
+      <Route path="/coordenador/negocios-sociais">
+        {() => (
+          <ProtectedRoute
+            allowedRoles={['coordenador_negocios', 'admin', 'leo', 'super_admin', 'dev', 'desenvolvedor']}
+            routeName="/coordenador/negocios-sociais"
+          >
+            <TermosGuard><CoordenadorNegociosPage /></TermosGuard>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/coordenador/almoxarifado">
+        {() => (
+          <ProtectedRoute
+            allowedRoles={['coordenador_almoxarifado', 'admin', 'leo', 'super_admin', 'dev', 'desenvolvedor']}
+            routeName="/coordenador/almoxarifado"
+          >
+            <TermosGuard><CoordenadorAlmoxarifadoPage /></TermosGuard>
+          </ProtectedRoute>
+        )}
+      </Route>
       
       <Route path="/coordenador">
         {() => (
-          <ProtectedRoute allowedRoles={['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico']} routeName="/coordenador">
-            <AutoRedirect />
+          <ProtectedRoute allowedRoles={['coordenador_inclusao', 'coordenador_pec', 'coordenador_psico', 'tecnica_psico']} routeName="/coordenador">
+            <TermosGuard><AutoRedirect /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -258,7 +329,15 @@ function Router() {
       <Route path="/administrador">
         {() => (
           <ProtectedRoute allowedRoles={['super_admin', 'leo']} routeName="/administrador">
-            <LeoMartins demoMode={false} />
+            <TermosGuard><LeoMartins demoMode={false} /></TermosGuard>
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/admin-geral">
+        {() => (
+          <ProtectedRoute allowedRoles={['admin', 'super_admin', 'leo']} routeName="/admin-geral">
+            <TermosGuard><AdminGeral /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -338,7 +417,7 @@ function Router() {
       <Route path="/dev/marketing">
         {() => (
           <ProtectedRoute allowedRoles={['dev', 'desenvolvedor', 'dev-marketing']} routeName="/dev/marketing">
-            <DevMarketing />
+            <TermosGuard><DevMarketing /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -368,11 +447,11 @@ function Router() {
         )}
       </Route>
 
-      {/* Dashboard Gestão à Vista para TV - Rota pública para exibição em televisão */}
-      <Route path="/gestao/vista/dashboard" component={GestaoVistaDashboard} />
-
       {/* Novo Dashboard Gestão à Vista — 7 telas por setor */}
       <Route path="/dashboard/gestao/vista" component={DashboardGestaoVista} />
+
+      {/* Rota temporária — preview do componente ImpactGestaoVista para validação */}
+      <Route path="/gestao-vista-preview" component={GestaoVistaPreview} />
       
       <Route path="/sorteio">
         {() => (
@@ -391,6 +470,13 @@ function Router() {
         {() => (
           <ProtectedRoute allowedRoles={['doador', 'user', 'professor', 'aluno', 'conselho', 'super_admin', 'leo', 'desenvolvedor']} routeName="/perfil">
             <Perfil />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/meus-dados">
+        {() => (
+          <ProtectedRoute allowedRoles={['doador', 'user', 'conselho', 'conselheiro', 'aluno', 'aluno_portal', 'patrocinador', 'super_admin', 'leo', 'desenvolvedor', 'dev', 'dev-marketing', 'marketing', 'professor', 'professor_pec', 'professor_inclusao', 'professor_psico', 'professor_lider', 'lider', 'monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico', 'coordenador_inclusao', 'coordenador_pec', 'coordenador_psico', 'coordenador_negocios', 'coordenador_almoxarifado', 'tecnica_psico']} routeName="/meus-dados">
+            <MeusDados />
           </ProtectedRoute>
         )}
       </Route>
@@ -424,7 +510,7 @@ function Router() {
       </Route>
       <Route path="/configuracoes">
         {() => (
-          <ProtectedRoute allowedRoles={['doador', 'user', 'patrocinador']} routeName="/configuracoes">
+          <ProtectedRoute allowedRoles={['doador', 'user', 'patrocinador', 'conselheiro', 'conselho']} routeName="/configuracoes">
             <Configuracoes />
           </ProtectedRoute>
         )}
@@ -439,7 +525,7 @@ function Router() {
       <Route path="/conselho">
         {() => (
           <ProtectedRoute allowedRoles={['conselho', 'conselheiro']} routeName="/conselho">
-            <Conselho />
+            <TermosGuard><Conselho /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -447,17 +533,21 @@ function Router() {
       <Route path="/aguardando-aprovacao" component={AguardandoAprovacao} />
       
       <Route path="/aluno">
-        {() => (
-          <ProtectedRoute allowedRoles={['aluno']} routeName="/aluno">
-            <Aluno />
-          </ProtectedRoute>
-        )}
+        <AlunoTermosGuard>
+          <Aluno />
+        </AlunoTermosGuard>
       </Route>
+      <Route path="/eventos" component={EventosHome} />
+      <Route path="/eventos/cadastro" component={EventosCadastro} />
+      <Route path="/eventos/perfil" component={EventosPerfil} />
+      <Route path="/eventos/admin" component={EventosAdmin} />
+      <Route path="/eventos/:id/checkout" component={EventoCheckout} />
+      <Route path="/eventos/:id" component={EventoDetalhe} />
       
       <Route path="/patrocinador">
         {() => (
           <ProtectedRoute allowedRoles={['patrocinador', 'developer']} routeName="/patrocinador">
-            <PatrocinadorDashboard />
+            <TermosGuard><PatrocinadorDashboard /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -465,7 +555,7 @@ function Router() {
       <Route path="/perfil-patrocinador">
         {() => (
           <ProtectedRoute allowedRoles={['patrocinador', 'developer']} routeName="/perfil-patrocinador">
-            <PerfilPatrocinador />
+            <TermosGuard><PerfilPatrocinador /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -555,21 +645,42 @@ function Router() {
         )}
       </Route>
 
+      <Route path="/admin/solicitacoes-exclusao">
+        {() => (
+          <ProtectedRoute allowedRoles={['leo', 'desenvolvedor', 'super_admin', 'admin']} routeName="/admin/solicitacoes-exclusao">
+            <AdminSolicitacoesExclusao />
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/admin/ropa">
+        {() => (
+          <ProtectedRoute allowedRoles={['super_admin', 'leo']} routeName="/admin/ropa">
+            <AdminRopa />
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route path="/admin/privacy-consents">
+        {() => (
+          <ProtectedRoute allowedRoles={['super_admin', 'leo', 'admin', 'dev', 'desenvolvedor']} routeName="/admin/privacy-consents">
+            <AdminPrivacyConsents />
+          </ProtectedRoute>
+        )}
+      </Route>
+
       {/* Scanner Interface - Protected */}
       <Route path="/scanner" component={ScannerPage} />
 
-      <Route path="/pagamento/ingresso" component={IngressosEsgotados} />
-      <Route path="/pagamento-ingresso" component={IngressosEsgotados} />
-      <Route path="/ingressos-esgotados" component={IngressosEsgotados} />
-      <Route path="/ingressos/compras/extras" component={PagamentoIngresso} />
-      <Route path="/ingresso/sucesso" component={IngressoSucesso} />
-      <Route path="/ingresso" component={IngressoPage} />
-      <Route path="/ingresso-demo" component={IngressoDemoPage} />
-      <Route path="/ingresso/avulso/resgatar" component={IngressoAvulsoResgatar} />
-      <Route path="/ingresso/resgate/identificar" component={IngressoResgateIdentificar} />
-      <Route path="/ingresso/resgate/confirmar" component={IngressoResgateConfirmar} />
-      <Route path="/ingresso/lista-cota/:idCota" component={IngressoListaCotaPage} />
-      <Route path="/ingresso/visualizar/:id" component={IngressoPage} />
+      {/* Tablet Chamada — porta das salas */}
+      <Route path="/tablet/chamada">
+        {() => (
+          <TabletChamadaProtectedRoute>
+            <TabletChamadaPage />
+          </TabletChamadaProtectedRoute>
+        )}
+      </Route>
+
       <Route path="/pagamento/aprovado" component={PagamentoAprovado} />
       <Route path="/pagamento/reprovado" component={PagamentoReprovado} />
 
@@ -587,8 +698,8 @@ function Router() {
       
       <Route path="/dev">
         {() => (
-          <ProtectedRoute allowedRoles={['desenvolvedor', 'dev']} routeName="/dev">
-            <DevPage />
+          <ProtectedRoute allowedRoles={['desenvolvedor', 'dev', 'admin', 'super_admin', 'leo']} routeName="/dev">
+            <TermosGuard><DevPage /></TermosGuard>
           </ProtectedRoute>
         )}
       </Route>
@@ -638,25 +749,149 @@ function SubscriptionVerifier() {
   return null;
 }
 
-function NotificationPromptWrapper() {
-  const [userId, setUserId] = useState<number | undefined>(undefined);
-  
+// Ativa push notifications globalmente e exibe banner de permissão
+function PushNotificationsBootstrap() {
+  const [location] = useLocation();
+  const { userKey, permission, requestPermission, loading, refreshStatus, pushEnabled, pushOptedOut } =
+    usePushNotificationsContext();
+  const [bannerVisible, setBannerVisible] = useState(false);
+  const bannerPromptedRef = useRef(false);
+
+  const isAuthRoute =
+    location === '/' ||
+    location.includes('login') ||
+    location.startsWith('/entrar') ||
+    location.startsWith('/verify') ||
+    location.startsWith('/verificar') ||
+    location.startsWith('/codigo') ||
+    location.startsWith('/splash') ||
+    location.startsWith('/plans') ||
+    location.startsWith('/register') ||
+    location.startsWith('/donation-flow') ||
+    location.startsWith('/stripe-payment') ||
+    location.startsWith('/menor') ||
+    location.startsWith('/aguardando-aprovacao') ||
+    location.startsWith('/assinatura-pausada') ||
+    location.startsWith('/reativar-assinatura') ||
+    location.startsWith('/termos') ||
+    location.startsWith('/politica') ||
+    location === '/scanner-login' ||
+    location === '/tablet/chamada/login';
+
   useEffect(() => {
-    // Verificar se há usuário logado
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        if (userData?.id) {
-          setUserId(Number(userData.id));
-        }
-      } catch (e) {
-        // Ignorar erro de parse
-      }
+    bannerPromptedRef.current = false;
+    setBannerVisible(false);
+  }, [userKey]);
+
+  useEffect(() => {
+    if (pushEnabled) {
+      setBannerVisible(false);
+      bannerPromptedRef.current = true;
     }
-  }, []);
-  
-  return <NotificationPermissionPrompt userId={userId} />;
+  }, [pushEnabled]);
+
+  useEffect(() => {
+    if (pushOptedOut) {
+      setBannerVisible(false);
+      bannerPromptedRef.current = true;
+    }
+  }, [pushOptedOut]);
+
+  useEffect(() => {
+    if (!userKey) return;
+    if (isAuthRoute) {
+      setBannerVisible(false);
+      return;
+    }
+    if (typeof Notification === 'undefined') return;
+    if (permission === 'denied' || permission === 'unsupported') return;
+    if (pushOptedOut || localStorage.getItem(`push_opt_out_${userKey}`) === '1') return;
+    if (bannerPromptedRef.current) return;
+    if (localStorage.getItem(`push_dismissed_${userKey}`)) return;
+    const snoozedUntil = localStorage.getItem(`push_snoozed_${userKey}`);
+    if (snoozedUntil && Date.now() < Number(snoozedUntil)) return;
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const status = await refreshStatus();
+      if (cancelled) return;
+      if (bannerPromptedRef.current) return;
+      if (localStorage.getItem(`push_opt_out_${userKey}`) === '1') return;
+      if ((status?.activeDevices ?? 0) > 0) return;
+      if (localStorage.getItem(`push_dismissed_${userKey}`)) return;
+      const snooze = localStorage.getItem(`push_snoozed_${userKey}`);
+      if (snooze && Date.now() < Number(snooze)) return;
+      bannerPromptedRef.current = true;
+      setBannerVisible(true);
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [userKey, permission, isAuthRoute, refreshStatus, pushOptedOut]);
+
+  const handleAtivar = async () => {
+    setBannerVisible(false);
+    bannerPromptedRef.current = true;
+    await requestPermission();
+  };
+
+  const handleSnooze = () => {
+    setBannerVisible(false);
+    bannerPromptedRef.current = true;
+    if (userKey) localStorage.setItem(`push_snoozed_${userKey}`, String(Date.now() + 3 * 24 * 60 * 60 * 1000));
+  };
+
+  const handleDismiss = () => {
+    setBannerVisible(false);
+    bannerPromptedRef.current = true;
+    if (userKey) localStorage.setItem(`push_dismissed_${userKey}`, '1');
+  };
+
+  if (!bannerVisible || isAuthRoute) return null;
+
+  return (
+    <div className="fixed z-[9999] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm sm:top-auto sm:bottom-6 sm:right-6 sm:left-auto sm:translate-x-0 sm:w-80">
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-xl p-4 flex items-start gap-3">
+        <span className="text-2xl mt-0.5">🔔</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 leading-snug">
+            Ative as notificações
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5 leading-snug">
+            {iosPushNeedsHomeScreen()
+              ? 'No iPhone: Compartilhar → Adicionar à Tela de Início, depois abra o app por lá.'
+              : 'Receba novidades do Clube do Grito no seu celular'}
+          </p>
+          <div className="flex gap-2 mt-3">
+            <button
+              type="button"
+              onClick={handleAtivar}
+              disabled={loading}
+              className="flex-1 bg-black text-white text-xs font-semibold py-2 rounded-xl disabled:opacity-60"
+            >
+              {loading ? 'Aguarde...' : 'Ativar'}
+            </button>
+            <button
+              type="button"
+              onClick={handleSnooze}
+              className="flex-1 bg-gray-100 text-gray-600 text-xs font-semibold py-2 rounded-xl"
+            >
+              Agora não
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="w-full mt-2 text-xs text-gray-400 hover:text-gray-600 text-center py-1"
+          >
+            Não mostrar mais
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -670,13 +905,18 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ErrorBoundary>
-          <ConnectionStatus />
-          <SubscriptionVerifier />
-          <AutoRedirect />
-          <Toaster />
-          <NotificationPromptWrapper />
-          <InAppNotification />
-          <Router />
+          <PushNotificationsProvider>
+            <ConnectionStatus />
+            <SubscriptionVerifier />
+            <PushNotificationsBootstrap />
+            <PrivacyConsentBootstrap />
+            <AutoRedirect />
+            <Toaster />
+            <InAppNotification />
+            <Suspense fallback={null}>
+              <Router />
+            </Suspense>
+          </PushNotificationsProvider>
         </ErrorBoundary>
       </TooltipProvider>
     </QueryClientProvider>

@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, RequestHandler } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -462,9 +462,17 @@ function rowToAlunoPayload(row: Record<string, any>) {
 }
 
 // ===== main register =====
-export function registerPecImportRoutes(app: Express, storage: any) {
+export function registerPecImportRoutes(
+  app: Express,
+  storage: any,
+  ...authGuards: RequestHandler[]
+) {
   // PREVIEW
-  app.post("/api/pec/import/alunos/preview", upload.single("file"), async (req: Request, res: Response) => {
+  app.post(
+    "/api/pec/import/alunos/preview",
+    ...authGuards,
+    upload.single("file"),
+    async (req: Request, res: Response) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: "Arquivo não enviado" });
 
@@ -532,7 +540,10 @@ export function registerPecImportRoutes(app: Express, storage: any) {
   });
 
   // COMMIT
-  app.post("/api/pec/import/alunos/commit", async (req: Request, res: Response) => {
+  app.post(
+    "/api/pec/import/alunos/commit",
+    ...authGuards,
+    async (req: Request, res: Response) => {
     try {
       const { rows } = req.body as { rows: Array<{ rowNumber: number; payload: any }> };
       if (!Array.isArray(rows) || rows.length === 0) {

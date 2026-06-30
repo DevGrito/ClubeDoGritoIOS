@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { getPct, getColor, SectorCard, MESES_PT } from "./shared";
+import { getPct, getColor, SectorCard, buildQp, type PeriodoFiltro, metaFnPeriodo } from "./shared";
 
-interface Props { ano: string; mes: string; }
+interface Props { ano: string; periodo: PeriodoFiltro; }
 
 /* ── Card com meta + nota prorata ────────────────────────────────── */
 function NKpiCard({ label, valor, meta, note, inverse = false }: {
@@ -42,34 +42,40 @@ function NKpiCardNoMeta({ label, valor }: { label: string; valor: number }) {
 }
 
 /* ── Tab principal ───────────────────────────────────────────────── */
-export default function TabNegocios({ ano, mes }: Props) {
-  const negMes = ano === '2026' && mes !== 'todos' ? `&mes=${mes}` : '';
+export default function TabNegocios({ ano, periodo }: Props) {
+  const negParams = buildQp(ano, periodo);
 
   const { data: negocios } = useQuery<any>({
-    queryKey: ['/api/negocios-sociais', ano, mes],
-    queryFn: () => fetch(`/api/negocios-sociais?ano=${ano}${negMes}`).then(r => r.json()),
+    queryKey: ['/api/negocios-sociais', ano, periodo],
+    queryFn: () => fetch(`/api/negocios-sociais${negParams}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
   const outlet  = negocios?.data?.outlet  || {};
   const griffte = negocios?.data?.griffte || {};
 
-  const itensRecebidos   = outlet.doacoesRecebidas      || 0;
-  const itensVendidos    = outlet.pecasVendidas          || 0;
-  const cacambasDoBem    = outlet.cacambasDoBem          || 0;
-  const clientesAtend    = griffte.clientesAtendidos     || 0;
-  const pedidosEntregues = griffte.pedidosEntregues      || 0;
-  const pecasProduzidas  = griffte.pecasConfeccionadas   || 0;
+  const itensRecebidos       = outlet.doacoesRecebidas      || 0;
+  const itensVendidos        = outlet.pecasVendidas          || 0;
+  const cacambasDoBem        = outlet.cacambasDoBem          || 0;
+  const outletClientesAtend  = outlet.clientesAtendidos      || 0;
+  const outletLives          = outlet.livesRealizadas         || 0;
+  const outletValorVendas    = outlet.valorVendas            || 0;
+  const clientesAtend        = griffte.clientesAtendidos     || 0;
+  const pedidosEntregues     = griffte.pedidosEntregues      || 0;
+  const pecasProduzidas      = griffte.pecasConfeccionadas   || 0;
+  const griffteValorVendas   = griffte.valorVendas           || 0;
 
-  const mesNumRaw = mes === 'todos' ? NaN : parseInt(mes);
-  const mesNum    = isNaN(mesNumRaw) || mesNumRaw <= 0 ? new Date().getMonth() + 1 : mesNumRaw;
-  const mesLabel  = MESES_PT[mesNum - 1];
+  const fmtMoeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
 
   const META_ITENS_RECEBIDOS = 20000;
   const META_CACAMBAS        = 20;
+  const META_LIVES           = 40;
 
-  const metaItensRecebidos = Math.round(META_ITENS_RECEBIDOS * mesNum / 12);
-  const metaCacambas       = Math.round(META_CACAMBAS        * mesNum / 12);
+  const metaItensRecebidos = metaFn(META_ITENS_RECEBIDOS);
+  const metaCacambas       = metaFn(META_CACAMBAS);
+  const metaLives          = metaFn(META_LIVES);
 
   return (
     <div className="flex flex-col md:grid md:grid-cols-12 gap-3 md:h-full md:min-h-0">
@@ -82,15 +88,22 @@ export default function TabNegocios({ ano, mes }: Props) {
               label="Itens Recebidos"
               valor={itensRecebidos}
               meta={metaItensRecebidos}
-              note={`Meta até ${mesLabel}: ${metaItensRecebidos.toLocaleString('pt-BR')} (Anual: ${META_ITENS_RECEBIDOS.toLocaleString('pt-BR')})`}
+              note={`Meta anual: ${META_ITENS_RECEBIDOS.toLocaleString('pt-BR')}`}
             />
+            <NKpiCard
+              label="Caçambas do Bem"
+              valor={cacambasDoBem}
+              meta={metaCacambas}
+              note={`Meta anual: ${META_CACAMBAS.toLocaleString('pt-BR')}`}
+            />
+            <NKpiCardNoMeta label="Clientes Atendidos" valor={outletClientesAtend} />
             <NKpiCardNoMeta label="Itens Vendidos" valor={itensVendidos} />
             <div className="col-span-2">
               <NKpiCard
-                label="Caçambas do Bem"
-                valor={cacambasDoBem}
-                meta={metaCacambas}
-                note={`Meta até ${mesLabel}: ${metaCacambas.toLocaleString('pt-BR')} (Anual: ${META_CACAMBAS.toLocaleString('pt-BR')})`}
+                label="Lives Realizadas"
+                valor={outletLives}
+                meta={metaLives}
+                note={`Meta anual: ${META_LIVES.toLocaleString('pt-BR')}`}
               />
             </div>
           </div>

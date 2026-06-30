@@ -1,4 +1,5 @@
 import { Component, ReactNode } from "react";
+import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
 
 interface Props {
   children: ReactNode;
@@ -85,23 +86,27 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleReload = () => {
-    // Limpa dados antes de recarregar para evitar loop
     try {
+      // Preserva sessão do aluno para não deslogar ao recarregar
+      const alunoAuth = sessionStorage.getItem('aluno_auth');
+      const alunoCpf = sessionStorage.getItem('aluno_cpf');
+      const alunoNome = sessionStorage.getItem('aluno_nome');
       sessionStorage.clear();
-      // Limpa apenas alguns itens do localStorage
+      if (alunoAuth) sessionStorage.setItem('aluno_auth', alunoAuth);
+      if (alunoCpf) sessionStorage.setItem('aluno_cpf', alunoCpf);
+      if (alunoNome) sessionStorage.setItem('aluno_nome', alunoNome);
       const keysToRemove = ['react-query-cache', 'form-data', 'temp-data'];
       keysToRemove.forEach(key => localStorage.removeItem(key));
     } catch (e) {
       console.warn('Erro ao limpar cache:', e);
     }
-    
     window.location.reload();
   };
   
   private forceCleanupAndReload = () => {
     try {
       // Limpeza completa em caso de loop
-      localStorage.clear();
+      clearLocalStoragePreservingLgpd();
       sessionStorage.clear();
       
       // Limpa cache do navegador se possível

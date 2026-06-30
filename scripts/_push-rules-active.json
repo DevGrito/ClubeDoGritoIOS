@@ -1,0 +1,1566 @@
+[
+  {
+    "id": 82,
+    "nome": "Alteração sensível no sistema",
+    "gatilho": "alteracao_sensivel",
+    "titulo": "Alteração sensível registrada",
+    "mensagem": "{{usuario}} realizou uma alteração sensível: {{descricao}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 46,
+    "nome": "Aluno cadastrado",
+    "gatilho": "aluno_cadastrado",
+    "titulo": "Novo aluno cadastrado",
+    "mensagem": "{{nome_aluno}} foi cadastrado(a) no sistema. Verifique os dados.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "coordenador_psicossocial"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 61,
+    "nome": "Aluno chegou",
+    "gatilho": "aluno_chegou",
+    "titulo": "{{nome_aluno}} chegou",
+    "mensagem": "Entrada de {{nome_aluno}} confirmada às {{hora}}.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "monitor_pec",
+      "monitor_inclusao",
+      "monitor_psicossocial"
+    ],
+    "url": null,
+    "cooldown_minutos": 1,
+    "modulo_alvo": "monitor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 68,
+    "nome": "Aluno com faltas consecutivas",
+    "gatilho": "aluno_faltas_consecutivas",
+    "titulo": "{{nome_aluno}} com {{faltas}} faltas seguidas",
+    "mensagem": "Verifique a situação do(a) aluno(a) {{nome_aluno}} na turma {{turma}}.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "professor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 60,
+    "nome": "Aluno matriculado no meio do período",
+    "gatilho": "aluno_matriculado_meio_turma",
+    "titulo": "Nova matrícula fora do início do período",
+    "mensagem": "{{nome_aluno}} foi matriculado(a) na turma {{turma}} fora do início do ciclo.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 62,
+    "nome": "Aluno não identificado",
+    "gatilho": "aluno_nao_identificado",
+    "titulo": "Rosto não identificado na catraca ⚠️",
+    "mensagem": "A catraca registrou um acesso não identificado às {{hora}}.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "monitor_pec",
+      "monitor_inclusao",
+      "coordenador_pec",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "monitor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 71,
+    "nome": "Primeiro acesso do aluno",
+    "gatilho": "aluno_primeiro_acesso",
+    "titulo": "Bem-vindo ao Clube do Grito! 🎉",
+    "mensagem": "Olá {{nome}}, seu acesso foi configurado. Explore sua área!",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 47,
+    "nome": "Aluno sem turma",
+    "gatilho": "aluno_sem_turma",
+    "titulo": "Aluno sem turma vinculada ⚠️",
+    "mensagem": "{{nome_aluno}} está cadastrado(a) mas não tem turma. Realize o vínculo.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 90,
+    "nome": "Erro de API",
+    "gatilho": "api_error",
+    "titulo": "Erro de API detectado",
+    "mensagem": "Endpoint {{endpoint}} retornou {{status}}. Mensagem: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 23,
+    "nome": "Assinatura cancelada",
+    "gatilho": "assinatura_cancelada",
+    "titulo": "Assinatura encerrada",
+    "mensagem": "{{nome}}, sua assinatura foi cancelada. Sentiremos sua falta.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 69,
+    "nome": "Atividade pendente para professor",
+    "gatilho": "atividade_professor_pendente",
+    "titulo": "Atividade pedagógica pendente",
+    "mensagem": "Você tem atividades a registrar na turma {{turma}} até {{data}}.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "professor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 74,
+    "nome": "Aula próxima — aluno",
+    "gatilho": "aula_aluno_proxima",
+    "titulo": "Sua aula começa em {{minutos}} minutos 🎒",
+    "mensagem": "Não esqueça! A aula de {{turma}} começa às {{hora}}.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 66,
+    "nome": "Aula próxima — professor",
+    "gatilho": "aula_proxima",
+    "titulo": "Sua aula começa em {{minutos}} minutos",
+    "mensagem": "Prepare-se! A aula de {{turma}} começa às {{hora}}.",
+    "destino_tela": "todos",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec",
+      "monitor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "professor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 54,
+    "nome": "Baixa frequência de aluno",
+    "gatilho": "baixa_frequencia_aluno",
+    "titulo": "Atenção: baixa frequência ⚠️",
+    "mensagem": "{{nome_aluno}} está com {{percentual}}% de frequência na turma {{turma}}.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 76,
+    "nome": "Cadastro incompleto — aluno",
+    "gatilho": "cadastro_aluno_pendente",
+    "titulo": "Complete seu cadastro",
+    "mensagem": "{{nome}}, seu cadastro está incompleto. Finalize para ter acesso completo.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 111,
+    "nome": "Cadastro incompleto",
+    "gatilho": "cadastro_incompleto",
+    "titulo": "Complete seu cadastro 📝",
+    "mensagem": "{{nome}}, você tem dados pendentes no seu perfil. Finalize para ter acesso completo.",
+    "destino_tela": "todos",
+    "destino_roles": [],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 24,
+    "nome": "Cartão expirando",
+    "gatilho": "cartao_expirando",
+    "titulo": "Seu cartão vai expirar em breve",
+    "mensagem": "{{nome}}, atualize seu cartão para não perder sua próxima doação.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 36000,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 49,
+    "nome": "Aluno não identificado na catraca",
+    "gatilho": "catraca_aluno_sem_turma",
+    "titulo": "Aluno sem turma na catraca ⚠️",
+    "mensagem": "Um aluno sem turma vinculada tentou entrar pela catraca às {{hora}}.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "coordenador_pec",
+      "monitor_pec",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 96,
+    "nome": "Catraca offline",
+    "gatilho": "catraca_offline",
+    "titulo": "Catraca offline 🔴",
+    "mensagem": "A catraca {{nome_catraca}} está offline há {{minutos}} minutos.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 4320,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 50,
+    "nome": "Saída pendente na catraca",
+    "gatilho": "catraca_saida_pendente",
+    "titulo": "Saída pendente de verificação",
+    "mensagem": "{{nome_aluno}} entrou mas a saída ainda não foi registrada após {{horas}}h.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "coordenador_pec",
+      "monitor_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 2880,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 63,
+    "nome": "Chamada aberta para registro",
+    "gatilho": "chamada_aberta",
+    "titulo": "Chamada aberta — turma {{turma}}",
+    "mensagem": "A chamada da aula de {{data}} está aberta para preenchimento.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "monitor_pec",
+      "monitor_inclusao",
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "monitor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 67,
+    "nome": "Chamada disponível para professor",
+    "gatilho": "chamada_disponivel",
+    "titulo": "Chamada disponível — {{turma}}",
+    "mensagem": "A chamada da aula de {{data}} está disponível para registro.",
+    "destino_tela": "todos",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "professor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 52,
+    "nome": "Chamada editada manualmente",
+    "gatilho": "chamada_editada_manual",
+    "titulo": "Chamada editada por {{usuario}}",
+    "mensagem": "A chamada da turma {{turma}} em {{data}} foi editada manualmente. Verifique.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 64,
+    "nome": "Chamada não finalizada",
+    "gatilho": "chamada_nao_finalizada",
+    "titulo": "Chamada não foi finalizada",
+    "mensagem": "A chamada da turma {{turma}} em {{data}} está incompleta. Finalize.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "monitor_pec",
+      "monitor_inclusao",
+      "professor_pec",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "monitor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 51,
+    "nome": "Chamada pendente",
+    "gatilho": "chamada_pendente",
+    "titulo": "Chamada da aula de {{turma}} pendente",
+    "mensagem": "A chamada de {{data}} ainda não foi registrada. Regularize antes de {{limite}}.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 99,
+    "nome": "Cielo com falha",
+    "gatilho": "cielo_falhou",
+    "titulo": "Pagamento Cielo com falha",
+    "mensagem": "A transação Cielo {{id_transacao}} falhou: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 37,
+    "nome": "Conquista liberada",
+    "gatilho": "conquista_liberada",
+    "titulo": "Nova conquista desbloqueada! 🏅",
+    "mensagem": "{{nome}}, você desbloqueou: {{titulo}}. Continue assim!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 65,
+    "nome": "Correção de chamada solicitada",
+    "gatilho": "correcao_chamada_solicitada",
+    "titulo": "Solicitação de correção de chamada",
+    "mensagem": "A chamada da turma {{turma}} em {{data}} foi enviada para revisão.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "monitor_pec",
+      "monitor_inclusao",
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "monitor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 93,
+    "nome": "CRON com falha",
+    "gatilho": "cron_falhou",
+    "titulo": "CRON falhou: {{nome_cron}}",
+    "mensagem": "O job agendado {{nome_cron}} falhou: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 97,
+    "nome": "Dinamize sync falhou",
+    "gatilho": "dinamize_sync_falhou",
+    "titulo": "Sync Dinamize com falha",
+    "mensagem": "A sincronização com o Dinamize falhou: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "dev-marketing"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 13,
+    "nome": "Doação confirmada",
+    "gatilho": "doacao_confirmada",
+    "titulo": "Sua doação foi confirmada! 💙",
+    "mensagem": "Obrigado {{nome}}! Sua contribuição de {{valor}} foi processada com sucesso.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 14,
+    "nome": "Doação recusada",
+    "gatilho": "doacao_recusada",
+    "titulo": "Problema no pagamento",
+    "mensagem": "{{nome}}, não conseguimos processar sua doação. Tente novamente.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 12,
+    "nome": "Doador cadastrado",
+    "gatilho": "doador_cadastrado",
+    "titulo": "Bem-vindo ao Clube do Grito!",
+    "mensagem": "Olá {{nome}}, sua conta foi criada. Comece a fazer parte da mudança!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 120,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 17,
+    "nome": "Doador inadimplente 15 dias",
+    "gatilho": "doador_inadimplente_15_dias",
+    "titulo": "Seu apoio faz diferença",
+    "mensagem": "Há 15 dias sem sua doação, {{nome}}. O Instituto O Grito precisa de você.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 20,
+    "nome": "Doador inadimplente 180 dias",
+    "gatilho": "doador_inadimplente_180_dias",
+    "titulo": "Você faz falta no Clube",
+    "mensagem": "{{nome}}, já são 6 meses. Temos novidades esperando por você!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 18,
+    "nome": "Doador inadimplente 30 dias",
+    "gatilho": "doador_inadimplente_30_dias",
+    "titulo": "Volte para o Clube do Grito",
+    "mensagem": "{{nome}}, você está há 30 dias sem contribuir. Sua parcela especial está esperando.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 21,
+    "nome": "Doador inadimplente 365 dias",
+    "gatilho": "doador_inadimplente_365_dias",
+    "titulo": "1 ano — queremos você de volta",
+    "mensagem": "{{nome}}, sentimos muito a sua falta. Conheça os novos planos do Instituto O Grito.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 15,
+    "nome": "Doador inadimplente 5 dias",
+    "gatilho": "doador_inadimplente_5_dias",
+    "titulo": "Renove sua contribuição",
+    "mensagem": "{{nome}}, sua doação está atrasada há 5 dias. Clique para regularizar.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 19,
+    "nome": "Doador inadimplente 60 dias",
+    "gatilho": "doador_inadimplente_60_dias",
+    "titulo": "Reative sua assinatura",
+    "mensagem": "{{nome}}, 60 dias sem doação. Reative agora e continue transformando vidas.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 16,
+    "nome": "Doador inadimplente 7 dias",
+    "gatilho": "doador_inadimplente_7_dias",
+    "titulo": "Sentimos sua falta!",
+    "mensagem": "{{nome}}, já faz 7 dias sem sua contribuição. Podemos contar com você?",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 43200,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 79,
+    "nome": "Erro crítico no sistema",
+    "gatilho": "erro_critico_sistema",
+    "titulo": "🚨 Erro crítico detectado",
+    "mensagem": "O sistema registrou um erro crítico: {{descricao}}. Verifique imediatamente.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 114,
+    "nome": "Solicitação de exclusão de chamada",
+    "gatilho": "exclusao_chamada_solicitada",
+    "titulo": "Nova solicitação de exclusão 🗑️",
+    "mensagem": "Chamada de {{turma}} em {{data}} — solicitado por {{solicitante}}. Motivo: {{motivo}}",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "admin",
+      "leo",
+      "dev",
+      "super_admin"
+    ],
+    "url": "/admin/solicitacoes-exclusao",
+    "cooldown_minutos": 5,
+    "modulo_alvo": null,
+    "prioridade": "alta",
+    "tipo": "automatico"
+  },
+  {
+    "id": 89,
+    "nome": "Exclusão de conta solicitada",
+    "gatilho": "exclusao_solicitada",
+    "titulo": "Solicitação de exclusão de conta",
+    "mensagem": "{{nome}} solicitou a exclusão de sua conta. Revise conforme a LGPD.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 73,
+    "nome": "Falta registrada — aluno",
+    "gatilho": "falta_registrada_aluno",
+    "titulo": "Falta registrada em {{data}}",
+    "mensagem": "{{nome}}, você foi marcado(a) como ausente em {{data}}. Justifique se necessário.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 92,
+    "nome": "Token Firebase inválido",
+    "gatilho": "firebase_token_invalido",
+    "titulo": "Token FCM inválido detectado",
+    "mensagem": "{{quantidade}} tokens Firebase foram invalidados e desativados automaticamente.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 77,
+    "nome": "Foto do aluno pendente",
+    "gatilho": "foto_aluno_pendente",
+    "titulo": "Foto de perfil pendente 📷",
+    "mensagem": "{{nome}}, adicione sua foto para o sistema de reconhecimento facial.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno",
+      "monitor_pec",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 100,
+    "nome": "Upload GCS com falha",
+    "gatilho": "gcs_upload_falhou",
+    "titulo": "Upload para o GCS falhou",
+    "mensagem": "Falha ao enviar {{arquivo}} para o Google Cloud Storage: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 32,
+    "nome": "Gritos creditados",
+    "gatilho": "gritos_creditados",
+    "titulo": "+ {{valor}} Gritos na sua conta! 🎶",
+    "mensagem": "{{nome}}, você ganhou {{valor}} Gritos. Saldo atual: {{saldo}}.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 34,
+    "nome": "Gritos — doação confirmada",
+    "gatilho": "gritos_doacao_confirmada",
+    "titulo": "Sua doação rendeu {{valor}} Gritos! 🎶",
+    "mensagem": "Obrigado {{nome}}! Doação confirmada e Gritos creditados.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 36,
+    "nome": "Gritos utilizados",
+    "gatilho": "gritos_utilizados",
+    "titulo": "{{valor}} Gritos utilizados",
+    "mensagem": "{{nome}}, você usou {{valor}} Gritos em {{titulo}}.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 31,
+    "nome": "História de sucesso atualizada",
+    "gatilho": "historia_sucesso_atualizada",
+    "titulo": "Novidades na história de {{titulo}}",
+    "mensagem": "A história de impacto foi atualizada. Veja o que mudou!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo",
+      "conselho",
+      "patrocinador"
+    ],
+    "url": null,
+    "cooldown_minutos": 120,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 30,
+    "nome": "História de sucesso publicada",
+    "gatilho": "historia_sucesso_publicada",
+    "titulo": "Nova história que inspira 💛",
+    "mensagem": "Conheça a história de {{nome_aluno}} e veja o impacto da sua doação!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 120,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 106,
+    "nome": "Indicador sem dados",
+    "gatilho": "indicador_sem_dados",
+    "titulo": "Indicador sem dados: {{indicador}}",
+    "mensagem": "O indicador {{indicador}} não possui dados para o período {{periodo}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "super_admin",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 94,
+    "nome": "Instagram sync falhou",
+    "gatilho": "instagram_sync_falhou",
+    "titulo": "Sincronização do Instagram falhou",
+    "mensagem": "O sync de métricas do Instagram falhou: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "dev-marketing"
+    ],
+    "url": null,
+    "cooldown_minutos": 2880,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 105,
+    "nome": "Token do Instagram expirado",
+    "gatilho": "instagram_token_expirado",
+    "titulo": "Token Instagram vai expirar em {{dias}} dias",
+    "mensagem": "Renove o token do Instagram antes de {{data}} para não perder a integração.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev-marketing",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 2880,
+    "modulo_alvo": "dev_marketing",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 80,
+    "nome": "Integração com falha",
+    "gatilho": "integracao_falhou",
+    "titulo": "Integração {{servico}} com falha",
+    "mensagem": "A integração {{servico}} falhou: {{erro}}. Verificação necessária.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 53,
+    "nome": "Justificativa de falta pendente",
+    "gatilho": "justificativa_pendente",
+    "titulo": "Falta sem justificativa em {{turma}}",
+    "mensagem": "{{nome_aluno}} tem falta sem justificativa em {{data}}. Regularize.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec",
+      "coordenador_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 27,
+    "nome": "Lance recebido no leilão",
+    "gatilho": "lance_recebido",
+    "titulo": "Lance realizado! 🏷️",
+    "mensagem": "Seu lance de {{valor}} Gritos no benefício {{titulo}} foi registrado.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 10,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 28,
+    "nome": "Lance superado",
+    "gatilho": "lance_superado",
+    "titulo": "Você foi superado! ⚡",
+    "mensagem": "{{nome}}, alguém superou seu lance em {{titulo}}. Aumente para vencer!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 29,
+    "nome": "Vencedor do leilão",
+    "gatilho": "lance_vencedor",
+    "titulo": "Você venceu o leilão! 🏆",
+    "mensagem": "Parabéns {{nome}}! Você venceu o benefício {{titulo}}. Aguarde o contato.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 10,
+    "nome": "Leilão encerrado",
+    "gatilho": "leilao_encerrado",
+    "titulo": "Um leilão foi encerrado!",
+    "mensagem": "Mais um leilão foi finalizado. Acesse o Clube do Grito e confira quem levou esse benefício.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 9,
+    "nome": "Leilão prestes a encerrar",
+    "gatilho": "leilao_encerrando",
+    "titulo": "Última chance de dar seu lance!",
+    "mensagem": "Tem um leilão quase acabando. Corre para dar seu lance antes que o tempo termine.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 5,
+    "nome": "Lembrete de check-in",
+    "gatilho": "lembrete_checkin",
+    "titulo": "Olá {{nome}}! Faça Check-In hoje e acumule Gritos!",
+    "mensagem": "Faça Check-in todos os dias e receba 1000 Gritos no sétimo dia!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": "/tdoador",
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 110,
+    "nome": "Login suspeito",
+    "gatilho": "login_suspeito",
+    "titulo": "⚠️ Login suspeito detectado",
+    "mensagem": "Tentativa de login suspeita para o usuário {{nome}} a partir de {{local}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 115,
+    "nome": "teste",
+    "gatilho": "manual",
+    "titulo": "Olá {{nome}}!",
+    "mensagem": "Teste",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno",
+      "student"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "manual"
+  },
+  {
+    "id": 104,
+    "nome": "Métricas de marketing atualizadas",
+    "gatilho": "marketing_metricas_atualizadas",
+    "titulo": "Métricas atualizadas 📊",
+    "mensagem": "As métricas de marketing do período {{periodo}} foram atualizadas.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev-marketing"
+    ],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "dev_marketing",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 40,
+    "nome": "Meta batida",
+    "gatilho": "meta_batida",
+    "titulo": "Meta atingida! 🎯",
+    "mensagem": "Parabéns! A meta de {{vertente}} foi alcançada com {{percentual}}%.",
+    "destino_tela": "conselho",
+    "destino_roles": [
+      "conselho",
+      "super_admin",
+      "coordenador_pec",
+      "coordenador_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "conselho",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 25,
+    "nome": "Missão concluída",
+    "gatilho": "missao_concluida",
+    "titulo": "Missão concluída! +{{gritos}} Gritos 🎉",
+    "mensagem": "Parabéns {{nome}}, você completou a missão {{titulo}}! Seus Gritos foram creditados.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 101,
+    "nome": "Notificação manual enviada",
+    "gatilho": "notificacao_manual_enviada",
+    "titulo": "Envio manual concluído",
+    "mensagem": "A notificação manual foi enviada para {{quantidade}} destinatários.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev-marketing"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "dev_marketing",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 102,
+    "nome": "Notificação manual falhou",
+    "gatilho": "notificacao_manual_falhou",
+    "titulo": "Falha no envio manual",
+    "mensagem": "O envio manual falhou para {{quantidade}} destinatários: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev-marketing",
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 5,
+    "modulo_alvo": "dev_marketing",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 6,
+    "nome": "Nova missão para doadores",
+    "gatilho": "nova_missao",
+    "titulo": "Bora ganhar mais Gritos?",
+    "mensagem": "Tem missão nova esperando por você. Acesse o Clube do Grito, participe e acumule Gritos.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": "/missoes",
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 7,
+    "nome": "Novo benefício para doadores",
+    "gatilho": "novo_beneficio",
+    "titulo": "Bora disputar esse benefício?",
+    "mensagem": "Tem prêmio novo esperando por você. Use seus Gritos, dê seu lance e participe!",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 8,
+    "nome": "Novo lance no leilão",
+    "gatilho": "novo_lance_leilao",
+    "titulo": "Fala {{nome}}! Tem lance novo no leilão!",
+    "mensagem": "Alguém acabou de dar um novo lance. Acesse o Clube do Grito e veja se ainda dá tempo de disputar. ",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": "/meus-lances",
+    "cooldown_minutos": 0,
+    "modulo_alvo": null,
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 86,
+    "nome": "Permissão de usuário alterada",
+    "gatilho": "permissao_alterada",
+    "titulo": "Permissão alterada por {{admin}}",
+    "mensagem": "As permissões de {{nome}} foram alteradas de {{de}} para {{para}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 22,
+    "nome": "Plano de doação alterado",
+    "gatilho": "plano_alterado",
+    "titulo": "Seu plano foi atualizado",
+    "mensagem": "{{nome}}, as alterações no seu plano de doação foram salvas com sucesso.",
+    "destino_tela": "doador",
+    "destino_roles": [
+      "doador",
+      "leo"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "doador",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 48,
+    "nome": "Presença registrada pela catraca",
+    "gatilho": "presenca_catraca_registrada",
+    "titulo": "{{nome_aluno}} chegou à unidade",
+    "mensagem": "Entrada registrada pela catraca às {{hora}}.",
+    "destino_tela": "monitor",
+    "destino_roles": [
+      "coordenador_pec",
+      "monitor_pec",
+      "monitor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 2,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 72,
+    "nome": "Presença confirmada — aluno",
+    "gatilho": "presenca_confirmada_aluno",
+    "titulo": "Presença registrada! ✅",
+    "mensagem": "{{nome}}, sua presença na aula de {{data}} foi confirmada.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 113,
+    "nome": "Primeiro acesso realizado",
+    "gatilho": "primeiro_acesso_realizado",
+    "titulo": "Novo primeiro acesso",
+    "mensagem": "{{nome}} acessou a plataforma pela primeira vez em {{data}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 55,
+    "nome": "Risco de evasão",
+    "gatilho": "risco_evasao",
+    "titulo": "Alerta de risco de evasão 🚨",
+    "mensagem": "{{nome_aluno}} apresenta indicadores de risco de evasão. Ação recomendada.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "coordenador_psicossocial",
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 10080,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 112,
+    "nome": "Senha alterada",
+    "gatilho": "senha_alterada",
+    "titulo": "Senha alterada com sucesso 🔐",
+    "mensagem": "{{nome}}, sua senha foi alterada em {{data}}. Se não foi você, entre em contato.",
+    "destino_tela": "todos",
+    "destino_roles": [],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 95,
+    "nome": "Stripe sync falhou",
+    "gatilho": "stripe_sync_falhou",
+    "titulo": "Sync Stripe com falha",
+    "mensagem": "A sincronização com o Stripe falhou: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev",
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 30,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 83,
+    "nome": "Termos aceitos",
+    "gatilho": "termos_aceitos",
+    "titulo": "Novos termos aceitos",
+    "mensagem": "{{nome}} aceitou os termos de uso em {{data}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 84,
+    "nome": "Termos pendentes",
+    "gatilho": "termos_pendentes",
+    "titulo": "Usuários com termos pendentes",
+    "mensagem": "{{quantidade}} usuários ainda não aceitaram os termos de uso atualizados.",
+    "destino_tela": "todos",
+    "destino_roles": [],
+    "url": null,
+    "cooldown_minutos": 60,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 57,
+    "nome": "Turma alterada",
+    "gatilho": "turma_alterada",
+    "titulo": "Turma {{nome_turma}} atualizada",
+    "mensagem": "Houve alterações na turma {{nome_turma}}. Verifique as mudanças.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "professor_pec",
+      "professor_inclusao",
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 75,
+    "nome": "Turma do aluno alterada",
+    "gatilho": "turma_aluno_alterada",
+    "titulo": "Sua turma foi atualizada",
+    "mensagem": "Houve mudanças na turma {{nome_turma}}. Acesse para ver os detalhes.",
+    "destino_tela": "aluno",
+    "destino_roles": [
+      "aluno"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "aluno",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 56,
+    "nome": "Turma criada",
+    "gatilho": "turma_criada",
+    "titulo": "Nova turma criada",
+    "mensagem": "A turma {{nome_turma}} foi criada para {{vertente}}.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "coordenador_pec",
+      "coordenador_inclusao",
+      "professor_pec",
+      "professor_inclusao",
+      "monitor_pec"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "pec",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 70,
+    "nome": "Turma do professor alterada",
+    "gatilho": "turma_professor_alterada",
+    "titulo": "Sua turma foi atualizada",
+    "mensagem": "Houve mudanças na turma {{nome_turma}} vinculada ao seu perfil.",
+    "destino_tela": "professor",
+    "destino_roles": [
+      "professor_pec",
+      "professor_inclusao"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "professor",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 87,
+    "nome": "Usuário bloqueado",
+    "gatilho": "usuario_bloqueado",
+    "titulo": "Usuário bloqueado",
+    "mensagem": "{{nome}} teve o acesso bloqueado por {{admin}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 78,
+    "nome": "Usuário cadastrado",
+    "gatilho": "usuario_cadastrado",
+    "titulo": "Novo usuário cadastrado",
+    "mensagem": "{{nome}} se cadastrou na plataforma com o perfil {{perfil}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 88,
+    "nome": "Usuário desbloqueado",
+    "gatilho": "usuario_desbloqueado",
+    "titulo": "Usuário desbloqueado",
+    "mensagem": "{{nome}} teve o acesso restaurado por {{admin}}.",
+    "destino_tela": "administrador",
+    "destino_roles": [
+      "super_admin"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "admin",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  },
+  {
+    "id": 91,
+    "nome": "Webhook com falha",
+    "gatilho": "webhook_falhou",
+    "titulo": "Webhook falhou",
+    "mensagem": "O webhook {{servico}} falhou ao processar: {{erro}}.",
+    "destino_tela": "dev",
+    "destino_roles": [
+      "dev"
+    ],
+    "url": null,
+    "cooldown_minutos": 0,
+    "modulo_alvo": "dev",
+    "prioridade": "normal",
+    "tipo": "automatico"
+  }
+]
