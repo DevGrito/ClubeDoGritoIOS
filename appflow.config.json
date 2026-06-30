@@ -1,7 +1,12 @@
 {
   "apps": [
     {
-      "appId": "com.institutoogrito.clubedogrito",
+      "appId": "407dfc0f",
+      "dependencyInstallCommand": "npm ci",
+      "webBuildCommand": "npm run build && npx cap sync ios"
+    },
+    {
+      "appId": "a3859c35",
       "dependencyInstallCommand": "npm ci",
       "webBuildCommand": "npm run build && npx cap sync android"
     }
