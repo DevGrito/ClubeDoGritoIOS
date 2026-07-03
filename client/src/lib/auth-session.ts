@@ -75,6 +75,22 @@ export type AuthSessionPayload = {
   monitorId?: number | null;
 };
 
+export function isAlunoPortalSession(session: AuthSessionPayload | null | undefined): boolean {
+  if (!session?.id) return false;
+  const actor = String(session.actorType || "").toLowerCase();
+  const papel = String(session.papel || session.role || "").toLowerCase();
+  return actor === "aluno_portal" || actor === "aluno" || papel === "aluno_portal" || papel === "aluno";
+}
+
+export function getAlunoPortalCpf(session: AuthSessionPayload | null | undefined): string {
+  if (!session) return "";
+  const fromCpf = String(session.cpf || "").replace(/\D/g, "");
+  if (fromCpf.length === 11) return fromCpf;
+  const fromId = String(session.id ?? "").replace(/\D/g, "");
+  if (fromId.length === 11) return fromId;
+  return "";
+}
+
 const ALUNO_PORTAL_CACHE_KEYS = ["aluno_cpf", "aluno_nome", "aluno_auth"] as const;
 const SCANNER_CACHE_KEYS = ["scanner_auth", "scanner_user", "scanner_nome"] as const;
 const TABLET_CHAMADA_CACHE_KEYS = [
@@ -113,11 +129,19 @@ export function syncSessionToLocalStorage(session: AuthSessionPayload): void {
 /** Invalida React Query e recarrega sessão do backend após login bem-sucedido. */
 export async function syncAuthSessionAfterLogin(): Promise<AuthSessionPayload | null> {
   await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
-  const session = await fetchAuthSessionAndSyncCache();
-  if (session) {
-    await syncPrivacyConsentAfterLogin(session);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const session = await fetchAuthSessionAndSyncCache();
+    if (session?.id) {
+      await syncPrivacyConsentAfterLogin(session);
+      return session;
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
   }
-  return session;
+
+  return null;
 }
 
 /** Busca `/api/auth/session` e atualiza cache local. Retorna null se não autenticado. */
@@ -129,8 +153,8 @@ export async function fetchAuthSessionAndSyncCache(): Promise<AuthSessionPayload
   if (res.status === 401 || !res.ok) return null;
   const session = (await res.json()) as AuthSessionPayload;
   if (!session?.id) return null;
-  if (session.actorType === "aluno_portal") {
-    const cpfDigits = String(session.cpf || session.id || "").replace(/\D/g, "");
+  if (isAlunoPortalSession(session)) {
+    const cpfDigits = getAlunoPortalCpf(session);
     if (cpfDigits.length === 11) {
       syncAlunoPortalCache({ ...session, cpf: cpfDigits });
     }
@@ -150,11 +174,19 @@ export async function fetchAuthSessionAndSyncCache(): Promise<AuthSessionPayload
 
 /** Cache UI do portal do aluno (não é fonte de autorização). */
 export function syncAlunoPortalCache(session: AuthSessionPayload): void {
-  const cpf = (session.cpf || "").replace(/\D/g, "");
+  const cpf = getAlunoPortalCpf(session);
+  const nome = session.nome || "";
+  const prevCpf = sessionStorage.getItem("aluno_cpf") || "";
+  const prevNome = sessionStorage.getItem("aluno_nome") || "";
+  const prevAuth = sessionStorage.getItem("aluno_auth");
+
   if (cpf) sessionStorage.setItem("aluno_cpf", cpf);
-  if (session.nome) sessionStorage.setItem("aluno_nome", session.nome);
+  if (nome) sessionStorage.setItem("aluno_nome", nome);
   sessionStorage.setItem("aluno_auth", "true");
-  window.dispatchEvent(new Event("aluno-auth-changed"));
+
+  if (cpf !== prevCpf || nome !== prevNome || prevAuth !== "true") {
+    window.dispatchEvent(new Event("aluno-auth-changed"));
+  }
 }
 
 export function syncScannerCache(session: AuthSessionPayload): void {
@@ -170,7 +202,9 @@ export function syncTabletChamadaCache(session: AuthSessionPayload): void {
 
 export async function fetchAlunoPortalSession(): Promise<AuthSessionPayload | null> {
   const session = await fetchAuthSessionAndSyncCache();
-  if (!session || session.actorType !== "aluno_portal" || !session.cpf) return null;
+  if (!session || !isAlunoPortalSession(session) || getAlunoPortalCpf(session).length !== 11) {
+    return null;
+  }
   return session;
 }
 

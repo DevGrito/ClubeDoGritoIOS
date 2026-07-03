@@ -1,10 +1,11 @@
 import type { AuthSessionPayload } from "@/lib/auth-session";
+import { isAlunoPortalSession, getAlunoPortalCpf } from "@/lib/auth-session";
 
 /** Rota pós-login com base na sessão confirmada pelo backend (fonte de verdade). */
 export function getPostLoginPath(session: AuthSessionPayload): string {
   const role = String(session.papel || session.role || "").toLowerCase();
 
-  if (session.actorType === "aluno_portal" && session.cpf) {
+  if (isAlunoPortalSession(session) && getAlunoPortalCpf(session)) {
     return "/aluno";
   }
   if (session.actorType === "scanner") {

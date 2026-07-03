@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest, authFetch } from '@/lib/queryClient';
-import { logoutAndClearSession } from '@/lib/auth-session';
+import { logoutAndClearSession, isAlunoPortalSession, getAlunoPortalCpf } from '@/lib/auth-session';
 import { useAuthSession } from '@/hooks/useAuthSession';
 import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from '@/components/AreaConsentGate';
 import { openPrivacyPreferences } from '@/lib/consentManager';
@@ -1362,27 +1362,26 @@ export default function AlunoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [fotoPortal, setFotoPortal] = useState<string | null>(null);
 
-  const { data: authSession, isLoading: loadingAuth, isFetched: authFetched } = useAuthSession();
+  const { data: authSession, isLoading: loadingAuth, isFetched: authFetched, isFetching: authFetching } = useAuthSession();
   const cpfFromSession = (() => {
-    if (authSession?.actorType !== 'aluno_portal') {
+    if (!isAlunoPortalSession(authSession)) {
       return sessionStorage.getItem('aluno_cpf') || '';
     }
-    const fromCpf = String(authSession.cpf || '').replace(/\D/g, '');
-    if (fromCpf.length === 11) return fromCpf;
-    const fromId = String(authSession.id ?? '').replace(/\D/g, '');
-    if (fromId.length === 11) return fromId;
+    const fromSession = getAlunoPortalCpf(authSession);
+    if (fromSession.length === 11) return fromSession;
     return sessionStorage.getItem('aluno_cpf') || '';
   })();
   const cpf = cpfFromSession.replace(/\D/g, '');
-  const autenticado =
-    authSession?.actorType === 'aluno_portal' && cpf.length === 11;
+  const autenticado = isAlunoPortalSession(authSession) && cpf.length === 11;
 
   const { ready: consentReady, checking: consentChecking, markReady: markConsentReady } =
     useAreaConsentReady('students', { enabled: autenticado });
 
   React.useEffect(() => {
-    if (authFetched && !loadingAuth && !autenticado) setLocation('/login/aluno');
-  }, [autenticado, authFetched, loadingAuth, setLocation]);
+    if (authFetched && !loadingAuth && !authFetching && !autenticado) {
+      setLocation('/login/aluno');
+    }
+  }, [autenticado, authFetched, loadingAuth, authFetching, setLocation]);
 
   const usarDemoData = false;
 

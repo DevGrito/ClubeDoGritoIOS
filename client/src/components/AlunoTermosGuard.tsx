@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { isAlunoPortalSession, getAlunoPortalCpf } from "@/lib/auth-session";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
 
@@ -55,10 +56,9 @@ export default function AlunoTermosGuard({ children }: Props) {
 
   useEffect(() => {
     if (!isFetched) return;
-    const cpf =
-      authSession?.actorType === "aluno_portal" && authSession.cpf
-        ? authSession.cpf
-        : sessionStorage.getItem("aluno_cpf");
+    const cpf = isAlunoPortalSession(authSession)
+      ? getAlunoPortalCpf(authSession) || sessionStorage.getItem("aluno_cpf")
+      : sessionStorage.getItem("aluno_cpf");
     if (!cpf) { setStatus("aceito"); return; }
 
     // Chave de cache inclui o CPF para não conflitar entre alunos no mesmo dispositivo
@@ -85,10 +85,9 @@ export default function AlunoTermosGuard({ children }: Props) {
 
   const handleAceitar = async () => {
     setAceitando(true);
-    const cpf =
-      authSession?.actorType === "aluno_portal" && authSession.cpf
-        ? authSession.cpf
-        : sessionStorage.getItem("aluno_cpf");
+    const cpf = isAlunoPortalSession(authSession)
+      ? getAlunoPortalCpf(authSession) || sessionStorage.getItem("aluno_cpf")
+      : sessionStorage.getItem("aluno_cpf");
     if (cpf) {
       const ok = await registrarAceiteAluno(cpf);
       const cacheKey = `${CACHE_KEY}_${cpf.replace(/\D/g, '')}`;

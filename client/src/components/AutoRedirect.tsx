@@ -157,6 +157,7 @@ function getDefaultRouteForRole(userPapel: string): string {
     case 'professor_lider':
       return '/professor';
     case 'aluno':
+    case 'aluno_portal':
       return '/aluno';
     case 'conselho':
     case 'conselheiro':

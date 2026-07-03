@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, User, Lock, Eye, EyeOff, ArrowLeft, Mail, CheckCircle, KeyRound, Hash } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { syncAuthSessionAfterLogin, syncAlunoPortalCache } from "@/lib/auth-session";
+import { useAuthSession } from "@/hooks/useAuthSession";
+import { syncAuthSessionAfterLogin, syncAlunoPortalCache, isAlunoPortalSession, getAlunoPortalCpf } from "@/lib/auth-session";
 import logoOGrito from "../app-assets/logo_ogrito_1773942740072.png";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
@@ -37,6 +38,7 @@ type Step = 'login' | 'esqueci' | 'codigo' | 'redefinir';
 export default function AlunoLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { data: authSession, isFetched, isLoading, isFetching } = useAuthSession();
 
   const [step, setStep] = useState<Step>('login');
 
@@ -66,6 +68,13 @@ export default function AlunoLogin() {
   const [showConfirmar, setShowConfirmar] = useState(false);
   const [loadingReset, setLoadingReset] = useState(false);
 
+  useEffect(() => {
+    if (!isFetched || isLoading || isFetching) return;
+    if (!isAlunoPortalSession(authSession) || getAlunoPortalCpf(authSession).length !== 11) return;
+    if (step !== 'login') return;
+    setLocation('/aluno');
+  }, [authSession, isFetched, isLoading, isFetching, setLocation, step]);
+
   const handleLogin = async () => {
     const cpfLimpo = cpf.replace(/\D/g, '');
     setErroCpfLogin('');
@@ -94,8 +103,8 @@ export default function AlunoLogin() {
       }
 
       const session = await syncAuthSessionAfterLogin();
-      const cpfSessao = String(session?.cpf || data.cpf || "").replace(/\D/g, "");
-      if (!session?.id || session.actorType !== "aluno_portal" || cpfSessao.length !== 11) {
+      const cpfSessao = getAlunoPortalCpf(session) || String(data.cpf || "").replace(/\D/g, "");
+      if (!session?.id || !isAlunoPortalSession(session) || cpfSessao.length !== 11) {
         toast({ title: "Erro no login", description: "Sessão não foi criada. Tente novamente.", variant: "destructive" });
         return;
       }
