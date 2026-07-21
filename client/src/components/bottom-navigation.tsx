@@ -102,9 +102,12 @@ export default function BottomNavigation({ onBeneficiosClick, hideBeneficios = f
         "fixed bottom-0 left-0 right-0 bg-yellow-400 z-50 transition-transform duration-300",
         hidden ? "translate-y-[120%]" : "translate-y-0"
       )}
-      style={{ borderRadius: '20px 20px 45px 45px' }}
+      style={{
+        borderRadius: '20px 20px 45px 45px',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
     >
-      <div className="flex items-center justify-around py-0 px-4 max-w-md mx-auto">
+      <div className="flex items-center justify-around py-1 px-4 max-w-md mx-auto">
         {filteredNavItems.map((item) => {
           const isActive = activeItem === item.id;
           

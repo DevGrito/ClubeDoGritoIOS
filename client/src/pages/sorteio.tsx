@@ -320,7 +320,7 @@ function SorteioSection() {
 
 export default function Sorteio() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 pb-donor-nav">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-100">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">

@@ -341,7 +341,7 @@ export default function Perfil() {
 
   // Show improved profile page for logged in users
   return (
-    <div className="min-h-screen bg-white pb-20 font-inter">
+    <div className="min-h-screen bg-white pb-donor-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 pt-12 pb-3 flex items-center">

@@ -253,85 +253,95 @@ export default function AreaConsentGate({ area, onAccept, onNavigate }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-white"
-      style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif" }}
+      className="fixed inset-0 z-50 flex flex-col bg-white"
+      style={{
+        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}
     >
-      <div className="w-full max-w-md mx-auto px-5 py-8 flex flex-col items-center gap-5">
-        <img src={logoPath} alt="Clube do Grito" className="h-16 w-16 object-contain rounded-full" />
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+        <div className="w-full max-w-md mx-auto px-5 py-6 sm:py-8 flex flex-col items-center gap-5">
+          <img src={logoPath} alt="Clube do Grito" className="h-14 w-14 sm:h-16 sm:w-16 object-contain rounded-full shrink-0" />
 
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center">
-              <Shield className="w-4 h-4 text-black" />
+          <div className="text-center w-full">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 text-black" />
+              </div>
+              <h1 className="text-base font-bold text-gray-900 leading-snug">{config.title}</h1>
             </div>
-            <h1 className="text-base font-bold text-gray-900">{config.title}</h1>
+            <p className="text-sm text-gray-600 leading-relaxed text-left">{config.notice}</p>
           </div>
-          <p className="text-sm text-gray-600 leading-relaxed text-left">{config.notice}</p>
-        </div>
 
-        <div className="w-full bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mandatoryChecked}
-              onChange={(e) => setMandatoryChecked(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded accent-yellow-400 flex-shrink-0"
-            />
-            <span className="text-xs text-gray-700 leading-relaxed">
-              <span className="text-red-500 font-bold mr-0.5">*</span>
-              {config.mandatoryLabel}
-            </span>
-          </label>
-
-          {(config.optionals || []).map((opt) => (
-            <label key={opt.key} className="flex items-start gap-2.5 cursor-pointer">
+          <div className="w-full bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
+            <label className="flex items-start gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
-                checked={optionals[opt.key] ?? false}
-                onChange={(e) => setOptionals((prev) => ({ ...prev, [opt.key]: e.target.checked }))}
+                checked={mandatoryChecked}
+                onChange={(e) => setMandatoryChecked(e.target.checked)}
                 className="mt-0.5 w-4 h-4 rounded accent-yellow-400 flex-shrink-0"
               />
-              <span className="text-xs text-gray-700 leading-relaxed">{opt.label}</span>
+              <span className="text-xs text-gray-700 leading-relaxed">
+                <span className="text-red-500 font-bold mr-0.5">*</span>
+                {config.mandatoryLabel}
+              </span>
             </label>
-          ))}
 
-          <p className="text-xs text-gray-400 pt-1">
-            <span className="text-red-500 font-bold">*</span> Obrigatório para acessar esta área.
-          </p>
-          {saveError && (
-            <p className="text-xs text-red-600 text-center pt-1">{saveError}</p>
-          )}
+            {(config.optionals || []).map((opt) => (
+              <label key={opt.key} className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={optionals[opt.key] ?? false}
+                  onChange={(e) => setOptionals((prev) => ({ ...prev, [opt.key]: e.target.checked }))}
+                  className="mt-0.5 w-4 h-4 rounded accent-yellow-400 flex-shrink-0"
+                />
+                <span className="text-xs text-gray-700 leading-relaxed">{opt.label}</span>
+              </label>
+            ))}
+
+            <p className="text-xs text-gray-400 pt-1">
+              <span className="text-red-500 font-bold">*</span> Obrigatório para acessar esta área.
+            </p>
+            {saveError && (
+              <p className="text-xs text-red-600 text-center pt-1">{saveError}</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-3 justify-center pb-2">
+            <button
+              onClick={() => onNavigate("/politica-de-privacidade")}
+              className="text-xs text-gray-400 underline hover:text-gray-600"
+            >
+              Política de Privacidade
+            </button>
+            <span className="text-gray-300 text-xs">·</span>
+            <button
+              onClick={() => onNavigate("/termos-de-uso")}
+              className="text-xs text-gray-400 underline hover:text-gray-600"
+            >
+              Termos de Uso
+            </button>
+            <span className="text-gray-300 text-xs">·</span>
+            <button
+              onClick={() => onNavigate("/direitos-do-titular")}
+              className="text-xs text-gray-400 underline hover:text-gray-600"
+            >
+              Direitos do Titular
+            </button>
+          </div>
         </div>
+      </div>
 
-        <button
-          onClick={handleAccept}
-          disabled={!mandatoryChecked || saving}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all bg-yellow-400 hover:bg-yellow-500 text-black disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
-        >
-          <CheckCircle className="w-4 h-4" />
-          {saving ? "Salvando..." : "Aceitar e continuar"}
-        </button>
-
-        <div className="flex flex-wrap gap-3 justify-center">
+      <div className="shrink-0 border-t border-gray-100 bg-white px-5 py-3">
+        <div className="w-full max-w-md mx-auto">
           <button
-            onClick={() => onNavigate("/politica-de-privacidade")}
-            className="text-xs text-gray-400 underline hover:text-gray-600"
+            onClick={handleAccept}
+            disabled={!mandatoryChecked || saving}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all bg-yellow-400 hover:bg-yellow-500 text-black disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
           >
-            Política de Privacidade
-          </button>
-          <span className="text-gray-300 text-xs">·</span>
-          <button
-            onClick={() => onNavigate("/termos-de-uso")}
-            className="text-xs text-gray-400 underline hover:text-gray-600"
-          >
-            Termos de Uso
-          </button>
-          <span className="text-gray-300 text-xs">·</span>
-          <button
-            onClick={() => onNavigate("/direitos-do-titular")}
-            className="text-xs text-gray-400 underline hover:text-gray-600"
-          >
-            Direitos do Titular
+            <CheckCircle className="w-4 h-4" />
+            {saving ? "Salvando..." : "Aceitar e continuar"}
           </button>
         </div>
       </div>

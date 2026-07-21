@@ -6,8 +6,33 @@ interface PageTransitionProps {
   children: React.ReactNode;
 }
 
+/** Layout com scroll interno (ex.: área do aluno) — sem motion/absolute. */
+const fullscreenAppPages = ["/aluno"];
+
+/**
+ * Telas do doador e afins: o wrapper absolute+transform do Framer Motion
+ * trava o scroll no WebView Android. Renderiza sem motion, com overflow.
+ */
+const scrollSafePages = [
+  "/tdoador",
+  "/beneficios",
+  "/beneficios-onboarding",
+  "/pagamentos",
+  "/perfil",
+  "/impacto",
+  "/sorteio",
+  "/missoes-semanais",
+  "/missoes",
+  "/noticias",
+  "/central-ajuda",
+  "/change-plan",
+  "/dados-cadastrais",
+  "/configuracoes",
+  "/sobre",
+];
+
 // Páginas do menu amarelo que NÃO devem ter animação de slide
-const menuPages = ["/tdoador", "/sorteio", "/noticias", "/pagamentos", "/central-ajuda", "/perfil", "/beneficios"];
+const menuPages = ["/tdoador", "/sorteio", "/noticias", "/pagamentos", "/central-ajuda", "/perfil", "/beneficios", "/impacto"];
 
 // Definir hierarquia de páginas para determinar direção da animação
 const pageHierarchy = {
@@ -37,6 +62,8 @@ const pageHierarchy = {
   "/central-ajuda": 16,
   "/sorteio-admin": 24,
   "/dev": 25,
+  "/impacto": 17,
+  "/missoes-semanais": 18,
 };
 
 let previousPath = "/";
@@ -86,7 +113,29 @@ export function PageTransition({ children }: PageTransitionProps) {
   };
 
   if (!isReady) {
+    if (fullscreenAppPages.includes(location)) {
+      return <div className="h-screen w-full">{children}</div>;
+    }
+    if (scrollSafePages.includes(location)) {
+      return (
+        <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain touch-pan-y bg-white [-webkit-overflow-scrolling:touch]">
+          {children}
+        </div>
+      );
+    }
     return <div className="absolute inset-0 w-full h-full bg-white">{children}</div>;
+  }
+
+  if (fullscreenAppPages.includes(location)) {
+    return <div className="h-screen w-full">{children}</div>;
+  }
+
+  if (scrollSafePages.includes(location)) {
+    return (
+      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain touch-pan-y bg-white [-webkit-overflow-scrolling:touch]">
+        {children}
+      </div>
+    );
   }
 
   return (

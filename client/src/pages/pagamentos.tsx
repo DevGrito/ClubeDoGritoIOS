@@ -876,7 +876,7 @@ export default function Pagamentos() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -30 }}
       transition={{ duration: 0.6, ease: "easeInOut" }}
-      className="min-h-screen bg-white pb-20 font-inter"
+      className="min-h-screen bg-white pb-donor-nav font-inter"
     >
       {/* Header */}
       <header className="bg-white">
@@ -1117,7 +1117,13 @@ export default function Pagamentos() {
 
       {/* Novo fluxo para adicionar cartão */}
       {showAddCardFlow && (
-        <div className="fixed inset-0 z-[9999] bg-white">
+        <div
+          className="fixed inset-0 z-[9999] bg-white overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+          style={{
+            paddingTop: "env(safe-area-inset-top, 0px)",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}
+        >
           <AddPaymentMethodFlow
             userId={(userData as any)?.id?.toString() || localStorage.getItem("userId") || ""}
             onSuccess={() => {

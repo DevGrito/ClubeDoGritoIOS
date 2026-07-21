@@ -1220,7 +1220,7 @@ export default function Welcome() {
   }
 
   return (
-    <div className="min-h-screen bg-white pb-20 font-inter">
+    <div className="min-h-screen bg-white pb-donor-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 py-3 flex items-center">
