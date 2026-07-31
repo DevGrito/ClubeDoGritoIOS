@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
+import { logoutAndClearSession } from "@/lib/auth-session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, BarChart3, TrendingUp, Eye, EyeOff, FileText, DollarSign, Filter, Download, Code, RefreshCw, Menu, User, Calendar, ChevronRight, BookOpen, ExternalLink } from "lucide-react";
+import { ArrowLeft, BarChart3, TrendingUp, Eye, EyeOff, FileText, DollarSign, Download, Code, Menu, User, Calendar, ChevronRight, BookOpen, ExternalLink } from "lucide-react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import Logo from "@/components/logo";
@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import ProgramsGraphDashboard from "@/components/charts/ProgramsGraphDashboard";
 import InteractiveDashboard from "@/components/dashboard/InteractiveDashboard";
-import ConselhoKpisSection, { type ConselhoKpisSectionRef } from "./conselho/components/ConselhoKpisSection";
+import DashboardGestaoVista from "@/pages/dashboard-gestao-vista";
 import ConselhoFinanceiroSection from "./conselho/components/ConselhoFinanceiroSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useUserData } from "@/hooks/useUserData";
@@ -55,30 +55,15 @@ export default function Conselho() {
   const [demoMode, setDemoMode] = useState(false);
   const [isLoading, setIsLoading] = useState(!getInitialAuth());
   const [showData, setShowData] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const kpiSectionRef = React.useRef<ConselhoKpisSectionRef>(null);
   const { userData } = useUserData();
   const [showMenu, setShowMenu] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  
-  // Calcular mês anterior ao mês atual (formato: 'YYYY-MM')
-  const getMesAnterior = () => {
-    const hoje = new Date();
-    const mesAnterior = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
-    const ano = mesAnterior.getFullYear();
-    const mes = String(mesAnterior.getMonth() + 1).padStart(2, '0');
-    return `${ano}-${mes}`;
-  };
-  
-  const [kpiPeriod, setKpiPeriod] = useState('2026'); // '2026' = anual, '2026-04' = mensal
-  const [kpiAno, setKpiAno] = useState<string>('2026');
   
   // Estados para Histórias que Inspiram
   const [showStories, setShowStories] = useState(false);
   const [selectedStoryIndex, setSelectedStoryIndex] = useState(0);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
-  const [showFilterPopover, setShowFilterPopover] = useState(false);
   const [showFinancePeriodPopover, setShowFinancePeriodPopover] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   
@@ -117,23 +102,6 @@ export default function Conselho() {
       setFiltrosPeriodo(periodosDisponiveis.periodoDefault);
     }
   }, [periodosDisponiveis?.periodos?.length, periodosDisponiveis?.periodoDefault]);
-
-  // Função para atualizar todos os dados (KPIs + Financeiro)
-  const handleRefreshAll = async () => {
-    setIsRefreshing(true);
-    try {
-      // Atualizar dados financeiros do Omie
-      await refetchOmie();
-      // Atualizar indicadores de impacto via ref
-      if (kpiSectionRef.current) {
-        await kpiSectionRef.current.refresh();
-      }
-    } catch (error) {
-      console.error('Erro ao atualizar dados:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   // Hook para buscar histórias inspiradoras
   const { data: historiasInspiradoras = [] } = useQuery<any[]>({
@@ -313,7 +281,7 @@ export default function Conselho() {
   // Show loading while checking authorization
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 pb-nav flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Verificando acesso...</p>
@@ -325,7 +293,7 @@ export default function Conselho() {
   // If not authorized, show access denied screen
   if (!authorized && !demoMode) {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="min-h-screen bg-gray-50 pb-nav">
         <header className="bg-white shadow-sm border-b border-gray-100">
           <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -396,7 +364,7 @@ export default function Conselho() {
   }
 
   return (
-    <div className="min-h-screen bg-white pb-20">
+    <div className="min-h-screen bg-white pb-nav">
       {/* Header - Mesmo estilo das telas do doador */}
       <header className="bg-white">
         <div className="px-4 py-4 flex items-center">
@@ -563,10 +531,9 @@ export default function Conselho() {
                   className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-100 transition-colors duration-200"
                   onClick={() => {
                     setShowMenu(false);
-                    // Limpar localStorage e redirecionar para login
-                    setTimeout(() => {
-                      clearLocalStoragePreservingLgpd();
-                      setLocation("/entrar");
+                    setTimeout(async () => {
+                      await logoutAndClearSession();
+                      window.location.href = "/plans";
                     }, 150);
                   }}
                 >
@@ -591,112 +558,17 @@ export default function Conselho() {
       
 
       {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 py-4 space-y-6">
-        {/* Seção de Indicadores de Impacto - Clean e Minimalista */}
-        <div className="space-y-3">
-          {/* Header com título + controles inline */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-black">Indicadores de Impacto</h2>
-            </div>
-            
-            {/* Controles compactos - só ícones */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleRefreshAll}
-                disabled={isRefreshing || omieLoading}
-                className="h-8 px-2 text-gray-600 hover:text-black"
-                data-testid="button-refresh-all"
-              >
-                <RefreshCw className={`w-4 h-4 ${isRefreshing || omieLoading ? 'animate-spin' : ''}`} />
-              </Button>
-              
-              <Popover open={showFilterPopover} onOpenChange={setShowFilterPopover}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-gray-600 hover:text-black"
-                    data-testid="button-filter-kpi"
-                  >
-                    <Filter className="w-4 h-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-3" align="end">
-                  {(() => {
-                    const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-                    const hoje = new Date();
-                    const anoAtual = hoje.getFullYear();
-                    const mesAnteriorNum = hoje.getMonth() === 0 ? 12 : hoje.getMonth();
-                    const anoMesAnterior = hoje.getMonth() === 0 ? anoAtual - 1 : anoAtual;
-                    // 2026: Anual + Fevereiro até mês atual
-                    const mesAtualNum = hoje.getMonth() + 1;
-                    const opcoes: { value: string; label: string }[] = [
-                      { value: '2026', label: 'Anual' },
-                    ];
-                    for (let m = 2; m <= mesAtualNum; m++) {
-                      opcoes.push({ value: `2026-${String(m).padStart(2,'0')}`, label: mesesNomes[m-1] });
-                    }
-                    return (
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 mb-1.5">Ano</p>
-                          <div className="flex gap-1">
-                            <button className="flex-1 py-1.5 text-xs rounded-md font-medium bg-blue-600 text-white">
-                              2026
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 mb-1.5">Período</p>
-                          <div className="space-y-0.5">
-                            {opcoes.map(op => (
-                              <button
-                                key={op.value}
-                                onClick={() => {
-                                  setKpiPeriod(op.value);
-                                  setShowFilterPopover(false);
-                                }}
-                                className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
-                                  kpiPeriod === op.value
-                                    ? 'bg-blue-50 text-blue-700 font-medium'
-                                    : 'text-gray-700 hover:bg-gray-100'
-                                }`}
-                              >
-                                {op.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </PopoverContent>
-              </Popover>
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowData(!showData)}
-                className="h-8 px-2 text-gray-600 hover:text-black"
-                data-testid="button-toggle-data"
-              >
-                {showData ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </Button>
-            </div>
-          </div>
-
-          {/* KPIs */}
-          <ConselhoKpisSection ref={kpiSectionRef} showData={showData} externalPeriod={kpiPeriod} />
+      <main className="w-full py-4 space-y-6 pb-28">
+        {/* Gestão à Vista — full-bleed, responsivo */}
+        <div className="w-full px-2 sm:px-3 lg:px-4">
+          <DashboardGestaoVista embedded />
         </div>
 
         {/* Quadro Financeiro - DESABILITADO (APIs não implementadas) */}
         {/* <ConselhoFinanceiroSection /> */}
 
         {/* Dashboard Financeiro - Omie ERP - Clean */}
-        <div className="space-y-3">
+        <div className="max-w-7xl mx-auto px-4 space-y-3">
           {/* Header compacto */}
           <div className="flex items-center justify-between">
             <div>
@@ -731,7 +603,7 @@ export default function Conselho() {
                       onClick={() => openStories(index)}
                       className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                       style={{
-                        width: '320px',
+                        width: 'min(320px, 85vw)',
                         height: '180px',
                         backgroundImage: `url("/api/historias-inspiradoras/${story.id}/imagem?tipo=box"), url(${JSON.stringify(
                               story.image ||

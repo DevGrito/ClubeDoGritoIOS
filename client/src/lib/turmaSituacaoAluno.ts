@@ -94,3 +94,10 @@ export function isAlunoEvadidoInclusao(aluno: {
   if (aluno.evasaoAtiva === true || aluno.evasao_ativa === true) return true;
   return (aluno.evasaoId ?? aluno.evasao_id ?? null) != null;
 }
+
+/** Desligado por empregabilidade — status do vínculo em participantes_turmas. */
+export function isAlunoEmpregabilidadeInclusao(aluno: {
+  status?: string | null;
+}): boolean {
+  return (aluno.status || "").toLowerCase() === "empregabilidade";
+}

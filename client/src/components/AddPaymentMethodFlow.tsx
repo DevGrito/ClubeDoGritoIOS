@@ -311,9 +311,9 @@ function ManualCardAdd({ userId, onSuccess }: ManualCardAddProps) {
 
 export default function AddPaymentMethodFlow({ userId, onSuccess, onCancel }: AddPaymentMethodFlowProps) {
   return (
-    <div className="min-h-full bg-gray-50 pb-8">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-10">
+      <header className="bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button

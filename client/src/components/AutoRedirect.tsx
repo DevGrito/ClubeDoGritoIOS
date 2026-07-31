@@ -18,8 +18,10 @@ export const AutoRedirect: React.FC = () => {
     }
 
     const sessionPapel = (session?.papel || session?.role || '').toLowerCase();
-    const actorType = session?.actorType || localStorage.getItem('actorType');
-    const userPapel = sessionPapel || (localStorage.getItem('userPapel') || '').toLowerCase() || null;
+    const actorType = session?.actorType || null;
+    // O localStorage é apenas cache de UI. Redirecionamento autenticado deve
+    // depender exclusivamente da sessão confirmada pelo backend.
+    const userPapel = sessionPapel || null;
     const hasBackendSession = !!session?.id;
 
     const isPortalActor =
@@ -48,11 +50,12 @@ export const AutoRedirect: React.FC = () => {
 
     // 🔐 SECURITY: DEV tem acesso APENAS se autenticado pelo backend (não por URL)
     if (
-      userPapel === 'desenvolvedor' ||
-      userPapel === 'dev' ||
-      userPapel === 'dev-admin' ||
-      userPapel === 'dev-marketing' ||
-      userPapel === 'marketing' ||
+      (hasBackendSession &&
+        (userPapel === 'desenvolvedor' ||
+          userPapel === 'dev' ||
+          userPapel === 'dev-admin' ||
+          userPapel === 'dev-marketing' ||
+          userPapel === 'marketing')) ||
       location === '/dev' ||
       location === '/dev/login' ||
       location === '/dev/marketing'
@@ -75,7 +78,7 @@ export const AutoRedirect: React.FC = () => {
       '/vendedor/outlet', '/confeccao',
     ];
 
-    const isVerified = hasBackendSession || localStorage.getItem('isVerified') === 'true';
+    const isVerified = hasBackendSession;
 
     if (!userPapel || !isVerified) {
       const isEventosSubdomain = window.location.hostname === "eventos.institutoogrito.com.br";
@@ -157,7 +160,6 @@ function getDefaultRouteForRole(userPapel: string): string {
     case 'professor_lider':
       return '/professor';
     case 'aluno':
-    case 'aluno_portal':
       return '/aluno';
     case 'conselho':
     case 'conselheiro':

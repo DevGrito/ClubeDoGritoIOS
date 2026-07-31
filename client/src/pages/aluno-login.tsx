@@ -1,13 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, User, Lock, Eye, EyeOff, ArrowLeft, Mail, CheckCircle, KeyRound, Hash } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuthSession } from "@/hooks/useAuthSession";
-import { syncAuthSessionAfterLogin, syncAlunoPortalCache, isAlunoPortalSession, getAlunoPortalCpf } from "@/lib/auth-session";
+import {
+  syncAuthSessionAfterLogin,
+  syncAlunoPortalCache,
+  fetchAlunoPortalSession,
+  type AuthSessionPayload,
+} from "@/lib/auth-session";
+import { queryClient } from "@/lib/queryClient";
+import { getPostLoginPath, readRedirectFromLocation } from "@/lib/post-login-redirect";
 import logoOGrito from "../app-assets/logo_ogrito_1773942740072.png";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
+
+function alunoPostLoginPath(sessionHint?: AuthSessionPayload | null) {
+  const redirect = readRedirectFromLocation();
+  if (sessionHint?.id) return getPostLoginPath(sessionHint, redirect);
+  if (redirect?.startsWith("/aluno")) return redirect;
+  return "/aluno";
+}
 
 function formatCPF(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -38,7 +51,6 @@ type Step = 'login' | 'esqueci' | 'codigo' | 'redefinir';
 export default function AlunoLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { data: authSession, isFetched, isLoading, isFetching } = useAuthSession();
 
   const [step, setStep] = useState<Step>('login');
 
@@ -68,13 +80,6 @@ export default function AlunoLogin() {
   const [showConfirmar, setShowConfirmar] = useState(false);
   const [loadingReset, setLoadingReset] = useState(false);
 
-  useEffect(() => {
-    if (!isFetched || isLoading || isFetching) return;
-    if (!isAlunoPortalSession(authSession) || getAlunoPortalCpf(authSession).length !== 11) return;
-    if (step !== 'login') return;
-    setLocation('/aluno');
-  }, [authSession, isFetched, isLoading, isFetching, setLocation, step]);
-
   const handleLogin = async () => {
     const cpfLimpo = cpf.replace(/\D/g, '');
     setErroCpfLogin('');
@@ -102,9 +107,25 @@ export default function AlunoLogin() {
         return;
       }
 
-      const session = await syncAuthSessionAfterLogin();
-      const cpfSessao = getAlunoPortalCpf(session) || String(data.cpf || "").replace(/\D/g, "");
-      if (!session?.id || !isAlunoPortalSession(session) || cpfSessao.length !== 11) {
+      let session = await syncAuthSessionAfterLogin();
+      const cpfSessao = String(session?.cpf || data.cpf || "").replace(/\D/g, "");
+      if (
+        (!session?.id || session.actorType !== "aluno_portal" || cpfSessao.length !== 11) &&
+        data.sucesso &&
+        cpfSessao.length === 11
+      ) {
+        // Cookie pode não estar disponível no WebView logo após o POST (Android).
+        session = {
+          id: cpfSessao,
+          cpf: cpfSessao,
+          actorType: "aluno_portal",
+          papel: "aluno_portal",
+          role: "aluno_portal",
+          nome: data.nome,
+        } satisfies AuthSessionPayload;
+        queryClient.setQueryData(["/api/auth/session"], session);
+      }
+      if (!session?.id || session.actorType !== "aluno_portal" || cpfSessao.length !== 11) {
         toast({ title: "Erro no login", description: "Sessão não foi criada. Tente novamente.", variant: "destructive" });
         return;
       }
@@ -122,7 +143,7 @@ export default function AlunoLogin() {
       } else if (data.isMenor && data.consentimentoStatus === 'parcial') {
         setLocation('/menor/autorizacao-responsavel');
       } else {
-        setLocation('/aluno');
+        setLocation(alunoPostLoginPath(session));
       }
     } catch {
       toast({ title: "Erro", description: "Não foi possível conectar ao servidor", variant: "destructive" });
@@ -258,7 +279,7 @@ export default function AlunoLogin() {
         if (loginData.isMenor && (loginData.consentimentoStatus === 'pendente' || loginData.consentimentoStatus === 'parcial')) {
           setLocation('/menor/autorizacao-responsavel');
         } else {
-          setLocation('/aluno');
+          setLocation(alunoPostLoginPath(session));
         }
       } else {
         // Fallback: vai para login normal
@@ -596,7 +617,7 @@ export default function AlunoLogin() {
   };
 
   return (
-    <div className="h-screen flex flex-col md:flex-row overflow-hidden">
+    <div className="min-h-[100dvh] md:h-screen flex flex-col md:flex-row md:overflow-hidden">
       {/* Lado esquerdo — imagem */}
       <div className="hidden md:flex md:w-1/2 h-full relative overflow-hidden">
         <img
@@ -607,32 +628,39 @@ export default function AlunoLogin() {
       </div>
 
       {/* Lado direito — formulário */}
-      <div className="w-full md:w-1/2 h-screen bg-black flex items-center justify-center py-10 px-6 md:p-10 relative overflow-hidden">
+      <div
+        className="w-full md:w-1/2 min-h-[100dvh] md:h-screen bg-black flex items-start md:items-center justify-center py-10 px-6 md:p-10 relative overflow-y-auto"
+        style={{
+          paddingTop: "max(2.5rem, calc(env(safe-area-inset-top, 0px) + 1.5rem))",
+          paddingBottom: "max(2.5rem, calc(env(safe-area-inset-bottom, 0px) + 1.5rem))",
+        }}
+      >
         <button
           onClick={() => setLocation('/entrar')}
           className="absolute top-4 right-4 z-20 flex items-center gap-1.5 text-gray-400 hover:text-yellow-400 transition-colors text-sm"
+          style={{ top: "max(1rem, env(safe-area-inset-top, 0px))" }}
         >
           <ArrowLeft className="w-4 h-4" />
           Voltar
         </button>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-yellow-600/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
+        <div className="absolute top-0 right-0 w-96 h-96 bg-yellow-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-yellow-600/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3 pointer-events-none" />
 
-        <div className="w-full max-w-sm md:max-w-md relative z-10 space-y-4 md:space-y-6">
+        <div className="w-full max-w-sm md:max-w-md relative z-10 space-y-4 md:space-y-6 my-auto">
           {/* Logo + título — só na tela de login */}
           {step === 'login' && (
             <div className="flex flex-col items-center gap-2">
-              <img src={logoOGrito} alt="Instituto O Grito" className="h-36 md:h-36 w-auto drop-shadow-md" />
-              <h1 className="text-3xl md:text-4xl text-white text-center drop-shadow-lg">
+              <img src={logoOGrito} alt="Instituto O Grito" className="h-28 sm:h-36 md:h-36 w-auto drop-shadow-md" />
+              <h1 className="text-2xl sm:text-3xl md:text-4xl text-white text-center drop-shadow-lg">
                 <span className="font-bold">Portal</span> <span className="italic">do Aluno</span>
               </h1>
             </div>
           )}
 
           {/* Card glassmorphism */}
-          <div className="backdrop-blur-xl bg-white/10 rounded-3xl p-8 md:p-10 shadow-2xl border border-white/10 relative overflow-hidden">
-            <div className="absolute -top-20 -right-20 w-64 h-64 bg-yellow-400/20 rounded-full blur-3xl" />
-            <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-yellow-500/20 rounded-full blur-3xl" />
+          <div className="backdrop-blur-xl bg-white/10 rounded-3xl p-6 sm:p-8 md:p-10 shadow-2xl border border-white/10 relative overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-64 h-64 bg-yellow-400/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-yellow-500/20 rounded-full blur-3xl pointer-events-none" />
             {renderCardContent()}
           </div>
         </div>

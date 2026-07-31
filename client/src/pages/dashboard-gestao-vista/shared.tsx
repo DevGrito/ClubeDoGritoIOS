@@ -1,6 +1,48 @@
 import { useEffect, useState } from "react";
 import { kpiColor, kpiColorInverse } from "@/lib/kpiColors";
 
+/** Ocultar cards Favela 3D sem apagar — mude para `false` para reexibir (Tab Geral + Tab Favela 3D). */
+export const FAVELA3D_OCULTAR = {
+  visitasDomiciliares: true,
+  atendIndividuais: true,
+  igf: true,
+  grupoMulheres: true,
+} as const;
+
+/** Valor fixo de exibição — Tab Geral e Tab Favela 3D (não altera API). */
+export const FAMILIAS_FAVELA3D_EXIBICAO = 171;
+
+export type ColetivoMesFavela3D = { registros: number; pessoas: number };
+
+/** Atendimentos coletivos por mês — exibição manual até integração completa. */
+export const COLETIVOS_FAVELA3D_EXIBICAO: Record<'gerando_lideranca' | 'assembleia', Record<number, ColetivoMesFavela3D>> = {
+  gerando_lideranca: {
+    5: { registros: 1, pessoas: 7 },
+    6: { registros: 1, pessoas: 4 },
+  },
+  assembleia: {
+    6: { registros: 1, pessoas: 3 },
+  },
+};
+
+export function coletivosFavela3DNoPeriodo(
+  categoria: keyof typeof COLETIVOS_FAVELA3D_EXIBICAO,
+  periodo: PeriodoFiltro,
+): ColetivoMesFavela3D {
+  const porMes = COLETIVOS_FAVELA3D_EXIBICAO[categoria];
+  const meses = periodo === 'todos'
+    ? Object.keys(porMes).map(Number)
+    : periodoMesesLista(periodo);
+  return meses.reduce(
+    (acc, mes) => {
+      const d = porMes[mes];
+      if (!d) return acc;
+      return { registros: acc.registros + d.registros, pessoas: acc.pessoas + d.pessoas };
+    },
+    { registros: 0, pessoas: 0 },
+  );
+}
+
 export const MESES = [
   { value: 'todos', label: 'Todos os Meses' },
   { value: '1', label: 'Janeiro' },
@@ -47,6 +89,114 @@ export function periodoUltimoMes(periodo: PeriodoFiltro): number {
   return Math.max(...periodo);
 }
 
+type DoadorHistRow = { mes?: number; ativos?: number; trialing?: number; total_ativos?: number; evadidos?: number };
+
+/** Mês corrente do ano selecionado (1–12). */
+export function isMesVigente(ano: string | number, mes: number): boolean {
+  const now = new Date();
+  return Number(ano) === now.getFullYear() && mes === now.getMonth() + 1;
+}
+
+function ativosFromSnapshot(row: DoadorHistRow): number {
+  return Number(row.total_ativos ?? 0) || (Number(row.ativos ?? 0) + Number(row.trialing ?? 0));
+}
+
+function ativosAoVivo(stripeActive: number, stripeTrialing: number, stripePastDue: number, externos: number): number {
+  return stripeActive + stripeTrialing + stripePastDue + externos;
+}
+
+/**
+ * Ativos (estoque):
+ * - mês vigente / "todos os meses" → Stripe ao vivo;
+ * - mês passado → snapshot do fim daquele mês.
+ */
+export function doadoresAtivosNoPeriodo(
+  ano: string,
+  periodo: PeriodoFiltro,
+  histByMes: Record<number, DoadorHistRow>,
+  stripeActive: number,
+  stripeTrialing: number,
+  stripePastDue: number,
+  externos: number,
+): number {
+  const mesUnico = periodoMesUnico(periodo);
+  const mesesPeriodo = periodoMesesLista(periodo);
+
+  if (isPeriodoTodos(periodo) || (mesUnico && isMesVigente(ano, mesUnico))) {
+    return ativosAoVivo(stripeActive, stripeTrialing, stripePastDue, externos);
+  }
+  if (isPeriodoMulti(periodo) && mesesPeriodo.length > 0) {
+    const lastMes = periodoUltimoMes(periodo);
+    if (isMesVigente(ano, lastMes)) {
+      return ativosAoVivo(stripeActive, stripeTrialing, stripePastDue, externos);
+    }
+    const lastAvail = [...mesesPeriodo].reverse().find((m) => histByMes[m]);
+    if (lastAvail) return ativosFromSnapshot(histByMes[lastAvail]) + externos;
+    return ativosAoVivo(stripeActive, stripeTrialing, stripePastDue, externos);
+  }
+  if (mesUnico && histByMes[mesUnico]) {
+    return ativosFromSnapshot(histByMes[mesUnico]) + externos;
+  }
+  return ativosAoVivo(stripeActive, stripeTrialing, stripePastDue, externos);
+}
+
+function evadidosDeMes(
+  mes: number,
+  ano: string,
+  histByMes: Record<number, DoadorHistRow>,
+  evadidosMesVigenteAoVivo: number | null,
+): number {
+  if (isMesVigente(ano, mes) && evadidosMesVigenteAoVivo != null) {
+    return evadidosMesVigenteAoVivo;
+  }
+  return Number(histByMes[mes]?.evadidos ?? 0);
+}
+
+/**
+ * Evadidos (fluxo — cancelamentos no mês):
+ * - mês vigente → Stripe ao vivo (parcial do mês);
+ * - mês passado → snapshot;
+ * - "todos os meses" → soma jan…mês atual.
+ */
+export function doadoresEvadidosNoPeriodo(
+  ano: string,
+  periodo: PeriodoFiltro,
+  histByMes: Record<number, DoadorHistRow>,
+  evadidosMesVigenteAoVivo: number | null = null,
+): number {
+  const mesUnico = periodoMesUnico(periodo);
+  const mesesPeriodo = periodoMesesLista(periodo);
+
+  if (isPeriodoMulti(periodo) && mesesPeriodo.length > 0) {
+    return mesesPeriodo.reduce(
+      (acc, m) => acc + evadidosDeMes(m, ano, histByMes, evadidosMesVigenteAoVivo),
+      0,
+    );
+  }
+  if (mesUnico) {
+    return evadidosDeMes(mesUnico, ano, histByMes, evadidosMesVigenteAoVivo);
+  }
+  if (isPeriodoTodos(periodo)) {
+    const mesAtual = new Date().getMonth() + 1;
+    const mesLimite = Number(ano) === new Date().getFullYear() ? mesAtual : 12;
+    let soma = 0;
+    for (let m = 1; m <= mesLimite; m++) {
+      soma += evadidosDeMes(m, ano, histByMes, evadidosMesVigenteAoVivo);
+    }
+    return soma;
+  }
+  return 0;
+}
+
+/** Busca evadidos ao vivo no Stripe quando o período inclui o mês corrente. */
+export function precisaEvadidosMesVigente(ano: string, periodo: PeriodoFiltro): boolean {
+  const mesAtual = new Date().getMonth() + 1;
+  if (Number(ano) !== new Date().getFullYear()) return false;
+  if (isPeriodoTodos(periodo)) return true;
+  if (periodoMesUnico(periodo) === mesAtual) return true;
+  return isPeriodoMulti(periodo) && periodoMesesLista(periodo).includes(mesAtual);
+}
+
 export function buildQp(ano: string, periodo: PeriodoFiltro): string {
   if (periodo === 'todos') return `?ano=${ano}`;
   if (periodo.length === 1) return `?ano=${ano}&mes=${periodo[0]}`;
@@ -65,16 +215,56 @@ export function appendPeriodoParams(params: URLSearchParams, periodo: PeriodoFil
   params.set('mesFim', String(Math.max(...periodo)));
 }
 
-/** Quantidade de meses para prorratear metas (÷11) */
-export function periodoQtdMesesMeta(periodo: PeriodoFiltro): number {
-  if (periodo === 'todos') return Math.max(0, new Date().getMonth());
-  return periodo.length;
+/** Meses com meta prevista (fev–dez; janeiro sem meta). Divisor anual = 11. */
+export const MESES_COM_META = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+/** #EspaçoOGrito: fev–nov (jan e dez sem meta). Divisor anual = 10. */
+export const MESES_COM_META_ESPACO_GRITO = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+
+/** Meses com meta elegíveis até o mês corrente (fev–dez; janeiro = 0). */
+export function mesesComMetaAteAgora(): number {
+  const mesAtual = new Date().getMonth() + 1;
+  return [...MESES_COM_META].filter((m) => m <= mesAtual).length;
 }
 
+/** Quantidade de meses elegíveis para prorratear meta (÷11). 0 = só janeiro sem meta no período. */
+export function periodoQtdMesesMeta(periodo: PeriodoFiltro): number {
+  if (periodo === 'todos') return mesesComMetaAteAgora();
+  return periodoMesesLista(periodo).filter((m) => MESES_COM_META.has(m)).length;
+}
+
+/** Meta do período: "todos" = acumulado até o mês atual (÷11); mês(s) = proporcional ao período. */
 export function metaFnPeriodo(periodo: PeriodoFiltro, anual: number): number {
   const qtd = periodoQtdMesesMeta(periodo);
-  if (qtd <= 0) return anual;
-  return Math.max(1, Math.round(anual * qtd / 11));
+  if (qtd <= 0) return 0;
+  return Math.round(anual * qtd / 11);
+}
+
+/** Período sem meta prevista (ex.: só janeiro). */
+export function isPeriodoSemMeta(periodo: PeriodoFiltro): boolean {
+  return periodoQtdMesesMeta(periodo) === 0;
+}
+
+/** Zera meta quando o período não tem meta (janeiro) → UI exibe "—". */
+export function metaNoPeriodo(periodo: PeriodoFiltro, meta: number | null | undefined): number {
+  if (isPeriodoSemMeta(periodo)) return 0;
+  if (meta == null || meta <= 0) return 0;
+  return meta;
+}
+
+/** Meta de #EspaçoOGrito: 1 por mês elegível no período (meta anual = 10). */
+export function metaEspacoGritoPeriodo(periodo: PeriodoFiltro): number {
+  if (periodo === 'todos') {
+    const mesLimite = new Date().getMonth() + 1;
+    return [...MESES_COM_META_ESPACO_GRITO].filter((m) => m <= mesLimite).length;
+  }
+  return periodoMesesLista(periodo).filter((m) => MESES_COM_META_ESPACO_GRITO.has(m)).length;
+}
+
+export function formatMetaValor(meta: number, format: 'number' | 'percent' = 'number'): string {
+  if (meta <= 0) return '—';
+  const n = Math.round(meta);
+  return format === 'percent' ? `${n}%` : n.toLocaleString('pt-BR');
 }
 
 const MESES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -145,7 +335,7 @@ export function getBgColor(valor: number, meta: number, inverse = false): string
   return `${color}20`;
 }
 
-export const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+export const MESES_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 interface KpiItemProps {
   label: string;
@@ -167,14 +357,14 @@ export function KpiItem({ label, valor, meta, unit = '', inverse = false, format
   const color = metaEfetiva > 0 ? getColor(valor, metaEfetiva, inverse) : '#64748b';
 
   const displayValor = format === 'percent' ? `${valor}%` : `${valor.toLocaleString('pt-BR')}${unit}`;
-  const displayMeta  = metaEfetiva > 0 ? (format === 'percent' ? `${metaEfetiva}%` : `${metaEfetiva.toLocaleString('pt-BR')}${unit}`) : '—';
-  const MESES_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const displayMeta = metaEfetiva > 0 ? (format === 'percent' ? `${metaEfetiva}%` : `${metaEfetiva.toLocaleString('pt-BR')}${unit}`) : '—';
+  const MESES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const proratedNote = prorated && mesRef > 0 && mesRef < 11 ? `Acum. ${MESES_SHORT[mesRef]}: ${metaEfetiva.toLocaleString('pt-BR')} · Anual: ${meta.toLocaleString('pt-BR')}` : null;
 
   const labelCls = size === 'lg' ? 'text-[11px]' : size === 'sm' ? 'text-[7px]' : 'text-[8px]';
-  const pctCls   = size === 'lg' ? 'text-[14px]' : size === 'sm' ? 'text-[9px]' : 'text-[11px]';
-  const valorCls = size === 'lg' ? 'text-4xl'    : size === 'sm' ? 'text-lg'    : 'text-2xl';
-  const metaCls  = size === 'lg' ? 'text-[12px]' : size === 'sm' ? 'text-[8px]' : 'text-[9px]';
+  const pctCls = size === 'lg' ? 'text-[14px]' : size === 'sm' ? 'text-[9px]' : 'text-[11px]';
+  const valorCls = size === 'lg' ? 'text-4xl' : size === 'sm' ? 'text-lg' : 'text-2xl';
+  const metaCls = size === 'lg' ? 'text-[12px]' : size === 'sm' ? 'text-[8px]' : 'text-[9px]';
 
   return (
     <div className="flex flex-col justify-between h-full">
@@ -205,7 +395,7 @@ interface KpiItemNoMetaProps {
 export function KpiItemNoMeta({ label, valor, unit = '', format = 'number', size = 'md' }: KpiItemNoMetaProps) {
   const displayValor = format === 'percent' ? `${valor}%` : `${valor.toLocaleString('pt-BR')}${unit}`;
   const labelCls = size === 'lg' ? 'text-[11px]' : size === 'sm' ? 'text-[7px]' : 'text-[8px]';
-  const valorCls = size === 'lg' ? 'text-4xl'    : size === 'sm' ? 'text-lg'    : 'text-2xl';
+  const valorCls = size === 'lg' ? 'text-4xl' : size === 'sm' ? 'text-lg' : 'text-2xl';
   return (
     <div className="flex flex-col justify-between h-full">
       <div className="flex items-start justify-between gap-1">
@@ -266,9 +456,9 @@ export function GaugeCard({ label, valor, meta, inverse = false, size = 'md' }: 
     return () => clearTimeout(t);
   }, [pct, circumference]);
 
-  const labelSize  = size === 'lg' ? '10px' : '8px';
-  const pctSize    = size === 'lg' ? '13px' : '11px';
-  const valFontSz  = size === 'lg' ? 24 : 18;
+  const labelSize = size === 'lg' ? '10px' : '8px';
+  const pctSize = size === 'lg' ? '13px' : '11px';
+  const valFontSz = size === 'lg' ? 24 : 18;
   const metaFontSz = size === 'lg' ? 10 : 8;
 
   return (
@@ -311,9 +501,9 @@ export function FrequencyBar({ valor, meta, inverse = false, size = 'md' }: { va
   }, [valor]);
 
   const labelCls = size === 'lg' ? 'text-[10px]' : 'text-[8px]';
-  const pctCls   = size === 'lg' ? 'text-[13px]' : 'text-[11px]';
-  const valCls   = size === 'lg' ? 'text-4xl' : 'text-2xl';
-  const metaCls  = size === 'lg' ? 'text-[11px]' : 'text-[9px]';
+  const pctCls = size === 'lg' ? 'text-[13px]' : 'text-[11px]';
+  const valCls = size === 'lg' ? 'text-4xl' : 'text-2xl';
+  const metaCls = size === 'lg' ? 'text-[11px]' : 'text-[9px]';
 
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-2 flex flex-col h-full">
@@ -341,13 +531,14 @@ export function FrequencyBar({ valor, meta, inverse = false, size = 'md' }: { va
 }
 
 export function NpsBar({ valor, meta }: { valor: number; meta: number }) {
-  const color = getColor(valor, meta);
-  const pct = getPct(valor, meta);
+  const hasMeta = meta > 0;
+  const color = hasMeta ? getColor(valor, meta) : '#64748b';
+  const pct = hasMeta ? getPct(valor, meta) : 0;
   const [animWidth, setAnimWidth] = useState(0);
   useEffect(() => {
-    const t = setTimeout(() => setAnimWidth(Math.min(pct, 100)), 100);
+    const t = setTimeout(() => setAnimWidth(hasMeta ? Math.min(pct, 100) : 0), 100);
     return () => clearTimeout(t);
-  }, [pct]);
+  }, [pct, hasMeta]);
 
   return (
     <div className="space-y-1">
@@ -355,16 +546,18 @@ export function NpsBar({ valor, meta }: { valor: number; meta: number }) {
         <span className="text-slate-400 text-[10px] uppercase tracking-wider">NPS</span>
         <div className="flex items-center gap-2">
           <span className="text-white text-lg font-bold tabular-nums leading-none">{valor}</span>
-          <span className="text-slate-600 text-[10px]">/ {meta}</span>
-          <span className="text-[10px] font-bold" style={{ color }}>{pct}%</span>
+          <span className="text-slate-600 text-[10px]">/ {hasMeta ? meta : '—'}</span>
+          {hasMeta && <span className="text-[10px] font-bold" style={{ color }}>{pct}%</span>}
         </div>
       </div>
-      <div className="h-[3px] bg-slate-700/60 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-1000"
-          style={{ width: `${animWidth}%`, backgroundColor: color }}
-        />
-      </div>
+      {hasMeta && (
+        <div className="h-[3px] bg-slate-700/60 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-1000"
+            style={{ width: `${animWidth}%`, backgroundColor: color }}
+          />
+        </div>
+      )}
     </div>
   );
 }

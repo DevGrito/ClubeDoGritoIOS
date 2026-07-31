@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
-import { formatCPF } from "@/lib/utils";
+import { dedupeParticipantesBusca, formatCPF } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import PsicoMonthlyReport from "@/components/psico/PsicoMonthlyReport";
-import CoordenadorDashboard, { DarkMetricCard } from "@/components/CoordenadorDashboard";
+import CoordenadorDashboard, { DarkMetricCard, MoradasGeraisBreakdownModal } from "@/components/CoordenadorDashboard";
+import { MoradaReformaCard } from "@/components/moradas/MoradaReformaCard";
 import DashboardPeriodoFiltro from "@/components/dashboard/DashboardPeriodoFiltro";
 import { appendPeriodoParams, buildPeriodoQueryString, type PeriodoFiltro } from "@/lib/dashboardPeriodoFiltro";
+import {
+  isPsicoCategoriaEspacoOGrito,
+  isPsicoCategoriaMultiParticipante,
+  PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS,
+  PSICO_CATEGORIA_COLETIVO_LABELS,
+} from "@shared/psico-coletivo-categorias";
 import { RelatoriosPanel } from "@/components/RelatoriosPanel";
 import { 
   Users,
@@ -66,12 +73,14 @@ import {
   BarChart2,
   Home,
   Layers,
-  Loader2
+  Loader2,
+  CalendarHeart,
 } from "lucide-react";
 import AlterarSenha from "@/components/AlterarSenha";
 import DemandaEspontaneaSection from "@/components/DemandaEspontaneaSection";
 import AtendidosComunidadeSection from "@/components/AtendidosComunidadeSection";
 import Favela3DSection from "@/components/Favela3DSection";
+import PsicoAcolhimentosSection from "@/components/PsicoAcolhimentosSection";
 import { PsicoPerfilModal } from "@/components/PsicoPerfilModal";
 import { fetchAtendidoPerfil } from "@/lib/psicoPerfilApi";
 import EventosGritoSection from "@/components/EventosGritoSection";
@@ -80,6 +89,7 @@ import {
   buildIntervencaoObservacoes,
   canEditIntervencaoPsico,
   findChamadaParaIntervencao,
+  formatIntervencaoData,
   formatIntervencaoParticipantesResumo,
   getIntervencaoParticipantesResumo,
   intervencaoDataIso,
@@ -250,6 +260,24 @@ export default function CoordenadorPsicoPage() {
     useAreaConsentReady("employees");
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [acolhimentoFiltroInicial, setAcolhimentoFiltroInicial] = useState<
+    "proximos" | "historico" | "cancelados" | "pendentes" | "todos" | undefined
+  >(undefined);
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") !== "acolhimentos") return;
+      setActiveSection("acolhimentos");
+      const f = params.get("filtro");
+      if (f === "pendentes" || f === "proximos" || f === "historico" || f === "cancelados" || f === "todos") {
+        setAcolhimentoFiltroInicial(f);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const [favela3dSubTab, setFavela3dSubTab] = useState<'atendidos' | 'registros'>('atendidos');
   const [mapeamentoSubTab, setMapeamentoSubTab] = useState<'mapeamento' | 'moradas-gerais'>('mapeamento');
   const [showMoradaReformaForm, setShowMoradaReformaForm] = useState(false);
@@ -516,6 +544,7 @@ export default function CoordenadorPsicoPage() {
   const [dashFiltroAno, setDashFiltroAno] = useState(new Date().getFullYear());
   const [dashFiltroPeriodo, setDashFiltroPeriodo] = useState<PeriodoFiltro>("todos");
   const [coordDashView, setCoordDashView] = useState<"psico" | "favela">("psico");
+  const [showMoradasBreakdown, setShowMoradasBreakdown] = useState(false);
   const [categoriaModalCoord, setCategoriaModalCoord] = useState<string | null>(null);
 
   // Query para buscar dados do dashboard do coordenador
@@ -1027,7 +1056,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!userId && activeSection === 'participantes',
+    enabled: !!userId && (activeSection === 'participantes' || activeSection === 'mapeamento'),
   });
 
   const { data: alunosTurmasData = { alunos: [] }, isLoading: loadingAlunosTurmas } = useQuery({
@@ -1285,6 +1314,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     { key: "sem_visita", label: "Sem visita", color: "#64748b" },
     { key: "finalizado", label: "Finalizado", color: "#22c55e" },
   ].map((item) => ({
+    key: item.key,
     label: item.label,
     color: item.color,
     value: moradasReformasList.filter((r: any) => r.status === item.key).length,
@@ -1424,6 +1454,18 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
     },
     enabled: !!userId && (activeSection === 'atendimentos' || activeSection === 'confidencial' || activeSection === 'registros-gerais' || activeSection === 'mapeamento' || showAtendimentoModal),
   });
+
+  const moradasParticipantesContato = useMemo(
+    () =>
+      dedupeParticipantesBusca([
+        ...(todosAtendidosParaAtendimento as any[]),
+        ...(atendidosComunidade as any[]).map((p: any) => ({
+          ...p,
+          origem: "comunidade",
+        })),
+      ]),
+    [todosAtendidosParaAtendimento, atendidosComunidade]
+  );
 
   const cadastroAtendidoMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -2197,7 +2239,6 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
           onFilterChange={(ano, periodo) => { setDashFiltroAno(ano); setDashFiltroPeriodo(periodo); }}
           titleOverride="Psicossocial"
           casasMapeadas={(mapeamentosStats as any)?.total ?? 0}
-          moradasGeraisStats={{ total: moradasReformasList.length, porStatus: moradasDashboardPorStatus }}
         />
         )}
 
@@ -2212,10 +2253,18 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
           </div>
           <div className="space-y-3">
             {/* Linha 1 — KPIs estáticos */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
               <DarkMetricCard icon={Home}     label="Famílias Cadastradas" value={(favela3dStatsCoord as any)?.familias ?? 0}  accentColor="#f97316" />
               <DarkMetricCard icon={Home}     label="Visitas"               value={(favela3dStatsCoord as any)?.visitas ?? 0}   accentColor="#06b6d4" />
               <DarkMetricCard icon={Activity} label="Atendimentos"          value={(favela3dStatsCoord as any)?.atendimentos_individuais ?? 0} accentColor="#8b5cf6" />
+              <DarkMetricCard
+                icon={Home}
+                label="Moradas Gerais"
+                value={moradasReformasList.length}
+                accentColor="#22c55e"
+                onClick={() => setShowMoradasBreakdown(true)}
+                subtitle="Clique p/ detalhar"
+              />
             </div>
             {/* Linha 2 — Cards clicáveis por categoria */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
@@ -2223,6 +2272,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                 { key: "gerando_lideranca", label: "Gerando Liderança", count: (favela3dStatsCoord as any)?.gerando_lideranca ?? 0, color: "#fbbf24" },
                 { key: "assembleia",        label: "Assembleia",        count: (favela3dStatsCoord as any)?.assembleia         ?? 0, color: "#fb923c" },
                 { key: "grupo_mulheres",    label: "Grupo de Mulheres", count: (favela3dStatsCoord as any)?.grupo_mulheres     ?? 0, color: "#f472b6" },
+                { key: "triangulo",         label: "Triângulo",         count: (favela3dStatsCoord as any)?.triangulo          ?? 0, color: "#a78bfa" },
               ].map(cat => (
                 <button
                   key={cat.key}
@@ -2248,6 +2298,15 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
         </div>
         )}
 
+        {showMoradasBreakdown && (
+          <MoradasGeraisBreakdownModal
+            total={moradasReformasList.length}
+            porStatus={moradasDashboardPorStatus}
+            reformas={moradasReformasList}
+            onClose={() => setShowMoradasBreakdown(false)}
+          />
+        )}
+
         {/* Modal de detalhes demográficos da categoria — coordenador psico */}
         <Dialog open={!!categoriaModalCoord} onOpenChange={open => !open && setCategoriaModalCoord(null)}>
           <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -2256,6 +2315,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                 {categoriaModalCoord === "gerando_lideranca" && "Gerando Liderança"}
                 {categoriaModalCoord === "assembleia" && "Assembleia"}
                 {categoriaModalCoord === "grupo_mulheres" && "Grupo de Mulheres"}
+                {categoriaModalCoord === "triangulo" && "Triângulo"}
                 {" — Detalhes"}
               </DialogTitle>
               <DialogDescription>Registros coletivos e dados demográficos dos participantes</DialogDescription>
@@ -2454,6 +2514,15 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                 >
                   <BookOpen className="w-4 h-4 mr-2" />
                   Acompanhamentos
+                </Button>
+                <Button
+                  variant="outline"
+                  className={activeSection === 'acolhimentos' ? "bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500 w-full" : "w-full"}
+                  data-testid="button-acolhimentos-coord"
+                  onClick={() => changeSection('acolhimentos')}
+                >
+                  <CalendarHeart className="w-4 h-4 mr-2" />
+                  Acolhimentos
                 </Button>
                 <Button 
                   
@@ -3593,7 +3662,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                             placeholder="Buscar por nome (PEC/Inclusão/Comunidade) ou digitar novo"
                           />
                           {registroPartOpen && (() => {
-                            const todosParticipantes = (todosAtendidosParaAtendimento as any[] || []);
+                            const todosParticipantes = dedupeParticipantesBusca(todosAtendidosParaAtendimento as any[] || []);
                             const filtrados = todosParticipantes.filter((p: any) => {
                               if (registroPartFiltroVertente !== "todos" && p.origem !== registroPartFiltroVertente) return false;
                               if (!registroPartBusca.trim()) return true;
@@ -3752,7 +3821,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                       placeholder="Buscar ou digitar nome do atendido"
                                     />
                                     {editRegistroPartOpen && (() => {
-                                      const todos = (todosAtendidosParaAtendimento as any[] || []);
+                                      const todos = dedupeParticipantesBusca(todosAtendidosParaAtendimento as any[] || []);
                                       const filtrados = editRegistroPartBusca.trim()
                                         ? todos.filter((p: any) => (p.label || p.nome || "").toLowerCase().includes(editRegistroPartBusca.toLowerCase()))
                                         : todos;
@@ -3931,11 +4000,9 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           <Select value={geraisForm.categoria} onValueChange={(v) => { setGeraisForm({...geraisForm, categoria: v, participanteNome: "", participanteCpf: ""}); setGeraisColaboradoresIds([]); setGeraisColabBusca(""); setGeraisPartBusca(""); setGeraisParticipantes([]); }}>
                             <SelectTrigger><SelectValue placeholder="Selecione a categoria..." /></SelectTrigger>
                             <SelectContent>
-                              {geraisForm.tipoGeral === "atendimento_coletivo" && <>
-                                <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                                <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                                <SelectItem value="workshop">Workshop</SelectItem>
-                              </>}
+                              {geraisForm.tipoGeral === "atendimento_coletivo" && PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS.map((cat) => (
+                                <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -3944,7 +4011,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           <label className="text-sm font-medium mb-1 block">Data</label>
                           <Input type="date" value={geraisForm.data} onChange={(e) => setGeraisForm({...geraisForm, data: e.target.value})} />
                         </div>
-                        {(geraisForm.categoria === "caravana_comunitaria" || geraisForm.categoria === "workshop") && (
+                        {isPsicoCategoriaMultiParticipante(geraisForm.categoria) && (
                         <div className="md:col-span-2">
                           <label className="text-sm font-medium mb-1 block">Participantes <span className="text-gray-400 text-xs">({geraisParticipantes.length} selecionado(s))</span></label>
                           <div className="flex items-center gap-1 mb-2">
@@ -3959,7 +4026,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           <Input className="mb-2" placeholder="Filtrar participantes..." value={geraisPartBusca} onChange={(e) => setGeraisPartBusca(e.target.value)} />
                           <div className="border rounded-lg max-h-52 overflow-y-auto bg-white">
                             {(() => {
-                              const todos = (todosAtendidosParaAtendimento as any[] || []);
+                              const todos = dedupeParticipantesBusca(todosAtendidosParaAtendimento as any[] || []);
                               const filtrados = todos.filter((p: any) => {
                                 if (geraisPartFiltroVertente !== "todos") {
                                   const orig = (p.origem || "").toLowerCase();
@@ -3997,7 +4064,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           )}
                         </div>
                         )}
-                        {geraisForm.categoria === "espaco_o_grito" && (
+                        {isPsicoCategoriaEspacoOGrito(geraisForm.categoria) && (
                           <div className="md:col-span-2">
                             <label className="text-sm font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400 text-xs">({geraisColaboradoresIds.length} selecionado(s))</span></label>
                             <Input className="mb-2" placeholder="Filtrar colaboradores..." value={geraisColabBusca} onChange={(e) => setGeraisColabBusca(e.target.value)} />
@@ -4023,7 +4090,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                         </div>
                       </div>
                       <Button onClick={() => {
-                        const isMultiPart = geraisForm.categoria === "caravana_comunitaria" || geraisForm.categoria === "workshop";
+                        const isMultiPart = isPsicoCategoriaMultiParticipante(geraisForm.categoria);
                         createGeraisMutation.mutate({
                           tipo: geraisForm.tipoGeral,
                           categoria: geraisForm.categoria,
@@ -4031,9 +4098,9 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                           data: geraisForm.data,
                           participanteNome: isMultiPart ? (geraisParticipantes.length > 0 ? JSON.stringify(geraisParticipantes.map(p => p.nome)) : null) : geraisForm.participanteNome,
                           participanteCpf: isMultiPart ? null : geraisForm.participanteCpf,
-                          colaboradoresIds: geraisForm.categoria === "espaco_o_grito" ? geraisColaboradoresIds : null,
+                          colaboradoresIds: isPsicoCategoriaEspacoOGrito(geraisForm.categoria) ? geraisColaboradoresIds : null,
                         });
-                      }} disabled={createGeraisMutation.isPending || !geraisForm.tipoGeral || !geraisForm.categoria || !geraisForm.conteudo.trim() || (geraisForm.categoria === "espaco_o_grito" && geraisColaboradoresIds.length === 0)} className="bg-blue-600 hover:bg-blue-700">
+                      }} disabled={createGeraisMutation.isPending || !geraisForm.tipoGeral || !geraisForm.categoria || !geraisForm.conteudo.trim() || (isPsicoCategoriaEspacoOGrito(geraisForm.categoria) && geraisColaboradoresIds.length === 0)} className="bg-blue-600 hover:bg-blue-700">
                         {createGeraisMutation.isPending ? "Salvando..." : "Salvar Registro"}
                       </Button>
                     </div>
@@ -4066,17 +4133,15 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     <Select value={editGeraisForm.categoria} onValueChange={(v) => { setEditGeraisForm({...editGeraisForm, categoria: v}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditGeraisParticipantes([]); setEditGeraisPartBusca(""); }}>
                                       <SelectTrigger><SelectValue /></SelectTrigger>
                                       <SelectContent>
-                                        {editGeraisForm.tipoGeral === "atendimento_coletivo" && <>
-                                          <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                                          <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                                          <SelectItem value="workshop">Workshop</SelectItem>
-                                        </>}
+                                        {editGeraisForm.tipoGeral === "atendimento_coletivo" && PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS.map((cat) => (
+                                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                                        ))}
                                       </SelectContent>
                                     </Select>
                                   </div>
                                   <Input type="date" value={editGeraisForm.data} onChange={(e) => setEditGeraisForm({...editGeraisForm, data: e.target.value})} />
                                 </div>
-                                {(editGeraisForm.categoria === "caravana_comunitaria" || editGeraisForm.categoria === "workshop") && (
+                                {isPsicoCategoriaMultiParticipante(editGeraisForm.categoria) && (
                                   <div>
                                     <label className="text-xs font-medium mb-1 block">Participantes <span className="text-gray-400">({editGeraisParticipantes.length} selecionado(s))</span></label>
                                     <div className="flex items-center gap-1 mb-1">
@@ -4091,7 +4156,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     <Input className="mb-1" placeholder="Filtrar participantes..." value={editGeraisPartBusca} onChange={(e) => setEditGeraisPartBusca(e.target.value)} />
                                     <div className="border rounded-lg max-h-40 overflow-y-auto bg-white">
                                       {(() => {
-                                        const todos = (todosAtendidosParaAtendimento as any[] || []);
+                                        const todos = dedupeParticipantesBusca(todosAtendidosParaAtendimento as any[] || []);
                                         const filtrados = todos.filter((p: any) => {
                                           if (editGeraisPartFiltro !== "todos") { const orig = (p.origem || "").toLowerCase(); if (editGeraisPartFiltro === "pec" && orig !== "pec") return false; if (editGeraisPartFiltro === "inclusao" && orig !== "inclusao") return false; if (editGeraisPartFiltro === "comunidade" && orig !== "comunidade") return false; }
                                           if (!editGeraisPartBusca.trim()) return true;
@@ -4122,7 +4187,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     )}
                                   </div>
                                 )}
-                                {editGeraisForm.categoria === "espaco_o_grito" && (
+                                {isPsicoCategoriaEspacoOGrito(editGeraisForm.categoria) && (
                                   <div>
                                     <label className="text-xs font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400">({editGeraisColaboradoresIds.length} selecionado(s))</span></label>
                                     <Input className="mb-1" placeholder="Filtrar..." value={editGeraisColabBusca} onChange={(e) => setEditGeraisColabBusca(e.target.value)} />
@@ -4142,14 +4207,14 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                 <Textarea value={editGeraisForm.conteudo} onChange={(e) => setEditGeraisForm({...editGeraisForm, conteudo: e.target.value})} rows={3} />
                                 <div className="flex gap-2">
                                   <Button size="sm" onClick={() => {
-                                    const isMP = editGeraisForm.categoria === "caravana_comunitaria" || editGeraisForm.categoria === "workshop";
-                                    updateGeraisMutation.mutate({ id: r.id, tipo: editGeraisForm.tipoGeral, categoria: editGeraisForm.categoria, conteudo: editGeraisForm.conteudo, data: editGeraisForm.data, participanteNome: isMP ? (editGeraisParticipantes.length > 0 ? JSON.stringify(editGeraisParticipantes.map(p => p.nome)) : null) : editGeraisForm.participanteNome, colaboradoresIds: editGeraisForm.categoria === "espaco_o_grito" ? editGeraisColaboradoresIds : null });
+                                    const isMP = isPsicoCategoriaMultiParticipante(editGeraisForm.categoria);
+                                    updateGeraisMutation.mutate({ id: r.id, tipo: editGeraisForm.tipoGeral, categoria: editGeraisForm.categoria, conteudo: editGeraisForm.conteudo, data: editGeraisForm.data, participanteNome: isMP ? (editGeraisParticipantes.length > 0 ? JSON.stringify(editGeraisParticipantes.map(p => p.nome)) : null) : editGeraisForm.participanteNome, colaboradoresIds: isPsicoCategoriaEspacoOGrito(editGeraisForm.categoria) ? editGeraisColaboradoresIds : null });
                                   }} disabled={updateGeraisMutation.isPending}>Salvar</Button>
                                   <Button size="sm" variant="outline" onClick={() => { setEditGeraisId(null); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditGeraisParticipantes([]); setEditGeraisPartBusca(""); }}>Cancelar</Button>
                                 </div>
                               </div>
                             ) : (() => {
-                                const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                                const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", ...PSICO_CATEGORIA_COLETIVO_LABELS, acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
                                 const categoriaDisplay = r.categoria ? tipoLabels[r.categoria] || r.categoria : null;
                                 const tipoDisplay = tipoLabels[r.tipo] || r.tipo;
                                 let colaboradoresIdsList2: number[] = [];
@@ -4169,7 +4234,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                     {categoriaDisplay && <Badge variant="outline" className="text-xs mb-1 text-blue-700 border-blue-300">{categoriaDisplay}</Badge>}
                                     {r.participanteNome && (() => {
                                       const cat = r.categoria || r.tipo;
-                                      const isMP = cat === "caravana_comunitaria" || cat === "workshop";
+                                      const isMP = isPsicoCategoriaMultiParticipante(String(cat || ""));
                                       if (isMP) {
                                         try {
                                           const partic = JSON.parse(r.participanteNome) as string[];
@@ -4214,7 +4279,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
   setEditGeraisColabBusca("");
   setEditGeraisPartBusca("");
   setEditGeraisPartFiltro("todos");
-  const isMP = editCat === "caravana_comunitaria" || editCat === "workshop";
+  const isMP = isPsicoCategoriaMultiParticipante(String(editCat || ""));
   if (isMP && r.participanteNome) {
     try { const arr = JSON.parse(r.participanteNome); setEditGeraisParticipantes(Array.isArray(arr) ? arr.map((n: string) => ({ nome: n })) : []); } catch { setEditGeraisParticipantes([]); }
   } else { setEditGeraisParticipantes([]); }
@@ -4248,14 +4313,14 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
               <DialogHeader>
                 <DialogTitle>
                   {viewGeraisGeralRecord && (() => {
-                    const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
+                    const tipoLabels: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", ...PSICO_CATEGORIA_COLETIVO_LABELS, acoes_saude: "Ações para Saúde", encaminhamento: "Encaminhamento", situacao_risco: "Situação de Risco", outro: "Outro" };
                     return tipoLabels[viewGeraisGeralRecord.tipo] || viewGeraisGeralRecord.tipo;
                   })()}
                 </DialogTitle>
                 <DialogDescription asChild>
                   <div className="space-y-1.5 mt-1">
                     {viewGeraisGeralRecord?.categoria && (() => {
-                      const catLabels: Record<string, string> = { espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop" };
+                      const catLabels: Record<string, string> = PSICO_CATEGORIA_COLETIVO_LABELS;
                       const label = catLabels[viewGeraisGeralRecord.categoria] || viewGeraisGeralRecord.categoria;
                       return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{label}</span>;
                     })()}
@@ -5138,6 +5203,15 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
             </div>
           )}
 
+          {activeSection === 'acolhimentos' && (
+            <PsicoAcolhimentosSection
+              userId={String(userId || "")}
+              userRole="coordenador_psico"
+              userName={userName}
+              initialFiltro={acolhimentoFiltroInicial}
+            />
+          )}
+
           {activeSection === 'intervencoes' && (
             <Card>
               <CardContent className="p-4">
@@ -5432,7 +5506,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                 <h4 className="font-medium text-sm">{iv.titulo}</h4>
                                 <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
                                   <Badge variant="outline" className="text-xs">{tipoLabel[iv.tipo] || iv.tipo}</Badge>
-                                  <span>{iv.data ? new Date(iv.data).toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "-"}</span>
+                                  <span>{formatIntervencaoData(iv.data)}</span>
                                   {iv.horarioInicio && <span>{iv.horarioInicio} - {iv.horarioFim}</span>}
                                 </div>
                               </div>
@@ -5849,7 +5923,7 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                                 placeholder="Buscar por nome (PEC/Inclusão/Comunidade)"
                               />
                               {moradaPartOpen && (() => {
-                                const todosParticipantes = (todosAtendidosParaAtendimento as any[] || []);
+                                const todosParticipantes = dedupeParticipantesBusca(todosAtendidosParaAtendimento as any[] || []);
                                 const filtrados = todosParticipantes.filter((p: any) => {
                                   if (moradaPartFiltroVertente !== "todos" && p.origem !== moradaPartFiltroVertente) return false;
                                   if (!moradaPartBusca.trim()) return true;
@@ -6022,34 +6096,16 @@ const { data: planos = [], isLoading: isLoadingPlanos } = useQuery({
                         ) : (
                           <div className="space-y-2">
                             {moradasReformasList.map((item: any) => (
-                              <div key={item.id} className="border rounded-lg p-3 bg-white">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <p className="font-medium text-sm text-gray-800">{item.participanteNome || item.participante_nome}</p>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{item.semana}° Semana</span>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => iniciarEdicaoMorada(item)}>
-                                      <Pencil className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-7 w-7 text-red-600 hover:text-red-700"
-                                      disabled={excluirMoradaReformaMutation.isPending}
-                                      onClick={() => {
-                                        setMoradaDeleteId(Number(item.id));
-                                      }}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {item.monitor_nome ? `${item.monitor_nome} • ` : ""}
-                                  {new Date(item.data + "T12:00:00").toLocaleDateString("pt-BR")} • {getMoradaStatusLabel(item.status)}
-                                </p>
-                                <p className="text-xs text-gray-600 mt-1">Cômodos: {(item.comodos || []).join(", ")}</p>
-                                {item.observacoes && <p className="text-xs text-gray-700 mt-1">{item.observacoes}</p>}
-                              </div>
+                              <MoradaReformaCard
+                                key={item.id}
+                                item={item}
+                                participantes={moradasParticipantesContato}
+                                getStatusLabel={getMoradaStatusLabel}
+                                monitorNome={item.monitor_nome}
+                                onEdit={iniciarEdicaoMorada}
+                                onDelete={(id) => setMoradaDeleteId(id)}
+                                deletePending={excluirMoradaReformaMutation.isPending}
+                              />
                             ))}
                           </div>
                         )}

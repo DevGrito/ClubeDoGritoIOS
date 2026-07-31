@@ -233,88 +233,136 @@ function buildDateRange(mes: MesFiltro, ano: number = 2026): [string, string] {
   ];
 }
 
+/** Último dia do mês (mes 1–12) como YYYY-MM-DD. */
+export function buildPecEndDateRef(mes: MesFiltro, ano: number = new Date().getFullYear()): string {
+  const now = new Date();
+  let mesFim: number;
+  if (mes === null) {
+    mesFim = ano === now.getFullYear() ? now.getMonth() + 1 : 12;
+  } else if (Array.isArray(mes)) {
+    mesFim = mes[1];
+  } else {
+    mesFim = Math.floor(Number(mes));
+  }
+  const d = new Date(ano, mesFim, 0);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /**
- * Buscar contagem de crianças atendidas no PEC em 2026
- * Fonte: instance_enrollments + activity_instances
- * @param mes - Mês específico (1-12) ou null para anual
+ * Crianças atendidas no PEC — snapshot ao fim do período.
+ * Data de início = LEAST(data_entrada do cadastro, enrollment_date da turma),
+ * para não inflar o mês em que o vínculo tardio foi registrado no sistema.
+ * Evasão: ainda conta no mês da data_evasao; deixa de contar só a partir do mês seguinte.
  */
-export async function getCriancasAtendidasPEC2026(mes: MesFiltro = null): Promise<number> {
+export async function countCriancasAtendidasPEC(
+  mes: MesFiltro = null,
+  ano: number = new Date().getFullYear(),
+  opts?: { turmaIds?: number[] },
+): Promise<number> {
   try {
-    // Conta matrículas acumuladas até o fim do período (enrollment_date)
-    let whereExtra = '';
-    const params: any[] = [2026];
-    if (mes === null) {
-      // todos/anual = snapshot atual: todos os ativos agora, independente do ano de matrícula
-      const result2 = await pool.query(
-        `SELECT COUNT(DISTINCT student_cpf) as total
-         FROM instance_enrollments
-         WHERE evadido = false`
-      );
-      const total2 = parseInt(result2.rows[0]?.total || '0');
-      console.log(`[GV 2026] Crianças atendidas PEC 2026 (ativos, mes=null): ${total2}`);
-      return total2;
-    } else if (Array.isArray(mes)) {
-      // trimestre = ativos ao fim do último dia do trimestre
-      const endMonth = mes[1];
-      const nextMonth = endMonth === 12 ? 1 : endMonth + 1;
-      const nextYear  = endMonth === 12 ? 2027 : 2026;
-      const endDate   = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-      params.push(endDate);
-      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
-    } else {
-      // mês específico = ativos ao fim daquele mês
-      const mesNum = Math.floor(Number(mes));
-      const nextMes = mesNum === 12 ? 1 : mesNum + 1;
-      const nextAno = mesNum === 12 ? 2027 : 2026;
-      const endDate = `${nextAno}-${String(nextMes).padStart(2, '0')}-01`;
-      params.push(endDate);
-      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
-    }
+    const endDateStr = buildPecEndDateRef(mes, ano);
+    const turmaIds = opts?.turmaIds?.filter((id) => id > 0) ?? [];
+    const turmaFilter =
+      turmaIds.length > 0
+        ? `AND ie.activity_instance_id = ANY($2::int[])`
+        : '';
+
+    const params: (string | number[])[] = [endDateStr];
+    if (turmaIds.length > 0) params.push(turmaIds);
+
     const result = await pool.query(
-      `SELECT COUNT(DISTINCT student_cpf) as total
-       FROM instance_enrollments
-       WHERE EXTRACT(YEAR FROM enrollment_date) = $1 ${whereExtra}`,
-      params
+      `SELECT COUNT(DISTINCT cpf_norm) AS total
+       FROM (
+         SELECT
+           REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') AS cpf_norm,
+           LEAST(
+             COALESCE(ie.enrollment_date, '9999-12-31'::date),
+             COALESCE(a.data_entrada, a.created_at::date, ie.enrollment_date)
+           ) AS data_inicio
+         FROM instance_enrollments ie
+         JOIN activity_instances ai ON ai.id = ie.activity_instance_id
+         JOIN pec_activities pa ON pa.id = ai.activity_id
+         JOIN projects p ON p.id = pa.project_id
+         LEFT JOIN aluno a ON a.cpf = ie.student_cpf
+         WHERE p.name IS NOT NULL
+           ${turmaFilter}
+           AND (
+             COALESCE(ie.evadido, false) = false
+             OR (
+               ie.data_evasao IS NOT NULL
+               AND date_trunc('month', ie.data_evasao::date)
+                 >= date_trunc('month', $1::date)
+             )
+           )
+       ) x
+       WHERE data_inicio <= $1::date`,
+      params,
     );
-    const total = parseInt(result.rows[0]?.total || '0');
-    console.log(`[GV 2026] Crianças atendidas PEC 2026 (ativos, mes=${JSON.stringify(mes)}): ${total}`);
+    const total = parseInt(result.rows[0]?.total || '0', 10);
+    console.log(
+      `[GV ${ano}] Crianças atendidas PEC (data_início, fim=${endDateStr}, mes=${JSON.stringify(mes)}): ${total}`,
+    );
     return total;
   } catch (error) {
-    console.error('[GV 2026] Erro ao buscar crianças PEC:', error);
+    console.error(`[GV ${ano}] Erro ao buscar crianças PEC:`, error);
     return 0;
   }
 }
 
 /**
- * Buscar total de atendimentos de Inclusão Produtiva em 2026
- * Definição: cada vínculo aluno-turma = 1 atendimento (não é distinct por aluno)
- * Um aluno em 3 turmas = 3 atendimentos
- * Todos os status contam (ativo, concluido, evadido, desistente)
+ * Buscar contagem de crianças atendidas no PEC em 2026
+ * Fonte: instance_enrollments + data_entrada (cadastro)
  * @param mes - Mês específico (1-12) ou null para anual
+ */
+export async function getCriancasAtendidasPEC2026(mes: MesFiltro = null): Promise<number> {
+  return countCriancasAtendidasPEC(mes, 2026);
+}
+
+/**
+ * Atendidos Inclusão = COUNT(DISTINCT CPF) de quem:
+ *  1) está vinculado a alguma turma (participantes_turmas), OU
+ *  2) aparece em geração de renda
+ * NÃO usa presença. Equivalente à lógica do PEC (CPF com vínculo em turma).
  */
 export async function getAtendimentosInclusao2026(
   mes: MesFiltro = null,
   ano: number = new Date().getFullYear()
 ): Promise<number> {
   try {
-    const presencaFilter = `AND EXTRACT(YEAR FROM pi2.data) = ${ano} ${buildMesFilter(mes, 'pi2.data')}`;
-    const geracaoFilter  = `AND EXTRACT(YEAR FROM gr.criado_em) = ${ano} ${buildMesFilter(mes, 'gr.criado_em')}`;
+    const dataVinculo = `COALESCE(pt.data_ingresso::timestamp, ti.data_inicio::timestamp, pt.created_at, ti.created_at)`;
+    const cpfVinculo = `REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')`;
+
+    let turmaWhere = `length(${cpfVinculo}) = 11`;
+    let geracaoWhere = `gr.cpf IS NOT NULL AND gr.cpf <> '' AND length(REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g')) = 11`;
+
+    if (mes === null) {
+      // Snapshot anual: quem tem vínculo em turma agora + geração de renda do ano
+      geracaoWhere += ` AND EXTRACT(YEAR FROM gr.criado_em) = ${ano}`;
+    } else {
+      turmaWhere += ` AND EXTRACT(YEAR FROM ${dataVinculo}) = ${ano} ${buildMesFilter(mes, dataVinculo)}`;
+      geracaoWhere += ` AND EXTRACT(YEAR FROM gr.criado_em) = ${ano} ${buildMesFilter(mes, 'gr.criado_em')}`;
+    }
+
     const result = await pool.query(`
       SELECT COUNT(DISTINCT cpf) as total FROM (
-        SELECT pi.cpf
-        FROM participantes_inclusao pi
-        WHERE EXISTS (
-          SELECT 1 FROM presencas_inclusao pi2
-          WHERE pi2.participante_id = pi.id ${presencaFilter}
-        )
+        SELECT ${cpfVinculo} AS cpf
+        FROM participantes_turmas pt
+        LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+        WHERE ${turmaWhere}
+
         UNION
-        SELECT gr.cpf
+
+        SELECT REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g') AS cpf
         FROM inclusao_geracao_de_renda gr
-        WHERE gr.cpf IS NOT NULL AND gr.cpf <> '' ${geracaoFilter}
+        WHERE ${geracaoWhere}
       ) combined
     `);
     const total = Number(result.rows[0]?.total || 0);
-    console.log(`[GV ${ano}] Atendidos Inclusão mes=${JSON.stringify(mes)}: ${total}`);
+    console.log(`[GV ${ano}] Atendidos Inclusão (turma+renda, mes=${JSON.stringify(mes)}): ${total}`);
     return total;
   } catch (error) {
     console.error(`[GV ${ano}] Erro ao buscar atendidos inclusão:`, error);
@@ -487,13 +535,15 @@ export async function getAlunosEmFormacao2026(mes: MesFiltro = null, ano: number
     const today = new Date();
     const refDate = lastDayDate > today ? today.toISOString().split('T')[0] : lastDayDate.toISOString().split('T')[0];
 
-    // Snapshot: turmas que ainda estavam ativas no último dia do período
+    // Snapshot: turmas ativas no último dia do período — DISTINCT por CPF (mestre ou legado)
     const result = await pool.query(`
-      SELECT COUNT(DISTINCT pt.participante_id) as total
+      SELECT COUNT(DISTINCT REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) as total
       FROM participantes_turmas pt
       JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+      LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
       WHERE ti.data_inicio <= $1
         AND (ti.data_fim IS NULL OR ti.data_fim >= $1)
+        AND length(REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) = 11
     `, [refDate]);
     console.log(`[GV ${ano}] Pessoas em Formação Inclusão (snapshot em ${refDate}):`, result.rows[0]?.total);
     return parseInt(result.rows[0]?.total || '0');
@@ -671,6 +721,51 @@ export async function getEvasao2026(mes: MesFiltro = null): Promise<number> {
   } catch (error) {
     console.error('[GV 2026] Erro ao buscar evasão:', error);
     return 0;
+  }
+}
+
+/**
+ * Taxa de evasão Inclusão (%) = evadidos distintos / matriculados distintos.
+ * Mesma lógica do PEC (evasões no período ÷ base de matrículas até o fim do período).
+ * Antes usava COUNT de vínculos com created_at no ano → taxa artificialmente perto de 0%.
+ */
+export async function getTaxaEvasaoInclusaoPct(
+  mes: MesFiltro = null,
+  ano: number = 2026,
+): Promise<{ pct: number; evasoes: number; matriculas: number }> {
+  try {
+    const endDate = buildPecEndDateRef(mes, ano);
+    const mesFilter = buildMesFilter(mes, 'ev.data_desligamento');
+
+    const [evRes, totRes] = await Promise.all([
+      pool.query(
+        `
+        SELECT COUNT(DISTINCT ev.participante_id)::int AS cnt
+        FROM inclusao_evasoes ev
+        WHERE ev.revertido_em IS NULL
+          AND EXTRACT(YEAR FROM ev.data_desligamento) = $1
+          ${mesFilter}
+        `,
+        [ano],
+      ),
+      pool.query(
+        `
+        SELECT COUNT(DISTINCT pt.participante_id)::int AS cnt
+        FROM participantes_turmas pt
+        WHERE COALESCE(pt.data_inscricao, pt.created_at)::date <= $1::date
+        `,
+        [endDate],
+      ),
+    ]);
+
+    const evasoes = Number(evRes.rows[0]?.cnt || 0);
+    const matriculas = Number(totRes.rows[0]?.cnt || 0);
+    const pct = matriculas > 0 ? Math.round((evasoes / matriculas) * 100) : 0;
+    console.log(`[GV ${ano}] Taxa evasão Inclusão: ${evasoes}/${matriculas} = ${pct}% (fim=${endDate}, mes=${JSON.stringify(mes)})`);
+    return { pct, evasoes, matriculas };
+  } catch (error) {
+    console.error(`[GV ${ano}] Erro ao calcular taxa de evasão Inclusão:`, error);
+    return { pct: 0, evasoes: 0, matriculas: 0 };
   }
 }
 
@@ -879,7 +974,7 @@ async function calcNpsMediaMensalFromScores(
     mesClause = ` AND mes BETWEEN $${params.length - 1} AND $${params.length}`;
   }
   const res = await pool.query(
-    `SELECT mes, ROUND(AVG(nps_score))::int AS score
+    `SELECT mes, ROUND(AVG(nps_score)::numeric, 1) AS score
      FROM nps_scores_mensais
      WHERE programa IN (${placeholders}) AND ano = $${programas.length + 1}
      ${mesClause}
@@ -890,7 +985,7 @@ async function calcNpsMediaMensalFromScores(
   if (!res.rows.length) return null;
   if (isNpsMesUnico(mes)) return Number(res.rows[0].score);
   const scores = res.rows.map((r: { score: number }) => Number(r.score));
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+  return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
 }
 
 async function calcNpsMediaMensalFromRespostas(
@@ -956,8 +1051,47 @@ export async function getPesquisaSatisfacao2026(mes: MesFiltro = null): Promise<
   return calcNpsByPrograma(['inclusao'], mes);
 }
 
-export async function getNpsPEC2026(mes: MesFiltro = null): Promise<number> {
-  return calcNpsByPrograma(['pec'], mes);
+export async function getNpsPEC2026(mes: MesFiltro = null, ano = 2026): Promise<number> {
+  return calcNpsByPrograma(['pec'], mes, ano);
+}
+
+/** Avaliação de Aprendizagem PEC — modelo semestral (só meses com dado contam na média). */
+async function calcAvaliacaoAprendizagemPecFromScores(
+  mes: MesFiltro,
+  ano = 2026,
+): Promise<number | null> {
+  const params: any[] = [ano];
+  let mesClause = ' AND mes IS NOT NULL';
+  if (isNpsMesUnico(mes)) {
+    params.push(Math.floor(Number(mes)));
+    mesClause = ` AND mes = $${params.length}`;
+  } else if (Array.isArray(mes)) {
+    params.push(mes[0], mes[1]);
+    mesClause = ` AND mes BETWEEN $${params.length - 1} AND $${params.length}`;
+  }
+  const res = await pool.query(
+    `SELECT mes, ROUND(AVG(score)::numeric, 1) AS score
+     FROM pec_avaliacao_aprendizagem_mensais
+     WHERE ano = $1
+     ${mesClause}
+     GROUP BY mes
+     ORDER BY mes`,
+    params,
+  );
+  if (!res.rows.length) return null;
+  if (isNpsMesUnico(mes)) return Number(res.rows[0].score);
+  const scores = res.rows.map((r: { score: number }) => Number(r.score));
+  return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
+}
+
+export async function getAvaliacaoAprendizagemPEC(mes: MesFiltro = null, ano = 2026): Promise<number> {
+  try {
+    const v = await calcAvaliacaoAprendizagemPecFromScores(mes, ano);
+    return v ?? 0;
+  } catch (e) {
+    console.error('Erro getAvaliacaoAprendizagemPEC:', e);
+    return 0;
+  }
 }
 
 export async function getNpsCombinado2026(mes: MesFiltro = null): Promise<number> {

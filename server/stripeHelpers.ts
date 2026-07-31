@@ -6,7 +6,14 @@ import { eq } from "drizzle-orm";
 // 🔑 (OPCIONAL) Log só pra debug – cuidado em produção!
 // Se quiser, mascara um pedaço da chave:
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripeSecret = process.env.STRIPE_SECRET_KEY?.trim();
+if (!stripeSecret) {
+  console.warn(
+    "⚠️ STRIPE_SECRET_KEY ausente — Stripe inicia em modo stub (ok para UI local sem pagamentos)."
+  );
+}
+
+const stripe = new Stripe(stripeSecret || "sk_test_local_dev_placeholder", {
   apiVersion: "2025-08-27.basil",
 });
 /**

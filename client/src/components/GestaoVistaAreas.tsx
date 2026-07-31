@@ -68,8 +68,6 @@ const allMonths = [
 
 export default function GestaoVistaAreas() {
   const mesAtual = new Date().getMonth() + 1;
-  // Último mês concluído: em maio → abril; em janeiro → janeiro (mínimo 1)
-  const ultimoMesConcluido = mesAtual > 1 ? mesAtual - 1 : 1;
 
   const [ano, setAno]     = useState(2026);
   const [mes, setMes]     = useState<number | null>(null);
@@ -90,16 +88,15 @@ export default function GestaoVistaAreas() {
 
   const months = allMonths.filter(m => !(ano >= 2026 && m.value === '1'));
 
+  // Acumulado = mesma regra do dashboard Gestão à Vista (?ano=): inclui o mês corrente.
+  // Antes usava mesAte=mês anterior e zerava indicadores de fluxo do mês atual (ex.: evasão Inclusão em julho).
   const params = new URLSearchParams({ ano: String(ano) });
   if (mes !== null) {
     params.set('mes', String(mes));
-  } else if (ano >= 2026) {
-    // Modo "Todos": busca cumulativo só até o último mês concluído
-    params.set('mesAte', String(ultimoMesConcluido));
   }
 
   const { data: gvData, isLoading } = useQuery<GVData>({
-    queryKey: ['gestao-vista', ano, mes, mes === null && ano >= 2026 ? ultimoMesConcluido : undefined],
+    queryKey: ['gestao-vista', ano, mes],
     queryFn: async () => {
       const r = await fetch(`/api/gestao-vista?${params.toString()}`);
       if (!r.ok) throw new Error('Erro GV');
@@ -113,8 +110,8 @@ export default function GestaoVistaAreas() {
   const pec  = gvData?.pecData;
 
   const isMesFuturo   = ano >= 2026 && mes !== null && mes > mesAtual;
-  // Em modo "Todos": mesReferencia aponta para o último mês concluído (ex: abril quando estamos em maio)
-  const mesReferencia = ano >= 2026 ? (mes !== null ? mes : ultimoMesConcluido) : undefined;
+  // Acumulado: meta esperada / cores usam o mês corrente (igual ao dashboard)
+  const mesReferencia = ano >= 2026 ? (mes !== null ? mes : mesAtual) : undefined;
 
   const lineProps = {
     prefersReducedMotion,

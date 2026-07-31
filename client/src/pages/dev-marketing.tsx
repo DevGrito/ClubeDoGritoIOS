@@ -1309,10 +1309,15 @@ function GanhadoresSection({ queryClient }: { queryClient: any }) {
         const formDataUpload = new FormData();
         formDataUpload.append('foto', pendingFotoFile);
         
-        await fetch(`/api/dev/beneficios/ganhadores/${result.ganhador.id}/foto`, {
+        const uploadRes = await fetch(`/api/dev/beneficios/ganhadores/${result.ganhador.id}/foto`, {
           method: 'POST',
           body: formDataUpload,
+          credentials: 'include',
         });
+        if (!uploadRes.ok) {
+          const errBody = await uploadRes.json().catch(() => ({}));
+          throw new Error(errBody.message || errBody.error || 'Erro ao fazer upload da foto');
+        }
       }
       
       return result;
@@ -3845,12 +3850,17 @@ function PushNotificationsSection() {
         pushEndpoint: subKeys.pushEndpoint,
         pushP256dh: subKeys.pushP256dh,
         pushAuth: subKeys.pushAuth,
+        userConsent: true,
       }),
     });
     if (data.needsRefresh) {
       throw new Error('Token rejeitado pelo servidor — use Forçar reset e tente novamente');
     }
   }, [sessionData]);
+
+  const refreshTokenCount = useCallback(async () => {
+    await queryClient.refetchQueries({ queryKey: ['/api/push/tokens/count'] });
+  }, [queryClient]);
 
   const handleRegisterDevice = useCallback(async () => {
     const blocked = pushPermissionBlockedMessage();
@@ -3869,13 +3879,13 @@ function PushNotificationsSection() {
       }
       await registerPushTokenOnServer(token);
       toast({ title: 'Dispositivo registrado!', description: 'Este navegador vai receber notificações push.' });
-      setTimeout(() => { queryClient.invalidateQueries({ queryKey: ['/api/push/tokens/count'] }); }, 500);
+      await refreshTokenCount();
     } catch (err: any) {
       toast({ title: 'Erro ao registrar', description: err.message, variant: 'destructive' });
     } finally {
       setRegistering(false);
     }
-  }, [registerPushTokenOnServer, toast, queryClient]);
+  }, [registerPushTokenOnServer, toast, refreshTokenCount]);
 
   const handleForceReset = useCallback(async () => {
     setResetting(true);
@@ -3894,13 +3904,13 @@ function PushNotificationsSection() {
       }
       await registerPushTokenOnServer(token);
       toast({ title: 'Reset e registro concluídos!', description: 'Este navegador vai receber notificações push.' });
-      setTimeout(() => { queryClient.invalidateQueries({ queryKey: ['/api/push/tokens/count'] }); }, 500);
+      await refreshTokenCount();
     } catch (err: any) {
       toast({ title: 'Erro no reset', description: err.message, variant: 'destructive' });
     } finally {
       setResetting(false);
     }
-  }, [registerPushTokenOnServer, toast, queryClient]);
+  }, [registerPushTokenOnServer, toast, refreshTokenCount]);
 
   const handleSendTest = useCallback(async () => {
     const ok = window.confirm(
@@ -3930,15 +3940,15 @@ function PushNotificationsSection() {
   }, [toast]);
 
   const SCREENS = [
-    { value: 'doador',        label: 'Tela do Doador',          path: '/welcome',                roles: ['doador', 'leo'] },
-    { value: 'aluno',         label: 'Tela do Aluno',           path: '/aluno',                  roles: ['aluno', 'student'] },
-    { value: 'professor',     label: 'Tela do Professor',       path: '/professor',              roles: ['professor', 'professor_pec', 'professor_inclusao', 'professor_psico'] },
+    { value: 'doador',        label: 'Tela do Doador',          path: '/welcome',                roles: ['doador', 'user', 'leo'] },
+    { value: 'aluno',         label: 'Tela do Aluno',           path: '/aluno',                  roles: ['aluno', 'student', 'aluno_portal'] },
+    { value: 'professor',     label: 'Tela do Professor',       path: '/professor',              roles: ['professor', 'professor_pec', 'professor_inclusao', 'professor_psico', 'professor_lider', 'lider'] },
     { value: 'monitor',       label: 'Tela do Monitor',         path: '/monitor',                roles: ['monitor', 'monitor_pec', 'monitor_inclusao', 'monitor_psico', 'monitor_psicossocial'] },
-    { value: 'conselho',      label: 'Tela do Conselho',        path: '/conselho',               roles: ['conselho'] },
+    { value: 'conselho',      label: 'Tela do Conselho',        path: '/conselho',               roles: ['conselho', 'conselheiro'] },
     { value: 'patrocinador',  label: 'Tela do Patrocinador',    path: '/patrocinador-dashboard', roles: ['patrocinador'] },
-    { value: 'coordenador',   label: 'Tela do Coordenador',     path: '/coordenador',            roles: ['coordenador_pec', 'coordenador_inclusao', 'coordenador_psicossocial', 'coordenador_negocios_sociais', 'coordenador_favela3d'] },
-    { value: 'administrador', label: 'Tela do Administrador',   path: '/administrador',          roles: ['super_admin'] },
-    { value: 'dev',           label: 'Tela Dev / Dev Mkt',      path: '/dev',                    roles: ['dev', 'dev-marketing'] },
+    { value: 'coordenador',   label: 'Tela do Coordenador',     path: '/coordenador',            roles: ['coordenador_pec', 'coordenador_inclusao', 'coordenador_psico', 'coordenador_psicossocial', 'coordenador_negocios', 'coordenador_almoxarifado', 'coordenador_favela3d', 'tecnica_psico'] },
+    { value: 'administrador', label: 'Tela do Administrador',   path: '/administrador',          roles: ['super_admin', 'admin'] },
+    { value: 'dev',           label: 'Tela Dev / Dev Mkt',      path: '/dev',                    roles: ['dev', 'dev-marketing', 'desenvolvedor', 'dev-admin'] },
     { value: 'todos',         label: 'Todos os usuários',       path: '*',                       roles: [] },
   ];
 
@@ -4026,6 +4036,22 @@ function PushNotificationsSection() {
     { value: 'aula_aluno_proxima',         label: 'Aula próxima — aluno',                desc: 'Aviso de aula para o aluno',                                                  audiences: ['aluno'],       grupo: 'Aluno' },
     { value: 'turma_aluno_alterada',       label: 'Turma do aluno alterada',             desc: 'Mudanças na turma do aluno',                                                  audiences: ['aluno'],       grupo: 'Aluno' },
     { value: 'foto_aluno_pendente',        label: 'Foto de cadastro pendente',           desc: 'Alunos sem foto no cadastro — 1 push por turma com quantidade (CRON sexta)', audiences: ['professor', 'monitor', 'coordenador'], grupo: 'Aluno' },
+    // ── ACOLHIMENTOS PSICO
+    { value: 'acolhimento_agendado',       label: 'Acolhimento agendado — aluno',        desc: 'Novo acolhimento marcado para o aluno',                                      audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_serie_criada',   label: 'Série de acolhimentos — aluno',       desc: 'Série recorrente agendada',                                                   audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_cancelado',      label: 'Acolhimento cancelado — aluno',       desc: 'Acolhimento cancelado pela equipe',                                           audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_faltou',         label: 'Falta no acolhimento — aluno',        desc: 'Ausência registrada (tom cuidadoso)',                                         audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_lembrete_d1',    label: 'Lembrete D-1 — aluno',                desc: 'Aviso no dia anterior (CRON 8h BRT)',                                          audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_lembrete_2h',    label: 'Lembrete 2h — aluno',                 desc: 'Aviso ~2h antes (CRON 15min)',                                                 audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_frequencia_baixa', label: 'Frequência baixa — aluno',          desc: 'Presença nos acolhimentos abaixo de 85%',                                     audiences: ['aluno'],       grupo: 'Acolhimentos' },
+    { value: 'acolhimento_novo_staff',     label: 'Novo acolhimento — staff',            desc: 'Alguém agendou acolhimento (monitor/coordenador)',                            audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_cancelado_staff',label: 'Acolhimento cancelado — staff',       desc: 'Aviso de cancelamento para a equipe',                                         audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_resumo_dia',     label: 'Resumo do dia — staff',               desc: 'Quantidade de acolhimentos do dia (CRON 8h BRT)',                             audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_em_15min',       label: 'Acolhimento em 15 min — staff',       desc: 'Lembrete ~15 min antes (CRON 15min)',                                         audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_muitas_faltas',  label: 'Muitas faltas — staff',               desc: 'Aluno com 3+ faltas nos acolhimentos',                                        audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_frequencia_baixa_staff', label: 'Frequência baixa — staff',    desc: 'Aluno com presença < 85% nos acolhimentos',                                   audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_sem_status',     label: 'Sem status — staff',                  desc: 'Acolhimento de ontem sem realizado/faltou (CRON 9h BRT)',                     audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
+    { value: 'acolhimento_sem_proximo',    label: 'Sem próximo — staff',                 desc: 'Aluno com histórico recente e sem próximo agendado (CRON 9h BRT)',            audiences: ['monitor', 'coordenador'], grupo: 'Acolhimentos' },
     // ── ADMIN / SISTEMA
     { value: 'usuario_cadastrado',         label: 'Usuário cadastrado',                  desc: 'Novo usuário registrado na plataforma',                                       audiences: ['administrador'],grupo: 'Admin & Sistema' },
     { value: 'erro_critico_sistema',       label: 'Erro crítico no sistema',             desc: 'Erro grave detectado em produção',                                            audiences: ['administrador'],grupo: 'Admin & Sistema' },
@@ -4048,7 +4074,7 @@ function PushNotificationsSection() {
     { value: 'cron_falhou',                label: 'CRON com falha',                      desc: 'Job agendado falhou na execução',                                             audiences: ['dev'],         grupo: 'Dev & Técnico' },
     { value: 'instagram_sync_falhou',      label: 'Instagram sync falhou',               desc: 'Erro na sincronização de métricas Instagram',                                 audiences: ['dev'],         grupo: 'Dev & Técnico' },
     { value: 'stripe_sync_falhou',         label: 'Stripe sync falhou',                  desc: 'Erro na sincronização com Stripe',                                            audiences: ['dev'],         grupo: 'Dev & Técnico' },
-    { value: 'catraca_offline',            label: 'Catraca offline',                     desc: 'Hardware da catraca sem comunicação',                                         audiences: ['dev'],         grupo: 'Dev & Técnico' },
+    { value: 'catraca_offline',            label: 'Catraca offline',                     desc: 'Sem comunicação por unidade (Instituto O Grito / Casa Sonhar) — 1 push por catraca', audiences: ['dev'],         grupo: 'Dev & Técnico' },
     { value: 'dinamize_sync_falhou',       label: 'Dinamize sync falhou',                desc: 'Erro na sincronização com Dinamize',                                          audiences: ['dev'],         grupo: 'Dev & Técnico' },
     { value: 'wuzapi_falhou',              label: 'WuzAPI com falha',                    desc: 'Serviço WhatsApp indisponível',                                               audiences: ['dev'],         grupo: 'Dev & Técnico' },
     { value: 'cielo_falhou',               label: 'Cielo com falha',                     desc: 'Transação Cielo falhou',                                                      audiences: ['dev'],         grupo: 'Dev & Técnico' },
@@ -4110,8 +4136,14 @@ function PushNotificationsSection() {
     queryKey: ['/api/push/rules'],
   });
 
-  const { data: countData, isLoading: loadingCount, refetch: refetchCount } = useQuery<any>({
+  const { data: countData, isLoading: loadingCount, refetch: refetchCount } = useQuery<{
+    total: number;
+    inactive: number;
+    byType: { user_type: string; total: string }[];
+  }>({
     queryKey: ['/api/push/tokens/count'],
+    queryFn: () => pushApiFetch('/api/push/tokens/count'),
+    staleTime: 0,
   });
 
   const [logStatusFilter, setLogStatusFilter] = useState<'todos' | 'success' | 'error' | 'skipped'>('todos');
@@ -4121,7 +4153,7 @@ function PushNotificationsSection() {
   const [logDateTo, setLogDateTo] = useState('');
   const [logSearch, setLogSearch] = useState('');
 
-  const { data: logs = [], isLoading: loadingLogs, refetch: refetchLogs } = useQuery<PushLog[]>({
+  const { data: logs = [], isLoading: loadingLogs, isError: logsError, error: logsFetchError, refetch: refetchLogs } = useQuery<PushLog[]>({
     queryKey: ['/api/push/logs', logStatusFilter, logOrigemFilter, logRoleFilter, logDateFrom, logDateTo, logSearch],
     queryFn: async () => {
       const qs = new URLSearchParams();
@@ -4131,8 +4163,10 @@ function PushNotificationsSection() {
       if (logDateFrom) qs.set('date_from', new Date(logDateFrom).toISOString());
       if (logDateTo) qs.set('date_to', new Date(logDateTo + 'T23:59:59').toISOString());
       if (logSearch.trim()) qs.set('search', logSearch.trim());
+      qs.set('limit', '500');
       const q = qs.toString();
-      return pushApiFetch(`/api/push/logs${q ? `?${q}` : ''}`);
+      const data = await pushApiFetch(`/api/push/logs?${q}`);
+      return Array.isArray(data) ? data : [];
     },
     enabled: webSubTab === 'historico',
   });
@@ -4146,16 +4180,24 @@ function PushNotificationsSection() {
   const totalTokens = countData?.total ?? 0;
   const byType: { user_type: string; total: string }[] = countData?.byType ?? [];
 
-  // Agrupa tokens por tela (usando o roles de cada SCREEN)
+  // Agrupa por tela; cada user_type conta uma vez (primeira tela que o incluir)
+  const assignedTypes = new Set<string>();
   const tokensByScreen: { screen: typeof SCREENS[number]; count: number }[] = SCREENS
     .filter(s => s.value !== 'todos')
-    .map(s => ({
-      screen: s,
-      count: byType
-        .filter(t => s.roles.includes(t.user_type))
-        .reduce((sum, t) => sum + Number(t.total), 0),
-    }))
+    .map(s => {
+      let count = 0;
+      for (const row of byType) {
+        if (!s.roles.includes(row.user_type) || assignedTypes.has(row.user_type)) continue;
+        assignedTypes.add(row.user_type);
+        count += Number(row.total);
+      }
+      return { screen: s, count };
+    })
     .filter(x => x.count > 0);
+
+  const othersCount = byType
+    .filter(t => !assignedTypes.has(t.user_type))
+    .reduce((sum, t) => sum + Number(t.total), 0);
 
   const screenMap = Object.fromEntries(SCREENS.map(s => [s.value, s]));
   const gatilhoMap = Object.fromEntries(ALL_GATILHOS.map(g => [g.value, g]));
@@ -4379,6 +4421,12 @@ function PushNotificationsSection() {
                       <p className="text-xs text-gray-500 mt-0.5">{screen.label.replace('Tela do ', '').replace('Tela ', '')}</p>
                     </div>
                   ))}
+                  {othersCount > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-center min-w-[80px]">
+                      <p className="text-2xl font-bold text-amber-800">{othersCount}</p>
+                      <p className="text-xs text-amber-700 mt-0.5">Outros</p>
+                    </div>
+                  )}
                   {totalTokens === 0 && (
                     <p className="text-gray-400 text-sm italic self-center">
                       Nenhum dispositivo registrado ainda.
@@ -4803,7 +4851,7 @@ function PushNotificationsSection() {
                   <select className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" value={logOrigemFilter} onChange={(e) => setLogOrigemFilter(e.target.value)}>
                     <option value="todos">Todas as origens</option>
                     <option value="cron">CRON</option>
-                    <option value="manual">Manual</option>
+                    <option value="manual">Manual (regra ou envio)</option>
                     <option value="broadcast">Broadcast</option>
                     <option value="evento">Evento automático</option>
                     <option value="teste">Teste</option>
@@ -4820,11 +4868,17 @@ function PushNotificationsSection() {
               </div>
               {loadingLogs ? (
                 <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
+              ) : logsError ? (
+                <div className="text-center py-14 text-red-500 border border-dashed border-red-200 rounded-lg bg-red-50">
+                  <p className="text-sm font-medium">Erro ao carregar histórico</p>
+                  <p className="text-xs mt-1 text-red-400">{(logsFetchError as Error)?.message || 'Tente atualizar a página'}</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchLogs()}>Tentar novamente</Button>
+                </div>
               ) : logs.length === 0 ? (
                 <div className="text-center py-14 text-gray-400">
                   <Clock className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">Nenhum disparo registrado ainda.</p>
-                  <p className="text-xs mt-1 text-gray-300">Os disparos aparecerão aqui conforme as regras forem ativadas.</p>
+                  <p className="text-sm">Nenhum disparo encontrado com estes filtros.</p>
+                  <p className="text-xs mt-1 text-gray-300">Use &quot;Todas as origens&quot; e limpe datas para ver o histórico completo.</p>
                 </div>
               ) : (
                 <div className="overflow-auto rounded-xl border border-gray-200">
@@ -4847,7 +4901,9 @@ function PushNotificationsSection() {
                           <td className="px-3 py-2 whitespace-nowrap text-gray-500 text-[11px]">
                             {new Date(log.disparado_em).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
                           </td>
-                          <td className="px-3 py-2 text-gray-500 text-[10px] uppercase">{log.origem ?? log.canal ?? '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 text-[10px] uppercase">
+                            {({ manual: 'Manual', cron: 'CRON', broadcast: 'Broadcast', evento: 'Evento', teste: 'Teste' } as Record<string, string>)[log.origem ?? ''] ?? log.origem ?? log.canal ?? '—'}
+                          </td>
                           <td className="px-3 py-2 text-gray-500 max-w-[100px] truncate">{gatilhoMap[log.gatilho]?.label ?? log.gatilho}</td>
                           <td className="px-3 py-2 text-gray-700 max-w-[120px] truncate" title={log.destinatario_nome || log.destinatario_key || ''}>
                             {log.destinatario_nome || log.destinatario_key || log.destinatario_role || '—'}
@@ -5127,7 +5183,7 @@ function CatracaWebhookSection() {
                 <div className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">2</div>
                 <div>
                   <p className="font-semibold text-sm">Sistema busca o aluno</p>
-                  <p className="text-xs text-gray-600">Procura pelo <strong>id_catraca</strong> nas tabelas <strong>aluno</strong> (PEC) e <strong>participantes_inclusao</strong> (Inclusão)</p>
+                  <p className="text-xs text-gray-600">Prioriza o CPF no cadastro mestre <strong>atendidos_grito</strong>; se não achar, busca por CPF ou <strong>id_catraca</strong> em <strong>aluno</strong> (PEC) e <strong>participantes_inclusao</strong> (Inclusão)</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg">
@@ -5160,8 +5216,9 @@ function CatracaWebhookSection() {
                 <AlertTriangle className="w-4 h-4" /> Importante
               </p>
               <p className="text-xs text-orange-700 mt-1">
-                O campo <strong>id_catraca</strong> deve estar preenchido no cadastro do aluno (PEC) ou participante (Inclusão Produtiva). 
-                Sem esse campo, o sistema não consegue identificar quem passou na catraca.
+                A identificação principal é o <strong>CPF</strong> (cadastro unificado em <strong>atendidos_grito</strong>).
+                O campo <strong>id_catraca</strong> no legado (PEC/Inclusão) continua como fallback para dispositivos que ainda enviam esse ID.
+                Sem CPF no mestre nem id_catraca no legado, o sistema não identifica quem passou na catraca.
               </p>
             </div>
           </CardContent>
@@ -5217,7 +5274,7 @@ function CatracaWebhookSection() {
                 )}
                 {testResult.status === 404 && (
                   <p className="text-xs text-orange-600 mb-2 font-medium">
-                    ID de catraca não encontrado. Verifique se o campo "id_catraca" está preenchido no cadastro do aluno/participante.
+                    ID não encontrado. O sistema busca CPF em atendidos_grito e, em seguida, CPF/id_catraca no legado (PEC/Inclusão).
                   </p>
                 )}
                 <pre className="text-xs font-mono whitespace-pre-wrap break-words">

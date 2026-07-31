@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
+import { formatEnumLabel } from '@/lib/labelEnums';
 import { format, parse, isValid } from 'date-fns';
 import { CalendarIcon, Plus, X, Upload, FileText, Trash2, ExternalLink, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
+import { AtendidoGritoHistorico } from '@/components/atendidos-grito/AtendidoGritoHistorico';
 
 // ========== HELPERS ==========
 const GCS_PREFIX = /^https?:\/\/storage\.googleapis\.com\/[^/]+\//;
@@ -141,6 +143,8 @@ function mapPecAlunoToFormData(data: Record<string, any>): Record<string, any> {
     mora_desde_ano: parseMoraDesdeAno(data.mora_desde_ano ?? data.mora_desde),
     cadunico: benefitToFormEnum(data.cadunico) || 'nao',
     bolsa_familia: benefitToFormEnum(data.bolsa_familia) || 'nao',
+    pe_de_meia: benefitToFormEnum(data.pe_de_meia) || 'nao',
+    gas_do_povo: benefitToFormEnum(data.gas_do_povo) || 'nao',
     bpc: benefitToFormEnum(data.bpc) || 'nao',
     cartao_alimentacao: benefitToFormEnum(data.cartao_alimentacao) || 'nao',
     outros_beneficios: benefitToFormEnum(data.outros_beneficios) || 'nao',
@@ -150,13 +154,14 @@ function mapPecAlunoToFormData(data: Record<string, any>): Record<string, any> {
     forma_acesso: data.forma_acesso || 'Busca ativa',
     demandas: Array.isArray(data.demandas) ? data.demandas : [],
     observacoes_gerais: data.observacoes_gerais,
-    serie: data.serie,
-    escolaridade: data.escolaridade,
+    serie: data.serie || data.escolaridade,
+    escolaridade: data.escolaridade || data.serie,
     situacao_escolar: data.situacao_escolar ? String(data.situacao_escolar).toLowerCase() : undefined,
     escola_formou: data.escola_formou,
     ano_conclusao_em: data.ano_conclusao_em,
     turno_escolar: Array.isArray(data.turno_escolar) ? data.turno_escolar : [],
     instituicao_ensino: data.instituicao_ensino,
+    instituicao_ensino_select: instituicaoEnsinoToSelectValue(data.instituicao_ensino),
     e_alfabetizado:
       data.e_alfabetizado === true || data.e_alfabetizado === 'true'
         ? 'sabe_ler_escrever'
@@ -197,6 +202,62 @@ function mapPecAlunoToFormData(data: Record<string, any>): Record<string, any> {
   };
 }
 
+/** Mescla campos do cadastro mestre (atendidos_grito) sobre dados legados no formulário. */
+function mergeAtendidoGritoFormFields(
+  formData: Record<string, any>,
+  ag: Record<string, any> | null | undefined
+): Record<string, any> {
+  if (!ag) return formData;
+  const escolaridade = ag.escolaridade || formData.escolaridade;
+  const dcRaw = ag.dados_complementares ?? ag.dadosComplementares;
+  const dc =
+    typeof dcRaw === "string"
+      ? (() => {
+          try {
+            return JSON.parse(dcRaw);
+          } catch {
+            return null;
+          }
+        })()
+      : dcRaw;
+  const bs = dc?.beneficios_sociais;
+  return {
+    ...formData,
+    nome_completo: ag.nome_completo || ag.nomeCompleto || formData.nome_completo,
+    numero_matricula: ag.numero_matricula || ag.numeroMatricula || formData.numero_matricula,
+    serie: formData.serie || escolaridade,
+    escolaridade,
+    instituicao_ensino: ag.instituicao_ensino || ag.instituicaoEnsino || formData.instituicao_ensino,
+    instituicao_ensino_select: instituicaoEnsinoToSelectValue(
+      ag.instituicao_ensino || ag.instituicaoEnsino || formData.instituicao_ensino
+    ),
+    bolsa_familia: benefitToFormEnum(ag.bolsa_familia ?? ag.bolsaFamilia ?? bs?.bolsa_familia) || formData.bolsa_familia,
+    pe_de_meia: benefitToFormEnum(bs?.pe_de_meia) || formData.pe_de_meia || 'nao',
+    gas_do_povo: benefitToFormEnum(bs?.gas_do_povo) || formData.gas_do_povo || 'nao',
+    telefone: ag.telefone || formData.telefone,
+    email: ag.email || formData.email,
+    cep: ag.cep || formData.cep,
+    logradouro: ag.logradouro || formData.logradouro,
+    numero: ag.numero || formData.numero,
+    complemento: ag.complemento || formData.complemento,
+    bairro: ag.bairro || formData.bairro,
+    cidade: ag.cidade || formData.cidade,
+    estado: ag.estado || formData.estado,
+  };
+}
+
+async function fetchAtendidoGritoCadastro(cpf: string): Promise<Record<string, any> | null> {
+  const digits = onlyDigits(cpf);
+  if (digits.length !== 11) return null;
+  try {
+    const r = await fetch(`/api/atendidos-grito/cadastro?cpf=${digits}`, { credentials: "include" });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
 // Máscara para Data: DD/MM/AAAA
 export function maskDate(value: string): string {
   const digits = value.replace(/\D/g, '').slice(0, 8);
@@ -212,7 +273,6 @@ export function maskCEP(value: string): string {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
-// Buscar endereço por CEP (API ViaCEP - gratuita)
 export async function fetchAddressByCEP(cep: string): Promise<{
   logradouro: string;
   bairro: string;
@@ -288,6 +348,13 @@ async function gerarCpfProvisorioCSF(): Promise<string> {
   if (!r.ok) throw new Error("Falha ao gerar CPF provisório");
   const d = await r.json();
   return d.cpf;
+}
+
+async function gerarCpfProvisorioUnificado(): Promise<string> {
+  const r = await fetch("/api/atendidos-grito/next-cpf-provisorio", { credentials: "include" });
+  if (!r.ok) throw new Error("Falha ao gerar CPF provisório");
+  const d = await r.json();
+  return String(d.cpf || "").replace(/\D/g, "");
 }
 
 // Validar data no formato DD/MM/AAAA
@@ -392,6 +459,8 @@ const studentRegistrationSchema = z.object({
   // SEÇÃO 5: Benefícios Sociais
   cadunico: z.enum(['sim', 'nao']).optional(),
   bolsa_familia: z.enum(['sim', 'nao']).optional(),
+  pe_de_meia: z.enum(['sim', 'nao']).optional(),
+  gas_do_povo: z.enum(['sim', 'nao']).optional(),
   bpc: z.enum(['sim', 'nao']).optional(),
   cartao_alimentacao: z.enum(['sim', 'nao']).optional(),
   outros_beneficios: z.enum(['sim', 'nao']).optional(),
@@ -410,6 +479,7 @@ const studentRegistrationSchema = z.object({
   ano_conclusao_em: z.string().optional().nullable(),
   turno_escolar: z.array(z.enum(['matutino', 'vespertino', 'noturno'])).optional(),
   instituicao_ensino: z.string().optional(),
+  instituicao_ensino_select: z.string().optional(),
   e_alfabetizado: z.preprocess(normEnum, z.enum(['sabe_ler_escrever', 'nao_sabe_ler_nem_escrever', 'nao_sabe_ler_nem_escrever_mas_assina']).optional()),
   bairro_escola: z.string().optional(),
   
@@ -511,6 +581,8 @@ interface ComprehensiveStudentFormProps {
   editId?: number; // For inclusao mode (uses numeric ID)
   viewMode?: boolean;
   mode?: 'pec' | 'inclusao' | 'favela3d' | 'comunidade'; // pec = alunos PEC/Esporte-Cultura, inclusao = Inclusão Produtiva, favela3d = Favela 3D, comunidade = Atendidos Comunidade
+  /** Monitor PEC usa endpoint autenticado com CPF normalizado no servidor */
+  pecApiVariant?: 'monitor' | 'default';
 }
 
 // ===================== RASCUNHOS (localStorage) =====================
@@ -632,6 +704,45 @@ function saveDraftLS(userId: string | null, mode: DraftMode, draft: StudentDraft
   return norm.join(" ");
 }
 
+/** Instituições de ensino — cadastro unificado PEC / Inclusão */
+export const INSTITUICOES_ENSINO_UNIFICADO = [
+  "Escola Municipal Glória Marques Diniz",
+  "Escola Estadual Hugo Viana Chaves",
+  "Escola Estadual Ministro Miguel Mendonça",
+  "Escola Estadual Tancredo Neves",
+  "Escola Municipal Vereador Benedito Batista",
+  "Escola Municipal Shirley Regina Malta das Chagas",
+  "Escola Municipal Julieta Tarciana Vieira Rocha",
+  "Escola Estadual João Lopes Gontijo",
+  "Escola Municipal Santa Terezinha",
+] as const;
+
+export const OUTRA_INSTITUICAO_ENSINO = "__outra_instituicao__";
+
+function instituicaoEnsinoToSelectValue(saved?: string | null): string {
+  const v = String(saved ?? "").trim();
+  if (!v) return "";
+  if ((INSTITUICOES_ENSINO_UNIFICADO as readonly string[]).includes(v)) return v;
+  return OUTRA_INSTITUICAO_ENSINO;
+}
+
+function resolveInstituicaoEnsinoForSubmit(data: {
+  instituicao_ensino_select?: string | null;
+  instituicao_ensino?: string | null;
+}): { ok: true; value: string } | { ok: false; message: string } {
+  const select = String(data.instituicao_ensino_select ?? "").trim();
+  if (!select) {
+    return { ok: false, message: "Selecione a instituição de ensino" };
+  }
+  if (select === OUTRA_INSTITUICAO_ENSINO) {
+    const outra = String(data.instituicao_ensino ?? "").trim();
+    if (!outra) {
+      return { ok: false, message: "Informe o nome da outra instituição de ensino" };
+    }
+    return { ok: true, value: outra };
+  }
+  return { ok: true, value: select };
+}
 
 function deleteDraftLS(userId: string | null, mode: DraftMode, draftId: string) {
   const key = getDraftStorageKey(userId, mode);
@@ -640,11 +751,13 @@ function deleteDraftLS(userId: string | null, mode: DraftMode, draftId: string) 
 }
 // =================== FIM RASCUNHOS (localStorage) ===================
 
-export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewMode = false, mode = 'pec' }: ComprehensiveStudentFormProps) {
+export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewMode = false, mode = 'pec', pecApiVariant = 'default' }: ComprehensiveStudentFormProps) {
   const isComunidade = mode === 'comunidade';
   const isFavela3D = mode === 'favela3d' || isComunidade; // visual behavior: same wizard for both
+  const isCadastroUnificado = mode === 'pec' || mode === 'inclusao' || mode === 'comunidade';
+  const isCadastroUnificadoEscolar = mode === 'pec' || mode === 'inclusao';
   const isStrictFavela3D = mode === 'favela3d'; // only for IGF-specific logic
-  const isEditMode = mode === 'inclusao' ? !!editId : (mode === 'favela3d' || isComunidade) ? !!editId : !!editCpf;
+  const isEditMode = mode === 'inclusao' ? !!(editId || editCpf) : (mode === 'favela3d' || isComunidade) ? !!editId : !!editCpf;
   const normalizedEditCpf = onlyDigits(editCpf || "");
   const [igfClassificacao, setIgfClassificacao] = React.useState('');
   const [igfCriancas, setIgfCriancas] = React.useState(0);
@@ -714,6 +827,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   const [trabalhosAtuais, setTrabalhosAtuais] = useState<Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>>([]);
   const [experienciasPassadas, setExperienciasPassadas] = useState<Array<{ empresa: string; cargo: string; dataEntrada: string; dataSaida: string; remuneracao: string }>>([]);
   const loadedPecCpfRef = React.useRef<string | null>(null);
+  const savingLockRef = React.useRef(false);
+  const [isSavingDirect, setIsSavingDirect] = useState(false);
 
   const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -736,6 +851,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       telefone_whatsapp: false,
       cadunico: 'nao',
       bolsa_familia: 'nao',
+      pe_de_meia: 'nao',
+      gas_do_povo: 'nao',
       bpc: 'nao',
       cartao_alimentacao: 'nao',
       outros_beneficios: 'nao',
@@ -743,11 +860,13 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       telefones_adicionais: [],
       contatos_emergencia: [],
       demandas: [],
-      documentos_possui: []
+      documentos_possui: [],
+      instituicao_ensino_select: "",
     }
   });
 
   const cepValue = form.watch("cep");
+  const watchedInstituicaoSelect = form.watch("instituicao_ensino_select");
   const [loadingCep, setLoadingCep] = useState(false);
 
     // ===================== RASCUNHOS (localStorage) =====================
@@ -805,7 +924,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   }, [open]);
 
   useEffect(() => {
-    const shouldLoadData = mode === 'inclusao' ? (editId && open) : (mode === 'favela3d' || isComunidade) ? (editId && open) : (editCpf && open);
+    const shouldLoadData = mode === 'inclusao' ? ((editId || editCpf) && open) : (mode === 'favela3d' || isComunidade) ? (editId && open) : (editCpf && open);
     
     if (shouldLoadData) {
       if (isComunidade && editId) {
@@ -845,12 +964,22 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 observacoes_gerais: data.observacoes || '',
               };
               Object.keys(formData).forEach(k => { if (formData[k] === null) formData[k] = undefined; });
-              form.reset(formData);
-              setIgfCriancas(Number(data.criancas) || 0);
-              setIgfAdolescentes(Number(data.adolescentes) || 0);
-              setIgfAdultos(Number(data.adultos) || 0);
-              setIgfIdosos(Number(data.idosos) || 0);
-              if (data.foto_url) setFotoPreview(toProxyUrl(data.foto_url));
+              const cpfDigits = onlyDigits(formData.cpf || '');
+              const applyComunidadeForm = (merged: Record<string, any>) => {
+                form.reset(merged);
+                setIgfCriancas(Number(data.criancas) || 0);
+                setIgfAdolescentes(Number(data.adolescentes) || 0);
+                setIgfAdultos(Number(data.adultos) || 0);
+                setIgfIdosos(Number(data.idosos) || 0);
+                if (data.foto_url) setFotoPreview(toProxyUrl(data.foto_url));
+              };
+              if (cpfDigits.length === 11) {
+                fetchAtendidoGritoCadastro(cpfDigits).then((ag) => {
+                  applyComunidadeForm(mergeAtendidoGritoFormFields(formData, ag));
+                });
+              } else {
+                applyComunidadeForm(formData);
+              }
             }
           })
           .catch(err => console.error('[EDIT COMUNIDADE] Erro ao carregar:', err));
@@ -919,9 +1048,12 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
             }
           })
           .catch(err => console.error('[EDIT FAVELA3D] Erro ao carregar:', err));
-      } else if (mode === 'inclusao' && editId) {
-        console.log('[EDIT FORM INCLUSAO] Carregando dados do participante:', editId);
-        fetch(`/api/participantes-inclusao/${editId}`, { credentials: 'include' })
+      } else if (mode === 'inclusao' && (editId || editCpf)) {
+        const inclusaoUrl = editId
+          ? `/api/participantes-inclusao/${editId}`
+          : `/api/participantes-inclusao/cpf/${onlyDigits(editCpf || "")}`;
+        console.log('[EDIT FORM INCLUSAO] Carregando dados do participante:', editId || editCpf);
+        fetch(inclusaoUrl, { credentials: 'include' })
           .then(res => res.json())
           .then(raw => {
             const data = unwrapApiPayload(raw);
@@ -985,10 +1117,12 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
                 forma_acesso: data.formaAcesso || 'Busca ativa',
                 demandas: data.demandas || [],
                 observacoes_gerais: data.observacoesGerais || undefined,
-                serie: data.serie || undefined,
+                serie: data.serie || data.escolaridade || undefined,
+                escolaridade: data.escolaridade || data.serie || undefined,
                 situacao_escolar: data.situacaoEscolar ? data.situacaoEscolar.toLowerCase() : undefined,
                 turno_escolar: data.turnoEscolar || [],
                 instituicao_ensino: data.instituicaoEnsino || undefined,
+                instituicao_ensino_select: instituicaoEnsinoToSelectValue(data.instituicaoEnsino),
                 e_alfabetizado: (data.eAlfabetizado === true || data.eAlfabetizado === 'true') ? 'sabe_ler_escrever' : (data.eAlfabetizado === false || data.eAlfabetizado === 'false') ? 'nao_sabe_ler_nem_escrever' : (data.eAlfabetizado ? String(data.eAlfabetizado).toLowerCase() : undefined),
                 bairro_escola: data.bairroEscola || undefined,
                 procura_trabalho: boolToEnum(data.procuraTrabalho, 'sim', 'nao'),
@@ -1020,11 +1154,14 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               Object.keys(formData).forEach(key => {
                 if (formData[key] === null) formData[key] = undefined;
               });
-              form.reset(formData);
-              if (data.fotoUrl) {
-                setFotoPreview(toProxyUrl(data.fotoUrl));
-              }
-              originalCpfRef.current = onlyDigits(formData.cpf || "");
+              fetchAtendidoGritoCadastro(formData.cpf).then((ag) => {
+                const merged = mergeAtendidoGritoFormFields(formData, ag);
+                form.reset(merged);
+                if (data.fotoUrl) {
+                  setFotoPreview(toProxyUrl(data.fotoUrl));
+                }
+                originalCpfRef.current = onlyDigits(merged.cpf || "");
+              });
               setRelacionamentosFamiliares(data.relacionamentosFamiliares || []);
               setOutrosRelacionamentos(data.outrosRelacionamentos || []);
               setTrabalhosAtuais(data.trabalhosAtuais || []);
@@ -1055,11 +1192,14 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
               Object.keys(formData).forEach(key => {
                 if (formData[key] === null) formData[key] = undefined;
               });
-              form.reset(formData);
-              if (data.foto_perfil) {
-                setFotoPreview(toProxyUrl(data.foto_perfil));
-              }
-              originalCpfRef.current = onlyDigits(formData.cpf || "");
+              fetchAtendidoGritoCadastro(formData.cpf).then((ag) => {
+                const merged = mergeAtendidoGritoFormFields(formData, ag);
+                form.reset(merged);
+                if (data.foto_perfil) {
+                  setFotoPreview(toProxyUrl(data.foto_perfil));
+                }
+                originalCpfRef.current = onlyDigits(merged.cpf || "");
+              });
               const trabalhos = Array.isArray(data.trabalhos_atuais) ? data.trabalhos_atuais : [];
               const experiencias = Array.isArray(data.experiencias_profissionais) ? data.experiencias_profissionais : [];
               setTrabalhosAtuais(trabalhos);
@@ -1125,6 +1265,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         telefone_whatsapp: false,
         cadunico: 'nao',
         bolsa_familia: 'nao',
+        pe_de_meia: 'nao',
+        gas_do_povo: 'nao',
         bpc: 'nao',
         cartao_alimentacao: 'nao',
         outros_beneficios: 'nao',
@@ -1164,8 +1306,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     }, [open, isEditMode, form, mode]);
 
   const saveResponsavel = async (alunoCpf: string) => {
+    const cpfCanonico = onlyDigits(alunoCpf);
+    if (!cpfCanonico) return;
     try {
-      const existingRes = await fetch(`/api/alunos/${alunoCpf}/responsaveis`, { credentials: 'include' });
+      const existingRes = await fetch(`/api/alunos/${cpfCanonico}/responsaveis`, { credentials: 'include' });
       const existingResps: any[] = existingRes.ok ? await existingRes.json() : [];
 
       const currentIds = new Set(responsaveisData.filter(r => r.id).map(r => r.id));
@@ -1174,7 +1318,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         const keepById = existing.id && currentIds.has(existing.id);
         const keepByName = existing.nome_completo && currentNames.has(existing.nome_completo.trim().toLowerCase());
         if (!keepById && !keepByName) {
-          await fetch(`/api/alunos/${alunoCpf}/responsaveis/${existing.id}`, {
+          await fetch(`/api/alunos/${cpfCanonico}/responsaveis/${existing.id}`, {
             method: 'DELETE', credentials: 'include',
           }).catch(() => {});
         }
@@ -1215,7 +1359,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           e_contato_emergencia: resp.e_contato_emergencia || false,
           e_principal: resp.e_principal || false,
         };
-        await fetch(`/api/alunos/${alunoCpf}/responsavel`, {
+        await fetch(`/api/alunos/${cpfCanonico}/responsavel`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -1225,7 +1369,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
       const principal = responsaveisData.find(r => r.e_principal);
       if (principal?.id) {
-        await fetch(`/api/alunos/${alunoCpf}/responsaveis/${principal.id}/principal`, {
+        await fetch(`/api/alunos/${cpfCanonico}/responsaveis/${principal.id}/principal`, {
           method: 'PATCH', credentials: 'include',
         }).catch(() => {});
       }
@@ -1234,25 +1378,45 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     }
   };
 
+  const uploadAlunoFoto = async (cpfRaw: string, file: File) => {
+    const cpf = onlyDigits(cpfRaw);
+    const formData = new FormData();
+    formData.append('foto', file);
+    const res = await fetch(`/api/coordenador/alunos/${cpf}/foto`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.message || 'Falha no upload da foto');
+    }
+    return res.json();
+  };
+
+  const pecCreateEndpoint = pecApiVariant === 'monitor'
+    ? '/api/monitor/pec/alunos'
+    : '/api/professor/students';
+
   const createStudentMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest('/api/professor/students', {
+      return apiRequest(pecCreateEndpoint, {
         method: 'POST',
         body: JSON.stringify(data)
       });
     },
     onSuccess: async (result: any) => {
-      const cpf = form.getValues('cpf');
+      const cpf = onlyDigits(form.getValues('cpf'));
       if (fotoFile) {
         try {
-          const formData = new FormData();
-          formData.append('foto', fotoFile);
-          await fetch(`/api/coordenador/alunos/${cpf}/foto`, {
-            method: 'POST',
-            body: formData
-          });
+          await uploadAlunoFoto(cpf, fotoFile);
         } catch (err) {
           console.error('Erro ao fazer upload da foto:', err);
+          toast({
+            title: "Aluno cadastrado, mas a foto falhou",
+            description: err instanceof Error ? err.message : "Tente enviar a foto novamente na edição.",
+            variant: "destructive",
+          });
         }
       }
       if (pendingDocumentos.length > 0) {
@@ -1273,6 +1437,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       await saveResponsavel(cpf);
       queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
       queryClient.invalidateQueries({ queryKey: ['/api/professor/students'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/pec/alunos'] });
       toast({
         title: "Aluno cadastrado com sucesso!",
         description: pendingDocumentos.length > 0 ? `Cadastro realizado com ${pendingDocumentos.length} documento(s).` : "O cadastro foi realizado."
@@ -1300,28 +1465,30 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
   const updateStudentMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest(`/api/students/${editCpf}`, {
+      const cpfKey = normalizedEditCpf || onlyDigits(editCpf || '');
+      return apiRequest(`/api/students/${cpfKey}`, {
         method: 'PUT',
         body: JSON.stringify(data)
       });
     },
     onSuccess: async () => {
-      const cpf = editCpf || form.getValues('cpf');
+      const cpf = normalizedEditCpf || onlyDigits(editCpf || form.getValues('cpf'));
       if (fotoFile) {
         try {
-          const formData = new FormData();
-          formData.append('foto', fotoFile);
-          await fetch(`/api/coordenador/alunos/${cpf}/foto`, {
-            method: 'POST',
-            body: formData
-          });
+          await uploadAlunoFoto(cpf, fotoFile);
         } catch (err) {
           console.error('Erro ao fazer upload da foto:', err);
+          toast({
+            title: "Dados salvos, mas a foto falhou",
+            description: err instanceof Error ? err.message : "Tente enviar a foto novamente.",
+            variant: "destructive",
+          });
         }
       }
       await saveResponsavel(cpf);
       queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
       queryClient.invalidateQueries({ queryKey: ['/api/professor/students'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/monitor/pec/alunos'] });
       toast({
         title: "Aluno atualizado com sucesso!",
         description: "Os dados foram salvos."
@@ -1400,7 +1567,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
   const updateInclusaoMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest(`/api/participantes-inclusao/${editId}`, {
+      const url = editId
+        ? `/api/participantes-inclusao/${editId}`
+        : `/api/participantes-inclusao/cpf/${onlyDigits(editCpf || data?.cpf || "")}`;
+      return apiRequest(url, {
         method: 'PATCH',
         body: JSON.stringify(data)
       });
@@ -1410,7 +1580,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         try {
           const formData = new FormData();
           formData.append('foto', fotoFile);
-          await fetch(`/api/coordenador/participantes/${editId}/foto`, {
+          const fotoUrl = editId
+            ? `/api/coordenador/participantes/${editId}/foto`
+            : `/api/coordenador/participantes/cpf/${onlyDigits(editCpf || result?.cpf || "")}/foto`;
+          await fetch(fotoUrl, {
             method: 'POST',
             body: formData
           });
@@ -1546,6 +1719,32 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
   // =================== FIM RASCUNHOS: handlers =====================
 
   const onSubmit = async (data: StudentRegistrationData) => {
+    if (savingLockRef.current) return;
+    savingLockRef.current = true;
+    setIsSavingDirect(true);
+    try {
+      await onSubmitInner(data);
+    } finally {
+      savingLockRef.current = false;
+      setIsSavingDirect(false);
+    }
+  };
+
+  const onSubmitInner = async (data: StudentRegistrationData) => {
+    let instituicaoEnsinoFinal = data.instituicao_ensino;
+    if (isCadastroUnificadoEscolar) {
+      const inst = resolveInstituicaoEnsinoForSubmit(data);
+      if (!inst.ok) {
+        toast({
+          title: "Instituição de ensino obrigatória",
+          description: inst.message,
+          variant: "destructive",
+        });
+        return;
+      }
+      instituicaoEnsinoFinal = inst.value;
+    }
+
    // ✅ Normalizar textos ANTES de montar payloads
   const nomeNormalizado = normalizePersonName(data?.nome_completo);
   const naturalidadeNorm = normalizePersonName(data?.naturalidade);
@@ -1571,9 +1770,13 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     nome: normalizePersonName(r.nome),
   }));
 
+  const escolaridadeValor = isCadastroUnificadoEscolar
+    ? (data.serie || data.escolaridade || undefined)
+    : (data.escolaridade || undefined);
+
   // Preparar dados para envio
   const formattedData = {
-    cpf: data.cpf,
+    cpf: onlyDigits(data.cpf),
     nome_completo: nomeNormalizado,
     area: data.area,
     foto_perfil: data.foto_perfil,
@@ -1582,7 +1785,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       : "",
     genero: data.genero,
     numero_matricula: data.numero_matricula,
-    id_catraca: data.id_catraca,
+    ...(isCadastroUnificado ? {} : { id_catraca: data.id_catraca }),
     estado_civil: data.estado_civil,
     religiao: data.religiao,
     naturalidade: naturalidadeNorm,
@@ -1624,6 +1827,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     // Benefícios
     cadunico: data.cadunico,
     bolsa_familia: data.bolsa_familia,
+    pe_de_meia: data.pe_de_meia,
+    gas_do_povo: data.gas_do_povo,
     bpc: data.bpc,
     cartao_alimentacao: data.cartao_alimentacao,
     outros_beneficios: data.outros_beneficios,
@@ -1636,9 +1841,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
     // Escolar
     serie: data.serie,
+    escolaridade: escolaridadeValor,
     situacao_escolar: data.situacao_escolar,
     turno_escolar: data.turno_escolar,
-    instituicao_ensino: data.instituicao_ensino,
+    instituicao_ensino: instituicaoEnsinoFinal,
     e_alfabetizado: data.e_alfabetizado,
     bairro_escola: data.bairro_escola,
 
@@ -1698,6 +1904,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         tem_cad_unico: data.cadunico === 'sim' ? 'Sim' : data.cadunico === 'nao' ? 'Não' : null,
         tem_bolsa_familia: data.bolsa_familia === 'sim' ? 'Sim' : data.bolsa_familia === 'nao' ? 'Não' : null,
         tem_bpc: data.bpc === 'sim' ? 'Sim' : data.bpc === 'nao' ? 'Não' : null,
+        pe_de_meia: data.pe_de_meia,
+        gas_do_povo: data.gas_do_povo,
         numero_pessoas: igfCriancas + igfAdolescentes + igfAdultos + igfIdosos || null,
         criancas: igfCriancas || null,
         adolescentes: igfAdolescentes || null,
@@ -1718,7 +1926,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(comunidadeData),
         });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          throw new Error(errBody?.error || `Erro ${res.status}`);
+        }
         const saved = await res.json().catch(() => null);
         const savedId = saved?.id || editId;
         if (fotoFile && savedId) {
@@ -1784,7 +1995,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         serie: data.serie || null,
         situacaoEscolar: data.situacao_escolar || null,
         turnoEscolar: Array.isArray(data.turno_escolar) && data.turno_escolar.length > 0 ? data.turno_escolar.join(',') : null,
-        instituicaoEnsino: data.instituicao_ensino || null,
+        instituicaoEnsino: instituicaoEnsinoFinal || null,
         eAlfabetizado: data.e_alfabetizado || null,
         bairroEscola: data.bairro_escola || null,
         dataEntrada: data.data_entrada ? format(data.data_entrada, "yyyy-MM-dd") : null,
@@ -1844,7 +2055,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
           ? format(parse(data.data_nascimento, "dd/MM/yyyy", new Date()), "yyyy-MM-dd")
           : null,
         codigoMatricula: data.numero_matricula,
-        idCatraca: data.id_catraca || null,
+        ...(isCadastroUnificado ? {} : { idCatraca: data.id_catraca || null }),
 
         estadoCivil: data.estado_civil,
         religiao: data.religiao,
@@ -1891,6 +2102,8 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
 
         cadunico: data.cadunico,
         bolsaFamilia: data.bolsa_familia,
+        peDeMeia: data.pe_de_meia,
+        gasDoPovo: data.gas_do_povo,
         bpc: data.bpc,
         cartaoAlimentacao: data.cartao_alimentacao,
         outrosBeneficios: data.outros_beneficios,
@@ -1901,9 +2114,10 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         observacoesGerais: data.observacoes_gerais,
 
         serie: data.serie,
+        escolaridade: escolaridadeValor || null,
         situacaoEscolar: data.situacao_escolar,
         turnoEscolar: data.turno_escolar,
-        instituicaoEnsino: data.instituicao_ensino,
+        instituicaoEnsino: instituicaoEnsinoFinal,
         eAlfabetizado: data.e_alfabetizado,
         bairroEscola: data.bairro_escola,
 
@@ -1936,7 +2150,7 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
         outrosRelacionamentos: outrosRelacionamentosNorm,
       };
       
-      if (isEditMode && editId) {
+      if (isEditMode && (editId || editCpf)) {
         updateInclusaoMutation.mutate(inclusaoData);
       } else {
         createInclusaoMutation.mutate(inclusaoData);
@@ -1999,6 +2213,43 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
       return;
     }
 
+    if (isCadastroUnificado && currentSection === 4) {
+      const cepDigits = onlyDigits(form.getValues("cep") || "");
+      if (cepDigits.length !== 8) {
+        form.setError("cep", { message: "CEP inválido — informe 8 dígitos" });
+        toast({
+          title: "CEP inválido",
+          description: "Informe um CEP válido com 8 dígitos.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    if (isCadastroUnificadoEscolar && currentSection === 7) {
+      const inst = resolveInstituicaoEnsinoForSubmit(form.getValues());
+      if (!inst.ok) {
+        toast({
+          title: "Instituição de ensino obrigatória",
+          description: inst.message,
+          variant: "destructive",
+        });
+        return;
+      }
+      form.setValue("instituicao_ensino", inst.value, { shouldValidate: true });
+
+      const bairroEscola = String(form.getValues("bairro_escola") ?? "").trim();
+      if (!bairroEscola) {
+        form.setError("bairro_escola", { message: "Bairro da escola é obrigatório" });
+        toast({
+          title: "Bairro da escola obrigatório",
+          description: "Informe o bairro onde se localiza a escola.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // Bloquear avanço se CPF já está cadastrado (seção 1)
     if (currentSection === 1 && cpfLookup.status === "exists") {
       toast({
@@ -2026,11 +2277,17 @@ export function ComprehensiveStudentForm({ open, onClose, editCpf, editId, viewM
     'Grupos de Convivência',
     'Serviços Socioassistenciais'
   ];
-    const sectionRequiredFields: Record<number, Array<keyof StudentRegistrationData>> = {
+    const sectionRequiredFields: Partial<Record<number, Array<keyof StudentRegistrationData>>> = {
       1: isFavela3D ? ["nome_completo", "cpf", "genero"] : ["nome_completo", "area", "cpf", "data_nascimento", "genero"],
       2: [],
       3: ["telefone"],
       6: ["data_entrada", "forma_acesso"],
+      ...(isCadastroUnificado
+        ? { 4: ["cep", "logradouro", "numero", "bairro", "cidade", "estado"] as Array<keyof StudentRegistrationData> }
+        : {}),
+      ...(isCadastroUnificadoEscolar
+        ? { 7: ["instituicao_ensino_select", "serie", "bairro_escola"] as Array<keyof StudentRegistrationData> }
+        : {}),
     };
     const [cpfLookup, setCpfLookup] = useState<{
       status: "idle" | "checking" | "exists" | "available" | "invalid" | "error";
@@ -2263,7 +2520,9 @@ useEffect(() => {
                 const masked = maskCPF(e.target.value);
                 const digits = masked.replace(/\D/g, '');
                 field.onChange(digits); // salva sempre só números
-                form.setValue('id_catraca', digits);
+                if (!isCadastroUnificado) {
+                  form.setValue('id_catraca', digits);
+                }
               }}
               className={[
                 isDuplicado ? "border-red-500 focus-visible:ring-red-500" : "",
@@ -2287,11 +2546,13 @@ useEffect(() => {
           </div>
         </FormControl>
 
-        {isFavela3D && (
+        {(isFavela3D || isCadastroUnificado) && (
           <button type="button" className="text-xs text-purple-600 underline mt-1 block"
             onClick={async () => {
               try {
-                const cpf = await gerarCpfProvisorioCSF();
+                const cpf = isCadastroUnificado
+                  ? await gerarCpfProvisorioUnificado()
+                  : await gerarCpfProvisorioCSF();
                 form.setValue('cpf', cpf, { shouldValidate: false });
                 form.clearErrors('cpf');
               } catch {}
@@ -2300,11 +2561,11 @@ useEffect(() => {
           </button>
         )}
 
-        {isFavela3D && isCpfProvisorioCSF(form.watch('cpf')) && (
+        {(isFavela3D || isCadastroUnificado) && isCpfProvisorioCSF(form.watch('cpf')) && (
           <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 flex items-start gap-2 mt-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <p className="text-sm text-amber-800 font-medium leading-tight">
-              CPF provisório — atualize o CPF real desta pessoa assim que possível.
+            <p className="text-sm text-amber-800 font-bold leading-tight">
+              CPF PROVISÓRIO — atualize o CPF real desta pessoa assim que possível.
             </p>
           </div>
         )}
@@ -2399,6 +2660,7 @@ useEffect(() => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
+                  {!isCadastroUnificado && (
                   <FormField
                     control={form.control}
                     name="religiao"
@@ -2425,6 +2687,7 @@ useEffect(() => {
                       </FormItem>
                     )}
                   />
+                  )}
 
                   <FormField
                     control={form.control}
@@ -2599,7 +2862,7 @@ useEffect(() => {
                   name="frequenta_projeto_social"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>FREQUENTA ALGUM PROJETO SOCIAL?</FormLabel>
+                      <FormLabel>Frequenta algum projeto social?</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}
@@ -2642,7 +2905,7 @@ useEffect(() => {
                   name="acesso_internet"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>POSSUI ACESSO A INTERNET?</FormLabel>
+                      <FormLabel>Possui acesso à internet?</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}
@@ -2693,7 +2956,7 @@ useEffect(() => {
                   name="possui_carteira_trabalho"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Possui Carteira de Trabalho?</FormLabel>
+                      <FormLabel>Possui carteira de trabalho?</FormLabel>
                       <FormControl>
                         <RadioGroup onValueChange={field.onChange} value={field.value} className="flex gap-4">
                           <div className="flex items-center space-x-2">
@@ -2710,44 +2973,15 @@ useEffect(() => {
                     </FormItem>
                   )}
                 />
-                {form.watch('possui_carteira_trabalho') === 'sim' && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="ctps_numero"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Número da Carteira de Trabalho</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="Número" data-testid="input-ctps-numero" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="ctps_serie"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Série</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="Série" data-testid="input-ctps-serie" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                )}
-
-                {/* Título de Eleitor — Sim/Não */}
+                {/* Título de Eleitor — apenas fora do cadastro unificado */}
+                {!isCadastroUnificado && (
+                <>
                 <FormField
                   control={form.control}
                   name="possui_titulo_eleitor"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Possui Título de Eleitor?</FormLabel>
+                      <FormLabel>Possui título de eleitor?</FormLabel>
                       <FormControl>
                         <RadioGroup onValueChange={field.onChange} value={field.value} className="flex gap-4">
                           <div className="flex items-center space-x-2">
@@ -2770,7 +3004,7 @@ useEffect(() => {
                     name="titulo_eleitor"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Número do Título de Eleitor</FormLabel>
+                        <FormLabel>Número do título de eleitor</FormLabel>
                         <FormControl>
                           <Input {...field} placeholder="Número" data-testid="input-titulo-eleitor" />
                         </FormControl>
@@ -2779,7 +3013,10 @@ useEffect(() => {
                     )}
                   />
                 )}
+                </>
+                )}
 
+                {!isCadastroUnificado && (
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -2795,6 +3032,7 @@ useEffect(() => {
                     )}
                   />
                 </div>
+                )}
 
                 <FormField
                   control={form.control}
@@ -3265,7 +3503,7 @@ useEffect(() => {
                     name="cep"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>CEP</FormLabel>
+                        <FormLabel>CEP{isCadastroUnificado && " *"}</FormLabel>
                         <FormControl>
                           <Input 
                             {...field} 
@@ -3300,7 +3538,7 @@ useEffect(() => {
                     name="estado"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Estado</FormLabel>
+                        <FormLabel>Estado{isCadastroUnificado && " *"}</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value || ''}>
                           <FormControl>
                             <SelectTrigger data-testid="select-estado">
@@ -3348,7 +3586,7 @@ useEffect(() => {
                   name="cidade"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cidade</FormLabel>
+                      <FormLabel>Cidade{isCadastroUnificado && " *"}</FormLabel>
                       <FormControl>
                         <Input {...field} value={field.value || ''} placeholder="Nome da cidade" data-testid="input-cidade" />
                       </FormControl>
@@ -3362,7 +3600,7 @@ useEffect(() => {
                   name="bairro"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Bairro</FormLabel>
+                      <FormLabel>Bairro{isCadastroUnificado && " *"}</FormLabel>
                       <FormControl>
                         <Input {...field} value={field.value || ''} placeholder="Nome do bairro" data-testid="input-bairro" />
                       </FormControl>
@@ -3376,7 +3614,7 @@ useEffect(() => {
                   name="logradouro"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Logradouro (Rua, Avenida, etc.)</FormLabel>
+                      <FormLabel>Logradouro (Rua, Avenida, etc.){isCadastroUnificado && " *"}</FormLabel>
                       <FormControl>
                         <Input {...field} value={field.value || ''} placeholder="Ex: Rua das Flores" data-testid="input-logradouro" />
                       </FormControl>
@@ -3391,7 +3629,7 @@ useEffect(() => {
                     name="numero"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Número</FormLabel>
+                        <FormLabel>Número{isCadastroUnificado && " *"}</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value || ''} placeholder="Nº" data-testid="input-numero" />
                         </FormControl>
@@ -3429,6 +3667,7 @@ useEffect(() => {
                   )}
                 />
 
+                {!isCadastroUnificado && (
                 <FormField
                   control={form.control}
                   name="mora_desde_ano"
@@ -3449,6 +3688,7 @@ useEffect(() => {
                     </FormItem>
                   )}
                 />
+                )}
               </div>
             )}
 
@@ -3457,6 +3697,7 @@ useEffect(() => {
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Benefícios Sociais</h3>
                 
+                {!isCadastroUnificado && (
                 <FormField
                   control={form.control}
                   name="cadunico"
@@ -3483,11 +3724,41 @@ useEffect(() => {
                     </FormItem>
                   )}
                 />
+                )}
 
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="font-semibold text-sm mb-4">Família recebe quais benefícios sociais?</h4>
+                  <h4 className="font-semibold text-sm mb-4">
+                    {isCadastroUnificado ? "Recebe benefícios sociais?" : "Família recebe quais benefícios sociais?"}
+                  </h4>
 
                   <div className="space-y-4">
+                    {isCadastroUnificado ? (
+                      <div className="space-y-3">
+                        {([
+                          { name: "bolsa_familia" as const, label: "Bolsa Família" },
+                          { name: "pe_de_meia" as const, label: "Pé de meia" },
+                          { name: "gas_do_povo" as const, label: "Gás do povo" },
+                        ]).map(({ name, label }) => (
+                          <FormField
+                            key={name}
+                            control={form.control}
+                            name={name}
+                            render={({ field }) => (
+                              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value === "sim"}
+                                    onCheckedChange={(checked) => field.onChange(checked ? "sim" : "nao")}
+                                    data-testid={`checkbox-${name}`}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal">{label}</FormLabel>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                    ) : (
                     <FormField
                       control={form.control}
                       name="bolsa_familia"
@@ -3514,7 +3785,10 @@ useEffect(() => {
                         </FormItem>
                       )}
                     />
+                    )}
 
+                    {!isCadastroUnificado && (
+                    <>
                     <FormField
                       control={form.control}
                       name="bpc"
@@ -3615,6 +3889,8 @@ useEffect(() => {
                         </FormItem>
                       )}
                     />
+                    </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3806,7 +4082,7 @@ useEffect(() => {
                     name="serie"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Série</FormLabel>
+                        <FormLabel>Série{isCadastroUnificado && " *"}</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-serie">
@@ -3878,14 +4154,32 @@ useEffect(() => {
                 </div>
 
                 {/* Campos extras quando já concluiu o Ensino Médio */}
-                {!isFavela3D && ['Ensino Médio Completo', 'Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
+                {!isFavela3D && form.watch('serie') === 'Ensino Médio Completo' && (
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <FormField
+                      control={form.control}
+                      name="ano_conclusao_em"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ano de conclusão do ensino médio</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value || ''} placeholder="Ex: 2019" data-testid="input-ano-conclusao-em" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+
+                {!isFavela3D && ['Superior Incompleto', 'Superior Completo', 'Pós-graduação'].includes(form.watch('serie') || '') && (
                   <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
                     <FormField
                       control={form.control}
                       name="escola_formou"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Escola onde concluiu o Ensino Médio</FormLabel>
+                          <FormLabel>Escola onde concluiu o ensino médio</FormLabel>
                           <FormControl>
                             <Input {...field} value={field.value || ''} placeholder="Nome da escola" data-testid="input-escola-formou" />
                           </FormControl>
@@ -3898,7 +4192,7 @@ useEffect(() => {
                       name="ano_conclusao_em"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Ano de conclusão do Ensino Médio</FormLabel>
+                          <FormLabel>Ano de conclusão do ensino médio</FormLabel>
                           <FormControl>
                             <Input {...field} value={field.value || ''} placeholder="Ex: 2019" data-testid="input-ano-conclusao-em" />
                           </FormControl>
@@ -3947,6 +4241,68 @@ useEffect(() => {
                   )}
                 />
 
+                {isCadastroUnificadoEscolar ? (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="instituicao_ensino_select"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Instituição de ensino *</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              if (value === OUTRA_INSTITUICAO_ENSINO) {
+                                form.setValue("instituicao_ensino", "", { shouldValidate: true });
+                              } else {
+                                form.setValue("instituicao_ensino", value, { shouldValidate: true });
+                              }
+                            }}
+                            value={field.value || ""}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-instituicao-ensino">
+                                <SelectValue placeholder="Selecione a escola" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {INSTITUICOES_ENSINO_UNIFICADO.map((escola) => (
+                                <SelectItem key={escola} value={escola}>
+                                  {escola}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value={OUTRA_INSTITUICAO_ENSINO}>
+                                Outra instituição
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {watchedInstituicaoSelect === OUTRA_INSTITUICAO_ENSINO && (
+                      <FormField
+                        control={form.control}
+                        name="instituicao_ensino"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nome da outra instituição *</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                value={field.value || ""}
+                                placeholder="Digite o nome da instituição"
+                                data-testid="input-instituicao-outra"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </>
+                ) : (
                 <FormField
                   control={form.control}
                   name="instituicao_ensino"
@@ -3960,13 +4316,14 @@ useEffect(() => {
                     </FormItem>
                   )}
                 />
+                )}
 
                 <FormField
                   control={form.control}
                   name="e_alfabetizado"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>É ALFABETIZADO?</FormLabel>
+                      <FormLabel>É alfabetizado?</FormLabel>
                       <FormControl>
                         <RadioGroup
                           onValueChange={field.onChange}
@@ -3997,7 +4354,7 @@ useEffect(() => {
                   name="bairro_escola"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Bairro</FormLabel>
+                      <FormLabel>{isCadastroUnificado ? "Bairro da escola *" : "Bairro"}</FormLabel>
                       <p className="text-xs text-gray-500">Bairro onde se localiza a escola</p>
                       <FormControl>
                         <Input {...field} placeholder="Bairro da escola" />
@@ -4538,7 +4895,7 @@ useEffect(() => {
                     name="restricao_alimentar"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>ALGUMA RESTRIÇÃO ALIMENTAR?</FormLabel>
+                        <FormLabel>Alguma restrição alimentar?</FormLabel>
                         <FormControl>
                           <RadioGroup
                             onValueChange={field.onChange}
@@ -4576,7 +4933,7 @@ useEffect(() => {
                     name="possui_convenio_medico"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>POSSUI CONVÊNIO MÉDICO?</FormLabel>
+                        <FormLabel>Possui convênio médico?</FormLabel>
                         <FormControl>
                           <RadioGroup
                             onValueChange={field.onChange}
@@ -4766,8 +5123,8 @@ useEffect(() => {
                                     {resp.email && <span>Email: {resp.email}</span>}
                                   </div>
                                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                                    {resp.escolaridade && <span>Escolaridade: {resp.escolaridade}</span>}
-                                    {resp.situacao_trabalhista && <span>Trab: {resp.situacao_trabalhista}</span>}
+                                    {resp.escolaridade && <span>Escolaridade: {formatEnumLabel(resp.escolaridade)}</span>}
+                                    {resp.situacao_trabalhista && <span>Trab: {formatEnumLabel(resp.situacao_trabalhista)}</span>}
                                     {resp.profissao && <span>Profissão: {resp.profissao}</span>}
                                     {resp.renda_familiar && <span>Renda: {resp.renda_familiar}</span>}
                                   </div>
@@ -5434,6 +5791,18 @@ useEffect(() => {
               </div>
             )}
 
+            {isReadOnly && mode !== 'favela3d' && (() => {
+              const historicoCpf = onlyDigits(editCpf || form.getValues('cpf') || '');
+              if (historicoCpf.length !== 11) return null;
+              return (
+                <AtendidoGritoHistorico
+                  cpf={historicoCpf}
+                  nomeAluno={String(form.getValues('nome_completo') || '')}
+                  participanteId={mode === 'inclusao' && editId ? Number(editId) : undefined}
+                />
+              );
+            })()}
+
             {/* Navigation buttons */}
             <div className="flex justify-between pt-4 border-t">
               <div>
@@ -5482,6 +5851,7 @@ useEffect(() => {
                   <Button
                     type="button"
                     disabled={
+                      isSavingDirect ||
                       createStudentMutation.isPending ||
                       updateStudentMutation.isPending ||
                       createInclusaoMutation.isPending ||
@@ -5489,7 +5859,8 @@ useEffect(() => {
                     }
                     data-testid="button-salvar"
                     onClick={async () => {
-                      // Para Favela3D, validar manualmente apenas os campos com *
+                      if (savingLockRef.current || isSavingDirect) return;
+                      // Para Favela3D/Comunidade, validar manualmente apenas os campos com *
                       if (isFavela3D) {
                         const vals = form.getValues();
                         if (!vals.nome_completo?.trim()) {
@@ -5533,7 +5904,7 @@ useEffect(() => {
                       form.handleSubmit(onSubmit)();
                     }}
                   >
-                    {(createStudentMutation.isPending || createInclusaoMutation.isPending) ? 'Salvando...' : 'Salvar'}
+                    {(isSavingDirect || createStudentMutation.isPending || createInclusaoMutation.isPending) ? 'Salvando...' : 'Salvar'}
                   </Button>
                 ) : null}
               </div>

@@ -1,11 +1,40 @@
 import type { AuthSessionPayload } from "@/lib/auth-session";
-import { isAlunoPortalSession, getAlunoPortalCpf } from "@/lib/auth-session";
+import { canRoleAccessRoute, normalizeRbacRole } from "@/lib/rbac-routes";
+import { normalizePushPath } from "@/lib/pushNavigationGate";
 
-/** Rota pós-login com base na sessão confirmada pelo backend (fonte de verdade). */
-export function getPostLoginPath(session: AuthSessionPayload): string {
+/** Lê ?redirect= da URL atual (após login por clique de push). */
+export function readRedirectFromLocation(search?: string): string | null {
+  try {
+    const q = search ?? (typeof window !== "undefined" ? window.location.search : "");
+    const raw = new URLSearchParams(q).get("redirect");
+    if (!raw) return null;
+    const path = normalizePushPath(decodeURIComponent(raw));
+    if (!path.startsWith("/") || path.startsWith("//")) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Se o redirect for seguro para o papel logado, usa-o; senão cai no mapa padrão.
+ */
+export function getPostLoginPath(
+  session: AuthSessionPayload,
+  redirectParam?: string | null
+): string {
   const role = String(session.papel || session.role || "").toLowerCase();
 
-  if (isAlunoPortalSession(session) && getAlunoPortalCpf(session)) {
+  if (redirectParam) {
+    const path = normalizePushPath(redirectParam);
+    const actorRole =
+      session.actorType === "aluno_portal" ? "aluno_portal" : normalizeRbacRole(role);
+    if (path.startsWith("/") && canRoleAccessRoute(actorRole || role, path)) {
+      return path;
+    }
+  }
+
+  if (session.actorType === "aluno_portal" && session.cpf) {
     return "/aluno";
   }
   if (session.actorType === "scanner") {

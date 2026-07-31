@@ -1,6 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { UserCheck } from "lucide-react";
+import { PSICO_CATEGORIA_COLETIVO_LABELS } from "@shared/psico-coletivo-categorias";
+import { AtendidoGritoHistorico } from "@/components/atendidos-grito/AtendidoGritoHistorico";
 
 // ────────────────────────────────────────────────────────────────
 // Normaliza valores snake_case → texto legível em PT-BR
@@ -169,6 +171,7 @@ export function PsicoPerfilModal({
 }: PsicoPerfilModalProps) {
   const nome = perfil?.nome_completo || perfil?.nome || atendido?.nome || "-";
   const cpf = atendido?.cpf || perfil?.cpf;
+  const cpfHistorico = String(cpf || "").replace(/\D/g, "");
   const status = perfil?.situacao_atendimento || atendido?.situacao_atendimento;
   const prog = programa || perfil?.fonte || atendido?.programa;
   const age = calcAge(perfil?.data_nascimento || atendido?.dataNascimento);
@@ -190,17 +193,16 @@ export function PsicoPerfilModal({
     atendimento_individual: "Atendimento Individual",
     visita_domiciliar: "Visita Domiciliar",
     atendimento_coletivo: "Atendimento Coletivo",
-    espaco_o_grito: "Espaço O Grito",
+    ...PSICO_CATEGORIA_COLETIVO_LABELS,
     acoes_saude: "Ações para Saúde",
     encaminhamento: "Encaminhamento",
     situacao_risco: "Situação de Risco",
-    caravana_comunitaria: "Caravana Comunitária",
     outro: "Outro",
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-purple-600" />
@@ -410,6 +412,18 @@ export function PsicoPerfilModal({
                 ))}
               </div>
             </Section>
+          )}
+
+          {cpfHistorico.length === 11 && (
+            <AtendidoGritoHistorico
+              cpf={cpfHistorico}
+              nomeAluno={nome}
+              participanteId={
+                prog === "inclusao"
+                  ? (atendido?.participanteId ?? atendido?.id)
+                  : undefined
+              }
+            />
           )}
 
           {/* ── Histórico de Atendimentos ── */}

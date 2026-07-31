@@ -56,6 +56,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import GestaoVistaAreas from "@/components/GestaoVistaAreas";
 import { ProgramasIconGrid } from "@/components/ProgramasIconGrid";
+import { FAMILIAS_FAVELA3D_EXIBICAO, coletivosFavela3DNoPeriodo } from "@/pages/dashboard-gestao-vista/shared";
 
 interface ImpactMetrics {
   vidasImpactadas: number;
@@ -269,11 +270,16 @@ export default function PatrocinadorDashboard() {
   });
 
   // Favela 3D
-  const { data: f3dData, isLoading: loadingF3D } = useQuery<any>({
+  const { data: f3dData } = useQuery<any>({
     queryKey: ['/api/gestao-vista/favela3d', anoAtual, mesAtual],
     queryFn: () => fetch(`/api/gestao-vista/favela3d?ano=${anoAtual}&mes=${mesAtual}`).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
   });
+
+  // Mesmos números do Dashboard Gestão à Vista — coletivos só do mês vigente
+  const f3dFamiliasExibicao = FAMILIAS_FAVELA3D_EXIBICAO;
+  const f3dGerandoLiderMes = coletivosFavela3DNoPeriodo('gerando_lideranca', [mesAtual]);
+  const f3dAssembleiaMes = coletivosFavela3DNoPeriodo('assembleia', [mesAtual]);
 
   // Helper functions para buscar valores mensais (igual ao Leo)
   const getValorMensalPEC = (projeto: string, indicador: string) => {
@@ -677,7 +683,7 @@ export default function PatrocinadorDashboard() {
 
   return (
     <motion.div 
-      className="min-h-screen bg-white"
+      className="min-h-screen bg-white pb-nav"
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
@@ -960,7 +966,7 @@ export default function PatrocinadorDashboard() {
                       onClick={() => openStories(index)}
                       className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                       style={{
-                        width: '320px',
+                        width: 'min(320px, 85vw)',
                         height: '180px',
                         backgroundImage: story.image ? `url("${story.image}")` : 'url("https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face")',
                         backgroundSize: 'cover',
@@ -2107,97 +2113,72 @@ export default function PatrocinadorDashboard() {
           <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
 
           <div className="space-y-4 mt-4">
-            {loadingF3D ? (
-              <div className="text-center py-8 text-gray-500">Carregando...</div>
-            ) : (
-              <>
-                <div
-                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                  onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
-                >
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
-                          <Users className="w-5 h-5 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
-                      </div>
-                      {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+            <div
+              className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                      <Users className="w-5 h-5 text-white" />
                     </div>
-                    {expandedF3DCard === 'panorama' && (
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.familias ?? 0).toLocaleString('pt-BR')}</div>
-                          <p className="text-xs text-gray-700 font-medium">Famílias</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
-                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
-                          <div className="text-2xl font-bold text-purple-600">{(f3dData?.visitas ?? 0).toLocaleString('pt-BR')}</div>
-                          <p className="text-xs text-gray-700 font-medium">Visitas</p>
-                        </div>
-                      </div>
-                    )}
+                    <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
                   </div>
+                  {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                 </div>
-                <div
-                  className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                  onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
-                >
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
-                          <TrendingUp className="w-5 h-5 text-white" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
-                      </div>
-                      {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                {expandedF3DCard === 'panorama' && (
+                  <div className="mt-4 grid grid-cols-1 gap-3">
+                    <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                      <div className="text-2xl font-bold text-purple-600">{f3dFamiliasExibicao.toLocaleString('pt-BR')}</div>
+                      <p className="text-xs text-gray-700 font-medium">Famílias</p>
                     </div>
-                    {expandedF3DCard === 'coletivos' && (
-                      <div className="mt-4 space-y-3">
-                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Registros</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                          </div>
-                        </div>
-                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Registros</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                          </div>
-                        </div>
-                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Registros</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
+                )}
+              </div>
+            </div>
+            <div
+              className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+              onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
+                  </div>
+                  {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                 </div>
-              </>
-            )}
+                {expandedF3DCard === 'coletivos' && (
+                  <div className="mt-4 space-y-3">
+                    <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderMes.registros.toLocaleString('pt-BR')}</div>
+                        <p className="text-xs text-gray-700 font-medium">Registros</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderMes.pessoas.toLocaleString('pt-BR')}</div>
+                        <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                      </div>
+                    </div>
+                    <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaMes.registros.toLocaleString('pt-BR')}</div>
+                        <p className="text-xs text-gray-700 font-medium">Registros</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaMes.pessoas.toLocaleString('pt-BR')}</div>
+                        <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

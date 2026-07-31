@@ -186,9 +186,10 @@ export default function EventosHome() {
   const [busca, setBusca] = useState("");
   const [catSelecionada, setCatSelecionada] = useState("todos");
   const [showLogin, setShowLogin] = useState(false);
+  const [loginRedirect, setLoginRedirect] = useState<string | null>(null);
   const { user, isLoggedIn, logout } = usePortalAuth();
 
-  const { data: eventos = [], isLoading } = useQuery<any[]>({
+  const { data: eventos = [], isLoading, isError, refetch } = useQuery<any[]>({
     queryKey: ["/api/eventos-grito"],
     queryFn: async () => {
       const r = await fetch("/api/eventos-grito");
@@ -258,7 +259,7 @@ export default function EventosHome() {
               ) : (
                 <>
                   <button
-                    onClick={() => navigate("/eventos/meus-ingressos")}
+                    onClick={() => { setLoginRedirect("/eventos/perfil"); setShowLogin(true); }}
                     className="hidden sm:flex items-center gap-1.5 text-sm font-semibold px-4 py-1.5 rounded-full text-white transition-colors"
                     style={{ backgroundColor: GREEN }}
                   >
@@ -266,7 +267,7 @@ export default function EventosHome() {
                     Ingressos
                   </button>
                   <button
-                    onClick={() => setShowLogin(true)}
+                    onClick={() => { setLoginRedirect(null); setShowLogin(true); }}
                     className="flex items-center justify-center w-9 h-9 rounded-full border-2 transition-colors hover:bg-gray-50"
                     style={{ borderColor: GREEN, color: GREEN }}
                     title="Entrar"
@@ -299,6 +300,13 @@ export default function EventosHome() {
       {isLoading ? (
         <div className="flex items-center justify-center py-24">
           <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND, borderTopColor: "transparent" }} />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <p className="text-gray-600 font-medium text-lg">Não foi possível carregar os eventos</p>
+          <button onClick={() => refetch()} className="px-5 py-2 rounded-full text-white text-sm font-semibold" style={{ backgroundColor: GREEN }}>
+            Tentar novamente
+          </button>
         </div>
       ) : (
         <>
@@ -387,8 +395,8 @@ export default function EventosHome() {
       {/* Modal de login */}
       {showLogin && (
         <LoginModal
-          onClose={() => setShowLogin(false)}
-          onSuccess={() => navigate("/eventos")}
+          onClose={() => { setShowLogin(false); setLoginRedirect(null); }}
+          onSuccess={() => navigate(loginRedirect || "/eventos")}
         />
       )}
     </div>

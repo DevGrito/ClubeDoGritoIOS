@@ -68,35 +68,38 @@ export function BenefitImageUploader({
       const response = await fetch('/api/beneficios/upload-image', {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
 
+      const result = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error('Erro no upload da imagem');
+        throw new Error(
+          result.error || result.details || 'Erro no upload da imagem'
+        );
       }
 
-        const result = await response.json();
+      // aceita tanto o contrato novo quanto o legado
+      const objectPath: string | undefined = result.objectPath ?? result.imageUrl;
+      const signedPreview: string | undefined = result.previewUrl;
 
-        // aceita tanto o contrato novo quanto o legado
-        const objectPath: string | undefined = result.objectPath ?? result.imageUrl;
-        const signedPreview: string | undefined = result.previewUrl;
+      console.log('✅ [BENEFIT IMAGE] Upload concluído:', objectPath);
 
-        console.log('✅ [BENEFIT IMAGE] Upload concluído:', objectPath);
+      if (!objectPath) {
+        throw new Error('Resposta sem caminho da imagem (objectPath/imageUrl).');
+      }
 
-        if (!objectPath) {
-          throw new Error('Resposta sem caminho da imagem (objectPath/imageUrl).');
-        }
+      // Preview: usa a signed URL se veio; senão mantém o local até fechar o modal
+      if (signedPreview) {
+        setPreviewUrl(signedPreview);
+      }
 
-        // Preview: usa a signed URL se veio; senão mantém o local até fechar o modal
-        if (signedPreview) {
-          setPreviewUrl(signedPreview);
-        }
-
-        // No form, guardamos a **chave** (para enviar no POST /api/beneficios)
-        setUrlInput(objectPath);
-        onChange(objectPath);
+      // No form, guardamos a **chave** (para enviar no POST /api/beneficios)
+      setUrlInput(objectPath);
+      onChange(objectPath);
       // Limpar preview local
       URL.revokeObjectURL(localPreview);
-      
+
       toast({
         title: "Sucesso!",
         description: "Imagem carregada com sucesso.",

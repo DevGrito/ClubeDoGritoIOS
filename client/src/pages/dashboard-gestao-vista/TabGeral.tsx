@@ -5,8 +5,11 @@ import {
 import {
   KpiItem, KpiItemNoMeta, KpiCard, SectorCard, getColor, NpsBar, buildQp,
   type PeriodoFiltro, isPeriodoTodos, isPeriodoMulti, periodoMesUnico, periodoMesesLista,
-  periodoUltimoMes, metaFnPeriodo,
+  periodoUltimoMes, metaFnPeriodo, metaNoPeriodo, isPeriodoSemMeta,
+  doadoresAtivosNoPeriodo, doadoresEvadidosNoPeriodo, precisaEvadidosMesVigente,
+  FAVELA3D_OCULTAR, FAMILIAS_FAVELA3D_EXIBICAO, coletivosFavela3DNoPeriodo,
 } from "./shared";
+import { fetchGestaoVistaDashboard } from "./fetchGestaoVista";
 
 interface Props { ano: string; periodo: PeriodoFiltro; isMobile?: boolean; }
 
@@ -14,12 +17,24 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
   const qp = buildQp(ano, periodo);
   const { data: gv } = useQuery<any>({
     queryKey: ['/api/gestao-vista', ano, periodo],
-    queryFn: () => fetch(`/api/gestao-vista${qp}`).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(`/api/gestao-vista${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
   const { data: doadores } = useQuery<any>({
     queryKey: ['/api/doadores/stats', ano],
     queryFn: async () => { const r = await fetch(`/api/doadores/stats?ano=${ano}`, { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
+    refetchInterval: 60000,
+  });
+  const mesAtualCal = new Date().getMonth() + 1;
+  const buscaEvadidosVigente = precisaEvadidosMesVigente(ano, periodo);
+  const { data: doadoresMesVigente } = useQuery<any>({
+    queryKey: ['/api/doadores/stats', ano, 'mes', mesAtualCal],
+    queryFn: async () => {
+      const r = await fetch(`/api/doadores/stats?ano=${ano}&mes=${mesAtualCal - 1}`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: buscaEvadidosVigente,
     refetchInterval: 60000,
   });
   const { data: doadoresHistorico } = useQuery<any>({
@@ -51,7 +66,7 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
   });
   const { data: favela } = useQuery<any>({
     queryKey: ['/api/gestao-vista/favela3d', ano, periodo],
-    queryFn: () => fetch(`/api/gestao-vista/favela3d${qp}`).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(`/api/gestao-vista/favela3d${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
   const { data: psicoKpisGeral } = useQuery<any>({
@@ -59,9 +74,21 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
     queryFn: () => fetch(`/api/psico/dashboard-kpis${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
+  const pecKpisUrl = `/api/pec/dashboard-kpis${qp}`;
+  const { data: pecKpis } = useQuery<any>({
+    queryKey: [pecKpisUrl],
+    queryFn: async () => { const r = await fetch(pecKpisUrl, { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
+    refetchInterval: 60000,
+  });
+  const { data: metasDBPec } = useQuery<{ metas: Record<string, number> }>({
+    queryKey: ['/api/metas-indicadores', ano, 'pec'],
+    queryFn: () => fetch(`/api/metas-indicadores?ano=${ano}&vertente=pec`).then(r => r.json()),
+    staleTime: 60000,
+  });
 
   const ind = gv?.indicadores || {};
   const pecMetas = gv?.pecMetas || {};
+  const metasAdmPec = metasDBPec?.metas ?? {};
   const segRows = segMensal?.data || [];
 
   const META_DOADORES_ANUAL = 2000;
@@ -75,23 +102,18 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
   const histByMes: Record<number, any> = {};
   for (const r of histRows) histByMes[Number(r.mes)] = r;
 
-  const snapMes = multi ? periodoUltimoMes(periodo) : mesUnico ?? 0;
-  const snapRow = snapMes > 0 ? histByMes[snapMes] : null;
-
   const extCount = doadoresExternosGeral?.totalDoadores || 0;
-  const doadoresAtivos = (snapRow
-    ? (Number(snapRow.ativos || 0) + Number(snapRow.trialing || 0))
-    : ((doadores?.porStatus?.active || 0) + (doadores?.porStatus?.trialing || 0))) + extCount;
-
-  const doadoresEvadidos = (() => {
-    if (multi && mesesPeriodo.length > 0) {
-      return mesesPeriodo.reduce((soma, m) => soma + Number(histByMes[m]?.evadidos || 0), 0);
-    }
-    if (mesUnico && histByMes[mesUnico]) return Number(histByMes[mesUnico].evadidos || 0);
-    const somaSnapshot = histRows.reduce((acc: number, r: any) => acc + (Number(r.evadidos) || 0), 0);
-    const liveCount = doadores?.porStatus?.canceled || 0;
-    return Math.max(somaSnapshot, liveCount);
-  })();
+  const evadidosVigenteAoVivo = buscaEvadidosVigente
+    ? (doadoresMesVigente?.porStatus?.canceled ?? null)
+    : null;
+  const doadoresAtivos = doadoresAtivosNoPeriodo(
+    ano, periodo, histByMes,
+    doadores?.porStatus?.active || 0,
+    doadores?.porStatus?.trialing || 0,
+    doadores?.porStatus?.past_due || 0,
+    extCount,
+  );
+  const doadoresEvadidos = doadoresEvadidosNoPeriodo(ano, periodo, histByMes, evadidosVigenteAoVivo);
 
   const META_SEGUIDORES  = 15000;
   const segByMes: Record<string, any> = {};
@@ -121,6 +143,10 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
   const pecEvasaoPct  = gv?.pecData?.evasao ?? 0;
   const incD = gv?.inclusaoData || {};
   const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
+  const m = (meta: number) => metaNoPeriodo(periodo, meta);
+  const pecNpsValor   = Math.round(pecKpis?.nps ?? gv?.pecData?.nps ?? 0);
+  const pecNpsMeta    = m(metasAdmPec.nps ?? 90);
+  const semMeta = isPeriodoSemMeta(periodo);
   const inclusaoFormados = ind?.alunosFormados?.valor ?? 0;
   const inclusaoMeta     = ind?.alunosFormados?.meta  || 2000;
   const psicoValor    = (psicoKpisGeral?.atendimentos ?? ind?.atendimentos?.valor ?? 0) + (psicoKpisGeral?.demandasEspontaneas ?? 0);
@@ -131,14 +157,14 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
   const inclusaoMetaProrated = metaFn(inclusaoMeta);
   const psicoMetaProrated    = metaFn(psicoMeta);
 
-  const favFamilias       = favela?.familias          ?? 0;
+  const favFamilias       = FAMILIAS_FAVELA3D_EXIBICAO;
   const favAtend          = favela?.registros          ?? 0;
   const favVisitas        = favela?.visitas            ?? 0;
-  const favGerandoLider   = favela?.gerando_lideranca  ?? 0;
-  const favAssembleia     = favela?.assembleia          ?? 0;
+  const favGerandoLider   = coletivosFavela3DNoPeriodo('gerando_lideranca', periodo).registros;
+  const favAssembleia     = coletivosFavela3DNoPeriodo('assembleia', periodo).registros;
   const favGrupoMulheres  = favela?.grupo_mulheres     ?? 0;
 
-  const pecMetaEffective = pecMeta;
+  const pecMetaEffective = metaNoPeriodo(periodo, pecMeta);
   const programasData = [
     { name: 'PEC',        metrica: 'Crianças Atendidas', atual: pecValor,         meta: pecMetaEffective,      cor: getColor(pecValor,         pecMetaEffective) },
     { name: 'Inclusão',   metrica: 'Formados',           atual: inclusaoFormados, meta: inclusaoMetaProrated,  cor: getColor(inclusaoFormados, inclusaoMetaProrated) },
@@ -185,8 +211,8 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
                 ? <KpiItem size="sm" label="Alimentação" valor={gv?.pecData?.alimentacao || 0} meta={metaFn(pecMetas.alimentacao_meta)} />
                 : <KpiItemNoMeta size="sm" label="Alimentação" valor={gv?.pecData?.alimentacao || 0} />}
             </KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="Frequência" valor={gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0} meta={pecMetas?.frequencia_meta ?? ind?.frequencia?.meta ?? 1} format="percent" /></KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="Evasão" valor={pecEvasaoPct} meta={10} inverse format="percent" note="Meta: <= 10%" /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="Frequência" valor={gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0} meta={m(pecMetas?.frequencia_meta ?? ind?.frequencia?.meta ?? 1)} format="percent" /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="Evasão" valor={pecEvasaoPct} meta={m(10)} inverse format="percent" note={!semMeta ? "Meta: <= 10%" : undefined} /></KpiCard>
             <KpiCard compact>
               {pecMetas?.hora_aula_meta != null
                 ? <KpiItem size="sm" label="Horas Aula" valor={gv?.pecData?.horasAula ?? 0} meta={metaFn(pecMetas.hora_aula_meta)} />
@@ -197,7 +223,7 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
                 ? <KpiItem size="sm" label="Atendimentos" valor={gv?.pecData?.atendimentos || 0} meta={metaFn(pecMetas.atendimentos_meta)} />
                 : <KpiItemNoMeta size="sm" label="Atendimentos" valor={gv?.pecData?.atendimentos || 0} />}
             </KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="NPS" valor={gv?.pecData?.nps ?? ind?.criterioSucesso?.valor ?? 0} meta={pecMetas?.avaliacao_aprendizagem_meta ?? ind?.criterioSucesso?.meta ?? 90} format="number" /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="NPS" valor={pecNpsValor} meta={pecNpsMeta} format="number" /></KpiCard>
             <KpiCard compact style={{ gridColumn: 'span 3' }}><KpiItem size="sm" label="Crianças Atendidas" valor={pecValor} meta={pecMetaEffective} /></KpiCard>
           </div>
         </SectorCard>
@@ -207,7 +233,7 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
           <div className="grid grid-cols-3 gap-1.5">
             <KpiCard compact><KpiItem size="sm" label="Doadores Ativos" valor={doadoresAtivos} meta={metaFn(META_DOADORES_ANUAL)} /></KpiCard>
             <KpiCard compact><KpiItem size="sm" label="Doadores Evadidos" valor={doadoresEvadidos} meta={metaFn(META_EVADIDOS_ANUAL)} inverse /></KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="Total Seguidores" valor={totalSeguidores} meta={META_SEGUIDORES} /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="Total Seguidores" valor={totalSeguidores} meta={m(META_SEGUIDORES)} /></KpiCard>
           </div>
         </SectorCard>
 
@@ -255,23 +281,33 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
             <KpiCard compact><KpiItemNoMeta size="sm" label="Em Formação" valor={incD?.alunosAtivos ?? ind?.alunosEmFormacao?.valor ?? 0} /></KpiCard>
             <KpiCard compact><KpiItem size="sm" label="Formadas" valor={ind?.alunosFormados?.valor ?? 0} meta={inclusaoMetaProrated} /></KpiCard>
             <KpiCard compact><KpiItemNoMeta size="sm" label="Atendimentos" valor={incD?.atendimentos ?? 0} /></KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="Frequência" valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} meta={ind?.frequencia?.meta || 85} format="percent" /></KpiCard>
-            <KpiCard compact><KpiItem size="sm" label="Evasão" valor={ind?.evasao?.valor ?? 0} meta={ind?.evasao?.meta || 10} inverse format="percent" /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="Frequência" valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} meta={m(ind?.frequencia?.meta || 85)} format="percent" /></KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="Evasão" valor={incD?.evasao ?? 0} meta={m(ind?.evasao?.meta || 10)} inverse format="percent" /></KpiCard>
             <KpiCard compact><KpiItemNoMeta size="sm" label="Horas Aula" valor={incD?.horasAula ?? 0} /></KpiCard>
-            <KpiCard compact>{ind?.nps?.meta != null ? <KpiItem size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} meta={ind.nps.meta} format="number" /> : <KpiItemNoMeta size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} />}</KpiCard>
+            <KpiCard compact><KpiItem size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} meta={m(ind?.nps?.meta ?? 70)} format="number" /></KpiCard>
             <KpiCard compact><KpiItemNoMeta size="sm" label="Alimentação" valor={incD?.alimentacao ?? 0} /></KpiCard>
           </div>
         </SectorCard>
 
         {/* Favela 3D */}
         <SectorCard compact title="Favela 3D" accent="#f59e0b">
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5">Panorama Favela 3D</p>
             <KpiCard compact><KpiItemNoMeta size="sm" label="Famílias" valor={favFamilias} /></KpiCard>
-            <KpiCard compact><KpiItemNoMeta size="sm" label="Atendimentos" valor={favAtend} /></KpiCard>
-            <KpiCard compact style={{ gridColumn: 'span 2' }}><KpiItemNoMeta size="sm" label="Visitas" valor={favVisitas} /></KpiCard>
-            <KpiCard compact><KpiItemNoMeta size="sm" label="Gerando Liderança" valor={favGerandoLider} /></KpiCard>
-            <KpiCard compact><KpiItemNoMeta size="sm" label="Assembleia" valor={favAssembleia} /></KpiCard>
-            <KpiCard compact style={{ gridColumn: 'span 2' }}><KpiItemNoMeta size="sm" label="Grupo de Mulheres" valor={favGrupoMulheres} /></KpiCard>
+            {!FAVELA3D_OCULTAR.atendIndividuais && (
+              <KpiCard compact><KpiItemNoMeta size="sm" label="Atendimentos" valor={favAtend} /></KpiCard>
+            )}
+            {!FAVELA3D_OCULTAR.visitasDomiciliares && (
+              <KpiCard compact><KpiItemNoMeta size="sm" label="Visitas" valor={favVisitas} /></KpiCard>
+            )}
+            <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5 pt-0.5">Atendimentos Coletivos</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <KpiCard compact><KpiItemNoMeta size="sm" label="Gerando Liderança" valor={favGerandoLider} /></KpiCard>
+              <KpiCard compact><KpiItemNoMeta size="sm" label="Assembleia" valor={favAssembleia} /></KpiCard>
+              {!FAVELA3D_OCULTAR.grupoMulheres && (
+                <KpiCard compact style={{ gridColumn: 'span 2' }}><KpiItemNoMeta size="sm" label="Grupo de Mulheres" valor={favGrupoMulheres} /></KpiCard>
+              )}
+            </div>
           </div>
         </SectorCard>
 
@@ -331,11 +367,11 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
       <SectorCard compact title="Programa de Esporte e Cultura" accent="#10b981" style={{ gridColumn: '3 / span 3', gridRow: '1' }}>
         <div className="flex-1 grid grid-cols-3 gap-1" style={{ gridTemplateRows: 'repeat(3, minmax(0,1fr))' }}>
           <KpiCard compact>{pecMetas?.alimentacao_meta != null ? <KpiItem size="sm" label="Alimentação" valor={gv?.pecData?.alimentacao || 0} meta={metaFn(pecMetas.alimentacao_meta)} /> : <KpiItemNoMeta size="sm" label="Alimentação" valor={gv?.pecData?.alimentacao || 0} />}</KpiCard>
-          <KpiCard compact><KpiItem size="sm" label="Frequência"   valor={gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0} meta={pecMetas?.frequencia_meta ?? ind?.frequencia?.meta ?? 1} format="percent" /></KpiCard>
-          <KpiCard compact><KpiItem size="sm" label="Evasão"       valor={pecEvasaoPct} meta={10} inverse format="percent" note="Meta: <= 10%" /></KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="Frequência"   valor={gv?.pecData?.frequenciaMedia ?? ind?.frequencia?.valor ?? 0} meta={m(pecMetas?.frequencia_meta ?? ind?.frequencia?.meta ?? 1)} format="percent" /></KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="Evasão"       valor={pecEvasaoPct} meta={m(10)} inverse format="percent" note={!semMeta ? "Meta: <= 10%" : undefined} /></KpiCard>
           <KpiCard compact>{pecMetas?.hora_aula_meta != null ? <KpiItem size="sm" label="Horas Aula" valor={gv?.pecData?.horasAula ?? 0} meta={metaFn(pecMetas.hora_aula_meta)} /> : <KpiItemNoMeta size="sm" label="Horas Aula" valor={gv?.pecData?.horasAula ?? 0} />}</KpiCard>
           <KpiCard compact>{pecMetas?.atendimentos_meta != null ? <KpiItem size="sm" label="Atendimentos" valor={gv?.pecData?.atendimentos || 0} meta={metaFn(pecMetas.atendimentos_meta)} /> : <KpiItemNoMeta size="sm" label="Atendimentos" valor={gv?.pecData?.atendimentos || 0} />}</KpiCard>
-          <KpiCard compact><KpiItem size="sm" label="NPS" valor={gv?.pecData?.nps ?? ind?.criterioSucesso?.valor ?? 0} meta={pecMetas?.avaliacao_aprendizagem_meta ?? ind?.criterioSucesso?.meta ?? 90} format="number" /></KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="NPS" valor={pecNpsValor} meta={pecNpsMeta} format="number" /></KpiCard>
           <KpiCard compact style={{ gridColumn: 'span 3' }}><KpiItem size="sm" label="Crianças Atendidas" valor={pecValor} meta={pecMetaEffective} /></KpiCard>
         </div>
       </SectorCard>
@@ -345,7 +381,7 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
         <div className="flex-1 flex flex-col gap-1 min-h-0">
           <div className="flex-1 min-h-0"><KpiCard compact className="h-full"><KpiItem size="sm" label="Doadores Ativos" valor={doadoresAtivos} meta={metaFn(META_DOADORES_ANUAL)} /></KpiCard></div>
           <div className="flex-1 min-h-0"><KpiCard compact className="h-full"><KpiItem size="sm" label="Doadores Evadidos" valor={doadoresEvadidos} meta={metaFn(META_EVADIDOS_ANUAL)} inverse /></KpiCard></div>
-          <div className="flex-1 min-h-0"><KpiCard compact className="h-full"><KpiItem size="sm" label="Total Seguidores"  valor={totalSeguidores}  meta={META_SEGUIDORES} /></KpiCard></div>
+          <div className="flex-1 min-h-0"><KpiCard compact className="h-full"><KpiItem size="sm" label="Total Seguidores"  valor={totalSeguidores}  meta={m(META_SEGUIDORES)} /></KpiCard></div>
         </div>
       </SectorCard>
 
@@ -398,28 +434,33 @@ export default function TabGeral({ ano, periodo, isMobile = false }: Props) {
           <KpiCard compact><KpiItemNoMeta size="sm" label="Pessoas em Formação" valor={incD?.alunosAtivos ?? ind?.alunosEmFormacao?.valor ?? 0} /></KpiCard>
           <KpiCard compact><KpiItem size="sm" label="Pessoas Formadas"    valor={ind?.alunosFormados?.valor ?? 0} meta={inclusaoMetaProrated} /></KpiCard>
           <KpiCard compact><KpiItemNoMeta size="sm" label="Atendimentos" valor={incD?.atendimentos ?? 0} /></KpiCard>
-          <KpiCard compact><KpiItem size="sm" label="Frequência"          valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} meta={ind?.frequencia?.meta || 85} format="percent" /></KpiCard>
-          <KpiCard compact><KpiItem size="sm" label="Evasão"              valor={ind?.evasao?.valor ?? 0} meta={ind?.evasao?.meta || 10} inverse format="percent" note="Meta: <= 10%" /></KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="Frequência"          valor={gv?.inclusaoData?.frequencia ?? ind?.frequencia?.valor ?? 0} meta={m(ind?.frequencia?.meta || 85)} format="percent" /></KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="Evasão"              valor={incD?.evasao ?? 0} meta={m(ind?.evasao?.meta || 10)} inverse format="percent" note={!semMeta ? "Meta: <= 10%" : undefined} /></KpiCard>
           <KpiCard compact><KpiItemNoMeta size="sm" label="Horas Aula" valor={incD?.horasAula ?? 0} /></KpiCard>
-          <KpiCard compact>{ind?.nps?.meta != null ? <KpiItem size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} meta={ind.nps.meta} format="number" /> : <KpiItemNoMeta size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} />}</KpiCard>
+          <KpiCard compact><KpiItem size="sm" label="NPS" valor={ind?.nps?.valor ?? 0} meta={m(ind?.nps?.meta ?? 70)} format="number" /></KpiCard>
           <KpiCard compact><KpiItemNoMeta size="sm" label="Alimentação" valor={incD?.alimentacao ?? 0} /></KpiCard>
         </div>
       </SectorCard>
 
       {/* ── Favela 3D: row 2, cols 4-5 ── */}
       <SectorCard compact title="Favela 3D" accent="#f59e0b" style={{ gridColumn: '4 / span 2', gridRow: '2' }}>
-        <div
-          className="flex-1 grid grid-cols-2 gap-x-1 gap-y-1"
-          style={{ gridTemplateRows: 'auto minmax(0,1fr) minmax(0,1fr) auto minmax(0,1fr) minmax(0,1fr)' }}
-        >
-          <p className="col-span-2 text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5">Panorama Favela 3D</p>
-          <KpiCard compact><KpiItemNoMeta size="sm" label="Famílias" valor={favFamilias} /></KpiCard>
-          <KpiCard compact><KpiItemNoMeta size="sm" label="Atendimentos" valor={favAtend} /></KpiCard>
-          <KpiCard compact style={{ gridColumn: 'span 2' }}><KpiItemNoMeta size="sm" label="Visitas" valor={favVisitas} /></KpiCard>
-          <p className="col-span-2 text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5">Atendimentos Coletivos</p>
-          <KpiCard compact><KpiItemNoMeta size="sm" label="Gerando Liderança" valor={favGerandoLider} /></KpiCard>
-          <KpiCard compact><KpiItemNoMeta size="sm" label="Assembleia" valor={favAssembleia} /></KpiCard>
-          <KpiCard compact style={{ gridColumn: 'span 2' }}><KpiItemNoMeta size="sm" label="Grupo de Mulheres" valor={favGrupoMulheres} /></KpiCard>
+        <div className="flex-1 flex flex-col gap-1 min-h-0">
+          <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5 flex-shrink-0">Panorama Favela 3D</p>
+          <KpiCard compact className="flex-1 min-h-0"><KpiItemNoMeta size="sm" label="Famílias" valor={favFamilias} /></KpiCard>
+          {!FAVELA3D_OCULTAR.atendIndividuais && (
+            <KpiCard compact className="flex-1 min-h-0"><KpiItemNoMeta size="sm" label="Atendimentos" valor={favAtend} /></KpiCard>
+          )}
+          {!FAVELA3D_OCULTAR.visitasDomiciliares && (
+            <KpiCard compact className="flex-1 min-h-0"><KpiItemNoMeta size="sm" label="Visitas" valor={favVisitas} /></KpiCard>
+          )}
+          <p className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold border-b border-slate-700/30 pb-0.5 flex-shrink-0">Atendimentos Coletivos</p>
+          <div className="flex-1 grid grid-cols-2 gap-1 min-h-0">
+            <KpiCard compact className="h-full min-h-0"><KpiItemNoMeta size="sm" label="Gerando Liderança" valor={favGerandoLider} /></KpiCard>
+            <KpiCard compact className="h-full min-h-0"><KpiItemNoMeta size="sm" label="Assembleia" valor={favAssembleia} /></KpiCard>
+            {!FAVELA3D_OCULTAR.grupoMulheres && (
+              <KpiCard compact className="col-span-2 h-full min-h-0"><KpiItemNoMeta size="sm" label="Grupo de Mulheres" valor={favGrupoMulheres} /></KpiCard>
+            )}
+          </div>
         </div>
       </SectorCard>
 

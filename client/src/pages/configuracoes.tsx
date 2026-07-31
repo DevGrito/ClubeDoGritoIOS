@@ -31,7 +31,7 @@ export default function Configuracoes() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-nav">
       <header className="bg-white shadow-sm border-b border-gray-100">
         <div className="max-w-md mx-auto px-4 pt-12 pb-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">

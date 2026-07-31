@@ -424,7 +424,7 @@ export default function MissoesSemanais() {
   };
 
   return (
-    <div className="min-h-screen bg-white pb-donor-nav font-inter">
+    <div className="min-h-screen bg-white pb-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 py-3 flex items-center">
@@ -880,20 +880,13 @@ export default function MissoesSemanais() {
 
       {/* Modal de Upload de Foto */}
       {showPhotoModal && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4"
-          style={{
-            paddingTop: "max(1rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))",
-          }}
-        >
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <motion.div
-            className="bg-white rounded-xl max-w-md w-full max-h-[min(90dvh,calc(100dvh-2rem))] flex flex-col min-h-0 shadow-2xl"
+            className="bg-white rounded-xl max-w-md w-full p-6"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
           >
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-6 [-webkit-overflow-scrolling:touch]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">
                 Enviar Foto da Missão
@@ -941,9 +934,8 @@ export default function MissoesSemanais() {
                 }
               </select>
             </div>
-            </div>
 
-            <div className="shrink-0 border-t border-gray-100 p-4 flex gap-3">
+            <div className="flex gap-3">
               <Button
                 onClick={() => setShowPhotoModal(false)}
                 variant="outline"
@@ -1012,21 +1004,15 @@ export default function MissoesSemanais() {
 
       {/* 💳 MODAL DE PAGAMENTO PARA MISSÕES */}
       {showPaymentModal && selectedPaymentMission && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
-          style={{
-            paddingTop: "max(1rem, env(safe-area-inset-top, 0px))",
-            paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))",
-          }}
-        >
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-2xl w-full max-w-md max-h-[min(90dvh,calc(100dvh-2rem))] flex flex-col min-h-0 shadow-2xl"
+            className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-hidden shadow-2xl"
           >
             {/* Header do Modal */}
-            <div className="bg-gradient-to-r from-green-400 to-emerald-500 p-4 text-white shrink-0 rounded-t-2xl">
+            <div className="bg-gradient-to-r from-green-400 to-emerald-500 p-4 text-white">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold">💳 Completar Missão</h3>
                 <button
@@ -1045,7 +1031,7 @@ export default function MissoesSemanais() {
             </div>
 
             {/* Conteúdo do Modal */}
-            <div className="p-6 flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+            <div className="p-6">
               <div className="text-center mb-6">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Gift className="w-8 h-8 text-green-600" />

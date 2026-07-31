@@ -74,7 +74,6 @@ import BeneficiosOnboarding from "@/pages/beneficios-onboarding";
 import Beneficios from "@/pages/beneficios";
 import BeneficioDetalhes from "@/pages/beneficio-detalhes";
 import MissoesSemanais from "@/pages/missoes-semanais";
-import Missoes from "@/pages/missoes";
 const DevMarketing = lazy(() => import("@/pages/dev-marketing"));
 import DashboardLancamento from "@/pages/painel/dashboard-lancamento";
 import CreditCardDemo from "@/pages/credit-card-demo";
@@ -85,6 +84,7 @@ import DevModeBanner from "@/components/DevModeBanner";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AutoRedirect from "@/components/AutoRedirect";
 import { InAppNotification } from "@/components/InAppNotification";
+import { PushNavigationListener } from "@/components/PushNavigationListener";
 import PrivacyConsentBootstrap from "@/components/PrivacyConsentBootstrap";
 import GritoIntro from "@/pages/grito-intro";
 import GritoSelection from "@/pages/grito-selection";
@@ -396,18 +396,14 @@ function Router() {
         )}
       </Route>
 
+      <Route path="/missoes">
+        {() => <RedirectComponent to="/missoes-semanais" />}
+      </Route>
+
       <Route path="/missoes-semanais">
         {() => (
           <ProtectedRoute allowedRoles={['doador', 'user', 'leo']} routeName="/missoes-semanais">
             <MissoesSemanais />
-          </ProtectedRoute>
-        )}
-      </Route>
-
-      <Route path="/missoes">
-        {() => (
-          <ProtectedRoute allowedRoles={['doador', 'user']} routeName="/missoes">
-            <Missoes />
           </ProtectedRoute>
         )}
       </Route>
@@ -447,7 +443,7 @@ function Router() {
         )}
       </Route>
 
-      {/* Novo Dashboard Gestão à Vista — 7 telas por setor */}
+      {/* Novo Dashboard Gestão à Vista — 7 telas por setor (público) */}
       <Route path="/dashboard/gestao/vista" component={DashboardGestaoVista} />
 
       {/* Rota temporária — preview do componente ImpactGestaoVista para validação */}
@@ -525,7 +521,8 @@ function Router() {
       <Route path="/conselho">
         {() => (
           <ProtectedRoute allowedRoles={['conselho', 'conselheiro']} routeName="/conselho">
-            <TermosGuard><Conselho /></TermosGuard>
+            {/* AreaConsentGate (council) já cobre termos + privacidade + confidencialidade */}
+            <Conselho />
           </ProtectedRoute>
         )}
       </Route>
@@ -533,9 +530,13 @@ function Router() {
       <Route path="/aguardando-aprovacao" component={AguardandoAprovacao} />
       
       <Route path="/aluno">
-        <AlunoTermosGuard>
-          <Aluno />
-        </AlunoTermosGuard>
+        {() => (
+          <ProtectedRoute allowedRoles={['aluno', 'aluno_portal']} routeName="/aluno">
+            <AlunoTermosGuard>
+              <Aluno />
+            </AlunoTermosGuard>
+          </ProtectedRoute>
+        )}
       </Route>
       <Route path="/eventos" component={EventosHome} />
       <Route path="/eventos/cadastro" component={EventosCadastro} />
@@ -684,18 +685,6 @@ function Router() {
       <Route path="/pagamento/aprovado" component={PagamentoAprovado} />
       <Route path="/pagamento/reprovado" component={PagamentoReprovado} />
 
-            {/* Tela de Dev Marketing */}
-      <Route path="/dev/marketing">
-        {() => (
-          <ProtectedRoute
-            allowedRoles={['dev', 'desenvolvedor', 'dev-marketing']}
-            routeName="/dev/marketing"
-          >
-            <DevMarketing />
-          </ProtectedRoute>
-        )}
-      </Route>
-      
       <Route path="/dev">
         {() => (
           <ProtectedRoute allowedRoles={['desenvolvedor', 'dev', 'admin', 'super_admin', 'leo']} routeName="/dev">
@@ -776,7 +765,9 @@ function PushNotificationsBootstrap() {
     location.startsWith('/termos') ||
     location.startsWith('/politica') ||
     location === '/scanner-login' ||
-    location === '/tablet/chamada/login';
+    location === '/tablet/chamada/login' ||
+    location === '/dashboard/gestao/vista' ||
+    location === '/gestao-vista-preview';
 
   useEffect(() => {
     bannerPromptedRef.current = false;
@@ -862,7 +853,7 @@ function PushNotificationsBootstrap() {
           <p className="text-xs text-gray-500 mt-0.5 leading-snug">
             {iosPushNeedsHomeScreen()
               ? 'No iPhone: Compartilhar → Adicionar à Tela de Início, depois abra o app por lá.'
-              : 'Receba novidades do Clube do Grito no seu celular'}
+              : 'Receba novidades e avisos do Clube do Grito.'}
           </p>
           <div className="flex gap-2 mt-3">
             <button
@@ -909,6 +900,7 @@ function App() {
             <ConnectionStatus />
             <SubscriptionVerifier />
             <PushNotificationsBootstrap />
+            <PushNavigationListener />
             <PrivacyConsentBootstrap />
             <AutoRedirect />
             <Toaster />

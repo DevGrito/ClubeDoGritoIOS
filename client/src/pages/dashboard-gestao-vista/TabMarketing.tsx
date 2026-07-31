@@ -3,7 +3,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import {
   getPct, getColor, SectorCard, MESES_PT, type PeriodoFiltro,
   isPeriodoTodos, isPeriodoMulti, periodoMesUnico, periodoMesesLista,
-  periodoUltimoMes, metaFnPeriodo,
+  periodoUltimoMes, metaFnPeriodo, formatMetaValor, metaNoPeriodo,
+  doadoresAtivosNoPeriodo, doadoresEvadidosNoPeriodo, precisaEvadidosMesVigente,
 } from "./shared";
 
 interface Props { ano: string; periodo: PeriodoFiltro; }
@@ -20,10 +21,11 @@ const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out
 function MKpiCard({ label, valor, meta, inverse = false, format = 'number' as 'number' | 'percent', note }: {
   label: string; valor: number; meta: number; inverse?: boolean; format?: 'number' | 'percent'; note?: string;
 }) {
-  const pct   = getPct(valor, meta);
-  const color = getColor(valor, meta, inverse);
-  const dVal  = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
-  const dMeta = format === 'percent' ? `${meta}%`  : meta.toLocaleString('pt-BR');
+  const hasMeta = meta > 0;
+  const pct     = hasMeta ? getPct(valor, meta) : 0;
+  const color   = hasMeta ? getColor(valor, meta, inverse) : '#64748b';
+  const dVal    = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
+  const dMeta   = formatMetaValor(meta, format);
 
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full">
@@ -34,7 +36,9 @@ function MKpiCard({ label, valor, meta, inverse = false, format = 'number' as 'n
       </div>
       <div className="flex justify-between items-end">
         {note ? <span className="text-[9px] text-slate-500 leading-tight">{note}</span> : <span />}
-        <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
+        {hasMeta && (
+          <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
+        )}
       </div>
     </div>
   );
@@ -58,6 +62,19 @@ export default function TabMarketing({ ano, periodo }: Props) {
   const { data: doadores } = useQuery<any>({
     queryKey: ['/api/doadores/stats', ano],
     queryFn: async () => { const r = await fetch(`/api/doadores/stats?ano=${ano}`, { credentials: 'include' }); if (!r.ok) return null; return r.json(); },
+    refetchInterval: 60000,
+  });
+
+  const mesAtualCal = new Date().getMonth() + 1;
+  const buscaEvadidosVigente = precisaEvadidosMesVigente(ano, periodo);
+  const { data: doadoresMesVigente } = useQuery<any>({
+    queryKey: ['/api/doadores/stats', ano, 'mes', mesAtualCal],
+    queryFn: async () => {
+      const r = await fetch(`/api/doadores/stats?ano=${ano}&mes=${mesAtualCal - 1}`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: buscaEvadidosVigente,
     refetchInterval: 60000,
   });
 
@@ -113,33 +130,17 @@ export default function TabMarketing({ ano, periodo }: Props) {
   for (const r of histRows) histByMes[Number(r.mes)] = r;
 
   const extMkt = doadoresExternosMkt?.totalDoadores || 0;
-  const doadoresAtivos = (() => {
-    if (multi && mesesPeriodo.length > 0) {
-      const lastAvail = [...mesesPeriodo].reverse().find(m => histByMes[m]);
-      if (lastAvail) {
-        const h = histByMes[lastAvail];
-        return (Number(h.total_ativos ?? 0) || (Number(h.ativos ?? 0) + Number(h.trialing ?? 0))) + extMkt;
-      }
-    }
-    if (mesUnico && histByMes[mesUnico]) {
-      const h = histByMes[mesUnico];
-      return (Number(h.total_ativos ?? 0) || (Number(h.ativos ?? 0) + Number(h.trialing ?? 0))) + extMkt;
-    }
-    // "Todos" → snapshot atual do Stripe + externos
-    return (doadores?.porStatus?.active || 0) + (doadores?.porStatus?.trialing || 0) + extMkt;
-  })();
-  const doadoresEvadidos = (() => {
-    if (multi && mesesPeriodo.length > 0) {
-      return mesesPeriodo.reduce((acc, m) => acc + (histByMes[m]?.evadidos ?? 0), 0);
-    }
-    if (mesUnico && histByMes[mesUnico]) {
-      return Number(histByMes[mesUnico].evadidos ?? 0);
-    }
-    // "Todos" → maior entre soma do snapshot e Stripe ao vivo (snapshot pode estar desatualizado)
-    const somaSnapshot = histRows.reduce((acc, r) => acc + (Number(r.evadidos) || 0), 0);
-    const liveCount = doadores?.porStatus?.canceled || 0;
-    return Math.max(somaSnapshot, liveCount);
-  })();
+  const evadidosVigenteAoVivo = buscaEvadidosVigente
+    ? (doadoresMesVigente?.porStatus?.canceled ?? null)
+    : null;
+  const doadoresAtivos = doadoresAtivosNoPeriodo(
+    ano, periodo, histByMes,
+    doadores?.porStatus?.active || 0,
+    doadores?.porStatus?.trialing || 0,
+    doadores?.porStatus?.past_due || 0,
+    extMkt,
+  );
+  const doadoresEvadidos = doadoresEvadidosNoPeriodo(ano, periodo, histByMes, evadidosVigenteAoVivo);
 
   const segGanhos   = is2026
     ? (multi ? acumuladoPeriodo('seguidores_ganhos')  : isPeriodoTodos(periodo) ? acumulado('seguidores_ganhos')  : (mesData?.seguidores_ganhos  ?? 0))
@@ -197,7 +198,7 @@ export default function TabMarketing({ ano, periodo }: Props) {
             <div className="flex flex-col gap-1" style={{ flex: 1 }}>
               <MSection title="Seguidores" />
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2" style={{ flex: 1 }}>
-                <MKpiCard label="Total de Seguidores" valor={totalSeguidores} meta={META_SEGUIDORES_ANUAL} />
+                <MKpiCard label="Total de Seguidores" valor={totalSeguidores} meta={metaNoPeriodo(periodo, META_SEGUIDORES_ANUAL)} />
                 <MKpiCard label="Seguidores Ganhos"   valor={segGanhos}   meta={metaGanhos}   note={noteSegGanhos} />
                 <MKpiCard label="Seguidores Perdidos" valor={segPerdidos} meta={metaPerdidos} inverse note={noteSegPerdidos} />
               </div>

@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { normalizePhoneToE164 } from "./stripeHelpers";
 import { safeErrorPayload } from "./lib/safeError";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_local_dev_placeholder");
 
 export function registerAdminManualSubscription(app: Express) {
   app.post("/api/admin/manual-subscription", async (req, res) => {

@@ -120,7 +120,14 @@ export default function EventosCadastro() {
         const e = await r.json();
         throw new Error(e.error || "Erro ao cadastrar");
       }
-      return r.json();
+      const body = await r.json();
+
+      const me = await fetch("/api/portal/me", { credentials: "include", cache: "no-store" });
+      if (!me.ok) {
+        throw new Error("Conta criada, mas a sessão não foi salva. Faça login.");
+      }
+      const usuario = await me.json();
+      return { ...body, usuario };
     },
     onSuccess: (data) => {
       queryClient.removeQueries({ queryKey: ["/api/portal/meus-ingressos"] });

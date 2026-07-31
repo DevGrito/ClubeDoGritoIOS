@@ -35,6 +35,10 @@ import type { Project, Activity as PECActivity, ActivityInstance, User as UserTy
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  type ProgramaParticipanteFilter,
+} from "@/lib/programaParticipanteFilter";
+import { formatEnumLabel } from "@/lib/labelEnums";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -224,6 +228,7 @@ export default function CoordenadorPECPage() {
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [showInativarConfirmModal, setShowInativarConfirmModal] = useState(false);
   const [statusFilterAlunos, setStatusFilterAlunos] = useState<string>('ativos');
+  const [programaFilterAlunos, setProgramaFilterAlunos] = useState<ProgramaParticipanteFilter>('grito');
   const [searchTermAlunos, setSearchTermAlunos] = useState<string>('');
   const [turmaFilterAlunos, setTurmaFilterAlunos] = useState<string>('todas');
 
@@ -354,7 +359,7 @@ const handleCommitImport = async () => {
       });
 
       // Recarrega lista de alunos PEC (você usa queryKey como string em useQuery)
-     queryClient.invalidateQueries({ queryKey: ['/api/students/all', 'todos'] });
+     queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
 
     // Fecha modal e limpa estados
     setShowImportModal(false);
@@ -664,6 +669,45 @@ const handleCommitImport = async () => {
   const handleDeleteTurma = (instance: any) => {
     setSelectedInstance(instance);
     setShowExcluirTurmaModal(true);
+  };
+
+  const openStudentDetails = async (aluno: any) => {
+    const cpfAluno = String(aluno?.cpf || aluno?.alunoCpf || "").replace(/\D/g, "");
+    if (!cpfAluno) {
+      toast({
+        title: "CPF não disponível",
+        description: "Não foi possível abrir os detalhes deste aluno.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setShowStudentDetailsModal(true);
+    setLoadingStudentDetails(true);
+    try {
+      const resAluno = await fetch(`/api/students/${cpfAluno}`, { credentials: "include" });
+      const alunoJson = await resAluno.json();
+      const alunoData = alunoJson?.data ?? alunoJson;
+      setFullStudentData(alunoData ?? null);
+      try {
+        const resResp = await fetch(`/api/alunos/${cpfAluno}/responsaveis`, { credentials: "include" });
+        if (resResp.ok) {
+          const respData = await resResp.json();
+          setStudentResponsaveis(Array.isArray(respData) ? respData : []);
+        } else {
+          setStudentResponsaveis([]);
+        }
+      } catch {
+        setStudentResponsaveis([]);
+      }
+      const resDocs = await authFetch(`/api/documentos/aluno/${cpfAluno}`);
+      const docsJson = await resDocs.json();
+      setStudentDocumentos(Array.isArray(docsJson) ? docsJson : []);
+    } catch (err) {
+      console.error("Erro ao buscar dados do aluno:", err);
+      setStudentDocumentos([]);
+    } finally {
+      setLoadingStudentDetails(false);
+    }
   };
 
   // Mutation para criar projeto
@@ -1205,11 +1249,21 @@ const handleCommitImport = async () => {
     }
   });
 
-  // Query para buscar alunos da tabela aluno (todos os status para filtro funcionar no cliente)
+  // Query: ativos + Participantes Grito por padrão; status/programa no servidor
   const { data: alunosData = [] } = useQuery<any[]>({
-    queryKey: ['/api/students/all', 'todos', 'withTurmas'],
+    queryKey: [
+      '/api/students/all',
+      statusFilterAlunos,
+      programaFilterAlunos,
+      'withTurmas',
+    ],
     queryFn: async () => {
-      const res = await fetch('/api/students/all?status=todos&includeTurmas=true', { credentials: 'include' });
+      const params = new URLSearchParams({
+        status: statusFilterAlunos,
+        programa: programaFilterAlunos,
+        includeTurmas: 'true',
+      });
+      const res = await fetch(`/api/students/all?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Falha ao carregar alunos');
       return res.json();
     },
@@ -1291,6 +1345,9 @@ const handleCommitImport = async () => {
     genero: aluno?.genero ?? null,
     situacao_atendimento: aluno?.situacao_atendimento ?? "ativo",
     turmas: aluno?.turmas || [],
+    programas: aluno?.programas || [],
+    temPec: aluno?.temPec === true,
+    temInclusao: aluno?.temInclusao === true,
   }));
 
   const turmasDisponiveisAlunos = useMemo(() => {
@@ -1315,13 +1372,9 @@ const handleCommitImport = async () => {
         return nomeA.localeCompare(nomeB, "pt-BR");
       })
       .filter((student: any) => {
-        const matchesSearch =
-          !searchTermAlunos ||
-          (student.nome || "").toLowerCase().includes(searchTermAlunos.toLowerCase()) ||
-          (student.cpf || "").includes(searchTermAlunos);
+        const q = searchTermAlunos.trim().toLowerCase();
+        const matchesSearch = !q || (student.nome || "").toLowerCase().includes(q);
         if (!matchesSearch) return false;
-        if (statusFilterAlunos === "ativos" && student.situacao_atendimento === "inativo") return false;
-        if (statusFilterAlunos === "inativos" && student.situacao_atendimento !== "inativo") return false;
 
         const turmasAtivas = turmasAtivasAluno(student.turmas);
         let matchesTurma = true;
@@ -1333,7 +1386,7 @@ const handleCommitImport = async () => {
         }
         return matchesTurma;
       });
-  }, [students, searchTermAlunos, statusFilterAlunos, turmaFilterAlunos]);
+  }, [students, searchTermAlunos, turmaFilterAlunos]);
 
   const handleLogout = async () => {
     await logoutAndClearSession();
@@ -1879,12 +1932,25 @@ const handleCommitImport = async () => {
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input 
-                        placeholder="Buscar alunos..." 
+                        placeholder="Buscar alunos por nome..."
                         className="pl-10" 
                         value={searchTermAlunos}
                         onChange={(e) => setSearchTermAlunos(e.target.value)}
                       />
                     </div>
+                    <Select
+                      value={programaFilterAlunos}
+                      onValueChange={(v) => setProgramaFilterAlunos(v as ProgramaParticipanteFilter)}
+                    >
+                      <SelectTrigger className="w-56" data-testid="select-filtro-programa-alunos">
+                        <SelectValue placeholder="Setor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="grito">Participantes Grito</SelectItem>
+                        <SelectItem value="pec">Participantes PEC</SelectItem>
+                        <SelectItem value="inclusao">Participantes Inclusão</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Select value={statusFilterAlunos} onValueChange={setStatusFilterAlunos}>
                       <SelectTrigger className="w-32">
                         <SelectValue placeholder="Status" />
@@ -1926,11 +1992,6 @@ const handleCommitImport = async () => {
                         <TableRow>
                           <TableHead>Foto</TableHead>
                           <TableHead>Nome</TableHead>
-                          <TableHead>CPF</TableHead>
-                          <TableHead>Telefone</TableHead>
-                          <TableHead>Nascimento</TableHead>
-                          <TableHead>Idade</TableHead>
-                          <TableHead>Oficinas / Turmas</TableHead>
                           <TableHead>Ações</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1952,37 +2013,6 @@ const handleCommitImport = async () => {
                             </TableCell>
                             <TableCell className="font-medium">
                                {student.nome?.trim() ? student.nome : "Sem nome"}
-                            </TableCell>
-                            <TableCell>{student.cpf || 'Não informado'}</TableCell>
-                            <TableCell>{student.telefone || 'Não informado'}</TableCell>
-                            <TableCell>
-                              {(() => {
-                                const nasc = student.data_nascimento || student.dataNascimento;
-                                if (!nasc) return '-';
-                                const hoje = new Date();
-                                const n = new Date(nasc);
-                                if (isNaN(n.getTime())) return '-';
-                                let idade = hoje.getFullYear() - n.getUTCFullYear();
-                                const m = hoje.getMonth() - n.getUTCMonth();
-                                if (m < 0 || (m === 0 && hoje.getDate() < n.getUTCDate())) idade--;
-                                return `${idade} anos`;
-                              })()}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1 max-w-xs">
-                                {turmasAtivasAluno(student.turmas).length > 0 ? (
-                                  turmasAtivasAluno(student.turmas).map((turma: any, idx: number) => (
-                                    <Badge
-                                      key={`${turma.id}-${idx}`}
-                                      className="bg-white border border-orange-500 text-orange-700 text-xs hover:bg-orange-50"
-                                    >
-                                      {turma.nome}
-                                    </Badge>
-                                  ))
-                                ) : (
-                                  <span className="text-sm text-gray-400">Sem oficina vinculada</span>
-                                )}
-                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
@@ -3296,7 +3326,16 @@ const handleCommitImport = async () => {
                                         .filter((a: any) => soFaltasMap[chamada.id] ? !a.presente : true)
                                         .map((a: any, idx: number) => (
                                           <div key={idx} className={`flex items-center justify-between py-1 px-2 rounded ${a.presente ? 'bg-green-50' : 'bg-red-50'}`}>
-                                            <span className="text-sm">{a.alunoNome}</span>
+                                            <button
+                                              type="button"
+                                              className="text-sm font-medium text-left text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openStudentDetails(a);
+                                              }}
+                                            >
+                                              {a.alunoNome}
+                                            </button>
                                             <span className={`text-xs font-medium ${a.presente ? 'text-green-600' : 'text-red-600'}`}>
                                               {a.presente ? 'Presente' : 'Falta'}
                                             </span>
@@ -5054,34 +5093,7 @@ const handleCommitImport = async () => {
         open={showVisualizarTurmaModal} 
         onOpenChange={setShowVisualizarTurmaModal}
         selectedInstance={selectedInstance}
-        onClickAluno={async (aluno: any) => {
-          const cpfAluno = String(aluno?.cpf || "").replace(/\D/g, "");
-          setShowStudentDetailsModal(true);
-          setLoadingStudentDetails(true);
-          try {
-            const resAluno = await fetch(`/api/students/${cpfAluno}`, { credentials: "include" });
-            const alunoJson = await resAluno.json();
-            const alunoData = alunoJson?.data ?? alunoJson;
-            setFullStudentData(alunoData ?? null);
-            try {
-              const resResp = await fetch(`/api/alunos/${cpfAluno}/responsaveis`, { credentials: "include" });
-              if (resResp.ok) {
-                const respData = await resResp.json();
-                setStudentResponsaveis(Array.isArray(respData) ? respData : []);
-              } else {
-                setStudentResponsaveis([]);
-              }
-            } catch { setStudentResponsaveis([]); }
-            const resDocs = await authFetch(`/api/documentos/aluno/${cpfAluno}`);
-            const docsJson = await resDocs.json();
-            setStudentDocumentos(Array.isArray(docsJson) ? docsJson : []);
-          } catch (err) {
-            console.error("Erro ao buscar dados do aluno:", err);
-            setStudentDocumentos([]);
-          } finally {
-            setLoadingStudentDetails(false);
-          }
-        }}
+        onClickAluno={openStudentDetails}
       />
 
       {/* Modal Editar Turma */}
@@ -5134,6 +5146,7 @@ const handleCommitImport = async () => {
         foto={toProxyUrl(fullStudentData?.foto_perfil)}
         nome={fullStudentData?.nome_completo}
         cpf={fullStudentData ? formatCPF(fullStudentData.cpf) : undefined}
+        historicoCpf={fullStudentData?.cpf ? String(fullStudentData.cpf).replace(/\D/g, "") : undefined}
         status={fullStudentData?.situacao_atendimento}
         sections={fullStudentData ? ([
           {
@@ -5286,7 +5299,6 @@ const handleCommitImport = async () => {
                 {studentResponsaveis.length > 0 ? (
                   studentResponsaveis.map((resp: any, i: number) => {
                     const parentescoLabels: Record<string, string> = { pai: 'Pai', mae: 'Mãe', avo: 'Avó/Avô', tio: 'Tio/Tia', irmao: 'Irmão/Irmã', tutor_legal: 'Tutor Legal', outro: 'Outro' };
-                    const escolaridadeLabels: Record<string, string> = { nao_alfabetizado: 'Não Alfabetizado', fundamental_incompleto: 'Fund. Incompleto', fundamental_completo: 'Fund. Completo', medio_incompleto: 'Médio Incompleto', medio_completo: 'Médio Completo', superior_incompleto: 'Superior Incompleto', superior_completo: 'Superior Completo', pos_graduacao: 'Pós-Graduação' };
                     const trabLabels: Record<string, string> = { empregado_formal: 'Empregado (formal)', empregado_informal: 'Empregado (informal)', autonomo: 'Autônomo', desempregado: 'Desempregado', aposentado: 'Aposentado', do_lar: 'Do Lar', estudante: 'Estudante' };
                     return (
                       <div key={i} className={`bg-white p-4 rounded border ${resp.e_principal ? 'border-green-400 border-2' : 'border-gray-200'}`}>
@@ -5307,8 +5319,8 @@ const handleCommitImport = async () => {
                             {resp.cpf && <div><span className="text-gray-500">CPF:</span> <span className="font-medium">{resp.cpf}</span></div>}
                             {resp.rg && <div><span className="text-gray-500">RG:</span> <span className="font-medium">{resp.rg}{resp.orgao_emissor_rg ? ` — ${resp.orgao_emissor_rg}` : ''}</span></div>}
                             {resp.data_nascimento && <div><span className="text-gray-500">Nascimento:</span> <span className="font-medium">{new Date(resp.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span></div>}
-                            {resp.genero && <div><span className="text-gray-500">Gênero:</span> <span className="font-medium">{resp.genero.charAt(0).toUpperCase() + resp.genero.slice(1).toLowerCase()}</span></div>}
-                            {resp.estado_civil && <div><span className="text-gray-500">Estado Civil:</span> <span className="font-medium">{resp.estado_civil}</span></div>}
+                            {resp.genero && <div><span className="text-gray-500">Gênero:</span> <span className="font-medium">{formatEnumLabel(resp.genero)}</span></div>}
+                            {resp.estado_civil && <div><span className="text-gray-500">Estado Civil:</span> <span className="font-medium">{formatEnumLabel(resp.estado_civil)}</span></div>}
                           </div>
                           <div className="space-y-1">
                             <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Contato</p>
@@ -5318,8 +5330,8 @@ const handleCommitImport = async () => {
                           </div>
                           <div className="space-y-1">
                             <p className="font-semibold text-gray-500 uppercase tracking-wide text-xs">Socioeconômico</p>
-                            {resp.escolaridade && <div><span className="text-gray-500">Escolaridade:</span> <span className="font-medium">{escolaridadeLabels[resp.escolaridade] || resp.escolaridade}</span></div>}
-                            {resp.situacao_trabalhista && <div><span className="text-gray-500">Situação:</span> <span className="font-medium">{trabLabels[resp.situacao_trabalhista] || resp.situacao_trabalhista}</span></div>}
+                            {resp.escolaridade && <div><span className="text-gray-500">Escolaridade:</span> <span className="font-medium">{formatEnumLabel(resp.escolaridade)}</span></div>}
+                            {resp.situacao_trabalhista && <div><span className="text-gray-500">Situação:</span> <span className="font-medium">{trabLabels[resp.situacao_trabalhista] || formatEnumLabel(resp.situacao_trabalhista)}</span></div>}
                             {resp.profissao && <div><span className="text-gray-500">Profissão:</span> <span className="font-medium">{resp.profissao}</span></div>}
                             {resp.renda_familiar && <div><span className="text-gray-500">Renda Familiar:</span> <span className="font-medium">{resp.renda_familiar}</span></div>}
                           </div>
@@ -5540,7 +5552,7 @@ const handleCommitImport = async () => {
                       ? `/api/students/${selectedStudent.cpf}/reativar`
                       : `/api/students/${selectedStudent.cpf}/inativar`;
                     await apiRequest(endpoint, { method: 'PATCH' });
-                    queryClient.invalidateQueries({ queryKey: ['/api/students/all', 'todos'] });
+                    queryClient.invalidateQueries({ queryKey: ['/api/students/all'] });
                     toast({
                       title: selectedStudent.situacao_atendimento === 'inativo' ? "Aluno reativado" : "Aluno inativado",
                       description: selectedStudent.situacao_atendimento === 'inativo' 

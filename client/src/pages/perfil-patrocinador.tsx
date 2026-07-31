@@ -108,7 +108,7 @@ export default function PerfilPatrocinador() {
 
   return (
     <motion.div 
-      className="min-h-screen bg-white pb-20 font-inter"
+      className="min-h-screen bg-white pb-nav font-inter"
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}

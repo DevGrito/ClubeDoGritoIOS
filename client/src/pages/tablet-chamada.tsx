@@ -17,6 +17,8 @@ import {
   Hand,
   Lock,
   User,
+  Pencil,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,12 +121,17 @@ export default function TabletChamadaPage() {
   const [manualPresencas, setManualPresencas] = useState<ManualPresencaItem[]>([]);
   /** turmaId:data — manual já ativado (senha validada) nesta sessão */
   const [manualAtivadoChave, setManualAtivadoChave] = useState<string | null>(null);
+  /** Após facial: editando lista (presenças/faltas) sem virar chamada 100% manual */
+  const [editandoFacial, setEditandoFacial] = useState(false);
+  /** Remonta o scanner ao Refazer */
+  const [scannerKey, setScannerKey] = useState(0);
 
   const chaveManualAtual =
     turmaId && chamadaData ? `${turmaId}:${chamadaData}` : null;
 
   const entrarModoManual = () => {
     setModoChamadaAtual("manual");
+    setEditandoFacial(false);
     setShowManualDialog(false);
     setEtapa("manual");
   };
@@ -205,7 +212,10 @@ export default function TabletChamadaPage() {
 
   const { data: roster = [], isLoading: loadingRoster } = useQuery<RosterAluno[]>({
     queryKey: ["/api/tablet-chamada/roster", turmaId],
-    enabled: authOk && !!turmaId && (etapa === "selecao" || etapa === "revisao" || etapa === "manual"),
+    enabled:
+      authOk &&
+      !!turmaId &&
+      (etapa === "selecao" || etapa === "revisao" || etapa === "manual" || etapa === "scanner"),
     queryFn: async () => {
       const res = await fetch(`/api/tablet-chamada/roster?turmaId=${turmaId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Erro ao carregar alunos");
@@ -217,20 +227,22 @@ export default function TabletChamadaPage() {
     if (etapa !== "manual" || roster.length === 0) return;
     setManualPresencas((prev) => {
       const prevMap = new Map(prev.map((p) => [p.cpf, p]));
+      const presentesScan = editandoFacial
+        ? new Set(presencasScan.map((p) => p.cpf.replace(/\D/g, "")))
+        : null;
       return roster.map((a) => {
         const cpf = a.cpf.replace(/\D/g, "");
         const existing = prevMap.get(cpf);
-        return (
-          existing ?? {
-            cpf,
-            nome: a.nome,
-            presente: false,
-            justificativa: "",
-          }
-        );
+        if (existing) return existing;
+        return {
+          cpf,
+          nome: a.nome,
+          presente: presentesScan ? presentesScan.has(cpf) : false,
+          justificativa: "",
+        };
       });
     });
-  }, [etapa, roster]);
+  }, [etapa, roster, editandoFacial, presencasScan]);
 
   useEffect(() => {
     if (chaveManualAtual && manualAtivadoChave && manualAtivadoChave !== chaveManualAtual) {
@@ -244,25 +256,25 @@ export default function TabletChamadaPage() {
   );
 
   const presentesSet = useMemo(() => {
-    if (modoChamadaAtual === "manual") {
+    if (modoChamadaAtual === "manual" || editandoFacial) {
       return new Set(manualPresencas.filter((p) => p.presente).map((p) => p.cpf));
     }
     return new Set(presencasScan.map((p) => p.cpf.replace(/\D/g, "")));
-  }, [modoChamadaAtual, manualPresencas, presencasScan]);
+  }, [modoChamadaAtual, editandoFacial, manualPresencas, presencasScan]);
 
   const presentesRevisao = useMemo(() => {
-    if (modoChamadaAtual === "manual") {
+    if (modoChamadaAtual === "manual" || editandoFacial) {
       return manualPresencas.filter((p) => p.presente);
     }
     return roster.filter((a) => presentesSet.has(a.cpf.replace(/\D/g, "")));
-  }, [modoChamadaAtual, manualPresencas, roster, presentesSet]);
+  }, [modoChamadaAtual, editandoFacial, manualPresencas, roster, presentesSet]);
 
   const faltantesRevisao = useMemo(() => {
-    if (modoChamadaAtual === "manual") {
+    if (modoChamadaAtual === "manual" || editandoFacial) {
       return manualPresencas.filter((p) => !p.presente);
     }
     return roster.filter((a) => !presentesSet.has(a.cpf.replace(/\D/g, "")));
-  }, [modoChamadaAtual, manualPresencas, roster, presentesSet]);
+  }, [modoChamadaAtual, editandoFacial, manualPresencas, roster, presentesSet]);
 
   const handleLogout = async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/tablet-chamada/turmas"] });
@@ -293,10 +305,14 @@ export default function TabletChamadaPage() {
         observacao: modoChamadaAtual === "manual" ? observacaoManual : undefined,
       };
 
-      if (modoChamadaAtual === "manual") {
+      if (modoChamadaAtual === "manual" || editandoFacial) {
+        const horaPorCpf = new Map(
+          presencasScan.map((p) => [p.cpf.replace(/\D/g, ""), p.hora] as const)
+        );
         body.presencas = manualPresencas.map((p) => ({
           cpf: p.cpf,
           presente: p.presente,
+          horaEntrada: p.presente ? horaPorCpf.get(p.cpf) || undefined : undefined,
           justificativa: p.presente ? undefined : p.justificativa.trim() || "Sem justificativa",
         }));
       } else {
@@ -321,6 +337,7 @@ export default function TabletChamadaPage() {
       setPresencasScan([]);
       setManualPresencas([]);
       setModoChamadaAtual("facial");
+      setEditandoFacial(false);
       setJustificativaManual("");
       setObservacaoManual("");
       setManualAtivadoChave(null);
@@ -343,6 +360,39 @@ export default function TabletChamadaPage() {
       return;
     }
     setModoChamadaAtual("facial");
+    setEditandoFacial(false);
+    setPresencasScan([]);
+    setScannerKey((k) => k + 1);
+    setEtapa("scanner");
+  };
+
+  const entrarEdicaoAposFacial = (lista: PresencaRegistrada[]) => {
+    setPresencasScan(lista);
+    const presentes = new Set(lista.map((p) => p.cpf.replace(/\D/g, "")));
+    setManualPresencas(
+      roster.map((a) => {
+        const cpf = a.cpf.replace(/\D/g, "");
+        return {
+          cpf,
+          nome: a.nome,
+          presente: presentes.has(cpf),
+          justificativa: "",
+        };
+      })
+    );
+    setModoChamadaAtual("facial");
+    setEditandoFacial(true);
+    setErroDia("");
+    setEtapa("manual");
+  };
+
+  const refazerChamadaFacial = () => {
+    setPresencasScan([]);
+    setManualPresencas([]);
+    setEditandoFacial(false);
+    setErro("");
+    setErroDia("");
+    setScannerKey((k) => k + 1);
     setEtapa("scanner");
   };
 
@@ -422,6 +472,9 @@ export default function TabletChamadaPage() {
       return;
     }
     setModoChamadaAtual("facial");
+    setEditandoFacial(false);
+    setPresencasScan([]);
+    setScannerKey((k) => k + 1);
     setEtapa("scanner");
   };
 
@@ -444,7 +497,12 @@ export default function TabletChamadaPage() {
   };
 
   const voltarDaRevisao = () => {
-    setEtapa(modoChamadaAtual === "manual" ? "manual" : "scanner");
+    if (editandoFacial || modoChamadaAtual === "manual") {
+      setEtapa("manual");
+      return;
+    }
+    setScannerKey((k) => k + 1);
+    setEtapa("scanner");
   };
 
   if (!authOk) {
@@ -700,32 +758,59 @@ export default function TabletChamadaPage() {
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-lg bg-gray-50 border">
             <div className="flex items-center gap-2 flex-1 flex-wrap">
-              <Hand className="w-4 h-4 text-orange-500 shrink-0" />
-              <span className="text-sm font-medium text-orange-700">Modo Manual</span>
-              <span className="text-xs text-gray-500">- Marque presença manualmente</span>
+              {editandoFacial ? (
+                <>
+                  <Pencil className="w-4 h-4 text-yellow-600 shrink-0" />
+                  <span className="text-sm font-medium text-yellow-800">Editar chamada</span>
+                  <span className="text-xs text-gray-500">
+                    - Ajuste presença/falta e justifique ausências
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Hand className="w-4 h-4 text-orange-500 shrink-0" />
+                  <span className="text-sm font-medium text-orange-700">Modo Manual</span>
+                  <span className="text-xs text-gray-500">- Marque presença manualmente</span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                size="sm"
-                className="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold"
-                onClick={irParaChamadaFacial}
-              >
-                <ScanFace className="w-4 h-4 mr-1" />
-                Chamada O Grito
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
-                onClick={() => {
-                  setModoChamadaAtual("facial");
-                  setManualPresencas([]);
-                  setEtapa("selecao");
-                }}
-              >
-                <ScanFace className="w-4 h-4 mr-1" />
-                Voltar p/ Facial
-              </Button>
+              {editandoFacial ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={refazerChamadaFacial}
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Refazer facial
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    className="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold"
+                    onClick={irParaChamadaFacial}
+                  >
+                    <ScanFace className="w-4 h-4 mr-1" />
+                    Chamada O Grito
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-orange-500 hover:bg-orange-600 text-white border-orange-500"
+                    onClick={() => {
+                      setModoChamadaAtual("facial");
+                      setEditandoFacial(false);
+                      setManualPresencas([]);
+                      setEtapa("selecao");
+                    }}
+                  >
+                    <ScanFace className="w-4 h-4 mr-1" />
+                    Voltar p/ Facial
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
@@ -735,8 +820,20 @@ export default function TabletChamadaPage() {
             </h3>
             <p className="text-sm text-gray-500 mb-4">
               {new Date(chamadaData + "T12:00:00").toLocaleDateString("pt-BR")}
-              <span className="mx-2 text-gray-300">·</span>
-              <span className="text-orange-700">{justificativaManual}</span>
+              {!editandoFacial && (
+                <>
+                  <span className="mx-2 text-gray-300">·</span>
+                  <span className="text-orange-700">{justificativaManual}</span>
+                </>
+              )}
+              {editandoFacial && (
+                <>
+                  <span className="mx-2 text-gray-300">·</span>
+                  <span className="text-yellow-700">
+                    {manualPresentesCount} presente{manualPresentesCount !== 1 ? "s" : ""} do facial
+                  </span>
+                </>
+              )}
             </p>
 
             {loadingRoster ? (
@@ -855,17 +952,24 @@ export default function TabletChamadaPage() {
           }
         >
           <ScannerPresencaModal
+            key={scannerKey}
             turmaId={turmaId}
             tipo={vertente}
             data={chamadaData}
             modoLocal
             bloquearFechar
-            onClose={() => setEtapa("selecao")}
+            onClose={() => {
+              setEditandoFacial(false);
+              setEtapa("selecao");
+            }}
             onFinalizeComPresencas={(lista) => {
               setPresencasScan(lista);
+              setEditandoFacial(false);
               setEtapa("revisao");
             }}
-            finalizeButtonLabel="Finalizar chamada"
+            onEditarComPresencas={entrarEdicaoAposFacial}
+            onRefazer={refazerChamadaFacial}
+            finalizeButtonLabel="Finalizar"
           />
         </Suspense>
       )}
@@ -877,7 +981,11 @@ export default function TabletChamadaPage() {
             className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4"
           >
             <ChevronLeft className="w-4 h-4" />
-            {modoChamadaAtual === "manual" ? "Voltar à lista" : "Voltar ao scanner"}
+            {modoChamadaAtual === "manual"
+              ? "Voltar à lista"
+              : editandoFacial
+                ? "Voltar à edição"
+                : "Voltar ao scanner"}
           </button>
 
           <Card>
@@ -913,18 +1021,35 @@ export default function TabletChamadaPage() {
                         {presentesRevisao.map((a) => {
                           const nome = "nome" in a ? a.nome : (a as RosterAluno).nome;
                           const cpf = "cpf" in a ? a.cpf : (a as RosterAluno).cpf;
+                          const cpfNorm = cpf.replace(/\D/g, "");
                           const scan = presencasScan.find(
-                            (p) => p.cpf.replace(/\D/g, "") === cpf.replace(/\D/g, "")
+                            (p) => p.cpf.replace(/\D/g, "") === cpfNorm
                           );
                           return (
                             <div
                               key={cpf}
-                              className="flex items-center justify-between py-1.5 px-2 rounded text-sm bg-green-50"
+                              className="flex items-center justify-between py-1.5 px-2 rounded text-sm bg-green-50 gap-2"
                             >
-                              <span className="font-medium">{nome}</span>
-                              {scan?.hora && (
-                                <span className="text-xs text-green-700 font-semibold">{scan.hora}</span>
-                              )}
+                              <span className="font-medium min-w-0 truncate">{nome}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {scan?.hora && (
+                                  <span className="text-xs text-green-700 font-semibold">{scan.hora}</span>
+                                )}
+                                {modoChamadaAtual === "facial" && !editandoFacial && (
+                                  <button
+                                    type="button"
+                                    title="Remover presença (marcado por engano)"
+                                    className="text-xs text-red-600 hover:text-red-800 font-medium px-1.5 py-0.5 rounded hover:bg-red-100"
+                                    onClick={() => {
+                                      setPresencasScan((prev) =>
+                                        prev.filter((p) => p.cpf.replace(/\D/g, "") !== cpfNorm)
+                                      );
+                                    }}
+                                  >
+                                    Remover
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -945,7 +1070,8 @@ export default function TabletChamadaPage() {
                           const nome = "nome" in a ? a.nome : (a as RosterAluno).nome;
                           const cpf = "cpf" in a ? a.cpf : (a as RosterAluno).cpf;
                           const justif =
-                            modoChamadaAtual === "manual" && "justificativa" in a
+                            (modoChamadaAtual === "manual" || editandoFacial) &&
+                            "justificativa" in a
                               ? (a as ManualPresencaItem).justificativa
                               : null;
                           const rosterAluno = roster.find(
@@ -957,7 +1083,10 @@ export default function TabletChamadaPage() {
                               {justif && (
                                 <p className="text-xs text-red-600 mt-0.5">{justif}</p>
                               )}
-                              {!justif && !rosterAluno?.fotoUrl && modoChamadaAtual === "facial" && (
+                              {!justif &&
+                                !rosterAluno?.fotoUrl &&
+                                modoChamadaAtual === "facial" &&
+                                !editandoFacial && (
                                 <p className="text-xs text-red-600 mt-0.5">
                                   Aluno sem foto no sistema, impossivel fazer chamada.
                                 </p>

@@ -125,14 +125,14 @@ const GaleriaGanhadoresModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-md bg-white rounded-3xl max-h-[min(85dvh,calc(100dvh-2rem))] shadow-2xl flex flex-col min-h-0"
+            className="w-full max-w-md bg-white rounded-3xl max-h-[60vh] overflow-hidden shadow-2xl"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-5 shrink-0">
+            <div className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Trophy className="w-6 h-6 text-yellow-500" />
@@ -146,9 +146,7 @@ const GaleriaGanhadoresModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
-            </div>
 
-            <div className="px-5 pb-5 flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
               {isLoading ? (
                 <div className="flex space-x-4 overflow-x-auto pb-4 scrollbar-hide">
                   {[1, 2, 3].map((i) => (
@@ -661,7 +659,7 @@ export default function Beneficios() {
   }
 
   return (
-    <div className="min-h-screen bg-white pb-donor-nav font-inter">
+    <div className="min-h-screen bg-white pb-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 py-3 flex items-center">
@@ -829,7 +827,7 @@ export default function Beneficios() {
                       key={beneficio.id}
                       className="relative flex-shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-900 cursor-pointer"
                       style={{
-                        width: '320px',
+                        width: 'min(320px, 85vw)',
                         height: '180px'
                       }}
                       onClick={() => {
@@ -1105,8 +1103,7 @@ export default function Beneficios() {
         {/* Missão da Semana */}
         <div className="px-5 mb-6" style={{marginTop: '10px'}}>
           <motion.div 
-            className="relative mx-auto bg-transparent cursor-pointer"
-            style={{width: '338px', height: '156px'}}
+            className="relative mx-auto bg-transparent cursor-pointer w-[min(338px,100%)] h-[156px]"
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
@@ -1123,14 +1120,12 @@ export default function Beneficios() {
                 backgroundImage: 'url("/assets/migrated/BG_1756832442490.png")',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
-                width: '338px', 
-                height: '156px',
                 borderRadius: '20px'
               }} 
-              className="relative overflow-visible"
+              className="relative overflow-visible w-full h-full"
             >
               {/* Conteúdo do card - textos à esquerda */}
-              <div className="absolute left-0 top-0 z-30 p-6 flex flex-col justify-center h-full" style={{width: '200px'}}>
+              <div className="absolute left-0 top-0 z-30 p-5 sm:p-6 flex flex-col justify-center h-full w-[min(200px,58%)]">
                 {/* Cabeçalho com ícone */}
                 <motion.div 
                   className="flex items-center mb-3"
@@ -1294,7 +1289,7 @@ export default function Beneficios() {
                 onClick={() => openStories(index)}
                 className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                 style={{
-                  width: '320px',
+                  width: 'min(320px, 85vw)',
                   height: '180px',
                   backgroundImage: `url("/api/historias-inspiradoras/${story.id}/imagem?tipo=box"), url(${JSON.stringify(
                     story.image || "https://images.unsplash.com/photo-1494790108755-2616c943f671?w=400&h=200&fit=crop&crop=face"

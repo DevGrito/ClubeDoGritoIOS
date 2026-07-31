@@ -52,10 +52,24 @@ export async function runInstagramSyncNowForDebug(period: 'morning' | 'evening' 
   }
 }
 
+async function refreshDonorHistoricoVigente(label: string): Promise<void> {
+  try {
+    const { captureCurrentMonthDonorSnapshot, capturePreviousMonthDonorSnapshot } = await import('../services/donorSnapshot');
+    const r = await captureCurrentMonthDonorSnapshot();
+    console.log(`✅ [CRON] Snapshot doadores mês vigente (${label}): ativos=${r.ativos} trialing=${r.trialing} evadidos=${r.evadidos}`);
+    if (new Date().getDate() === 1) {
+      const prev = await capturePreviousMonthDonorSnapshot();
+      console.log(`✅ [CRON] Snapshot doadores mês anterior fechado: ativos=${prev.ativos} trialing=${prev.trialing} evadidos=${prev.evadidos}`);
+    }
+  } catch (e: any) {
+    console.error(`❌ [CRON] Erro no snapshot de doadores (${label}):`, e.message);
+  }
+}
+
 export function initCronJobs() {
   console.log('⏰ [CRON] Inicializando tarefas agendadas...');
 
-  // Stripe sync — a cada 5 horas
+  // Stripe sync — a cada 5 horas + atualiza histórico do mês vigente
   cron.schedule('0 */5 * * *', async () => {
     console.log('⏰ [CRON] Executando sincronização automática do Stripe...');
     try {
@@ -66,6 +80,7 @@ export function initCronJobs() {
         existentes: resultado.existentes,
         erros: resultado.erros
       });
+      await refreshDonorHistoricoVigente('pós-sync Stripe');
     } catch (error: any) {
       console.error('❌ [CRON] Erro na sincronização automática:', error.message);
     }
@@ -77,16 +92,9 @@ export function initCronJobs() {
   cron.schedule('0 14 * * *', () => runInstagramSyncNowForDebug('morning'), tz);
   cron.schedule('0 20 * * *', () => runInstagramSyncNowForDebug('evening'), tz);
 
-  // Snapshot mensal de doadores ativos - todo dia 1 às 6h
-  cron.schedule('0 6 1 * *', async () => {
-    console.log('📊 [CRON] Capturando snapshot mensal de doadores...');
-    try {
-      const { captureMonthlyDonorSnapshot } = await import('../services/donorSnapshot');
-      await captureMonthlyDonorSnapshot();
-      console.log('✅ [CRON] Snapshot de doadores concluído');
-    } catch (e: any) {
-      console.error('❌ [CRON] Erro no snapshot de doadores:', e.message);
-    }
+  // Snapshot de doadores — todo dia às 6h (mês vigente; dia 1 fecha o mês anterior)
+  cron.schedule('0 6 * * *', () => refreshDonorHistoricoVigente('diário 6h'), {
+    timezone: 'America/Sao_Paulo',
   });
 
   // Reconciliação de doadores pendentes - todo dia às 4h
@@ -101,9 +109,9 @@ export function initCronJobs() {
   });
 
   console.log('✅ [CRON] Tarefas agendadas:');
-  console.log('   - Sincronização Stripe: a cada 5 horas');
+  console.log('   - Sincronização Stripe: a cada 5 horas (+ snapshot doadores mês vigente)');
   console.log('   - Sincronização Instagram: 08h, 14h e 20h (America/Sao_Paulo)');
-  console.log('   - Snapshot doadores: todo dia 1 às 6h');
+  console.log('   - Snapshot doadores: todo dia às 6h (dia 1 fecha mês anterior)');
   console.log('   - Reconciliação doadores pendentes: todo dia às 4h');
 
   // Em dev local, syncs na subida competem com o Vite e deixam o primeiro load lento.
@@ -116,11 +124,12 @@ export function initCronJobs() {
   } else {
     console.log('🔄 [CRON] Executando sincronizações iniciais ao iniciar...');
     syncStripeIngressos()
-      .then(resultado => {
+      .then(async (resultado) => {
         console.log('✅ [CRON] Sincronização Stripe inicial concluída:', {
           novos: resultado.novos,
           existentes: resultado.existentes
         });
+        await refreshDonorHistoricoVigente('startup');
       })
       .catch(error => {
         console.error('❌ [CRON] Erro na sincronização Stripe inicial:', error.message);

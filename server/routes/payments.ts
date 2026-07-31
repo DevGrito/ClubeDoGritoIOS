@@ -16,120 +16,43 @@ import {
   createPixPayment,
   queryPaymentStatus,
   detectBrand,
-  mapCieloStatus,
   isSandbox,
   type PaymentStatus,
 } from "../services/cieloService";
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
 import { requireWebhookSecret, getCieloWebhookToken, resolveCieloWebhookToken } from "../middleware/webhookAuth";
+import { requireEventosPortalAuth } from "../middleware/portalAuth";
+import {
+  PIX_RESERVATION_MINUTES,
+  CARD_RESERVATION_MINUTES,
+  sanitize,
+  generateOrderRef,
+  parseQuantidade,
+  decideExpiredOrderAction,
+  assertOrderOwnedByPortalUser,
+} from "./paymentHelpers";
 
-function sanitize(str: unknown): string {
-  return typeof str === "string" ? str.trim() : "";
+async function releaseReservation(orderRef: string): Promise<void> {
+  await pool.query(
+    `UPDATE ingressos_portal SET
+       status='disponivel', order_ref=NULL, reserved_until=NULL,
+       usuario_portal_id=NULL, titular_nome=NULL, titular_cpf=NULL,
+       titular_email=NULL, titular_telefone=NULL
+     WHERE order_ref=$1 AND status='reservado'`,
+    [orderRef]
+  );
 }
-
-function generateOrderRef(eventoId: number): string {
-  return `EVT${eventoId}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-}
-
-function maskCpf(cpf: string): string {
-  const c = cpf.replace(/\D/g, "");
-  return c.length >= 11 ? `${c.slice(0, 3)}.***.***-${c.slice(-2)}` : "***";
-}
-
-async function assignTickets(
-  eventoId: number,
-  quantidade: number,
-  orderRef: string,
-  paymentId: string,
-  metodo: "pix" | "cartao",
-  titular: { nome: string; cpf: string; email: string; telefone: string },
-  usuarioPortalId: number | null,
-  valorUnit: number,
-  parcelas: number
-): Promise<{ id: number; codigo: string }[]> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const { rows } = await client.query(
-      `SELECT id, codigo FROM ingressos_portal WHERE evento_id=$1 AND status='disponivel' LIMIT $2 FOR UPDATE SKIP LOCKED`,
-      [eventoId, quantidade]
-    );
-
-    if (rows.length < quantidade) {
-      throw new Error(`Ingressos insuficientes: disponíveis ${rows.length}, solicitados ${quantidade}`);
-    }
-
-    const cpfRaw = titular.cpf.replace(/\D/g, "");
-
-    // Verifica se o CPF do comprador já tem um ingresso (para ele mesmo) neste evento
-    const { rows: jaTemIngresso } = await client.query(
-      `SELECT id FROM ingressos_portal
-       WHERE evento_id=$1 AND status != 'cancelado' AND para_terceiro = false
-       AND titular_cpf = ANY($2::text[])`,
-      [eventoId, [cpfRaw, titular.cpf]]
-    );
-    const titularJaTem = jaTemIngresso.length > 0;
-
-    // Separa: o primeiro ingresso é para o comprador (se ele não tiver), o resto vai para terceiro pendente
-    const idParaMim: number[] = [];
-    const idsParaTerceiro: number[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (!titularJaTem && i === 0) idParaMim.push(rows[i].id);
-      else idsParaTerceiro.push(rows[i].id);
-    }
-
-    const baseParams = [usuarioPortalId, titular.nome, cpfRaw, titular.email, titular.telefone, metodo, paymentId, valorUnit, parcelas];
-
-    if (idParaMim.length > 0) {
-      await client.query(
-        `UPDATE ingressos_portal SET
-           status='resgatado', usuario_portal_id=$1,
-           titular_nome=$2, titular_cpf=$3, titular_email=$4, titular_telefone=$5,
-           para_terceiro=false,
-           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
-           payment_id=$7, valor_pago=$8, parcelas=$9
-         WHERE id = ANY($10::int[])`,
-        [...baseParams, idParaMim]
-      );
-    }
-
-    if (idsParaTerceiro.length > 0) {
-      // Ingressos extras: portador pendente de definição pelo comprador
-      await client.query(
-        `UPDATE ingressos_portal SET
-           status='resgatado', usuario_portal_id=$1,
-           titular_nome=$2, titular_cpf=$3, titular_email=$4, titular_telefone=$5,
-           para_terceiro=true,
-           beneficiario_nome=null, beneficiario_cpf=null, beneficiario_email=null, beneficiario_telefone=null,
-           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
-           payment_id=$7, valor_pago=$8, parcelas=$9
-         WHERE id = ANY($10::int[])`,
-        [...baseParams, idsParaTerceiro]
-      );
-    }
-
-    await client.query("COMMIT");
-    return rows.map((r: any) => ({ id: r.id, codigo: r.codigo }));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 
 async function updateOrderStatus(
   orderRef: string,
   patch: {
-    status: PaymentStatus;
+    status: PaymentStatus | "reserved" | "fulfilling" | "fulfilled" | "expired";
     cieloPaymentId?: string;
     cieloStatus?: number;
     returnCode?: string;
     errorMessage?: string;
     pixQrCodeBase64?: string;
     pixQrCodeString?: string;
+    reservedUntil?: Date | null;
   }
 ): Promise<void> {
   await pool.query(
@@ -139,8 +62,9 @@ async function updateOrderStatus(
        error_message=COALESCE($5, error_message),
        pix_qr_code_base64=COALESCE($6, pix_qr_code_base64),
        pix_qr_code_string=COALESCE($7, pix_qr_code_string),
+       reserved_until=COALESCE($8, reserved_until),
        atualizado_em=NOW()
-     WHERE order_ref=$8`,
+     WHERE order_ref=$9`,
     [
       patch.status,
       patch.cieloPaymentId ?? null,
@@ -149,88 +73,451 @@ async function updateOrderStatus(
       patch.errorMessage ?? null,
       patch.pixQrCodeBase64 ?? null,
       patch.pixQrCodeString ?? null,
+      patch.reservedUntil ?? null,
       orderRef,
     ]
   );
 }
 
-// ─── Garante que a tabela existe ──────────────────────────────────────────────
+async function fulfillReservedTickets(
+  orderRef: string,
+  paymentId: string,
+  metodo: "pix" | "cartao",
+  valorUnit: number,
+  parcelas: number
+): Promise<{ id: number; codigo: string }[]> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-export async function ensurePaymentOrdersTable(): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS event_payment_orders (
-      id               SERIAL PRIMARY KEY,
-      evento_id        INTEGER REFERENCES eventos_grito(id),
-      usuario_portal_id INTEGER,
-      order_ref        TEXT NOT NULL UNIQUE,
-      idempotency_key  TEXT UNIQUE,
-      metodo_pagamento TEXT NOT NULL,
-      quantidade       INTEGER NOT NULL DEFAULT 1,
-      valor_total      INTEGER NOT NULL,
-      parcelas         INTEGER DEFAULT 1,
-      status           TEXT NOT NULL DEFAULT 'created',
-      cielo_payment_id TEXT,
-      cielo_status     INTEGER,
-      titular_nome     TEXT NOT NULL,
-      titular_cpf      TEXT NOT NULL,
-      titular_email    TEXT NOT NULL,
-      titular_telefone TEXT NOT NULL,
-      pix_qr_code_base64 TEXT,
-      pix_qr_code_string TEXT,
-      error_message    TEXT,
-      return_code      TEXT,
-      criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      atualizado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_evento ON event_payment_orders(evento_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_cielo_payment ON event_payment_orders(cielo_payment_id)`);
+    const { rows: [order] } = await client.query(
+      `SELECT * FROM event_payment_orders WHERE order_ref=$1 FOR UPDATE`,
+      [orderRef]
+    );
+    if (!order) throw new Error("Pedido não encontrado");
+
+    if (order.status === "fulfilled") {
+      const { rows } = await client.query(
+        `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+        [orderRef]
+      );
+      await client.query("COMMIT");
+      return rows.map((r: any) => ({ id: r.id, codigo: r.codigo }));
+    }
+
+    const { rows: claimed } = await client.query(
+      `UPDATE event_payment_orders SET status='fulfilling', atualizado_em=NOW()
+       WHERE order_ref=$1 AND status IN ('reserved','pending','processing','paid','fulfilling')
+       RETURNING *`,
+      [orderRef]
+    );
+    if (claimed.length === 0) {
+      throw new Error(`Pedido em estado inválido para fulfillment: ${order.status}`);
+    }
+
+    const { rows: reserved } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal
+       WHERE order_ref=$1 AND status='reservado'
+       ORDER BY id ASC
+       FOR UPDATE`,
+      [orderRef]
+    );
+
+    if (reserved.length < order.quantidade) {
+      throw new Error(
+        `Reserva incompleta: ${reserved.length}/${order.quantidade} para ${orderRef}`
+      );
+    }
+
+    const cpfRaw = String(order.titular_cpf || "").replace(/\D/g, "");
+    const { rows: jaTemIngresso } = await client.query(
+      `SELECT id FROM ingressos_portal
+       WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+         AND para_terceiro = false
+         AND (
+           usuario_portal_id=$2
+           OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','')=$3
+         )
+         AND order_ref IS DISTINCT FROM $4
+       LIMIT 1`,
+      [order.evento_id, order.usuario_portal_id, cpfRaw, orderRef]
+    );
+    const titularJaTem = jaTemIngresso.length > 0;
+
+    const idParaMim: number[] = [];
+    const idsParaTerceiro: number[] = [];
+    for (let i = 0; i < reserved.length; i++) {
+      if (!titularJaTem && i === 0) idParaMim.push(reserved[i].id);
+      else idsParaTerceiro.push(reserved[i].id);
+    }
+
+    const baseParams = [
+      order.usuario_portal_id,
+      order.titular_nome,
+      cpfRaw,
+      order.titular_email,
+      order.titular_telefone,
+      metodo,
+      paymentId,
+      valorUnit,
+      parcelas,
+    ];
+
+    if (idParaMim.length > 0) {
+      await client.query(
+        `UPDATE ingressos_portal SET
+           status='resgatado',
+           para_terceiro=false,
+           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
+           payment_id=$7, valor_pago=$8, parcelas=$9,
+           reserved_until=NULL
+         WHERE id = ANY($10::int[]) AND status='reservado'`,
+        [...baseParams, idParaMim]
+      );
+    }
+
+    if (idsParaTerceiro.length > 0) {
+      await client.query(
+        `UPDATE ingressos_portal SET
+           status='resgatado',
+           para_terceiro=true,
+           beneficiario_nome=null, beneficiario_cpf=null, beneficiario_email=null, beneficiario_telefone=null,
+           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
+           payment_id=$7, valor_pago=$8, parcelas=$9,
+           reserved_until=NULL
+         WHERE id = ANY($10::int[]) AND status='reservado'`,
+        [...baseParams, idsParaTerceiro]
+      );
+    }
+
+    await client.query(
+      `UPDATE event_payment_orders SET
+         status='fulfilled', fulfilled_em=NOW(), atualizado_em=NOW()
+       WHERE order_ref=$1`,
+      [orderRef]
+    );
+
+    await client.query("COMMIT");
+    return reserved.map((r: any) => ({ id: r.id, codigo: r.codigo }));
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-// ─── Registra todas as rotas ───────────────────────────────────────────────────
+/**
+ * Reconcilia pedidos com reserved_until vencido:
+ * consulta Cielo e só libera estoque se não houver pagamento confirmado.
+ */
+export async function reconcileExpiredOrders(eventoId?: number): Promise<void> {
+  const params: any[] = [];
+  let where = `
+    status IN ('created','reserved','pending','processing','paid')
+    AND reserved_until IS NOT NULL
+    AND reserved_until < NOW()
+  `;
+  if (eventoId) {
+    params.push(eventoId);
+    where += ` AND evento_id=$${params.length}`;
+  }
+
+  const { rows: candidates } = await pool.query(
+    `SELECT order_ref FROM event_payment_orders WHERE ${where} ORDER BY reserved_until ASC LIMIT 50`,
+    params
+  );
+
+  for (const row of candidates) {
+    await reconcileOneExpiredOrder(row.order_ref);
+  }
+}
+
+async function reconcileOneExpiredOrder(orderRef: string): Promise<void> {
+  const client = await pool.connect();
+  let order: any;
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT * FROM event_payment_orders WHERE order_ref=$1 FOR UPDATE`,
+      [orderRef]
+    );
+    order = rows[0];
+    if (!order) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  if (!order) return;
+  if (order.status === "fulfilled") return;
+
+  let cieloStatus: string | null = null;
+  let cieloPaymentId = order.cielo_payment_id || null;
+  let cieloStatusCode: number | undefined;
+
+  if (cieloPaymentId) {
+    try {
+      const cieloResult = await queryPaymentStatus(cieloPaymentId);
+      cieloStatus = cieloResult.status;
+      cieloStatusCode = cieloResult.cieloStatus;
+    } catch (err: any) {
+      console.warn(`[PAYMENTS] Reconcile: falha Cielo Ref:${orderRef}: ${err.message}`);
+      // Sem confirmação, respeita a margem de graça via decideExpiredOrderAction
+    }
+  }
+
+  const decision = decideExpiredOrderAction({
+    now: Date.now(),
+    reservedUntil: order.reserved_until ? new Date(order.reserved_until).getTime() : null,
+    orderStatus: order.status,
+    cieloStatus,
+    cieloPaymentId,
+  });
+
+  if (decision.action === "wait" || decision.action === "keep_pending") {
+    if (cieloStatus && cieloStatusCode != null && cieloStatus !== order.status) {
+      await updateOrderStatus(orderRef, { status: cieloStatus as PaymentStatus, cieloStatus: cieloStatusCode });
+    }
+    return;
+  }
+
+  if (decision.action === "fulfill") {
+    await updateOrderStatus(orderRef, {
+      status: "paid",
+      cieloStatus: cieloStatusCode,
+    });
+    const precoUnit = Math.round(order.valor_total / Math.max(1, order.quantidade));
+    try {
+      await fulfillReservedTickets(
+        orderRef,
+        decision.paymentId,
+        order.metodo_pagamento === "cartao" ? "cartao" : "pix",
+        precoUnit,
+        order.parcelas || 1
+      );
+    } catch (err: any) {
+      console.error(`[PAYMENTS] Reconcile fulfill falhou Ref:${orderRef}: ${err.message}`);
+    }
+    return;
+  }
+
+  // release
+  await releaseReservation(orderRef);
+  await updateOrderStatus(orderRef, {
+    status: decision.status as any,
+    cieloStatus: cieloStatusCode,
+    errorMessage: decision.status === "expired" ? "Reserva expirada após reconciliação" : undefined,
+  });
+}
+
+async function reserveTickets(
+  eventoId: number,
+  quantidade: number,
+  orderRef: string,
+  usuarioPortalId: number,
+  titular: { nome: string; cpf: string; email: string; telefone: string },
+  minutes: number
+): Promise<{ id: number; codigo: string }[]> {
+  await reconcileExpiredOrders(eventoId);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal
+       WHERE evento_id=$1 AND status='disponivel'
+       ORDER BY id ASC
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED`,
+      [eventoId, quantidade]
+    );
+    if (rows.length < quantidade) {
+      throw new Error(`Ingressos insuficientes: disponíveis ${rows.length}, solicitados ${quantidade}`);
+    }
+
+    const cpfRaw = titular.cpf.replace(/\D/g, "");
+    const ids = rows.map((r: { id: number }) => r.id);
+    await client.query(
+      `UPDATE ingressos_portal SET
+         status='reservado',
+         order_ref=$1,
+         reserved_until=NOW() + ($2::text || ' minutes')::interval,
+         usuario_portal_id=$3,
+         titular_nome=$4,
+         titular_cpf=$5,
+         titular_email=$6,
+         titular_telefone=$7
+       WHERE id = ANY($8::int[]) AND status='disponivel'`,
+      [orderRef, String(minutes), usuarioPortalId, titular.nome, cpfRaw, titular.email, titular.telefone, ids]
+    );
+
+    const { rows: locked } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status='reservado'`,
+      [orderRef]
+    );
+    if (locked.length < quantidade) {
+      throw new Error("Falha ao reservar ingressos");
+    }
+
+    await client.query("COMMIT");
+    return locked.map((r: any) => ({ id: r.id, codigo: r.codigo }));
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function loadPortalTitular(usuarioPortalId: number) {
+  const { rows: [usuario] } = await pool.query(
+    `SELECT id, nome, cpf, email FROM usuarios_portal WHERE id=$1`,
+    [usuarioPortalId]
+  );
+  return usuario || null;
+}
+
+export async function ensurePaymentOrdersTable(): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS event_payment_orders (
+        id               SERIAL PRIMARY KEY,
+        evento_id        INTEGER REFERENCES eventos_grito(id),
+        usuario_portal_id INTEGER,
+        order_ref        TEXT NOT NULL UNIQUE,
+        idempotency_key  TEXT UNIQUE,
+        metodo_pagamento TEXT NOT NULL,
+        quantidade       INTEGER NOT NULL DEFAULT 1,
+        valor_total      INTEGER NOT NULL,
+        parcelas         INTEGER DEFAULT 1,
+        status           TEXT NOT NULL DEFAULT 'created',
+        cielo_payment_id TEXT,
+        cielo_status     INTEGER,
+        titular_nome     TEXT NOT NULL,
+        titular_cpf      TEXT NOT NULL,
+        titular_email    TEXT NOT NULL,
+        titular_telefone TEXT NOT NULL,
+        pix_qr_code_base64 TEXT,
+        pix_qr_code_string TEXT,
+        error_message    TEXT,
+        return_code      TEXT,
+        reserved_until   TIMESTAMPTZ,
+        fulfilled_em     TIMESTAMPTZ,
+        criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        atualizado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`ALTER TABLE event_payment_orders ADD COLUMN IF NOT EXISTS reserved_until TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE event_payment_orders ADD COLUMN IF NOT EXISTS fulfilled_em TIMESTAMPTZ`);
+
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS order_ref TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS reserved_until TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS metodo_pagamento TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS gateway TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS payment_id TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS valor_pago INTEGER`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS parcelas INTEGER`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_nascimento DATE`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_genero TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_logradouro TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_numero TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_bairro TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_cidade TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_estado TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_cep TEXT`);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_evento ON event_payment_orders(evento_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_cielo_payment ON event_payment_orders(cielo_payment_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_reserved_until ON event_payment_orders(reserved_until)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ingressos_portal_order_ref ON ingressos_portal(order_ref)`);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ingressos_portal_reservado_expira
+      ON ingressos_portal(status, reserved_until)
+      WHERE status = 'reservado'
+    `);
+
+    const { rows: orderCols } = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'event_payment_orders'
+        AND column_name IN ('reserved_until', 'fulfilled_em', 'order_ref', 'status')
+    `);
+    const orderNames = new Set(orderCols.map((r: any) => r.column_name));
+    for (const col of ["reserved_until", "fulfilled_em", "order_ref", "status"]) {
+      if (!orderNames.has(col)) {
+        throw new Error(`Schema event_payment_orders incompleto: falta coluna ${col}`);
+      }
+    }
+
+    const { rows: ticketCols } = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'ingressos_portal'
+        AND column_name IN ('order_ref', 'reserved_until', 'status')
+    `);
+    const ticketNames = new Set(ticketCols.map((r: any) => r.column_name));
+    for (const col of ["order_ref", "reserved_until", "status"]) {
+      if (!ticketNames.has(col)) {
+        throw new Error(`Schema ingressos_portal incompleto: falta coluna ${col}`);
+      }
+    }
+
+    console.log("✅ [PAYMENTS] Schema de reservas/pedidos validado");
+  } catch (err: any) {
+    console.error("FATAL [PAYMENTS]: falha ao preparar schema de reservas:", err?.message || err);
+    throw err;
+  }
+}
 
 export function registerPaymentRoutes(app: Express): void {
-
-  // ── POST /api/payments/pix ─────────────────────────────────────────────────
-  app.post("/api/payments/pix", async (req: Request, res: Response) => {
-    const sess = req.session as any;
-    const usuarioPortalId: number | null = sess?.portalUserId ?? null;
+  app.post("/api/payments/pix", requireEventosPortalAuth, async (req: Request, res: Response) => {
+    const usuarioPortalId = (req as Request & { portalUserId: number }).portalUserId;
 
     try {
-      const eventoId = parseInt(sanitize(req.body.eventoId));
-      const quantidade = Math.max(1, Math.min(10, parseInt(req.body.quantidade) || 1));
+      const eventoId = parseInt(sanitize(req.body.eventoId), 10);
+      const quantidade = parseQuantidade(req.body.quantidade);
       const idempotencyKey = sanitize(req.body.idempotencyKey);
+      const telefone = sanitize(req.body.telefone);
+
+      if (!eventoId || !quantidade) {
+        return res.status(400).json({ error: "Dados obrigatórios ausentes ou quantidade inválida" });
+      }
+      if (telefone.replace(/\D/g, "").length < 10) {
+        return res.status(400).json({ error: "Telefone inválido" });
+      }
+
+      const usuario = await loadPortalTitular(usuarioPortalId);
+      if (!usuario) return res.status(401).json({ error: "Usuário não encontrado" });
+
       const titular = {
-        nome: sanitize(req.body.nome),
-        cpf: sanitize(req.body.cpf),
-        email: sanitize(req.body.email),
-        telefone: sanitize(req.body.telefone),
+        nome: usuario.nome,
+        cpf: String(usuario.cpf || "").replace(/\D/g, ""),
+        email: usuario.email,
+        telefone,
       };
-
-      if (!eventoId || !titular.nome || !titular.cpf || !titular.email || !titular.telefone) {
-        return res.status(400).json({ error: "Dados obrigatórios ausentes" });
-      }
-      if (titular.cpf.replace(/\D/g, "").length !== 11) {
-        return res.status(400).json({ error: "CPF inválido" });
-      }
-      if (!titular.email.includes("@")) {
-        return res.status(400).json({ error: "E-mail inválido" });
+      if (titular.cpf.length !== 11 || !titular.email?.includes("@")) {
+        return res.status(400).json({ error: "Cadastro incompleto: CPF e e-mail obrigatórios" });
       }
 
-      // Idempotência: chave já processada?
       if (idempotencyKey) {
         const { rows: existing } = await pool.query(
-          `SELECT order_ref, status, cielo_payment_id, pix_qr_code_base64, pix_qr_code_string
+          `SELECT order_ref, status, cielo_payment_id, pix_qr_code_base64, pix_qr_code_string, reserved_until
            FROM event_payment_orders WHERE idempotency_key=$1`,
           [idempotencyKey]
         );
         if (existing.length > 0) {
           const ord = existing[0];
-          console.log(`[PAYMENTS] PIX - idempotência hit: ${ord.order_ref} status:${ord.status}`);
-          if (ord.status === "paid") {
-            return res.json({ sucesso: true, metodoPagamento: "pix", orderRef: ord.order_ref, status: "paid", jaProcessado: true });
+          if (ord.status === "fulfilled" || ord.status === "paid") {
+            return res.json({ sucesso: true, metodoPagamento: "pix", orderRef: ord.order_ref, status: ord.status, jaProcessado: true });
           }
-          if (["pending", "created"].includes(ord.status)) {
+          if (["reserved", "pending", "created"].includes(ord.status)) {
             return res.json({
               sucesso: true,
               metodoPagamento: "pix",
@@ -239,13 +526,15 @@ export function registerPaymentRoutes(app: Express): void {
               qrCodeBase64: ord.pix_qr_code_base64,
               qrCodeString: ord.pix_qr_code_string,
               status: ord.status,
+              reservedUntil: ord.reserved_until,
               sandbox: isSandbox(),
             });
           }
         }
       }
 
-      // Validar evento
+      await reconcileExpiredOrders(eventoId);
+
       const { rows: [evento] } = await pool.query(
         `SELECT id, titulo, preco, gratuito, status, capacidade FROM eventos_grito WHERE id=$1`,
         [eventoId]
@@ -254,40 +543,57 @@ export function registerPaymentRoutes(app: Express): void {
       if (evento.gratuito || parseInt(evento.preco) === 0) {
         return res.status(400).json({ error: "Use o endpoint de resgate para eventos gratuitos" });
       }
-      if (evento.status === "encerrado") {
-        return res.status(400).json({ error: "Inscrições encerradas para este evento" });
+      if (evento.status !== "disponivel") {
+        return res.status(400).json({ error: "Evento não disponível para compra" });
       }
 
       const precoUnit = parseInt(evento.preco);
       const valorTotal = precoUnit * quantidade;
       const orderRef = generateOrderRef(eventoId);
+      const reservedUntil = new Date(Date.now() + PIX_RESERVATION_MINUTES * 60 * 1000);
 
-      // Registrar pedido
       await pool.query(
         `INSERT INTO event_payment_orders
            (evento_id, usuario_portal_id, order_ref, idempotency_key, metodo_pagamento,
-            quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone)
-         VALUES ($1,$2,$3,$4,'pix',$5,$6,1,'created',$7,$8,$9,$10)`,
+            quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone, reserved_until)
+         VALUES ($1,$2,$3,$4,'pix',$5,$6,1,'created',$7,$8,$9,$10,$11)`,
         [eventoId, usuarioPortalId, orderRef, idempotencyKey || null, quantidade, valorTotal,
-          titular.nome, titular.cpf.replace(/\D/g, ""), titular.email, titular.telefone]
+          titular.nome, titular.cpf, titular.email, titular.telefone, reservedUntil]
       );
 
-      // Chamar Cielo
+      try {
+        await reserveTickets(eventoId, quantidade, orderRef, usuarioPortalId, titular, PIX_RESERVATION_MINUTES);
+        await updateOrderStatus(orderRef, { status: "reserved", reservedUntil });
+      } catch (err: any) {
+        await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
+        return res.status(409).json({ error: err.message || "Ingressos insuficientes" });
+      }
+
       let result;
       try {
         result = await createPixPayment({ orderRef, idempotencyKey, valorTotal, titular });
       } catch (err: any) {
+        await releaseReservation(orderRef);
         await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
         return res.status(502).json(safeErrorPayload(err, "Erro ao processar PIX"));
       }
 
       await updateOrderStatus(orderRef, {
-        status: result.status,
+        status: result.status === "paid" ? "paid" : "pending",
         cieloPaymentId: result.paymentId,
         cieloStatus: result.cieloStatus,
         pixQrCodeBase64: result.qrCodeBase64,
         pixQrCodeString: result.qrCodeString,
+        reservedUntil,
       });
+
+      if (result.status === "paid") {
+        try {
+          await fulfillReservedTickets(orderRef, result.paymentId, "pix", precoUnit, 1);
+        } catch (err: any) {
+          console.error(`[PAYMENTS] PIX pago imediato sem fulfill Ref:${orderRef}: ${err.message}`);
+        }
+      }
 
       return res.json({
         sucesso: true,
@@ -296,8 +602,9 @@ export function registerPaymentRoutes(app: Express): void {
         paymentId: result.paymentId,
         qrCodeBase64: result.qrCodeBase64 ?? null,
         qrCodeString: result.qrCodeString ?? null,
-        status: result.status,
+        status: result.status === "paid" ? "paid" : "pending",
         valorTotal,
+        reservedUntil,
         sandbox: isSandbox(),
       });
     } catch (e: any) {
@@ -306,38 +613,42 @@ export function registerPaymentRoutes(app: Express): void {
     }
   });
 
-  // ── POST /api/payments/card ────────────────────────────────────────────────
-  app.post("/api/payments/card", async (req: Request, res: Response) => {
-    const sess = req.session as any;
-    const usuarioPortalId: number | null = sess?.portalUserId ?? null;
+  app.post("/api/payments/card", requireEventosPortalAuth, async (req: Request, res: Response) => {
+    const usuarioPortalId = (req as Request & { portalUserId: number }).portalUserId;
 
     try {
-      const eventoId = parseInt(sanitize(req.body.eventoId));
-      const quantidade = Math.max(1, Math.min(10, parseInt(req.body.quantidade) || 1));
-      const parcelas = Math.max(1, Math.min(10, parseInt(req.body.parcelas) || 1));
+      const eventoId = parseInt(sanitize(req.body.eventoId), 10);
+      const quantidade = parseQuantidade(req.body.quantidade);
+      const parcelas = Math.max(1, Math.min(10, parseInt(String(req.body.parcelas || "1"), 10) || 1));
       const idempotencyKey = sanitize(req.body.idempotencyKey);
-      const titular = {
-        nome: sanitize(req.body.nome),
-        cpf: sanitize(req.body.cpf),
-        email: sanitize(req.body.email),
-        telefone: sanitize(req.body.telefone),
-      };
+      const telefone = sanitize(req.body.telefone);
       const cartaoNumero = sanitize(req.body.cardNumber).replace(/\D/g, "");
       const cartaoTitular = sanitize(req.body.cardName);
       const cartaoValidade = sanitize(req.body.cardExpiry);
       const cartaoCvv = sanitize(req.body.cardCvv);
 
-      if (!eventoId || !titular.nome || !titular.cpf || !titular.email || !titular.telefone) {
-        return res.status(400).json({ error: "Dados do comprador incompletos" });
+      if (!eventoId || !quantidade) {
+        return res.status(400).json({ error: "Dados do comprador incompletos ou quantidade inválida" });
       }
       if (!cartaoNumero || cartaoNumero.length < 13 || !cartaoTitular || !cartaoValidade || !cartaoCvv) {
         return res.status(400).json({ error: "Dados do cartão incompletos" });
       }
-      if (titular.cpf.replace(/\D/g, "").length !== 11) {
-        return res.status(400).json({ error: "CPF inválido" });
+      if (telefone.replace(/\D/g, "").length < 10) {
+        return res.status(400).json({ error: "Telefone inválido" });
       }
 
-      // Idempotência
+      const usuario = await loadPortalTitular(usuarioPortalId);
+      if (!usuario) return res.status(401).json({ error: "Usuário não encontrado" });
+      const titular = {
+        nome: usuario.nome,
+        cpf: String(usuario.cpf || "").replace(/\D/g, ""),
+        email: usuario.email,
+        telefone,
+      };
+      if (titular.cpf.length !== 11) {
+        return res.status(400).json({ error: "CPF inválido no cadastro" });
+      }
+
       if (idempotencyKey) {
         const { rows: existing } = await pool.query(
           `SELECT order_ref, status, metodo_pagamento, cielo_payment_id FROM event_payment_orders WHERE idempotency_key=$1`,
@@ -345,8 +656,8 @@ export function registerPaymentRoutes(app: Express): void {
         );
         if (existing.length > 0) {
           const ord = existing[0];
-          if (ord.status === "paid") {
-            return res.json({ sucesso: true, metodoPagamento: "cartao", orderRef: ord.order_ref, status: "paid", jaProcessado: true });
+          if (ord.status === "fulfilled" || ord.status === "paid") {
+            return res.json({ sucesso: true, metodoPagamento: "cartao", orderRef: ord.order_ref, status: ord.status, jaProcessado: true });
           }
           if (ord.metodo_pagamento === "cartao") {
             return res.status(409).json({
@@ -366,7 +677,8 @@ export function registerPaymentRoutes(app: Express): void {
         }
       }
 
-      // Validar evento
+      await reconcileExpiredOrders(eventoId);
+
       const { rows: [evento] } = await pool.query(
         `SELECT id, titulo, preco, gratuito, status FROM eventos_grito WHERE id=$1`,
         [eventoId]
@@ -375,21 +687,24 @@ export function registerPaymentRoutes(app: Express): void {
       if (evento.gratuito || parseInt(evento.preco) === 0) {
         return res.status(400).json({ error: "Evento gratuito não requer pagamento" });
       }
+      if (evento.status !== "disponivel") {
+        return res.status(400).json({ error: "Evento não disponível para compra" });
+      }
 
       const precoUnit = parseInt(evento.preco);
       const valorTotal = precoUnit * quantidade;
       const orderRef = generateOrderRef(eventoId);
       const bandeira = detectBrand(cartaoNumero);
+      const reservedUntil = new Date(Date.now() + CARD_RESERVATION_MINUTES * 60 * 1000);
 
-      // Registrar pedido
       try {
         await pool.query(
           `INSERT INTO event_payment_orders
              (evento_id, usuario_portal_id, order_ref, idempotency_key, metodo_pagamento,
-              quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone)
-           VALUES ($1,$2,$3,$4,'cartao',$5,$6,$7,'processing',$8,$9,$10,$11)`,
+              quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone, reserved_until)
+           VALUES ($1,$2,$3,$4,'cartao',$5,$6,$7,'created',$8,$9,$10,$11,$12)`,
           [eventoId, usuarioPortalId, orderRef, idempotencyKey || null, quantidade, valorTotal, parcelas,
-            titular.nome, titular.cpf.replace(/\D/g, ""), titular.email, titular.telefone]
+            titular.nome, titular.cpf, titular.email, titular.telefone, reservedUntil]
         );
       } catch (insertErr: any) {
         if (insertErr?.code === "23505" && idempotencyKey) {
@@ -401,7 +716,16 @@ export function registerPaymentRoutes(app: Express): void {
         throw insertErr;
       }
 
-      // Chamar Cielo — CVV nunca logado
+      try {
+        await reserveTickets(eventoId, quantidade, orderRef, usuarioPortalId, titular, CARD_RESERVATION_MINUTES);
+        await updateOrderStatus(orderRef, { status: "reserved", reservedUntil });
+      } catch (err: any) {
+        await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
+        return res.status(409).json({ error: err.message || "Ingressos insuficientes" });
+      }
+
+      await updateOrderStatus(orderRef, { status: "processing" });
+
       let result;
       try {
         result = await createCardPayment({
@@ -413,8 +737,9 @@ export function registerPaymentRoutes(app: Express): void {
           cartao: { numero: cartaoNumero, titular: cartaoTitular, validade: cartaoValidade, cvv: cartaoCvv, bandeira },
         });
       } catch (err: any) {
+        await releaseReservation(orderRef);
         await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
-        return res.status(502).json(safeErrorPayload(err, "Erro ao processar PIX"));
+        return res.status(502).json(safeErrorPayload(err, "Erro ao processar cartão"));
       }
 
       await updateOrderStatus(orderRef, {
@@ -426,6 +751,7 @@ export function registerPaymentRoutes(app: Express): void {
       });
 
       if (result.status !== "paid") {
+        await releaseReservation(orderRef);
         if (isGatewayConfigurationError(result.returnCode, result.returnMessage)) {
           return res.status(502).json({
             error: "Falha de configuração na Cielo (credenciais/ambiente). Verifique CIELO_ENV, CIELO_MERCHANT_ID e CIELO_MERCHANT_KEY.",
@@ -437,27 +763,23 @@ export function registerPaymentRoutes(app: Express): void {
         return res.status(402).json({ error: msg, returnCode: result.returnCode, status: result.status });
       }
 
-      // Atribuir ingressos atomicamente
       let ingressos: { id: number; codigo: string }[];
       try {
-        ingressos = await assignTickets(
-          eventoId, quantidade, orderRef, result.paymentId,
-          "cartao", titular, usuarioPortalId, precoUnit, parcelas
+        ingressos = await fulfillReservedTickets(
+          orderRef, result.paymentId, "cartao", precoUnit, parcelas
         );
       } catch (err: any) {
         console.error(`[PAYMENTS] Pagamento aprovado mas falha ao atribuir ingressos: ${err.message} Ref:${orderRef}`);
-        await updateOrderStatus(orderRef, { errorMessage: `Ingressos: ${err.message}` });
+        await updateOrderStatus(orderRef, { status: "paid", errorMessage: `Ingressos: ${err.message}` });
         return res.status(500).json({ error: "Pagamento aprovado mas houve erro ao gerar ingressos. Entre em contato." });
       }
-
-      await updateOrderStatus(orderRef, { status: "paid" });
 
       return res.json({
         sucesso: true,
         metodoPagamento: "cartao",
         orderRef,
         paymentId: result.paymentId,
-        status: "paid",
+        status: "fulfilled",
         ingressos,
         parcelas,
         valorTotal,
@@ -468,19 +790,60 @@ export function registerPaymentRoutes(app: Express): void {
     }
   });
 
-  // ── GET /api/payments/:orderRef/status ─────────────────────────────────────
-  app.get("/api/payments/:orderRef/status", async (req: Request, res: Response) => {
+  app.get("/api/payments/:orderRef/status", requireEventosPortalAuth, async (req: Request, res: Response) => {
     try {
       const { orderRef } = req.params;
+      const usuarioPortalId = (req as Request & { portalUserId: number }).portalUserId;
 
       const { rows: [order] } = await pool.query(
         `SELECT * FROM event_payment_orders WHERE order_ref=$1`,
         [orderRef]
       );
       if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+      if (!assertOrderOwnedByPortalUser(order.usuario_portal_id, usuarioPortalId)) {
+        return res.status(403).json({ error: "Pedido não pertence a este usuário" });
+      }
 
-      // PIX pendente: consultar Cielo e atualizar se necessário
-      if (order.metodo_pagamento === "pix" && order.cielo_payment_id && order.status !== "paid") {
+      if (order.status === "fulfilled") {
+        const { rows: ingressos } = await pool.query(
+          `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+          [orderRef]
+        );
+        return res.json({
+          orderRef,
+          status: "fulfilled",
+          pago: true,
+          ingressos,
+          reservedUntil: order.reserved_until,
+        });
+      }
+
+      // Reconcilia se passou do horário (consulta Cielo antes de liberar)
+      if (order.reserved_until && new Date(order.reserved_until).getTime() < Date.now()
+          && ["created", "reserved", "pending", "processing", "paid"].includes(order.status)) {
+        await reconcileOneExpiredOrder(orderRef);
+        const { rows: [fresh] } = await pool.query(
+          `SELECT * FROM event_payment_orders WHERE order_ref=$1`,
+          [orderRef]
+        );
+        if (fresh?.status === "fulfilled") {
+          const { rows: ingressos } = await pool.query(
+            `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+            [orderRef]
+          );
+          return res.json({ orderRef, status: "fulfilled", pago: true, ingressos });
+        }
+        if (fresh?.status === "expired" || fresh?.status === "denied" || fresh?.status === "canceled" || fresh?.status === "error") {
+          return res.json({
+            orderRef,
+            status: fresh.status,
+            pago: false,
+            erro: fresh.status === "expired" ? "Reserva expirada" : "Pagamento não concluído",
+          });
+        }
+      }
+
+      if (order.metodo_pagamento === "pix" && order.cielo_payment_id && !["fulfilled", "expired", "error"].includes(order.status)) {
         let cieloResult;
         try {
           cieloResult = await queryPaymentStatus(order.cielo_payment_id);
@@ -490,51 +853,55 @@ export function registerPaymentRoutes(app: Express): void {
             status: order.status,
             pago: false,
             erro: toClientError(err, "Erro ao consultar pagamento"),
+            reservedUntil: order.reserved_until,
           });
         }
 
-        if (cieloResult.status === "paid" && order.status !== "paid") {
+        if (cieloResult.status === "paid") {
           await updateOrderStatus(orderRef, {
             status: "paid",
             cieloStatus: cieloResult.cieloStatus,
           });
 
-          // Atribuir ingressos
-          const eventoId = order.evento_id;
           const precoUnit = Math.round(order.valor_total / order.quantidade);
-          const titular = {
-            nome: order.titular_nome,
-            cpf: order.titular_cpf,
-            email: order.titular_email,
-            telefone: order.titular_telefone,
-          };
-
           let ingressos: { id: number; codigo: string }[] = [];
           try {
-            ingressos = await assignTickets(
-              eventoId, order.quantidade, orderRef, order.cielo_payment_id,
-              "pix", titular, order.usuario_portal_id, precoUnit, 1
+            ingressos = await fulfillReservedTickets(
+              orderRef, order.cielo_payment_id, "pix", precoUnit, 1
             );
           } catch (err: any) {
             console.error(`[PAYMENTS] PIX confirmado mas falha ao atribuir ingressos: ${err.message} Ref:${orderRef}`);
+            return res.json({ orderRef, status: "paid", pago: true, erro: "Pagamento confirmado; ingressos em processamento", ingressos: [] });
           }
 
-          return res.json({ orderRef, status: "paid", pago: true, ingressos });
+          return res.json({ orderRef, status: "fulfilled", pago: true, ingressos });
+        }
+
+        if (["denied", "canceled", "expired", "error"].includes(cieloResult.status)) {
+          await releaseReservation(orderRef);
+          await updateOrderStatus(orderRef, { status: cieloResult.status as PaymentStatus, cieloStatus: cieloResult.cieloStatus });
+          return res.json({ orderRef, status: cieloResult.status, pago: false, erro: "Pagamento não concluído" });
         }
 
         if (cieloResult.status !== order.status) {
           await updateOrderStatus(orderRef, { status: cieloResult.status, cieloStatus: cieloResult.cieloStatus });
         }
 
-        return res.json({ orderRef, status: cieloResult.status, pago: cieloResult.status === "paid" });
+        return res.json({
+          orderRef,
+          status: cieloResult.status,
+          pago: false,
+          reservedUntil: order.reserved_until,
+        });
       }
 
       return res.json({
         orderRef,
         status: order.status,
-        pago: order.status === "paid",
+        pago: order.status === "paid" || order.status === "fulfilled",
         metodoPagamento: order.metodo_pagamento,
         valorTotal: order.valor_total,
+        reservedUntil: order.reserved_until,
       });
     } catch (e: any) {
       console.error("[PAYMENTS] Erro status:", e.message);
@@ -542,27 +909,31 @@ export function registerPaymentRoutes(app: Express): void {
     }
   });
 
-  // ── GET /api/payments/pix/:orderRef/qrcode ─────────────────────────────────
-  app.get("/api/payments/pix/:orderRef/qrcode", async (req: Request, res: Response) => {
+  app.get("/api/payments/pix/:orderRef/qrcode", requireEventosPortalAuth, async (req: Request, res: Response) => {
     try {
       const { orderRef } = req.params;
+      const usuarioPortalId = (req as Request & { portalUserId: number }).portalUserId;
       const { rows: [order] } = await pool.query(
-        `SELECT pix_qr_code_base64, pix_qr_code_string, status, valor_total FROM event_payment_orders WHERE order_ref=$1`,
+        `SELECT pix_qr_code_base64, pix_qr_code_string, status, valor_total, usuario_portal_id, reserved_until
+         FROM event_payment_orders WHERE order_ref=$1`,
         [orderRef]
       );
       if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+      if (!assertOrderOwnedByPortalUser(order.usuario_portal_id, usuarioPortalId)) {
+        return res.status(403).json({ error: "Pedido não pertence a este usuário" });
+      }
       return res.json({
         qrCodeBase64: order.pix_qr_code_base64,
         qrCodeString: order.pix_qr_code_string,
         status: order.status,
         valorTotal: order.valor_total,
+        reservedUntil: order.reserved_until,
       });
     } catch (e: any) {
       return res.status(500).json({ error: "Erro interno" });
     }
   });
 
-  // ── POST /api/payments/webhook ─────────────────────────────────────────────
   app.post(
     "/api/payments/webhook",
     requireWebhookSecret("CIELO_WEBHOOK_TOKEN", getCieloWebhookToken, resolveCieloWebhookToken),
@@ -579,22 +950,19 @@ export function registerPaymentRoutes(app: Express): void {
 
       console.log(`[PAYMENTS] Webhook Cielo: PaymentId=${paymentId} ChangeType=${cieloStatus}`);
 
-      // Buscar pedido pelo cielo_payment_id
       const { rows: [order] } = await pool.query(
         `SELECT * FROM event_payment_orders WHERE cielo_payment_id=$1`,
         [paymentId]
       );
 
       if (!order) {
-        // Pode ser ingresso de outro módulo (SOP etc.) — ignorar silenciosamente
         return res.status(200).json({ ok: true });
       }
 
-      if (order.status === "paid") {
+      if (order.status === "fulfilled") {
         return res.status(200).json({ ok: true, msg: "Já processado" });
       }
 
-      // Consultar status real na Cielo
       let cieloResult;
       try {
         cieloResult = await queryPaymentStatus(paymentId);
@@ -603,29 +971,31 @@ export function registerPaymentRoutes(app: Express): void {
         return res.status(200).json({ ok: false });
       }
 
-      await updateOrderStatus(order.order_ref, {
-        status: cieloResult.status,
-        cieloStatus: cieloResult.cieloStatus,
-      });
-
       if (cieloResult.status === "paid") {
+        await updateOrderStatus(order.order_ref, {
+          status: "paid",
+          cieloStatus: cieloResult.cieloStatus,
+        });
         const precoUnit = Math.round(order.valor_total / order.quantidade);
-        const titular = {
-          nome: order.titular_nome,
-          cpf: order.titular_cpf,
-          email: order.titular_email,
-          telefone: order.titular_telefone,
-        };
         try {
-          await assignTickets(
-            order.evento_id, order.quantidade, order.order_ref, paymentId,
-            order.metodo_pagamento, titular, order.usuario_portal_id, precoUnit, order.parcelas
+          await fulfillReservedTickets(
+            order.order_ref, paymentId, order.metodo_pagamento, precoUnit, order.parcelas
           );
-          await updateOrderStatus(order.order_ref, { status: "paid" });
           console.log(`[PAYMENTS] Webhook: ingressos atribuídos Ref:${order.order_ref}`);
         } catch (err: any) {
           console.error(`[PAYMENTS] Webhook: falha ingressos Ref:${order.order_ref}: ${err.message}`);
         }
+      } else if (["denied", "canceled", "expired", "error"].includes(cieloResult.status)) {
+        await releaseReservation(order.order_ref);
+        await updateOrderStatus(order.order_ref, {
+          status: cieloResult.status,
+          cieloStatus: cieloResult.cieloStatus,
+        });
+      } else {
+        await updateOrderStatus(order.order_ref, {
+          status: cieloResult.status,
+          cieloStatus: cieloResult.cieloStatus,
+        });
       }
 
       return res.status(200).json({ ok: true });
@@ -636,7 +1006,6 @@ export function registerPaymentRoutes(app: Express): void {
   });
 }
 
-// ─── mensagens amigáveis de recusa ────────────────────────────────────────────
 function friendlyDenialMessage(returnCode?: string, returnMessage?: string): string {
   const code = returnCode ?? "";
   const messages: Record<string, string> = {

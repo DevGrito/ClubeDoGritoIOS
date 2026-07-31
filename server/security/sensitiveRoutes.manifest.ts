@@ -35,6 +35,10 @@ export const SENSITIVE_ROUTES: SensitiveRoute[] = [
   { method: "GET", path: "/api/tablet-chamada/dias-disponiveis", requiredMarkers: ["requireTabletChamadaAuth"] },
   { method: "GET", path: "/api/tablet-chamada/historico", requiredMarkers: ["requireTabletChamadaAuth"] },
   { method: "POST", path: "/api/tablet-chamada/finalizar", requiredMarkers: ["requireTabletChamadaAuth"] },
+  { method: "GET", path: "/api/scanner-presenca/fotos", requiredMarkers: ["requireAuth"] },
+  { method: "GET", path: "/api/scanner-presenca/presentes", requiredMarkers: ["requireAuth"] },
+  { method: "POST", path: "/api/scanner-presenca/registrar", requiredMarkers: ["requireAuth"] },
+  { method: "POST", path: "/api/scanner-presenca/desfazer", requiredMarkers: ["requireAuth"] },
 ];
 
 export const AUTH_MARKERS = [

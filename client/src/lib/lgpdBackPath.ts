@@ -15,6 +15,11 @@ export function resolveLgpdBackPath(papel?: string | null, role?: string | null)
   return "/perfil";
 }
 
+export function isConselhoLgpdProfile(papel?: string | null, role?: string | null): boolean {
+  const p = (papel || role || "").toLowerCase();
+  return p === "conselho" || p === "conselheiro";
+}
+
 export function isNonDonorLgpdProfile(papel?: string | null, role?: string | null): boolean {
   const p = (papel || role || "").toLowerCase();
   return (
@@ -26,6 +31,7 @@ export function isNonDonorLgpdProfile(papel?: string | null, role?: string | nul
     p === "tecnica_psico" ||
     p === "patrocinador" ||
     p === "lider" ||
-    p === "professor_lider"
+    p === "professor_lider" ||
+    isConselhoLgpdProfile(p)
   );
 }

@@ -9,6 +9,11 @@
 
 import { kpiColor, kpiColorInverse } from "@/lib/kpiColors";
 
+/** Inteiro arredondado, pt-BR — mesma regra dos demais tabs. */
+export function formatGestaoNumero(valor: number): string {
+  return Math.round(Number(valor)).toLocaleString('pt-BR');
+}
+
 function getPct(v: number, m: number, _inv = false): number {
   if (!m) return 0;
   return Math.round(Math.min(v / m * 100, 999));
@@ -43,14 +48,15 @@ export function GestaoKpiCard({
   variant = 'dark',
   className = '',
 }: GestaoKpiCardProps) {
-  const hasMeta  = meta != null && meta > 0;
-  const pct      = hasMeta ? getPct(valor, meta!, inverse) : null;
-  const color    = hasMeta ? getColor(valor, meta!, inverse) : '#64748b';
-  const dVal     = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
-  const dMeta    = hasMeta
-    ? (format === 'percent' ? `${meta}%` : meta!.toLocaleString('pt-BR'))
-    : null;
-  const metaPrefix = inverse ? "<= " : "";
+  const hasMeta     = meta != null && meta > 0;
+  const showMetaDash = meta === 0;
+  const pct         = hasMeta ? getPct(valor, meta!, inverse) : null;
+  const color       = hasMeta ? getColor(valor, meta!, inverse) : '#64748b';
+  const dVal        = format === 'percent' ? `${formatGestaoNumero(valor)}%` : formatGestaoNumero(valor);
+  const dMeta       = hasMeta
+    ? (format === 'percent' ? `${formatGestaoNumero(meta!)}%` : formatGestaoNumero(meta!))
+    : showMetaDash ? '—' : null;
+  const metaPrefix  = inverse ? "<= " : "";
 
   if (variant === 'light') {
     return (
@@ -71,9 +77,9 @@ export function GestaoKpiCard({
           <span style={{ fontSize: '22px', fontWeight: 900, color: '#111827', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
             {dVal}
           </span>
-          {dMeta && (
+          {dMeta != null && (
             <span style={{ fontSize: '12px', color: '#6b7280' }}>
-              / {metaPrefix}{dMeta}
+              / {showMetaDash ? dMeta : `${metaPrefix}${dMeta}`}
             </span>
           )}
         </div>
@@ -87,7 +93,7 @@ export function GestaoKpiCard({
                 ? <span style={{ fontSize: '9px', color: '#6b7280' }}>{note}</span>
                 : metaAnual
                   ? <span style={{ fontSize: '9px', color: '#6b7280' }}>
-                      Meta anual: {format === 'percent' ? `${metaAnual}%` : metaAnual.toLocaleString('pt-BR')}
+                      Meta anual: {format === 'percent' ? `${formatGestaoNumero(metaAnual)}%` : formatGestaoNumero(metaAnual)}
                     </span>
                   : <span />
               }
@@ -106,9 +112,9 @@ export function GestaoKpiCard({
       <p className="text-[11px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
       <div className="flex-1 flex items-center gap-2 py-1">
         <span className="text-4xl font-bold text-white tabular-nums leading-none">{dVal}</span>
-        {dMeta && (
+        {dMeta != null && (
           <span className="text-[13px] text-slate-500 leading-none">
-            / {metaPrefix}{dMeta}
+            / {showMetaDash ? dMeta : `${metaPrefix}${dMeta}`}
           </span>
         )}
       </div>

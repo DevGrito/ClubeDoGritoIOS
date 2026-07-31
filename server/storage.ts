@@ -74,7 +74,24 @@ import {
   patrocinadores, type Patrocinador, type InsertPatrocinador
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, asc, or, ilike, like, inArray, gt, lt, isNull} from "drizzle-orm";
+import { eq, and, sql, desc, asc, or, ilike, like, inArray, gt, lt, isNull } from "drizzle-orm";
+import { normalizeCpfDigits } from "@shared/cpf";
+import {
+  ensureProgramaVinculo,
+  getAtendidoGritoByCpf,
+  listInclusaoParticipantesFromMaster,
+  listPecAlunosFromMaster,
+  mapMasterToAlunoShape,
+  mapMasterToParticipanteShape,
+  migrateAtendidoGritoCpf,
+  resolveMatriculaGlobal,
+  syncAtendidoGritoSafe,
+  syncFromInclusaoParticipante,
+  syncFromPecAluno,
+  upsertCadastroUnificadoMasterOnly,
+  type BeneficiosSociaisExtras,
+} from "./services/atendidosGritoSync";
+import { isLegacyWriteEnabled } from "./services/atendidosGritoFlags";
 import { RecommendationEngine } from "./recommendation-engine";
 import Stripe from "stripe";
 import { HttpError } from "./utils/httpError";
@@ -92,6 +109,24 @@ function normalizarTelefone(telefone: string): string {
   return normalizado;
 }
 
+function extractBeneficiosSociaisExtras(data: Record<string, unknown>): BeneficiosSociaisExtras {
+  const pe = data.pe_de_meia ?? data.peDeMeia;
+  const gas = data.gas_do_povo ?? data.gasDoPovo;
+  return {
+    pe_de_meia: pe != null ? String(pe) : undefined,
+    gas_do_povo: gas != null ? String(gas) : undefined,
+  };
+}
+
+function stripBeneficiosExtrasFields<T extends Record<string, unknown>>(data: T): T {
+  const copy = { ...data };
+  delete copy.pe_de_meia;
+  delete copy.gas_do_povo;
+  delete copy.peDeMeia;
+  delete copy.gasDoPovo;
+  return copy;
+}
+
 // Nova interface de storage seguindo a estrutura de 8 módulos
 export interface IStorage {
   // ===== MÓDULO 1: USUÁRIOS GERAIS =====
@@ -104,6 +139,7 @@ export interface IStorage {
   updateUser(id: number, userData: { nome?: string; telefone?: string; email?: string; professorTipo?: string; plano?: string }): Promise<User>;
   updateUserVerification(id: number, isVerified: boolean): Promise<User>;
   updateConselhoStatus(telefone: string, status: string, approvedBy?: string): Promise<User>;
+  clearConselhoStatus(userId: number): Promise<void>;
   updateUserStripeInfo(id: number, stripeCustomerId?: string, stripeSubscriptionId?: string, subscriptionStatus?: string): Promise<User>;
 
   // ✅ PROJETOS APOIADOS: Métodos para gerenciar projetos apoiados por usuário
@@ -124,7 +160,7 @@ export interface IStorage {
 
   // ===== PATROCINADORES 2026 =====
   createPatrocinador2026(nome: string, telefone: string): Promise<User>;
-  
+
   // ===== PATROCINADORES (TABELA) =====
   getPatrocinadores(ano: number): Promise<Patrocinador[]>;
   createPatrocinador(data: any): Promise<Patrocinador>;
@@ -179,6 +215,8 @@ export interface IStorage {
   getAlunosByTurma(turmaId: number): Promise<Aluno[]>;
   getAluno(cpf: string): Promise<Aluno | undefined>;
   updateAluno(cpf: string, data: Partial<InsertAluno>): Promise<Aluno>;
+  inativarAluno(cpf: string): Promise<Aluno>;
+  reativarAluno(cpf: string): Promise<Aluno>;
   deleteAluno(cpf: string): Promise<void>;
   searchAlunos(query: string): Promise<Aluno[]>;
 
@@ -257,7 +295,11 @@ export interface IStorage {
 
   // ===== MÓDULO 9: DESENVOLVEDORES E CONSOLIDAÇÃO =====
   getDevelopers(): Promise<Developer[]>;
-  getAllAlunos(): Promise<Aluno[]>;
+  getAllAlunos(opts?: {
+    area?: "pec" | "inclusao";
+    status?: "ativos" | "inativos" | "todos";
+    programa?: "grito" | "pec" | "inclusao";
+  }): Promise<Record<string, any>[]>;
   getAlunoByCpf(cpf: string): Promise<Aluno | null>;
   updateCouncilAccessStatus(telefone: string, status: string): Promise<User>;
   getCouncilMembers(): Promise<User[]>;
@@ -312,14 +354,14 @@ export interface IStorage {
   ensureUserHasRefCode(userId: number): Promise<string>; // Garante que user tem refCode
   updateUserRefCodeCadastro(userId: number, refCode: string): Promise<void>; // Atualiza ref_code_cadastro do user
   populateAllUserRefCodes(): Promise<{ total: number; created: number }>; // Popula codes para todos users
-  
+
   // Sistema de link personalizado (slug)
   generateSlugFromName(nome: string, sobrenome?: string): Promise<string>; // Gera slug baseado no nome
   ensureUserHasRefSlug(userId: number): Promise<string>; // Garante que user tem refSlug
   getMeuLinkIndicacao(userId: number): Promise<string>; // Retorna link completo de indicação
   getUserByRefSlug(refSlug: string): Promise<User | undefined>; // Busca usuário por refSlug
   updateUserRefSlugCadastro(userId: number, refSlug: string): Promise<void>; // Atualiza ref_code_cadastro do user com slug
-  
+
   createIndicacao(indicouId: number, indicadoId: number, refCode: string): Promise<Indicacao>; // Cria indicação PENDENTE
   getIndicacaoByIndicado(indicadoId: number): Promise<Indicacao | undefined>; // Busca indicação do indicado
   confirmarIndicacao(indicacaoId: number): Promise<{ indicacao: Indicacao; pontos: IndicacaoPontos }>; // Confirma e credita pontos
@@ -328,9 +370,9 @@ export interface IStorage {
   getLedgerPontosIndicacao(userId: number): Promise<IndicacaoPontos[]>; // Histórico de pontos
   markStripeEventProcessed(eventId: string, eventType: string): Promise<void>; // Marca evento Stripe como processado
   isStripeEventProcessed(eventId: string): Promise<boolean>; // Verifica se evento já foi processado
-  doCheckinWithStreak(userId: number): Promise<{success: boolean; gritosGanhos: number; diaAtual: number}>;
-  checkAndResetStreakIfBroken(userId: number): Promise<{streakResetada: boolean; diasConsecutivos: number}>;
-  getPersonalizedCheckinStatus(userId: number): Promise<{canCheckin: boolean; diasConsecutivos: number; diaAtual: number; cicloCompleto: boolean; ultimoCheckin: string | null}>;
+  doCheckinWithStreak(userId: number): Promise<{ success: boolean; gritosGanhos: number; diaAtual: number }>;
+  checkAndResetStreakIfBroken(userId: number): Promise<{ streakResetada: boolean; diasConsecutivos: number }>;
+  getPersonalizedCheckinStatus(userId: number): Promise<{ canCheckin: boolean; diasConsecutivos: number; diaAtual: number; cicloCompleto: boolean; ultimoCheckin: string | null }>;
 
   // ===== MÓDULO DEV MARKETING =====
   // Campanhas
@@ -352,7 +394,7 @@ export interface IStorage {
   // Tracking
   createMktClick(click: InsertMktClick): Promise<MktClick>;
   getMarketingCampaignStats(campaignId: number): Promise<{ totalLinks: number; totalClicks: number; totalCadastros: number; totalConversoes: number; taxaConversao: number }>;
-  
+
   // Gritos baseados em plano (async para suportar Platinum dinâmico)
   getGritosIniciaisPorPlano(plano: string, userId?: number): Promise<number>;
 
@@ -701,12 +743,28 @@ export interface IStorage {
   deleteTurmaInclusao(id: number): Promise<void>;
 
   // ===== MÓDULO INCLUSÃO PRODUTIVA - PARTICIPANTES =====
-  getAllParticipantes(): Promise<ParticipanteInclusao[]>;
+  getAllParticipantes(opts?: {
+    status?: "ativos" | "inativos" | "todos";
+    programa?: "grito" | "pec" | "inclusao";
+  }): Promise<ParticipanteInclusao[]>;
   getParticipanteById(id: number): Promise<ParticipanteInclusao | undefined>;
   getParticipanteByCpf(cpf: string): Promise<ParticipanteInclusao | undefined>;
   createParticipante(data: InsertParticipanteInclusao, turmaIds?: number[]): Promise<ParticipanteInclusao>;
   updateParticipante(id: number, data: Partial<InsertParticipanteInclusao>): Promise<ParticipanteInclusao>;
+  updateParticipanteByCpf(cpf: string, data: Partial<InsertParticipanteInclusao>): Promise<ParticipanteInclusao>;
+  inativarParticipante(id: number): Promise<ParticipanteInclusao>;
+  reativarParticipante(id: number): Promise<ParticipanteInclusao>;
+  inativarParticipanteByCpf(cpf: string): Promise<ParticipanteInclusao>;
+  reativarParticipanteByCpf(cpf: string): Promise<ParticipanteInclusao>;
   deleteParticipante(id: number): Promise<void>;
+  registerInclusaoEvasaoByCpf(cpf: string, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null>;
+  revertInclusaoEvasaoByCpf(cpf: string, turmaId: number): Promise<ParticipanteTurma | null>;
+  removeParticipanteFromTurmaByCpf(cpf: string, turmaId: number, motivo?: string): Promise<void>;
+  /** Garante pessoa no mestre + vínculo programa Inclusão na matrícula. Retorna CPF. Não cria legado. */
+  ensureInclusaoParticipanteFromMaster(cpf: string): Promise<string>;
+  /** Garante pessoa no mestre + vínculo programa PEC na matrícula. Retorna CPF. Não cria legado. */
+  ensurePecAlunoFromMaster(cpf: string): Promise<string>;
+  addAtendidoCpfToTurmaInclusao(cpf: string, turmaId: number, dataIngresso?: string): Promise<ParticipanteTurma>;
 
   // Relacionamentos Participante-Turma
   addParticipanteToTurma(participanteId: number, turmaId: number, dataIngresso?: string): Promise<ParticipanteTurma>;
@@ -754,7 +812,7 @@ export class DatabaseStorage implements IStorage {
     // Usar sequência PostgreSQL para garantir atomicidade e evitar duplicatas
     const result = await db.execute(sql`SELECT nextval('matricula_global_seq') as next_num`);
     const nextNum = parseInt(result.rows[0]?.next_num || '1', 10);
-    
+
     // Formatar com 4 dígitos (0001, 0002, etc)
     return nextNum.toString().padStart(4, '0');
   }
@@ -809,12 +867,12 @@ export class DatabaseStorage implements IStorage {
     }
 
     const phoneClean = telefone.replace(/\D/g, '');
-    
+
     if (phoneClean.length < 8) {
       console.log(`❌ [PHONE TOO SHORT] Telefone muito curto: ${phoneClean} (${phoneClean.length} dígitos)`);
       return undefined;
     }
-    
+
     const possibleCleanDigits = [
       phoneClean,
       phoneClean.startsWith('55') ? phoneClean.substring(2) : phoneClean,
@@ -830,7 +888,7 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
 
-    const conditions = possibleCleanDigits.map(digit => 
+    const conditions = possibleCleanDigits.map(digit =>
       sql`regexp_replace(${users.telefone}, '[^0-9]', '', 'g') = ${digit}`
     );
 
@@ -1020,6 +1078,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.telefone, telefone))
       .returning();
     return user;
+  }
+
+  async clearConselhoStatus(userId: number): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        conselhoStatus: null,
+        conselhoApprovedBy: null,
+        conselhoApprovedAt: null,
+      })
+      .where(eq(users.id, userId));
   }
 
   async updateUserStripeInfo(id: number, stripeCustomerId?: string, stripeSubscriptionId?: string, subscriptionStatus?: string): Promise<User> {
@@ -1371,12 +1440,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAluno(studentData: any): Promise<Aluno> {
-    // Gerar número de matrícula automático se não fornecido
-    const numeroMatricula = studentData.numero_matricula || await this.getProximoNumeroMatricula();
-    
+    const cpfCanonico = normalizeCpfDigits(studentData.cpf);
+    if (cpfCanonico.length !== 11) {
+      throw new Error("CPF inválido: deve conter exatamente 11 dígitos numéricos.");
+    }
+
+    const beneficiosExtras = extractBeneficiosSociaisExtras(studentData);
+
+    // Regra unificação: novos cadastros só em atendidos_grito (sem espelho aluno)
+    if (!isLegacyWriteEnabled("pec")) {
+      const ag = await upsertCadastroUnificadoMasterOnly({
+        cpf: cpfCanonico,
+        nomeCompleto: studentData.nome_completo,
+        dataNascimento: studentData.data_nascimento,
+        genero: studentData.genero,
+        escolaridade: studentData.escolaridade || studentData.serie,
+        instituicaoEnsino: studentData.instituicao_ensino,
+        telefone: studentData.telefone,
+        email: studentData.email,
+        whatsapp: studentData.whatsapp,
+        bolsaFamilia: studentData.bolsa_familia,
+        fotoPerfil: studentData.foto_perfil,
+        numeroMatricula: studentData.numero_matricula,
+        status: studentData.situacao_atendimento || "ativo",
+        cep: studentData.cep,
+        logradouro: studentData.logradouro,
+        numero: studentData.numero,
+        complemento: studentData.complemento,
+        bairro: studentData.bairro,
+        cidade: studentData.cidade,
+        estado: studentData.estado,
+        fonte: "pec",
+        dadosComplementares: { fonte_cadastro: "pec_form" },
+        beneficiosExtras,
+      });
+      return mapMasterToAlunoShape(ag) as Aluno;
+    }
+
+    // Gerar número de matrícula automático se não fornecido (global única)
+    const numeroMatricula = await resolveMatriculaGlobal(
+      cpfCanonico,
+      studentData.numero_matricula
+    );
+
     // Criar registro do aluno com todos os dados do formulário completo
     const alunoData = {
-      cpf: studentData.cpf,
+      cpf: cpfCanonico,
       nome_completo: studentData.nome_completo,
       foto_perfil: studentData.foto_perfil,
       data_nascimento: studentData.data_nascimento,
@@ -1433,6 +1542,7 @@ export class DatabaseStorage implements IStorage {
 
       // Escolar
       serie: studentData.serie,
+      escolaridade: studentData.escolaridade || studentData.serie,
       situacao_escolar: studentData.situacao_escolar,
       turno_escolar: studentData.turno_escolar,
       instituicao_ensino: studentData.instituicao_ensino,
@@ -1483,6 +1593,10 @@ export class DatabaseStorage implements IStorage {
     };
 
     const [alunoRecord] = await db.insert(aluno).values(alunoData).returning();
+    await syncAtendidoGritoSafe(
+      () => syncFromPecAluno(alunoRecord, beneficiosExtras),
+      `createAluno:${cpfCanonico}`
+    );
     return alunoRecord;
   }
 
@@ -1502,34 +1616,186 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAlunoByCpf(cpf: string): Promise<Aluno | null> {
-  const aluno = await this.getAluno(cpf);
-  return aluno ?? null;
-}
+    const aluno = await this.getAluno(cpf);
+    return aluno ?? null;
+  }
 
   async getAluno(cpf: string): Promise<Aluno | undefined> {
-    const cleanCpf = String(cpf).replace(/\D/g, "");
-    const [alunoRecord] = await db.select().from(aluno).where(eq(aluno.cpf, cpf));
-    if (alunoRecord) return alunoRecord;
-    if (cleanCpf !== cpf) {
-      const [byClean] = await db.select().from(aluno).where(eq(aluno.cpf, cleanCpf));
-      if (byClean) return byClean;
-    }
-    const [byReplace] = await db.select().from(aluno).where(sql`REPLACE(REPLACE(REPLACE(${aluno.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
-    return byReplace || undefined;
+    const cleanCpf = normalizeCpfDigits(cpf);
+    if (!cleanCpf) return undefined;
+
+    const [byClean] = await db.select().from(aluno).where(eq(aluno.cpf, cleanCpf));
+    if (byClean) return byClean;
+
+    const [byReplace] = await db.select().from(aluno).where(
+      sql`REPLACE(REPLACE(REPLACE(${aluno.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`
+    );
+    if (byReplace) return byReplace;
+
+    // Dual-read: cadastro só no mestre
+    const master = await getAtendidoGritoByCpf(cleanCpf);
+    if (!master) return undefined;
+    return mapMasterToAlunoShape(master) as Aluno;
   }
 
   async updateAluno(cpf: string, data: Partial<InsertAluno>): Promise<Aluno> {
-    const { cpf: _removeCpf, ...dataWithoutCpf } = data as any;
+    const existing = await this.getAluno(cpf);
+    if (!existing) {
+      throw new Error("Aluno não encontrado");
+    }
+
+    const beneficiosExtras = extractBeneficiosSociaisExtras(data as Record<string, unknown>);
+    const dataStripped = stripBeneficiosExtrasFields(data as Record<string, unknown>);
+
+    const newCpf = normalizeCpfDigits((dataStripped as { cpf?: string }).cpf);
+    const oldCpf = normalizeCpfDigits(existing.cpf);
+    const { cpf: _removeCpf, ...dataWithoutCpf } = dataStripped as Partial<InsertAluno> & { cpf?: string };
+
+    // Sem linha em `aluno`: atualiza só o mestre
+    const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, oldCpf)).limit(1);
+    if (!legadoRow) {
+      const merged = { ...existing, ...dataWithoutCpf } as any;
+      const targetCpf = newCpf.length === 11 ? newCpf : oldCpf;
+      if (targetCpf !== oldCpf) {
+        await migrateAtendidoGritoCpf(oldCpf, targetCpf);
+      }
+      const ag = await upsertCadastroUnificadoMasterOnly({
+        cpf: targetCpf,
+        nomeCompleto: merged.nome_completo,
+        dataNascimento: merged.data_nascimento,
+        genero: merged.genero,
+        escolaridade: merged.escolaridade || merged.serie,
+        instituicaoEnsino: merged.instituicao_ensino,
+        telefone: merged.telefone,
+        email: merged.email,
+        whatsapp: merged.whatsapp,
+        bolsaFamilia: merged.bolsa_familia,
+        fotoPerfil: merged.foto_perfil,
+        numeroMatricula: merged.numero_matricula,
+        status: merged.situacao_atendimento || "ativo",
+        cep: merged.cep,
+        logradouro: merged.logradouro,
+        numero: merged.numero,
+        complemento: merged.complemento,
+        bairro: merged.bairro,
+        cidade: merged.cidade,
+        estado: merged.estado,
+        fonte: "pec",
+        dadosComplementares: { fonte_cadastro: "pec_update_master" },
+        beneficiosExtras,
+      });
+      return mapMasterToAlunoShape(ag) as Aluno;
+    }
+
+    if (newCpf && newCpf.length === 11 && newCpf !== oldCpf) {
+      const conflict = await this.getAluno(newCpf);
+      if (conflict) {
+        throw new Error("Já existe um aluno cadastrado com este CPF");
+      }
+      const alunoRecord = await this.migrateAlunoCpf(oldCpf, newCpf, dataWithoutCpf);
+      await syncAtendidoGritoSafe(async () => {
+        await migrateAtendidoGritoCpf(oldCpf, newCpf);
+        await syncFromPecAluno(alunoRecord, beneficiosExtras);
+      }, `updateAluno:cpf-change:${oldCpf}->${newCpf}`);
+      return alunoRecord;
+    }
+
     const [alunoRecord] = await db
       .update(aluno)
       .set({ ...dataWithoutCpf, updatedAt: new Date() })
-      .where(eq(aluno.cpf, cpf))
+      .where(eq(aluno.cpf, existing.cpf))
       .returning();
+    await syncAtendidoGritoSafe(
+      () => syncFromPecAluno(alunoRecord, beneficiosExtras),
+      `updateAluno:${existing.cpf}`
+    );
+    return alunoRecord;
+  }
+
+  async inativarAluno(cpf: string): Promise<Aluno> {
+    const clean = normalizeCpfDigits(cpf);
+    const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, clean)).limit(1);
+    if (!legadoRow) {
+      await pool.query(
+        `UPDATE atendidos_grito SET status = 'inativo', updated_at = NOW() WHERE cpf = $1`,
+        [clean]
+      );
+      const ag = await getAtendidoGritoByCpf(clean);
+      if (!ag) throw new Error("Aluno não encontrado");
+      return mapMasterToAlunoShape(ag) as Aluno;
+    }
+    const hoje = new Date().toISOString().slice(0, 10);
+    return this.updateAluno(cpf, {
+      situacao_atendimento: "inativo",
+      data_inativacao: hoje,
+    });
+  }
+
+  async reativarAluno(cpf: string): Promise<Aluno> {
+    const clean = normalizeCpfDigits(cpf);
+    const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, clean)).limit(1);
+    if (!legadoRow) {
+      await pool.query(
+        `UPDATE atendidos_grito SET status = 'ativo', updated_at = NOW() WHERE cpf = $1`,
+        [clean]
+      );
+      const ag = await getAtendidoGritoByCpf(clean);
+      if (!ag) throw new Error("Aluno não encontrado");
+      return mapMasterToAlunoShape(ag) as Aluno;
+    }
+    return this.updateAluno(cpf, {
+      situacao_atendimento: "ativo",
+      data_inativacao: null,
+    });
+  }
+
+  private async migrateAlunoCpf(
+    oldCpf: string,
+    newCpf: string,
+    patch: Partial<InsertAluno>
+  ): Promise<Aluno> {
+    const existing = await this.getAluno(oldCpf);
+    if (!existing) {
+      throw new Error("Aluno não encontrado");
+    }
+
+    const { cpf: _oldCpf, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = existing;
+    const [alunoRecord] = await db
+      .insert(aluno)
+      .values({ ...(rest as InsertAluno), ...patch, cpf: newCpf })
+      .returning();
+
+    const fkUpdates = [
+      sql`UPDATE aluno_turma SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE chamada_aluno SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE aluno_responsaveis SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE documentos_aluno SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE observacoes_aluno SET student_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(student_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE aluno_programa SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE pec_encaminhamentos SET pec_aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(pec_aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE monitor_participantes SET pec_aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(pec_aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE monitor_participantes SET atendido_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(COALESCE(atendido_cpf, ''), '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE documentos_participante SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE documentos_participante SET atendido_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(COALESCE(atendido_cpf, ''), '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+      sql`UPDATE monitor_grupo_alunos SET participante_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(participante_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+    ];
+
+    for (const stmt of fkUpdates) {
+      try {
+        await db.execute(stmt);
+      } catch {
+        // Tabela pode não existir em todos os ambientes
+      }
+    }
+
+    await db.delete(aluno).where(eq(aluno.cpf, oldCpf));
     return alunoRecord;
   }
 
   async deleteAluno(cpf: string): Promise<void> {
-    await db.delete(aluno).where(eq(aluno.cpf, cpf));
+    const existing = await this.getAluno(cpf);
+    if (!existing) return;
+    await db.delete(aluno).where(eq(aluno.cpf, existing.cpf));
   }
 
   async searchAlunos(query: string): Promise<Aluno[]> {
@@ -2537,27 +2803,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ===== MÓDULO 9: DESENVOLVEDORES E CONSOLIDAÇÃO =====
- async getAllAlunos(opts?: { area?: "pec" | "inclusao"; status?: "ativos" | "inativos" | "todos" }) {
-  const area = opts?.area;
-  const status = opts?.status ?? "ativos";
-
-  const whereClauses: any[] = [];
-
-  if (area) whereClauses.push(eq(aluno.area, area));
-
-  if (status === "ativos") {
-    whereClauses.push(or(isNull(aluno.situacao_atendimento), eq(aluno.situacao_atendimento, "ativo")));
-  } else if (status === "inativos") {
-    whereClauses.push(eq(aluno.situacao_atendimento, "inativo"));
+  async getAllAlunos(opts?: {
+    area?: "pec" | "inclusao";
+    status?: "ativos" | "inativos" | "todos";
+    programa?: "grito" | "pec" | "inclusao";
+  }) {
+    // Lista unificada: pool único em atendidos_grito (legado aluno permanece para escrita/detalhe).
+    void opts?.area;
+    return listPecAlunosFromMaster({
+      status: opts?.status ?? "ativos",
+      programa: opts?.programa ?? "grito",
+    });
   }
 
-  const rows = await db
-    .select()
-    .from(aluno)
-    .where(whereClauses.length ? and(...whereClauses) : undefined);
-
-  return rows;
-}
+  /**
+   * Matrícula PEC: valida mestre e cria vínculo de programa pec.
+   * NÃO cria linha em `aluno`.
+   */
+  async ensurePecAlunoFromMaster(cpfRaw: string): Promise<string> {
+    return ensureProgramaVinculo(cpfRaw, "pec");
+  }
 
   // ===== MÉTODOS DE SORTEIO =====
 
@@ -3026,41 +3291,41 @@ export class DatabaseStorage implements IStorage {
 
         // 🎯 USAR CAMPO DEDICADO diasNecessarios (padrão 3 se não especificado)
         const diasNecessarios = missao.diasNecessarios ?? 3;
-        
+
         console.log(`🔍 [AUTO-MISSÃO] Verificando "${missao.titulo}" - Necessita: ${diasNecessarios} dias | Usuário tem: ${diasConsecutivos} dias`);
 
-     if (diasConsecutivos >= diasNecessarios) {
-        const gritos = missao.recompensaGritos ?? 150;
+        if (diasConsecutivos >= diasNecessarios) {
+          const gritos = missao.recompensaGritos ?? 150;
 
-        // ✅ Tenta concluir e pega retorno
-        const inserted = await db
-          .insert(missoesConcluidas)
-          .values({
+          // ✅ Tenta concluir e pega retorno
+          const inserted = await db
+            .insert(missoesConcluidas)
+            .values({
+              userId,
+              missaoId: missao.id,
+              gritosRecebidos: gritos,
+            })
+            .onConflictDoNothing()
+            .returning({ missaoId: missoesConcluidas.missaoId });
+
+          // ✅ Se não inseriu, não premia (já tinha / race / chamada duplicada)
+          if (inserted.length === 0) {
+            console.log(`✅ [AUTO-MISSÃO] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
+            continue;
+          }
+
+          await this.addGritosToUser(userId, gritos);
+
+          await this.createGritosHistorico({
             userId,
-            missaoId: missao.id,
-            gritosRecebidos: gritos,
-          })
-          .onConflictDoNothing()
-          .returning({ missaoId: missoesConcluidas.missaoId });
+            tipo: 'missao_automatica',
+            gritosGanhos: gritos,
+            descricao: `Missão completada automaticamente: ${missao.titulo} (${diasConsecutivos} dias consecutivos)`,
+          });
 
-        // ✅ Se não inseriu, não premia (já tinha / race / chamada duplicada)
-        if (inserted.length === 0) {
-          console.log(`✅ [AUTO-MISSÃO] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
-          continue;
+          console.log(`🎯 [AUTO-MISSÃO COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
         }
-
-        await this.addGritosToUser(userId, gritos);
-
-        await this.createGritosHistorico({
-          userId,
-          tipo: 'missao_automatica',
-          gritosGanhos: gritos,
-          descricao: `Missão completada automaticamente: ${missao.titulo} (${diasConsecutivos} dias consecutivos)`,
-        });
-
-        console.log(`🎯 [AUTO-MISSÃO COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
-      }
-      else {
+        else {
           console.log(`⏳ [AUTO-MISSÃO PENDENTE] Usuário ${userId} precisa de ${diasNecessarios} dias para "${missao.titulo}" (atual: ${diasConsecutivos})`);
         }
       }
@@ -3172,7 +3437,7 @@ export class DatabaseStorage implements IStorage {
           descricao: `Missão completada automaticamente: ${missao.titulo} (perfil 100% completo)`,
         });
 
-       console.log(`🎯 [AUTO-PERFIL COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
+        console.log(`🎯 [AUTO-PERFIL COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${gritos} gritos`);
 
       }
     } catch (error) {
@@ -3233,53 +3498,53 @@ export class DatabaseStorage implements IStorage {
         }
 
         // Contar referrals completos (com doação) do usuário para esta missão específica
-          const [{ count }] = await db
-      .select({
-        count: sql<number>`COUNT(DISTINCT ${referrals.referredUserId})`,
-      })
-      .from(referrals)
-      .where(and(
-        eq(referrals.referrerUserId, userId),
-        eq(referrals.status, 'doou_completou'),
-      ));
+        const [{ count }] = await db
+          .select({
+            count: sql<number>`COUNT(DISTINCT ${referrals.referredUserId})`,
+          })
+          .from(referrals)
+          .where(and(
+            eq(referrals.referrerUserId, userId),
+            eq(referrals.status, 'doou_completou'),
+          ));
 
-    const referralsCompletosCount = Number(count) || 0;
-    const quantidadeNecessaria = missao.quantidadeAmigos ?? 1;
+        const referralsCompletosCount = Number(count) || 0;
+        const quantidadeNecessaria = missao.quantidadeAmigos ?? 1;
 
-    console.log(
-      `📊 [AUTO-CONVITE] Usuário ${userId}, Missão ${missao.id}: ${referralsCompletosCount}/${quantidadeNecessaria} amigos indicados com doação`
-    )
+        console.log(
+          `📊 [AUTO-CONVITE] Usuário ${userId}, Missão ${missao.id}: ${referralsCompletosCount}/${quantidadeNecessaria} amigos indicados com doação`
+        )
 
         // Verificar se atingiu o threshold necessário
         if (referralsCompletosCount >= quantidadeNecessaria) {
           console.log(`🎯 [AUTO-CONVITE] Threshold atingido! Usuário ${userId} indicou ${referralsCompletosCount} amigos para missão: ${missao.titulo}`);
 
           // Completar automaticamente a missão
-      const gritos = missao.recompensaGritos ?? 200;
+          const gritos = missao.recompensaGritos ?? 200;
 
-      const inserted = await db
-        .insert(missoesConcluidas)
-        .values({
-          userId,
-          missaoId: missao.id,
-          gritosRecebidos: gritos,
-        })
-        .onConflictDoNothing()
-        .returning({ missaoId: missoesConcluidas.missaoId });
+          const inserted = await db
+            .insert(missoesConcluidas)
+            .values({
+              userId,
+              missaoId: missao.id,
+              gritosRecebidos: gritos,
+            })
+            .onConflictDoNothing()
+            .returning({ missaoId: missoesConcluidas.missaoId });
 
-      if (inserted.length === 0) {
-        console.log(`✅ [AUTO-CONVITE] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
-        continue;
-      }
+          if (inserted.length === 0) {
+            console.log(`✅ [AUTO-CONVITE] Missão já concluída (ou race) user=${userId} missao=${missao.id}`);
+            continue;
+          }
 
-      await this.addGritosToUser(userId, gritos);
+          await this.addGritosToUser(userId, gritos);
 
-      await this.createGritosHistorico({
-        userId,
-        tipo: 'missao_automatica',
-        gritosGanhos: gritos,
-        descricao: `Missão completada automaticamente: ${missao.titulo} (${referralsCompletosCount} amigos indicados com doação)`,
-      });
+          await this.createGritosHistorico({
+            userId,
+            tipo: 'missao_automatica',
+            gritosGanhos: gritos,
+            descricao: `Missão completada automaticamente: ${missao.titulo} (${referralsCompletosCount} amigos indicados com doação)`,
+          });
 
           console.log(`🎯 [AUTO-CONVITE COMPLETA] Usuário ${userId} completou automaticamente: "${missao.titulo}" - +${missao.recompensaGritos || 200} gritos`);
         } else {
@@ -3328,7 +3593,7 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.refCode, refCode))
       .limit(1);
-    
+
     return user;
   }
 
@@ -3386,7 +3651,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ===== SISTEMA DE LINK PERSONALIZADO (SLUG) =====
-  
+
   async generateSlugFromName(nome: string, sobrenome?: string): Promise<string> {
     // Normalizar texto: remover acentos, converter para minúsculas, substituir espaços por hífen
     const normalizeText = (text: string) => {
@@ -3402,7 +3667,7 @@ export class DatabaseStorage implements IStorage {
 
     const fullName = sobrenome ? `${nome} ${sobrenome}` : nome;
     let baseSlug = normalizeText(fullName);
-    
+
     // Verificar se slug já existe
     let slug = baseSlug;
     let attempts = 0;
@@ -3467,12 +3732,12 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .limit(1);
-    
+
     if (marketingLink) {
       const baseURL = 'https://clubedogrito.institutoogrito.com.br';
       return `${baseURL}/plans?ref=${marketingLink.code}`;
     }
-    
+
     // Fallback: se não tem link de marketing, usar refSlug (para retrocompatibilidade)
     const refSlug = await this.ensureUserHasRefSlug(userId);
     const baseURL = 'https://clubedogrito.institutoogrito.com.br';
@@ -3485,7 +3750,7 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.refSlug, refSlug))
       .limit(1);
-    
+
     return user;
   }
 
@@ -3533,7 +3798,7 @@ export class DatabaseStorage implements IStorage {
     // Atualizar indicação para CONFIRMADA
     const [indicacao] = await db
       .update(indicacoes)
-      .set({ 
+      .set({
         status: 'CONFIRMADA',
         confirmadaEm: new Date() // Date object
       })
@@ -3557,7 +3822,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     console.log(`✅ [INDICAÇÃO] Confirmada indicação ${indicacaoId}: +1 ponto para usuário ${indicacao.indicouId}`);
-    
+
     return { indicacao, pontos };
   }
 
@@ -3639,18 +3904,18 @@ export class DatabaseStorage implements IStorage {
       .insert(marketingCampaigns)
       .values(campaign)
       .returning();
-    
+
     console.log(`✅ [MARKETING] Campanha criada: ${newCampaign.name} (ID: ${newCampaign.id})`);
     return newCampaign;
   }
 
   async getMarketingCampaigns(filters?: { isActive?: boolean }): Promise<MarketingCampaign[]> {
     let query = db.select().from(marketingCampaigns);
-    
+
     if (filters?.isActive !== undefined) {
       query = query.where(eq(marketingCampaigns.isActive, filters.isActive)) as any;
     }
-    
+
     return await query.orderBy(desc(marketingCampaigns.createdAt));
   }
 
@@ -3660,7 +3925,7 @@ export class DatabaseStorage implements IStorage {
       .from(marketingCampaigns)
       .where(eq(marketingCampaigns.id, id))
       .limit(1);
-    
+
     return campaign;
   }
 
@@ -3670,11 +3935,11 @@ export class DatabaseStorage implements IStorage {
       .set(campaign)
       .where(eq(marketingCampaigns.id, id))
       .returning();
-    
+
     if (!updated) {
       throw new Error(`Campanha ${id} não encontrada`);
     }
-    
+
     console.log(`✅ [MARKETING] Campanha atualizada: ${updated.name} (ID: ${id})`);
     return updated;
   }
@@ -3684,14 +3949,14 @@ export class DatabaseStorage implements IStorage {
       .insert(marketingLinks)
       .values(links)
       .returning();
-    
+
     console.log(`✅ [MARKETING] ${newLinks.length} links criados em bulk`);
     return newLinks;
   }
 
   async getMarketingLinks(filters?: { campaignId?: number; isActive?: boolean; medium?: string }): Promise<MarketingLink[]> {
     let conditions = [];
-    
+
     if (filters?.campaignId !== undefined) {
       conditions.push(eq(marketingLinks.campaignId, filters.campaignId));
     }
@@ -3701,13 +3966,13 @@ export class DatabaseStorage implements IStorage {
     if (filters?.medium !== undefined) {
       conditions.push(eq(marketingLinks.medium, filters.medium));
     }
-    
+
     let query = db.select().from(marketingLinks);
-    
+
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
-    
+
     return await query.orderBy(desc(marketingLinks.createdAt));
   }
 
@@ -3717,7 +3982,7 @@ export class DatabaseStorage implements IStorage {
       .from(marketingLinks)
       .where(eq(marketingLinks.id, id))
       .limit(1);
-    
+
     return link;
   }
 
@@ -3727,7 +3992,7 @@ export class DatabaseStorage implements IStorage {
       .from(marketingLinks)
       .where(eq(marketingLinks.code, code))
       .limit(1);
-    
+
     return link;
   }
 
@@ -3737,23 +4002,23 @@ export class DatabaseStorage implements IStorage {
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
       .from(mktClicks)
       .where(eq(mktClicks.linkId, linkId));
-    
+
     const clicks = Number(clicksResult?.count) || 0;
-    
+
     // Buscar código do link
     const link = await this.getMarketingLink(linkId);
     if (!link) {
       return { clicks: 0, cadastros: 0, conversoes: 0, taxa: 0 };
     }
-    
+
     // Cadastros (total de indicações criadas com este ref_code)
     const [cadastrosResult] = await db
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
       .from(indicacoes)
       .where(eq(indicacoes.refCode, link.code));
-    
+
     const cadastros = Number(cadastrosResult?.count) || 0;
-    
+
     // Conversões (indicações confirmadas)
     const [conversoesResult] = await db
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
@@ -3762,12 +4027,12 @@ export class DatabaseStorage implements IStorage {
         eq(indicacoes.refCode, link.code),
         eq(indicacoes.status, 'CONFIRMADA')
       ));
-    
+
     const conversoes = Number(conversoesResult?.count) || 0;
-    
+
     // Taxa de conversão
     const taxa = cadastros > 0 ? (conversoes / cadastros) * 100 : 0;
-    
+
     return { clicks, cadastros, conversoes, taxa };
   }
 
@@ -3776,7 +4041,7 @@ export class DatabaseStorage implements IStorage {
       .insert(mktClicks)
       .values(click)
       .returning();
-    
+
     return newClick;
   }
 
@@ -3784,14 +4049,14 @@ export class DatabaseStorage implements IStorage {
   async linkUserToActiveCampaign(userId: number): Promise<MarketingLink | null> {
     // Buscar campanha ativa
     const activeCampaigns = await this.getMarketingCampaigns({ isActive: true });
-    
+
     if (activeCampaigns.length === 0) {
       console.log(`⚠️ [AUTO-LINK] Nenhuma campanha ativa encontrada para vincular usuário ${userId}`);
       return null;
     }
-    
+
     const activeCampaign = activeCampaigns[0];
-    
+
     // CORREÇÃO: Verificar se já existe QUALQUER link para este usuário nesta campanha (pelo userId, não pelo código)
     const [existingLinkByUser] = await db
       .select()
@@ -3801,22 +4066,22 @@ export class DatabaseStorage implements IStorage {
         eq(marketingLinks.rewardToUserId, userId)
       ))
       .limit(1);
-    
+
     if (existingLinkByUser) {
       console.log(`ℹ️ [AUTO-LINK] Usuário ${userId} já tem link nesta campanha: ${existingLinkByUser.code}`);
       return existingLinkByUser;
     }
-    
+
     // Garantir que o usuário tem um ref_slug
     const refSlug = await this.ensureUserHasRefSlug(userId);
-    
+
     // Verificar se o código já existe (evitar duplicata de código)
     const existingCode = await this.getMarketingLinkByCode(refSlug);
     if (existingCode) {
       console.log(`ℹ️ [AUTO-LINK] Código ${refSlug} já existe, usando link existente`);
       return existingCode;
     }
-    
+
     // Criar link de marketing vinculado à campanha ativa
     const newLink = await this.createMarketingLink({
       campaignId: activeCampaign.id,
@@ -3829,7 +4094,7 @@ export class DatabaseStorage implements IStorage {
       rewardToUserId: userId,
       isActive: true,
     });
-    
+
     console.log(`✅ [AUTO-LINK] Link criado para usuário ${userId} na campanha "${activeCampaign.name}": ${refSlug}`);
     return newLink;
   }
@@ -3839,38 +4104,38 @@ export class DatabaseStorage implements IStorage {
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
       .from(marketingLinks)
       .where(eq(marketingLinks.campaignId, campaignId));
-    
+
     const totalLinks = linksResult?.count || 0;
-    
+
     // Buscar todos os codes da campanha
     const links = await db
       .select({ code: marketingLinks.code })
       .from(marketingLinks)
       .where(eq(marketingLinks.campaignId, campaignId));
-    
+
     const codes = links.map(l => l.code);
-    
+
     if (codes.length === 0) {
       return { totalLinks: 0, totalClicks: 0, totalCadastros: 0, totalConversoes: 0, taxaConversao: 0 };
     }
-    
+
     // Total de cliques
     const [clicksResult] = await db
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
       .from(mktClicks)
       .innerJoin(marketingLinks, eq(mktClicks.linkId, marketingLinks.id))
       .where(eq(marketingLinks.campaignId, campaignId));
-    
+
     const totalClicks = clicksResult?.count || 0;
-    
+
     // Total de cadastros
     const [cadastrosResult] = await db
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
       .from(indicacoes)
       .where(inArray(indicacoes.refCode, codes));
-    
+
     const totalCadastros = cadastrosResult?.count || 0;
-    
+
     // Total de conversões
     const [conversoesResult] = await db
       .select({ count: sql<number>`COALESCE(COUNT(*), 0)` })
@@ -3879,12 +4144,12 @@ export class DatabaseStorage implements IStorage {
         inArray(indicacoes.refCode, codes),
         eq(indicacoes.status, 'CONFIRMADA')
       ));
-    
+
     const totalConversoes = conversoesResult?.count || 0;
-    
+
     // Taxa de conversão
     const taxaConversao = totalCadastros > 0 ? (totalConversoes / totalCadastros) * 100 : 0;
-    
+
     return { totalLinks, totalClicks, totalCadastros, totalConversoes, taxaConversao };
   }
 
@@ -3955,16 +4220,16 @@ export class DatabaseStorage implements IStorage {
       // ultimoCheckin agora é string ISO do banco
       const dataUltimoCheckin = userData.ultimoCheckin.split('T')[0]; // "2025-10-20T12:00:00Z" -> "2025-10-20"
       const dataHoje = hoje; // já está no formato YYYY-MM-DD
-      
+
       // Pode fazer check-in se é um dia diferente
       canCheckin = dataHoje !== dataUltimoCheckin;
-      
+
       // Para o retorno e cálculo de horas
       const ultimoCheckinDate = new Date(userData.ultimoCheckin);
       const diferencaHoras = (agora.getTime() - ultimoCheckinDate.getTime()) / (1000 * 60 * 60);
-      
+
       ultimoCheckinFormatado = userData.ultimoCheckin;
-      
+
       console.log(`📅 [CHECK-IN DIÁRIO] Usuário ${userId}: Último check-in ${diferencaHoras.toFixed(1)}h atrás. Hoje: ${dataHoje}, Último: ${dataUltimoCheckin}. Pode fazer check-in: ${canCheckin}`);
     }
 
@@ -3975,7 +4240,7 @@ export class DatabaseStorage implements IStorage {
       // Comparar datas diretamente como strings
       const dataHojeUTC = hoje; // YYYY-MM-DD
       const dataUltimoCheckinUTC = userData.ultimoCheckin.split('T')[0]; // YYYY-MM-DD
-      
+
       // Converter datas para timestamps e calcular diferença
       const msPerDay = 24 * 60 * 60 * 1000;
       const timestampHoje = new Date(dataHojeUTC).getTime();
@@ -4059,8 +4324,8 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(gritosHistorico)
         .where(eq(gritosHistorico.userId, userId));
-      
-      
+
+
       // Somar todos os gritos do histórico
       const [result] = await db
         .select({
@@ -4121,14 +4386,14 @@ export class DatabaseStorage implements IStorage {
       { id: 1, nome: 'Aliado do Grito', gritosMinimos: 2500, gritosProximoNivel: 10000, proximoNivel: 'Eco do Bem' },
       { id: 0, nome: 'Iniciante', gritosMinimos: 0, gritosProximoNivel: 2500, proximoNivel: 'Aliado do Grito' },
     ];
-    
+
     // Encontrar o nível correspondente aos gritos do usuário
     for (const nivel of niveisCorretos) {
       if (gritos >= nivel.gritosMinimos) {
         return nivel;
       }
     }
-    
+
     // Fallback para o primeiro nível (Iniciante)
     return niveisCorretos[niveisCorretos.length - 1];
   }
@@ -4143,7 +4408,7 @@ export class DatabaseStorage implements IStorage {
 
   async getBeneficiosAtivos(): Promise<Beneficio[]> {
     console.log(`🔍 [BENEFICIOS ATIVOS] Buscando benefícios ativos usando SQL direto`);
-    
+
     // Usar SQL bruto para evitar problemas de compilação TypeScript
     const resultados = await db.execute<Beneficio>(sql`
       SELECT * FROM beneficios
@@ -4151,7 +4416,7 @@ export class DatabaseStorage implements IStorage {
         AND (prazo_lances IS NULL OR prazo_lances > NOW())
       ORDER BY ordem ASC, id ASC
     `);
-    
+
     const rows = resultados.rows as Beneficio[];
     console.log(`✅ [BENEFICIOS ATIVOS] Encontrados ${rows.length} benefícios ativos (IDs: ${rows.map((b: Beneficio) => b.id).join(', ')})`);
     return rows;
@@ -4842,7 +5107,7 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(doadores)
         .where(eq(doadores.userId, userId));
-      
+
       allUserDonations.forEach((d: any) => {
         console.log(`  - ID: ${d.id}, Status: ${d.status}, Ativo: ${d.ativo}, Valor: ${d.valor}`);
       });
@@ -6897,7 +7162,7 @@ export class DatabaseStorage implements IStorage {
         if (b.inicioLeilao && b.prazoLances) {
           const inicio = new Date(b.inicioLeilao);
           const prazo = new Date(b.prazoLances);
-          
+
           if (agora < inicio) {
             aguardando++;
           } else if (agora >= inicio && agora < prazo) {
@@ -7129,7 +7394,7 @@ export class DatabaseStorage implements IStorage {
         .from(patrocinadores)
         .where(eq(patrocinadores.ano, ano))
         .orderBy(desc(patrocinadores.valorPatrocinio));
-      
+
       console.log(`✅ [PATROCINADORES] Buscados ${result.length} patrocinadores do ano ${ano}`);
       return result;
     } catch (error) {
@@ -7242,38 +7507,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ===== MÓDULO INCLUSÃO PRODUTIVA - PARTICIPANTES =====
-  async getAllParticipantes(): Promise<any[]> {
-    // Usar LEFT JOIN para buscar turmas de forma eficiente (evitar N+1)
-    const result = await db
-      .select({
-        participante: participantesInclusao,
-        turma: turmasInclusao,
-      })
-      .from(participantesInclusao)
-      .leftJoin(participantesTurmas, eq(participantesInclusao.id, participantesTurmas.participanteId))
-      .leftJoin(turmasInclusao, eq(participantesTurmas.turmaId, turmasInclusao.id))
-      .orderBy(asc(participantesInclusao.nome));
+  async getAllParticipantes(opts?: {
+    status?: "ativos" | "inativos" | "todos";
+    programa?: "grito" | "pec" | "inclusao";
+  }): Promise<any[]> {
+    return listInclusaoParticipantesFromMaster({
+      status: opts?.status ?? "ativos",
+      programa: opts?.programa ?? "grito",
+    });
+  }
 
-    // Agrupar turmas por participante
-    const participantesMap = new Map<number, any>();
-
-    for (const row of result) {
-      const participanteId = row.participante.id;
-
-      if (!participantesMap.has(participanteId)) {
-        participantesMap.set(participanteId, {
-          ...row.participante,
-          turmas: []
-        });
-      }
-
-      // Adicionar turma se existir
-      if (row.turma) {
-        participantesMap.get(participanteId)!.turmas.push(row.turma);
-      }
-    }
-
-    return Array.from(participantesMap.values());
+  /**
+   * Matrícula Inclusão: valida mestre e cria vínculo de programa inclusao.
+   * NÃO cria linha em `participantes_inclusao`. Retorna CPF.
+   */
+  async ensureInclusaoParticipanteFromMaster(cpfRaw: string): Promise<string> {
+    return ensureProgramaVinculo(cpfRaw, "inclusao");
   }
 
   async getParticipanteById(id: number): Promise<any> {
@@ -7299,18 +7548,79 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getParticipanteByCpf(cpf: string): Promise<ParticipanteInclusao | undefined> {
+    const clean = normalizeCpfDigits(cpf);
     const [participante] = await db.select().from(participantesInclusao).where(eq(participantesInclusao.cpf, cpf));
-    return participante;
+    if (participante) return participante;
+    if (clean.length === 11) {
+      const [byDigits] = await db
+        .select()
+        .from(participantesInclusao)
+        .where(
+          sql`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${clean}`
+        )
+        .limit(1);
+      if (byDigits) return byDigits;
+
+      const master = await getAtendidoGritoByCpf(clean);
+      if (master) return mapMasterToParticipanteShape(master) as ParticipanteInclusao;
+    }
+    return undefined;
   }
 
   async createParticipante(data: InsertParticipanteInclusao, turmaIds?: number[]): Promise<ParticipanteInclusao> {
+    const beneficiosExtras = extractBeneficiosSociaisExtras(data as Record<string, unknown>);
+    const cpfCanonico = normalizeCpfDigits((data as any).cpf);
+
+    // Regra unificação: novos cadastros só em atendidos_grito (sem espelho participantes_inclusao)
+    if (!isLegacyWriteEnabled("inclusao")) {
+      if (cpfCanonico.length !== 11) {
+        throw new Error("CPF inválido: deve conter exatamente 11 dígitos numéricos.");
+      }
+      const ag = await upsertCadastroUnificadoMasterOnly({
+        cpf: cpfCanonico,
+        nomeCompleto: (data as any).nome,
+        dataNascimento: (data as any).dataNascimento,
+        genero: (data as any).genero,
+        escolaridade: (data as any).escolaridade || (data as any).serie,
+        instituicaoEnsino: (data as any).instituicaoEnsino,
+        telefone: (data as any).telefone,
+        email: (data as any).email,
+        whatsapp: (data as any).telefone,
+        bolsaFamilia: (data as any).bolsaFamilia,
+        fotoPerfil: (data as any).fotoUrl,
+        numeroMatricula: (data as any).codigoMatricula,
+        status: (data as any).status || "ativo",
+        cep: (data as any).cep,
+        logradouro: (data as any).logradouro,
+        numero: (data as any).numero,
+        complemento: (data as any).complemento,
+        bairro: (data as any).bairro,
+        cidade: (data as any).cidade,
+        estado: (data as any).estado,
+        fonte: "inclusao",
+        dadosComplementares: { fonte_cadastro: "inclusao_form" },
+        beneficiosExtras,
+      });
+
+      if (turmaIds && turmaIds.length > 0) {
+        for (const turmaId of turmaIds) {
+          await this.addAtendidoCpfToTurmaInclusao(cpfCanonico, turmaId);
+        }
+      }
+
+      return mapMasterToParticipanteShape(ag) as ParticipanteInclusao;
+    }
+
+    if (!isLegacyWriteEnabled("inclusao")) {
+      // unreachable — early return above; kept for histórico de flag
+    }
     // Lista de campos jsonb que precisam ser serializados manualmente
     const jsonbFields = [
-      'documentosPossui', 'telefonesAdicionais', 'contatosEmergencia', 
+      'documentosPossui', 'telefonesAdicionais', 'contatosEmergencia',
       'demandas', 'turnoEscolar', 'trabalhosAtuais', 'experienciasProfissionais',
       'contatosSaude', 'jaTeveOuCostumaTer', 'relacionamentosFamiliares', 'outrosRelacionamentos'
     ];
-    
+
     // Campos boolean no banco DO (18 colunas) que podem vir como "sim"/"nao"
     const booleanFields = [
       'podeSairSozinho', 'frequentaProjetoSocial', 'acessoInternet', 'telefoneWhatsapp',
@@ -7318,14 +7628,19 @@ export class DatabaseStorage implements IStorage {
       'procuraTrabalho', 'possuiParticularidadeSaude', 'possuiAlergia', 'fazUsoMedicamento',
       'possuiDeficiencia', 'fazUsoQuimicos', 'familiarUsaQuimicos', 'restricaoAlimentar', 'possuiConvenioMedico'
     ];
-    
-    const processedData: any = { ...data };
-    
-    // Gerar código de matrícula automático se não fornecido
-    if (!processedData.codigoMatricula) {
+
+    const processedData: any = stripBeneficiosExtrasFields({ ...data });
+
+    // Gerar código de matrícula automático se não fornecido (global única)
+    if (!processedData.codigoMatricula && processedData.cpf) {
+      processedData.codigoMatricula = await resolveMatriculaGlobal(
+        normalizeCpfDigits(processedData.cpf),
+        processedData.codigoMatricula
+      );
+    } else if (!processedData.codigoMatricula) {
       processedData.codigoMatricula = await this.getProximoNumeroMatricula();
     }
-    
+
     // Calcular idade a partir da data de nascimento
     if (processedData.dataNascimento) {
       const nascimento = new Date(processedData.dataNascimento);
@@ -7337,7 +7652,7 @@ export class DatabaseStorage implements IStorage {
       }
       processedData.idade = idade;
     }
-    
+
     // Converter todos os campos boolean de "sim"/"nao" para true/false
     for (const field of booleanFields) {
       if (processedData[field] !== undefined) {
@@ -7348,7 +7663,7 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
+
     for (const field of jsonbFields) {
       if (processedData[field] !== undefined) {
         // Se é um array ou objeto, manter como está (Drizzle vai serializar)
@@ -7366,7 +7681,7 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
+
     const [participante] = await db.insert(participantesInclusao).values(processedData).returning();
     console.log(`✅ [PARTICIPANTES] Novo participante criado: ${participante.nome}`);
 
@@ -7383,16 +7698,38 @@ export class DatabaseStorage implements IStorage {
       console.log(`✅ [PARTICIPANTES] Participante ${participante.id} vinculado a ${turmaIds.length} turma(s)`);
     }
 
+    await syncAtendidoGritoSafe(
+      () => syncFromInclusaoParticipante(participante, beneficiosExtras),
+      `createParticipante:${participante.id}`
+    );
+
     return participante;
   }
   async updateParticipante(id: number, data: Partial<InsertParticipanteInclusao>): Promise<ParticipanteInclusao> {
+    const existing = await this.getParticipanteById(id);
+    if (!existing) {
+      throw new Error("Participante não encontrado");
+    }
+
+    const oldCpf = normalizeCpfDigits(existing.cpf);
+    const newCpf = normalizeCpfDigits((data as { cpf?: string }).cpf);
+    const cpfChanged =
+      newCpf.length === 11 && oldCpf.length === 11 && newCpf !== oldCpf;
+
+    if (cpfChanged) {
+      const conflict = await this.getParticipanteByCpf(newCpf);
+      if (conflict && conflict.id !== id) {
+        throw new Error("Já existe um participante cadastrado com este CPF");
+      }
+    }
+
     // Lista de campos jsonb que precisam ser serializados manualmente
     const jsonbFields = [
-      'documentosPossui', 'telefonesAdicionais', 'contatosEmergencia', 
+      'documentosPossui', 'telefonesAdicionais', 'contatosEmergencia',
       'demandas', 'turnoEscolar', 'trabalhosAtuais', 'experienciasProfissionais',
       'contatosSaude', 'jaTeveOuCostumaTer', 'relacionamentosFamiliares', 'outrosRelacionamentos'
     ];
-    
+
     // Campos boolean no banco DO (18 colunas) que podem vir como "sim"/"nao"
     const booleanFields = [
       'podeSairSozinho', 'frequentaProjetoSocial', 'acessoInternet', 'telefoneWhatsapp',
@@ -7400,9 +7737,10 @@ export class DatabaseStorage implements IStorage {
       'procuraTrabalho', 'possuiParticularidadeSaude', 'possuiAlergia', 'fazUsoMedicamento',
       'possuiDeficiencia', 'fazUsoQuimicos', 'familiarUsaQuimicos', 'restricaoAlimentar', 'possuiConvenioMedico'
     ];
-    
-    const processedData: any = { ...data };
-    
+
+    const beneficiosExtras = extractBeneficiosSociaisExtras(data as Record<string, unknown>);
+    const processedData: any = stripBeneficiosExtrasFields({ ...data });
+
     // Calcular idade a partir da data de nascimento
     if (processedData.dataNascimento) {
       const nascimento = new Date(processedData.dataNascimento);
@@ -7414,7 +7752,7 @@ export class DatabaseStorage implements IStorage {
       }
       processedData.idade = idade;
     }
-    
+
     // Converter todos os campos boolean de "sim"/"nao" para true/false
     for (const field of booleanFields) {
       if (processedData[field] !== undefined) {
@@ -7425,7 +7763,7 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
+
     for (const field of jsonbFields) {
       if (processedData[field] !== undefined) {
         if (typeof processedData[field] === 'string') {
@@ -7440,13 +7778,135 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
+
     const [participante] = await db.update(participantesInclusao)
       .set({ ...processedData, updatedAt: new Date() })
       .where(eq(participantesInclusao.id, id))
       .returning();
     console.log(`✅ [PARTICIPANTES] Participante ${id} atualizado`);
+    await syncAtendidoGritoSafe(async () => {
+      if (cpfChanged) {
+        await migrateAtendidoGritoCpf(oldCpf, newCpf);
+      }
+      await syncFromInclusaoParticipante(participante, beneficiosExtras);
+    }, `updateParticipante:${id}`);
     return participante;
+  }
+
+  async inativarParticipante(id: number): Promise<ParticipanteInclusao> {
+    const existing = await this.getParticipanteById(id);
+    if (!existing) {
+      throw new Error("Participante não encontrado");
+    }
+    if (existing.id == null && existing.cpf) {
+      return this.inativarParticipanteByCpf(String(existing.cpf));
+    }
+    return this.updateParticipante(id, {
+      status: "inativo",
+      dataEgresso: new Date(),
+    });
+  }
+
+  async reativarParticipante(id: number): Promise<ParticipanteInclusao> {
+    const existing = await this.getParticipanteById(id);
+    if (!existing) {
+      throw new Error("Participante não encontrado");
+    }
+    if (existing.id == null && existing.cpf) {
+      return this.reativarParticipanteByCpf(String(existing.cpf));
+    }
+    return this.updateParticipante(id, {
+      status: "ativo",
+      dataEgresso: null,
+    });
+  }
+
+  async updateParticipanteByCpf(
+    cpfRaw: string,
+    data: Partial<InsertParticipanteInclusao>
+  ): Promise<ParticipanteInclusao> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    const existing = await this.getParticipanteByCpf(cpf);
+    if (!existing) throw new Error("Participante não encontrado");
+
+    // Se tem id legado numérico, usa update legado
+    if (existing.id != null && Number.isFinite(Number(existing.id))) {
+      return this.updateParticipante(Number(existing.id), data);
+    }
+
+    const beneficiosExtras = extractBeneficiosSociaisExtras(data as Record<string, unknown>);
+    const merged: any = { ...existing, ...data };
+    const newCpf = normalizeCpfDigits(merged.cpf) || cpf;
+    if (newCpf !== cpf) {
+      await migrateAtendidoGritoCpf(cpf, newCpf);
+    }
+
+    const ag = await upsertCadastroUnificadoMasterOnly({
+      cpf: newCpf,
+      nomeCompleto: merged.nome,
+      dataNascimento: merged.dataNascimento,
+      genero: merged.genero,
+      escolaridade: merged.escolaridade || merged.serie,
+      instituicaoEnsino: merged.instituicaoEnsino,
+      telefone: merged.telefone,
+      email: merged.email,
+      whatsapp: merged.telefone,
+      bolsaFamilia: merged.bolsaFamilia,
+      fotoPerfil: merged.fotoUrl,
+      numeroMatricula: merged.codigoMatricula,
+      status: merged.status || "ativo",
+      cep: merged.cep,
+      logradouro: merged.logradouro,
+      numero: merged.numero,
+      complemento: merged.complemento,
+      bairro: merged.bairro,
+      cidade: merged.cidade,
+      estado: merged.estado,
+      fonte: "inclusao",
+      dadosComplementares: { fonte_cadastro: "inclusao_update_master" },
+      beneficiosExtras,
+    });
+    return mapMasterToParticipanteShape(ag) as ParticipanteInclusao;
+  }
+
+  async inativarParticipanteByCpf(cpfRaw: string): Promise<ParticipanteInclusao> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    const existing = await this.getParticipanteByCpf(cpf);
+    if (!existing) throw new Error("Participante não encontrado");
+    if (existing.id != null && Number.isFinite(Number(existing.id))) {
+      return this.inativarParticipante(Number(existing.id));
+    }
+    await pool.query(
+      `UPDATE atendidos_grito SET status = 'inativo', updated_at = NOW() WHERE cpf = $1`,
+      [cpf]
+    );
+    await pool.query(
+      `UPDATE atendidos_grito_programa SET status = 'inativo', data_egresso = NOW(), updated_at = NOW()
+       WHERE cpf = $1 AND programa = 'inclusao'`,
+      [cpf]
+    ).catch(() => {});
+    const ag = await getAtendidoGritoByCpf(cpf);
+    return mapMasterToParticipanteShape(ag!) as ParticipanteInclusao;
+  }
+
+  async reativarParticipanteByCpf(cpfRaw: string): Promise<ParticipanteInclusao> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    const existing = await this.getParticipanteByCpf(cpf);
+    if (!existing) throw new Error("Participante não encontrado");
+    if (existing.id != null && Number.isFinite(Number(existing.id))) {
+      return this.reativarParticipante(Number(existing.id));
+    }
+    await pool.query(
+      `UPDATE atendidos_grito SET status = 'ativo', updated_at = NOW() WHERE cpf = $1`,
+      [cpf]
+    );
+    await pool.query(
+      `UPDATE atendidos_grito_programa SET status = 'ativo', data_egresso = NULL, updated_at = NOW()
+       WHERE cpf = $1 AND programa = 'inclusao'`,
+      [cpf]
+    ).catch(() => {});
+    const ag = await getAtendidoGritoByCpf(cpf);
+    return mapMasterToParticipanteShape(ag!) as ParticipanteInclusao;
   }
 
   async deleteParticipante(id: number): Promise<void> {
@@ -7455,7 +7915,90 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Relacionamentos Participante-Turma
+  /**
+   * Matricula por CPF no mestre (sem criar participantes_inclusao).
+   * Se existir legado com o mesmo CPF, preenche participante_id só para dual-read.
+   */
+  async addAtendidoCpfToTurmaInclusao(
+    cpfRaw: string,
+    turmaId: number,
+    dataIngresso?: string
+  ): Promise<ParticipanteTurma> {
+    const cpf = await this.ensureInclusaoParticipanteFromMaster(cpfRaw);
+    const ingresso = dataIngresso || new Date().toISOString().split("T")[0];
+
+    const legado = await db
+      .select({ id: participantesInclusao.id })
+      .from(participantesInclusao)
+      .where(
+        sql`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpf}`
+      )
+      .limit(1);
+
+    const legadoId = legado[0]?.id ?? null;
+
+    const existing = await db.execute(sql`
+      SELECT id, participante_id, atendido_cpf, status
+      FROM participantes_turmas
+      WHERE turma_id = ${turmaId}
+        AND (
+          atendido_cpf = ${cpf}
+          OR (${legadoId}::int IS NOT NULL AND participante_id = ${legadoId})
+        )
+      LIMIT 1
+    `);
+    const row = existing.rows?.[0] as any;
+
+    if (row) {
+      await db.execute(sql`
+        UPDATE inclusao_evasoes
+        SET revertido_em = NOW()
+        WHERE turma_id = ${turmaId}
+          AND revertido_em IS NULL
+          AND (
+            atendido_cpf = ${cpf}
+            OR (${legadoId}::int IS NOT NULL AND participante_id = ${legadoId})
+          )
+      `);
+      const [relacao] = await db
+        .update(participantesTurmas)
+        .set({
+          status: "ativo",
+          motivoDesligamento: null,
+          dataDesligamento: null,
+          dataIngresso: ingresso,
+          atendidoCpf: cpf,
+          ...(legadoId != null ? { participanteId: legadoId } : {}),
+        } as any)
+        .where(eq(participantesTurmas.id, Number(row.id)))
+        .returning();
+      console.log(`✅ [PARTICIPANTES-TURMAS] CPF ${cpf} reativado na turma ${turmaId}`);
+      return relacao;
+    }
+
+    const [relacao] = await db
+      .insert(participantesTurmas)
+      .values({
+        turmaId,
+        atendidoCpf: cpf,
+        participanteId: legadoId,
+        dataInscricao: new Date(),
+        status: "ativo",
+        dataIngresso: ingresso,
+      } as any)
+      .returning();
+    console.log(`✅ [PARTICIPANTES-TURMAS] CPF ${cpf} vinculado à turma ${turmaId} (sem criar legado)`);
+    return relacao;
+  }
+
   async addParticipanteToTurma(participanteId: number, turmaId: number, dataIngresso?: string): Promise<ParticipanteTurma> {
+    // Preferir caminho canônico por CPF quando possível
+    const part = await this.getParticipanteById(participanteId);
+    const cpf = part?.cpf ? normalizeCpfDigits(part.cpf) : "";
+    if (cpf.length === 11) {
+      return this.addAtendidoCpfToTurmaInclusao(cpf, turmaId, dataIngresso);
+    }
+
     const ingresso = dataIngresso || new Date().toISOString().split('T')[0];
     const existing = await db.select()
       .from(participantesTurmas)
@@ -7498,15 +8041,75 @@ export class DatabaseStorage implements IStorage {
     return relacao;
   }
 
-  async registerInclusaoEvasao(participanteId: number, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null> {
-    const vinculo = await db.select().from(participantesTurmas)
-      .where(and(
-        eq(participantesTurmas.participanteId, participanteId),
-        eq(participantesTurmas.turmaId, turmaId),
-      ))
-      .limit(1);
+  private async findParticipanteTurmaVinculo(
+    turmaId: number,
+    opts: { participanteId?: number | null; cpf?: string | null }
+  ): Promise<(typeof participantesTurmas.$inferSelect) | null> {
+    const cpf = opts.cpf ? normalizeCpfDigits(opts.cpf) : "";
+    if (cpf.length === 11) {
+      const byCpf = await db
+        .select()
+        .from(participantesTurmas)
+        .where(
+          and(
+            eq(participantesTurmas.turmaId, turmaId),
+            eq(participantesTurmas.atendidoCpf, cpf)
+          )
+        )
+        .limit(1);
+      if (byCpf[0]) return byCpf[0];
 
-    if (vinculo.length === 0) return null;
+      const byLegadoCpf = await pool.query(
+        `SELECT pt.*
+         FROM participantes_turmas pt
+         JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+         WHERE pt.turma_id = $1
+           AND REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g') = $2
+         LIMIT 1`,
+        [turmaId, cpf]
+      );
+      if (byLegadoCpf.rows[0]) {
+        const row = byLegadoCpf.rows[0];
+        return {
+          id: row.id,
+          participanteId: row.participante_id,
+          atendidoCpf: row.atendido_cpf,
+          turmaId: row.turma_id,
+          dataInscricao: row.data_inscricao,
+          dataIngresso: row.data_ingresso,
+          status: row.status,
+          motivoDesligamento: row.motivo_desligamento,
+          dataDesligamento: row.data_desligamento,
+          createdAt: row.created_at,
+        } as any;
+      }
+    }
+
+    if (opts.participanteId != null && Number.isFinite(Number(opts.participanteId))) {
+      const byId = await db
+        .select()
+        .from(participantesTurmas)
+        .where(
+          and(
+            eq(participantesTurmas.participanteId, Number(opts.participanteId)),
+            eq(participantesTurmas.turmaId, turmaId)
+          )
+        )
+        .limit(1);
+      if (byId[0]) return byId[0];
+    }
+    return null;
+  }
+
+  async registerInclusaoEvasao(participanteId: number, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null> {
+    const part = await this.getParticipanteById(participanteId);
+    const cpf = part?.cpf ? normalizeCpfDigits(part.cpf) : "";
+    if (cpf.length === 11) {
+      return this.registerInclusaoEvasaoByCpf(cpf, turmaId, dataDesligamento);
+    }
+
+    const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { participanteId });
+    if (!vinculo) return null;
 
     const ativa = await db.select().from(inclusaoEvasoes)
       .where(and(
@@ -7521,22 +8124,72 @@ export class DatabaseStorage implements IStorage {
     }
 
     await db.insert(inclusaoEvasoes).values({
-      participanteTurmaId: vinculo[0].id,
+      participanteTurmaId: vinculo.id,
       participanteId,
+      atendidoCpf: vinculo.atendidoCpf || null,
       turmaId,
       dataDesligamento,
     });
 
     const [relacao] = await db.update(participantesTurmas)
       .set({ status: 'evadido', motivoDesligamento: null, dataDesligamento: null })
-      .where(eq(participantesTurmas.id, vinculo[0].id))
+      .where(eq(participantesTurmas.id, vinculo.id))
       .returning();
 
     console.log(`✅ [EVASÃO INCLUSÃO] Participante ${participanteId} evadido na turma ${turmaId} — ${dataDesligamento}`);
     return relacao;
   }
 
+  async registerInclusaoEvasaoByCpf(cpfRaw: string, turmaId: number, dataDesligamento: string): Promise<ParticipanteTurma | null> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    if (cpf.length !== 11) return null;
+
+    const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+    if (!vinculo) return null;
+
+    const ativaCond = vinculo.participanteId != null
+      ? or(
+          eq(inclusaoEvasoes.atendidoCpf, cpf),
+          eq(inclusaoEvasoes.participanteId, vinculo.participanteId)
+        )
+      : eq(inclusaoEvasoes.atendidoCpf, cpf);
+
+    const ativa = await db.select().from(inclusaoEvasoes)
+      .where(and(
+        ativaCond!,
+        eq(inclusaoEvasoes.turmaId, turmaId),
+        isNull(inclusaoEvasoes.revertidoEm),
+      ))
+      .limit(1);
+
+    if (ativa.length > 0) {
+      throw new Error("Participante já possui evasão ativa nesta turma.");
+    }
+
+    await db.insert(inclusaoEvasoes).values({
+      participanteTurmaId: vinculo.id,
+      participanteId: vinculo.participanteId ?? null,
+      atendidoCpf: cpf,
+      turmaId,
+      dataDesligamento,
+    });
+
+    const [relacao] = await db.update(participantesTurmas)
+      .set({ status: 'evadido', motivoDesligamento: null, dataDesligamento: null })
+      .where(eq(participantesTurmas.id, vinculo.id))
+      .returning();
+
+    console.log(`✅ [EVASÃO INCLUSÃO] CPF ${cpf} evadido na turma ${turmaId} — ${dataDesligamento}`);
+    return relacao;
+  }
+
   async revertInclusaoEvasao(participanteId: number, turmaId: number): Promise<ParticipanteTurma | null> {
+    const part = await this.getParticipanteById(participanteId);
+    const cpf = part?.cpf ? normalizeCpfDigits(part.cpf) : "";
+    if (cpf.length === 11) {
+      return this.revertInclusaoEvasaoByCpf(cpf, turmaId);
+    }
+
     const ativa = await db.select().from(inclusaoEvasoes)
       .where(and(
         eq(inclusaoEvasoes.participanteId, participanteId),
@@ -7563,13 +8216,63 @@ export class DatabaseStorage implements IStorage {
     return relacao;
   }
 
+  async revertInclusaoEvasaoByCpf(cpfRaw: string, turmaId: number): Promise<ParticipanteTurma | null> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    if (cpf.length !== 11) return null;
+
+    const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+    const ativa = await db.select().from(inclusaoEvasoes)
+      .where(and(
+        eq(inclusaoEvasoes.turmaId, turmaId),
+        isNull(inclusaoEvasoes.revertidoEm),
+        or(
+          eq(inclusaoEvasoes.atendidoCpf, cpf),
+          vinculo?.participanteId != null
+            ? eq(inclusaoEvasoes.participanteId, vinculo.participanteId)
+            : sql`false`
+        )!
+      ))
+      .limit(1);
+
+    if (ativa.length === 0) return null;
+
+    await db.update(inclusaoEvasoes)
+      .set({ revertidoEm: new Date() })
+      .where(eq(inclusaoEvasoes.id, ativa[0].id));
+
+    if (!vinculo) return null;
+
+    const [relacao] = await db.update(participantesTurmas)
+      .set({ status: 'ativo', motivoDesligamento: null, dataDesligamento: null })
+      .where(eq(participantesTurmas.id, vinculo.id))
+      .returning();
+
+    console.log(`✅ [EVASÃO INCLUSÃO] Evasão revertida — CPF ${cpf}, turma ${turmaId}`);
+    return relacao;
+  }
+
   async removeParticipanteFromTurma(participanteId: number, turmaId: number): Promise<void> {
+    const part = await this.getParticipanteById(participanteId);
+    const cpf = part?.cpf ? normalizeCpfDigits(part.cpf) : "";
+    if (cpf.length === 11) {
+      await this.removeParticipanteFromTurmaByCpf(cpf, turmaId);
+      return;
+    }
     await db.delete(participantesTurmas)
       .where(and(
         eq(participantesTurmas.participanteId, participanteId),
         eq(participantesTurmas.turmaId, turmaId)
       ));
     console.log(`✅ [PARTICIPANTES-TURMAS] Participante ${participanteId} removido da turma ${turmaId}`);
+  }
+
+  async removeParticipanteFromTurmaByCpf(cpfRaw: string, turmaId: number, _motivo?: string): Promise<void> {
+    const cpf = normalizeCpfDigits(cpfRaw);
+    if (cpf.length !== 11) return;
+    const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+    if (!vinculo) return;
+    await db.delete(participantesTurmas).where(eq(participantesTurmas.id, vinculo.id));
+    console.log(`✅ [PARTICIPANTES-TURMAS] CPF ${cpf} removido da turma ${turmaId}`);
   }
 
   async getTurmasByParticipante(participanteId: number): Promise<TurmaInclusao[]> {
@@ -7752,7 +8455,7 @@ export class DatabaseStorage implements IStorage {
       if (existing.status !== 'fechado') {
         await tx
           .update(psicoCasos)
-          .set({ 
+          .set({
             status: 'fechado',
             dataEncerramento: new Date().toISOString().split('T')[0],
             resultado: 'Caso arquivado',
@@ -7792,7 +8495,7 @@ export class DatabaseStorage implements IStorage {
       .from(marketingLinks)
       .leftJoin(marketingCampaigns, eq(marketingLinks.campaignId, marketingCampaigns.id))
       .orderBy(desc(marketingLinks.createdAt));
-    
+
     return links.map(({ link, campaign }) => ({
       ...link,
       targetUrl: link.metadata?.targetUrl || "/",
@@ -7804,7 +8507,7 @@ export class DatabaseStorage implements IStorage {
     const metadata = {
       targetUrl: (link as any).targetUrl || "/",
     };
-    
+
     const [newLink] = await db
       .insert(marketingLinks)
       .values({
@@ -7812,7 +8515,7 @@ export class DatabaseStorage implements IStorage {
         metadata: metadata as any,
       })
       .returning();
-    
+
     return {
       ...newLink,
       targetUrl: metadata.targetUrl,

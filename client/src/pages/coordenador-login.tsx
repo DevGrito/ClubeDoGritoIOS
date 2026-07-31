@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, Eye, EyeOff, KeyRound, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
-import { getPostLoginPath } from "@/lib/post-login-redirect";
+import { getPostLoginPath, readRedirectFromLocation } from "@/lib/post-login-redirect";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function CoordenadorLogin() {
@@ -81,7 +81,7 @@ export default function CoordenadorLogin() {
         toast({ title: "Erro no login", description: "Sessão não foi criada. Tente novamente.", variant: "destructive" });
         return;
       }
-      const target = getPostLoginPath(session);
+      const target = getPostLoginPath(session, readRedirectFromLocation());
       if (!target.startsWith("/coordenador") && !target.startsWith("/tecnica")) {
         toast({ title: "Erro no login", description: "Seu perfil não foi identificado. Fale com o admin.", variant: "destructive" });
         return;
@@ -158,7 +158,7 @@ export default function CoordenadorLogin() {
         setSenha("");
         return;
       }
-      setLocation(getPostLoginPath(session));
+      setLocation(getPostLoginPath(session, readRedirectFromLocation()));
     } catch {
       toast({ title: "Erro de conexão", description: "Não foi possível conectar ao servidor", variant: "destructive" });
     } finally {

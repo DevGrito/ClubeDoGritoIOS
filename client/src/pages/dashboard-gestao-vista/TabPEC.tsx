@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
-import { getPct, getColor, SectorCard, buildQp, type PeriodoFiltro, isPeriodoMulti, metaFnPeriodo } from "./shared";
-import { GestaoKpiCard } from "@/components/GestaoKpiCard";
+import { getPct, getColor, SectorCard, buildQp, type PeriodoFiltro, isPeriodoMulti, metaFnPeriodo, metaNoPeriodo, isPeriodoSemMeta } from "./shared";
+import { fetchGestaoVistaDashboard } from "./fetchGestaoVista";
+import { GestaoKpiCard, formatGestaoNumero } from "@/components/GestaoKpiCard";
 
 interface Props { ano: string; periodo: PeriodoFiltro; }
 
@@ -13,7 +14,7 @@ const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out
 function PKpiCardNoMeta({ label, valor, format = 'number' as 'number' | 'percent', className = '' }: {
   label: string; valor: number; format?: 'number' | 'percent'; className?: string;
 }) {
-  const dVal = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
+  const dVal = format === 'percent' ? `${formatGestaoNumero(valor)}%` : formatGestaoNumero(valor);
 
   return (
     <div className={`bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full ${className}`}>
@@ -30,8 +31,9 @@ function PKpiCardNoMeta({ label, valor, format = 'number' as 'number' | 'percent
 
 /* ── Barra de Frequência PEC ─────────────────────────────────────────── */
 function PFreqBar({ valor, meta }: { valor: number; meta: number }) {
-  const pct   = getPct(valor, meta);
-  const color = getColor(valor, meta);
+  const hasMeta = meta > 0;
+  const pct   = hasMeta ? getPct(valor, meta) : 0;
+  const color = hasMeta ? getColor(valor, meta) : '#64748b';
   const [animWidth, setAnimWidth] = useState(0);
   useEffect(() => {
     const t = setTimeout(() => setAnimWidth(Math.min(valor, 100)), 200);
@@ -45,7 +47,7 @@ function PFreqBar({ valor, meta }: { valor: number; meta: number }) {
       <div className="flex items-center gap-3 w-full">
         <div className="flex items-baseline gap-2 flex-shrink-0">
           <span className="text-3xl font-bold text-white tabular-nums leading-none">{valor}%</span>
-          <span className="text-[12px] text-slate-500">meta {meta}%</span>
+          <span className="text-[12px] text-slate-500">{hasMeta ? `meta ${meta}%` : 'meta —'}</span>
         </div>
         <div className="flex-1 flex flex-col gap-1">
           <div className="h-3 bg-slate-700/60 rounded-full overflow-hidden">
@@ -56,7 +58,7 @@ function PFreqBar({ valor, meta }: { valor: number; meta: number }) {
             <span>0%</span><span>50%</span><span>100%</span>
           </div>
         </div>
-        <span className="text-[13px] font-bold tabular-nums leading-none flex-shrink-0" style={{ color }}>{pct}%</span>
+        <span className="text-[13px] font-bold tabular-nums leading-none flex-shrink-0" style={{ color }}>{hasMeta ? `${pct}%` : '—'}</span>
       </div>
       </div>
     </div>
@@ -108,7 +110,7 @@ export default function TabPEC({ ano, periodo }: Props) {
 
   const { data: gv } = useQuery<any>({
     queryKey: ['/api/gestao-vista', ano, periodo],
-    queryFn: () => fetch(`/api/gestao-vista${qp}`).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(`/api/gestao-vista${qp}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
@@ -121,7 +123,7 @@ export default function TabPEC({ ano, periodo }: Props) {
 
   const { data: turmasData } = useQuery<TurmasData>({
     queryKey: ['/api/gestao-vista/turmas-ativas-pec'],
-    queryFn: () => fetch('/api/gestao-vista/turmas-ativas-pec').then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard('/api/gestao-vista/turmas-ativas-pec').then(r => r.json()),
     refetchInterval: 120000,
   });
 
@@ -148,18 +150,26 @@ export default function TabPEC({ ano, periodo }: Props) {
   const alimentacao  = pecKpis?.alimentacao ?? gv?.pecData?.alimentacao ?? 0;
   const lineData     = evolucao?.dados || MESES_LABELS.map(m => ({ mes: m, presencas: 0, faltas: 0 }));
 
-  const freqMeta     = metasAdm.frequencia    ?? pecMetas?.frequencia_meta          ?? ind?.frequencia?.meta     ?? 85;
-  const evasaoMeta   = metasAdm.evasao        ?? ind?.evasao?.meta                  ?? 10;
-  const avalMeta     = metasAdm.nps           ?? pecMetas?.avaliacao_aprendizagem_meta ?? ind?.criterioSucesso?.meta ?? 90;
+  const freqMeta     = metaNoPeriodo(periodo, metasAdm.frequencia    ?? pecMetas?.frequencia_meta          ?? ind?.frequencia?.meta     ?? 85);
+  const evasaoMeta   = metaNoPeriodo(periodo, metasAdm.evasao        ?? ind?.evasao?.meta                  ?? 10);
+  const npsMeta      = metaNoPeriodo(periodo, metasAdm.nps ?? 90);
+  const avalAprendMeta = metaNoPeriodo(periodo, metasAdm.avaliacaoAprendizagem ?? pecMetas?.avaliacao_aprendizagem_meta ?? 90);
   const atendidosMetaAnual = metasAdm.criancasAtendidas ?? pecMetas?.atendidos_meta ?? ind?.criancasAtendidas?.meta ?? 500;
 
-  const metaFn = (anual: number) => isPeriodoMulti(periodo) ? metaFnPeriodo(periodo, anual) : anual;
+  // PEC: meta anual fixa (todos ou mês único); só prorrateia com vários meses selecionados
+  const metaFn = (anual: number) => {
+    if (isPeriodoSemMeta(periodo)) return 0;
+    return isPeriodoMulti(periodo) ? metaFnPeriodo(periodo, anual) : anual;
+  };
 
-  // "Crianças Atendidas" é acumulado — meta constante o ano todo, nunca proratada
-  const atendidosMeta = atendidosMetaAnual;
+  // "Crianças Atendidas" é acumulado — meta constante o ano todo, exceto janeiro (sem meta)
+  const atendidosMeta = metaNoPeriodo(periodo, atendidosMetaAnual);
   const horasMeta    = pecMetas?.hora_aula_meta   != null ? metaFn(pecMetas.hora_aula_meta)   : null;
   const atendMeta    = pecMetas?.atendimentos_meta != null ? metaFn(pecMetas.atendimentos_meta) : null;
   const alimMeta     = pecMetas?.alimentacao_meta  != null ? metaFn(pecMetas.alimentacao_meta)  : null;
+
+  const npsValor  = Math.round(pecKpis?.nps ?? gv?.pecData?.nps ?? 0);
+  const avalValor = Math.round(pecKpis?.avaliacaoAprendizagem ?? gv?.pecData?.avaliacaoAprendizagem ?? 0);
 
   type Indicador =
     | { label: string; valor: number; meta: number; inverse?: boolean; format?: 'number' | 'percent'; noMeta?: false }
@@ -169,7 +179,8 @@ export default function TabPEC({ ano, periodo }: Props) {
 
   const indicadores: Indicador[] = [
     { label: 'Evasão',                   valor: pecKpis?.evasao               ?? gv?.pecData?.evasao          ?? ind?.evasao?.valor          ?? 0, meta: evasaoMeta,    format: 'percent', inverse: true  },
-    { label: 'NPS',                       valor: pecKpis?.nps                  ?? gv?.pecData?.nps             ?? ind?.criterioSucesso?.valor ?? 0, meta: avalMeta,      format: 'number', inverse: false },
+    { label: 'NPS',                       valor: npsValor,  meta: npsMeta,       format: 'number', inverse: false },
+    { label: 'Avaliação de Aprendizagem', valor: avalValor, meta: avalAprendMeta, format: 'percent', inverse: false },
     { label: 'Crianças Atendidas',       valor: pecKpis?.atendidos            ?? gv?.pecData?.totalAlunos     ?? ind?.criancasAtendidas?.valor ?? 0, meta: atendidosMeta, format: 'number', inverse: false },
     horasMeta != null
       ? { label: 'Horas Aula',   valor: horasAula,    meta: horasMeta,  format: 'number', inverse: false }

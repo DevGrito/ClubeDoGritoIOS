@@ -35,6 +35,20 @@ export function resolvePushUserKeyFromSession(
   return null;
 }
 
+/**
+ * Cache sessionStorage do portal aluno só deve ser usado quando a sessão HTTP
+ * também é aluno (ou ainda está carregando). Evita vincular push ao CPF antigo após logout.
+ */
+export function shouldTrustAlunoPortalCache(
+  session: AuthSessionPayload | null | undefined,
+  alunoAuth: boolean,
+  sessionLoading = false
+): boolean {
+  if (!alunoAuth) return false;
+  if (isAlunoPushSession(session)) return true;
+  return !session && sessionLoading;
+}
+
 export function resolvePushUserType(
   session: AuthSessionPayload | null | undefined,
   alunoAuth?: boolean
@@ -81,13 +95,13 @@ export function migratePushLocalStorageKeys(
 export function resolvePushUserKeyFromLocalCache(): string | null {
   if (typeof window === "undefined") return null;
 
+  const userId = localStorage.getItem("userId");
+  if (userId && /^\d+$/.test(userId)) return userId;
+
   if (sessionStorage.getItem("aluno_auth") === "true") {
     const cpf = String(sessionStorage.getItem("aluno_cpf") || "").replace(/\D/g, "");
     if (cpf.length >= 11) return cpf.slice(0, 11);
   }
-
-  const userId = localStorage.getItem("userId");
-  if (userId && /^\d+$/.test(userId)) return userId;
 
   return null;
 }

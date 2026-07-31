@@ -29,9 +29,43 @@
   padding-top: calc(env(safe-area-inset-top, 0px) + 1rem) !important;
 }
 
+/* Safe-area inferior — páginas com bottom nav fixa */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Espaço para bottom nav amarela + home indicator */
+.pb-nav {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Shell mobile fluido (substitui maxWidth: 400px hardcoded) */
+.app-shell {
+  width: 100%;
+  max-width: 28rem; /* 448px — confortável em phones largos */
+  margin-left: auto;
+  margin-right: auto;
+  min-height: 100dvh;
+  min-height: 100vh;
+}
+
+/* Cards de carrossel fluido (substitui width: 320px / 338px) */
+.card-carousel {
+  width: min(100%, 20rem);
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.card-carousel-lg {
+  width: min(100%, 21.125rem); /* ~338px */
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
 /* Garantir que o root respeite safe-area */
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
   min-height: -webkit-fill-available;
 }
 
@@ -180,11 +214,6 @@ button.checkbox-green[data-state="checked"] {
   background-color: hsl(45, 95%, 90%);
   border: 1px solid hsl(45, 95%, 75%);
   color: hsl(45, 95%, 25%);
-}
-
-/* Espaço inferior para bottom nav amarela + gesture bar Android */
-.pb-donor-nav {
-  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Scroll suave para containers */

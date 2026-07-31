@@ -18,6 +18,7 @@ import { DESLIGAMENTO_MOTIVOS } from "@shared/turmaMotivos";
 import {
   getSituacaoFormacaoInclusao,
   isAlunoEvadidoInclusao,
+  isAlunoEmpregabilidadeInclusao,
   isTurmaFinalizadaInclusao,
 } from "@/lib/turmaSituacaoAluno";
 
@@ -89,19 +90,19 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   const { toast } = useToast();
   const [turmaAlunos, setTurmaAlunos] = useState<any[]>([]);
   const [loadingAlunos, setLoadingAlunos] = useState(false);
-  const [filterAlunos, setFilterAlunos] = useState<"todos" | "evadidos">("todos");
+  const [filterAlunos, setFilterAlunos] = useState<"todos" | "evadidos" | "empregabilidade">("todos");
   const [searchEnrolled, setSearchEnrolled] = useState("");
   const [showAddAluno, setShowAddAluno] = useState(false);
   const [searchAluno, setSearchAluno] = useState("");
   const [allParticipantes, setAllParticipantes] = useState<any[]>([]);
   const [loadingAll, setLoadingAll] = useState(false);
-  const [addingId, setAddingId] = useState<number | null>(null);
-  const [pendingAddParticipante, setPendingAddParticipante] = useState<{ id: number; nome: string } | null>(null);
+  const [addingId, setAddingId] = useState<number | string | null>(null);
+  const [pendingAddParticipante, setPendingAddParticipante] = useState<{ id: number | null; cpf?: string | null; nome: string } | null>(null);
   const [dataIngressoInclusao, setDataIngressoInclusao] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [desligarModal, setDesligarModal] = useState<{ id: number; nome: string } | null>(null);
+  const [desligarModal, setDesligarModal] = useState<{ id: number | null; cpf?: string | null; nome: string } | null>(null);
   const [desligarMotivo, setDesligarMotivo] = useState("");
   const [submittingDesligar, setSubmittingDesligar] = useState(false);
-  const [evasaoModal, setEvasaoModal] = useState<{ id: number; nome: string } | null>(null);
+  const [evasaoModal, setEvasaoModal] = useState<{ id: number | null; cpf?: string | null; nome: string } | null>(null);
   const [dataEvasao, setDataEvasao] = useState(new Date().toISOString().split("T")[0]);
   const [submittingEvasao, setSubmittingEvasao] = useState(false);
   const [frequencias, setFrequencias] = useState<Record<string, { presencas: number; total: number }> | null>(null);
@@ -161,7 +162,11 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     setLoadingDetalhes(true);
     setFullParticipanteData(null);
     try {
-      const res = await fetch(`/api/participantes-inclusao/${aluno.id}`, { credentials: "include" });
+      const cpfDigits = String(aluno.cpf || "").replace(/\D/g, "");
+      const url = aluno.id != null
+        ? `/api/participantes-inclusao/${aluno.id}`
+        : `/api/participantes-inclusao/cpf/${cpfDigits}`;
+      const res = await fetch(url, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setFullParticipanteData(data);
@@ -230,19 +235,28 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     }
   };
 
-  const handleAddAluno = async (participanteId: number, dataIngresso?: string) => {
+  const handleAddAluno = async (
+    participante: { id: number | null; cpf?: string | null },
+    dataIngresso?: string
+  ) => {
     if (!turma?.id) return;
-    setAddingId(participanteId);
+    const pathId = participante.id != null ? participante.id : 0;
+    setAddingId(participante.id ?? participante.cpf ?? "pending");
     try {
-      const resp = await fetch(`/api/participantes-inclusao/${participanteId}/turmas/${turma.id}`, {
+      const resp = await fetch(`/api/participantes-inclusao/${pathId}/turmas/${turma.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ dataIngresso: dataIngresso || undefined }),
+        body: JSON.stringify({
+          dataIngresso: dataIngresso || undefined,
+          ...(participante.cpf ? { cpf: String(participante.cpf).replace(/\D/g, "") } : {}),
+        }),
       });
       if (resp.ok) {
         toast({ title: "Participante adicionado à turma." });
         await reloadAlunos();
+        // Atualiza lista do picker (ids legado podem ter sido criados agora)
+        await fetchAllParticipantes();
       } else {
         const err = await resp.json().catch(() => ({}));
         toast({ title: "Erro", description: err.error || "Não foi possível adicionar.", variant: "destructive" });
@@ -258,14 +272,23 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     if (!desligarModal || !desligarMotivo || !turma?.id) return;
     setSubmittingDesligar(true);
     try {
-      const resp = await fetch(`/api/participantes-inclusao/${desligarModal.id}/turmas/${turma.id}`, {
+      const pathId = desligarModal.id != null ? desligarModal.id : 0;
+      const cpfDigits = String(desligarModal.cpf || "").replace(/\D/g, "");
+      const resp = await fetch(`/api/participantes-inclusao/${pathId}/turmas/${turma.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ motivo: desligarMotivo }),
+        body: JSON.stringify({
+          motivo: desligarMotivo,
+          ...(cpfDigits.length === 11 ? { cpf: cpfDigits } : {}),
+        }),
       });
       if (resp.ok) {
-        toast({ title: "Participante desligado", description: `Motivo: ${desligarMotivo}` });
+        const isEmp = desligarMotivo === "Empregabilidade";
+        toast({
+          title: isEmp ? "Movido para Empregabilidade" : "Participante desligado",
+          description: `Motivo: ${desligarMotivo}`,
+        });
         setDesligarModal(null);
         setDesligarMotivo("");
         await reloadAlunos();
@@ -284,11 +307,16 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     if (!evasaoModal || !turma?.id || !dataEvasao) return;
     setSubmittingEvasao(true);
     try {
-      const resp = await fetch(`/api/participantes-inclusao/${evasaoModal.id}/turmas/${turma.id}/evasao`, {
+      const pathId = evasaoModal.id != null ? evasaoModal.id : 0;
+      const cpfDigits = String(evasaoModal.cpf || "").replace(/\D/g, "");
+      const resp = await fetch(`/api/participantes-inclusao/${pathId}/turmas/${turma.id}/evasao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ dataEvasao }),
+        body: JSON.stringify({
+          dataEvasao,
+          ...(cpfDigits.length === 11 ? { cpf: cpfDigits } : {}),
+        }),
       });
       if (resp.ok) {
         toast({ title: "Evasão registrada", description: `${evasaoModal.nome} — ${formatarData(dataEvasao)}` });
@@ -308,9 +336,13 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   const handleReverterEvasao = async (aluno: any) => {
     if (!turma?.id) return;
     try {
-      const resp = await fetch(`/api/participantes-inclusao/${aluno.id}/turmas/${turma.id}/reverter-evasao`, {
+      const pathId = aluno.id != null ? aluno.id : 0;
+      const cpfDigits = String(aluno.cpf || "").replace(/\D/g, "");
+      const resp = await fetch(`/api/participantes-inclusao/${pathId}/turmas/${turma.id}/reverter-evasao`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify(cpfDigits.length === 11 ? { cpf: cpfDigits } : {}),
       });
       if (resp.ok) {
         toast({ title: "Aluno reativado", description: `${aluno.nome || aluno.nomeCompleto} está ativo novamente na turma.` });
@@ -325,16 +357,31 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   };
 
   const enrolledIds = new Set(
-    turmaAlunos.filter(a => !isAlunoEvadidoInclusao(a)).map(a => a.id)
+    turmaAlunos
+      .filter((a) => !isAlunoEvadidoInclusao(a) && !isAlunoEmpregabilidadeInclusao(a))
+      .map((a) => a.id)
+      .filter((id) => id != null)
+  );
+  const enrolledCpfs = new Set(
+    turmaAlunos
+      .filter((a) => !isAlunoEvadidoInclusao(a) && !isAlunoEmpregabilidadeInclusao(a))
+      .map(a => String(a.cpf || "").replace(/\D/g, ""))
+      .filter(Boolean)
   );
 
   const filteredAlunos = turmaAlunos
-    .filter(a => {
-      if (filterAlunos === "evadidos" && !isAlunoEvadidoInclusao(a)) return false;
+    .filter((a) => {
+      if (filterAlunos === "evadidos") {
+        if (!isAlunoEvadidoInclusao(a)) return false;
+      } else if (filterAlunos === "empregabilidade") {
+        if (!isAlunoEmpregabilidadeInclusao(a)) return false;
+      } else if (isAlunoEvadidoInclusao(a) || isAlunoEmpregabilidadeInclusao(a)) {
+        return false;
+      }
       if (searchEnrolled.trim()) {
         const term = searchEnrolled.trim().toLowerCase();
         const nome = (a.nome || a.nomeCompleto || "").toLowerCase();
-        const cpf = (a.cpf || "");
+        const cpf = a.cpf || "";
         if (!nome.includes(term) && !cpf.includes(searchEnrolled.trim())) return false;
       }
       return true;
@@ -342,9 +389,15 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
     .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
   const totalEvadidos = turmaAlunos.filter(isAlunoEvadidoInclusao).length;
+  const totalEmpregabilidade = turmaAlunos.filter(isAlunoEmpregabilidadeInclusao).length;
 
   const availableParticipantes = allParticipantes
-    .filter(p => !enrolledIds.has(p.id))
+    .filter(p => {
+      const cpf = String(p.cpf || "").replace(/\D/g, "");
+      if (p.id != null && enrolledIds.has(p.id)) return false;
+      if (cpf && enrolledCpfs.has(cpf)) return false;
+      return true;
+    })
     .filter(p => {
       if (!searchAluno) return true;
       const term = searchAluno.toLowerCase();
@@ -366,7 +419,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl w-[95vw] max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalhes da Turma</DialogTitle>
           </DialogHeader>
@@ -408,7 +461,12 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <Users className="w-4 h-4" /> Alunos da Turma
                     <span className="text-xs font-normal text-gray-500">
-                      ({turmaAlunos.length} no total{totalEvadidos > 0 ? `, ${totalEvadidos} evadido${totalEvadidos !== 1 ? "s" : ""}` : ""})
+                      ({turmaAlunos.length} no total
+                      {totalEvadidos > 0 ? `, ${totalEvadidos} evadido${totalEvadidos !== 1 ? "s" : ""}` : ""}
+                      {totalEmpregabilidade > 0
+                        ? `, ${totalEmpregabilidade} empregabilidade`
+                        : ""}
+                      )
                     </span>
                   </h3>
                   <div className="flex items-center gap-2">
@@ -443,6 +501,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                       <SelectContent>
                         <SelectItem value="todos">Todos</SelectItem>
                         <SelectItem value="evadidos">Evadidos</SelectItem>
+                        <SelectItem value="empregabilidade">Empregabilidade</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -463,24 +522,31 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                   <div className="text-center py-6 text-sm text-gray-500">Carregando alunos...</div>
                 ) : filteredAlunos.length === 0 ? (
                   <div className="text-center py-6 text-sm text-gray-400">
-                    {searchEnrolled.trim() ? "Nenhum aluno encontrado." : filterAlunos === "evadidos" ? "Nenhum aluno evadido nesta turma." : "Nenhum aluno matriculado."}
+                    {searchEnrolled.trim()
+                      ? "Nenhum aluno encontrado."
+                      : filterAlunos === "evadidos"
+                        ? "Nenhum aluno evadido nesta turma."
+                        : filterAlunos === "empregabilidade"
+                          ? "Nenhum aluno em empregabilidade nesta turma."
+                          : "Nenhum aluno matriculado."}
                   </div>
                 ) : (
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
+                  <div className="border rounded-lg overflow-x-auto">
+                    <Table className="min-w-[720px]">
                       <TableHeader>
                         <TableRow className="bg-gray-50">
-                          <TableHead className="text-xs">Nome</TableHead>
-                          <TableHead className="text-xs">CPF</TableHead>
-                          <TableHead className="text-xs">Frequência</TableHead>
-                          <TableHead className="text-xs">Situação</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                          <TableHead className="text-xs text-right">Ação</TableHead>
+                          <TableHead className="text-xs min-w-[160px]">Nome</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">CPF</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">Frequência</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">Situação</TableHead>
+                          <TableHead className="text-xs whitespace-nowrap">Status</TableHead>
+                          <TableHead className="text-xs text-right whitespace-nowrap min-w-[180px]">Ação</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredAlunos.map((a: any) => {
                           const isEvadido = isAlunoEvadidoInclusao(a);
+                          const isEmpregabilidade = isAlunoEmpregabilidadeInclusao(a);
                           const dataEvasaoAluno = a.dataEvasao || a.dataEvasaoPec;
                           const freqData = frequencias?.[String(a.id)];
                           const pres = freqData?.presencas ?? null;
@@ -492,7 +558,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                             : pct >= 60 ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
                             : "bg-red-100 text-red-700 hover:bg-red-200";
                           return (
-                            <TableRow key={a.id} className={isEvadido ? "bg-gray-50/80" : ""}>
+                            <TableRow key={a.id} className={isEvadido || isEmpregabilidade ? "bg-gray-50/80" : ""}>
                               <TableCell className="text-sm py-2">
                                 <button
                                   className="font-medium text-left text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
@@ -528,11 +594,18 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                                       <p className="text-xs text-gray-400 mt-0.5">{formatarData(dataEvasaoAluno)}</p>
                                     )}
                                   </div>
+                                ) : isEmpregabilidade ? (
+                                  <div>
+                                    <Badge className="text-xs bg-blue-100 text-blue-800 hover:bg-blue-100">Empregabilidade</Badge>
+                                    {a.dataDesligamento && (
+                                      <p className="text-xs text-gray-400 mt-0.5">{formatarData(a.dataDesligamento)}</p>
+                                    )}
+                                  </div>
                                 ) : (
                                   <Badge className="text-xs bg-green-100 text-green-800 hover:bg-green-100">Ativo</Badge>
                                 )}
                               </TableCell>
-                              <TableCell className="text-right py-2">
+                              <TableCell className="text-right py-2 whitespace-nowrap">
                                 {isEvadido ? (
                                   <Button
                                     size="sm"
@@ -542,6 +615,8 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                                   >
                                     Reativar
                                   </Button>
+                                ) : isEmpregabilidade ? (
+                                  <span className="text-xs text-gray-400">—</span>
                                 ) : (
                                   <div className="flex items-center justify-end gap-1">
                                     <Button
@@ -549,7 +624,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                                       variant="outline"
                                       className="h-7 text-xs text-orange-600 border-orange-200 hover:bg-orange-50"
                                       onClick={() => {
-                                        setEvasaoModal({ id: a.id, nome: a.nome || a.nomeCompleto || "Participante" });
+                                        setEvasaoModal({ id: a.id ?? null, cpf: a.cpf, nome: a.nome || a.nomeCompleto || "Participante" });
                                         setDataEvasao(new Date().toISOString().split("T")[0]);
                                       }}
                                     >
@@ -559,7 +634,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                                       size="sm"
                                       variant="outline"
                                       className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
-                                      onClick={() => { setDesligarModal({ id: a.id, nome: a.nome || a.nomeCompleto || "Participante" }); setDesligarMotivo(""); }}
+                                      onClick={() => { setDesligarModal({ id: a.id ?? null, cpf: a.cpf, nome: a.nome || a.nomeCompleto || "Participante" }); setDesligarMotivo(""); }}
                                     >
                                       <UserX className="w-3 h-3 mr-1" /> Desligar
                                     </Button>
@@ -595,7 +670,7 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                     ) : (
                       <div className="max-h-[200px] overflow-y-auto space-y-1">
                         {availableParticipantes.slice(0, 20).map((p: any) => (
-                          <div key={p.id} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-sm">
+                          <div key={p.id ?? `cpf-${p.cpf}`} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-sm">
                             <div className="flex items-center gap-2">
                               <span>{(p.nome || p.nomeCompleto || "").trim()}</span>
                               {(p.status || "").toLowerCase() === "inativo" && (
@@ -605,13 +680,17 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
                             <Button
                               size="sm"
                               className="h-6 text-xs px-2"
-                              disabled={addingId === p.id}
+                              disabled={addingId === p.id || addingId === p.cpf}
                               onClick={() => {
                                 setDataIngressoInclusao(new Date().toISOString().split('T')[0]);
-                                setPendingAddParticipante({ id: p.id, nome: p.nome || p.nomeCompleto || String(p.id) });
+                                setPendingAddParticipante({
+                                  id: p.id ?? null,
+                                  cpf: p.cpf || null,
+                                  nome: p.nome || p.nomeCompleto || String(p.id ?? p.cpf),
+                                });
                               }}
                             >
-                              {addingId === p.id ? "..." : "+ Adicionar"}
+                              {addingId === p.id || addingId === p.cpf ? "..." : "+ Adicionar"}
                             </Button>
                           </div>
                         ))}
@@ -633,7 +712,10 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
           <AlertDialogHeader>
             <AlertDialogTitle>Desligar da Turma</AlertDialogTitle>
             <AlertDialogDescription>
-              Selecione o motivo do desligamento de <strong>{desligarModal?.nome}</strong>. O vínculo será removido (não conta como evasão).
+              Selecione o motivo do desligamento de <strong>{desligarModal?.nome}</strong>.
+              {desligarMotivo === "Empregabilidade"
+                ? " O aluno sai da lista de chamada e fica no filtro Empregabilidade (presenças mantidas)."
+                : " O vínculo será removido (não conta como evasão)."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-3 grid grid-cols-1 gap-2">
@@ -724,7 +806,10 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
               disabled={!dataIngressoInclusao || !!addingId}
               onClick={() => {
                 if (!pendingAddParticipante) return;
-                handleAddAluno(pendingAddParticipante.id, dataIngressoInclusao);
+                handleAddAluno(
+                  { id: pendingAddParticipante.id, cpf: pendingAddParticipante.cpf },
+                  dataIngressoInclusao
+                );
                 setPendingAddParticipante(null);
               }}
             >
@@ -754,6 +839,8 @@ export function TurmaDetailModalInclusao({ open, onOpenChange, turma }: TurmaDet
         color="blue"
         nome={fullParticipanteData?.nome}
         cpf={fullParticipanteData ? formatCPF(fullParticipanteData.cpf) : undefined}
+        historicoCpf={fullParticipanteData?.cpf ? String(fullParticipanteData.cpf).replace(/\D/g, "") : undefined}
+        historicoParticipanteId={fullParticipanteData?.id}
         status={fullParticipanteData?.status}
         sections={fullParticipanteData ? ([
           {

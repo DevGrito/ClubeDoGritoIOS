@@ -219,6 +219,13 @@ export const ALUNO_PUSH_TARGET_GATILHOS = new Set([
   "falta_registrada_aluno",
   "aula_aluno_proxima",
   "turma_aluno_alterada",
+  "acolhimento_agendado",
+  "acolhimento_serie_criada",
+  "acolhimento_cancelado",
+  "acolhimento_faltou",
+  "acolhimento_lembrete_d1",
+  "acolhimento_lembrete_2h",
+  "acolhimento_frequencia_baixa",
 ]);
 
 /** Broadcast intencional apenas para doadores (evita vazar para aluno/staff). */
@@ -411,6 +418,9 @@ const PUSH_VAR_ALIASES: Record<string, string[]> = {
   erro_resumido: ["erro", "descricao", "mensagem"],
   servico: ["integracao"],
   integracao: ["servico"],
+  nome_catraca: ["unidade", "catraca"],
+  unidade: ["nome_catraca", "catraca"],
+  catraca: ["nome_catraca", "unidade"],
 };
 
 /** Unifica nomes de variáveis entre templates (banco) e disparos (código). */

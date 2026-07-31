@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 import { buildQp, type PeriodoFiltro, periodoLabel, periodoMesUnico } from "./shared";
+import { fetchGestaoVistaDashboard } from "./fetchGestaoVista";
 
 interface Props { ano: string; periodo: PeriodoFiltro; }
 
@@ -84,7 +85,7 @@ export default function TabDemografico({ ano, periodo }: Props) {
 
   const { data: gv, isLoading: loadingGv } = useQuery<any>({
     queryKey: ['/api/gestao-vista', ano, periodo],
-    queryFn: () => fetch(gvUrl).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(gvUrl).then(r => r.json()),
     refetchInterval: 60000,
   });
 

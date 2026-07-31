@@ -2,6 +2,8 @@
  * Fase 2 push: resolução de rota de clique (gatilho / destino / módulo) e payload FCM.
  */
 
+import { buildPushFcmDataFields } from "../shared/pushFcmData";
+
 export type PushRuleUrlSource = {
   url?: string | null;
   gatilho?: string | null;
@@ -54,6 +56,14 @@ export const PUSH_URL_BY_GATILHO: Record<string, string> = {
   aula_aluno_proxima: "/aluno",
   turma_aluno_alterada: "/aluno",
   aluno_primeiro_acesso: "/aluno",
+  acolhimento_agendado: "/aluno?tab=acolhimentos",
+  acolhimento_serie_criada: "/aluno?tab=acolhimentos",
+  acolhimento_cancelado: "/aluno?tab=acolhimentos",
+  acolhimento_faltou: "/aluno?tab=acolhimentos",
+  acolhimento_lembrete_d1: "/aluno?tab=acolhimentos",
+  acolhimento_lembrete_2h: "/aluno?tab=acolhimentos",
+  acolhimento_frequencia_baixa: "/aluno?tab=acolhimentos",
+  // Staff: resolvido por papel em resolvePushClickPath (não usar URL fixa)
   lance_recebido: "/meus-lances",
   lance_superado: "/meus-lances",
   lance_vencedor: "/meus-lances",
@@ -61,8 +71,8 @@ export const PUSH_URL_BY_GATILHO: Record<string, string> = {
   leilao_encerrado: "/beneficios",
   leilao_encerrando: "/beneficios",
   novo_beneficio: "/beneficios",
-  missao_concluida: "/missoes",
-  nova_missao: "/missoes",
+  missao_concluida: "/missoes-semanais",
+  nova_missao: "/missoes-semanais",
   conquista_liberada: "/tdoador",
   gritos_creditados: "/tdoador",
   gritos_utilizados: "/tdoador",
@@ -135,6 +145,19 @@ function normalizePath(path: string): string {
   return t.startsWith("/") ? t : `/${t}`;
 }
 
+/**
+ * Alias de rotas antigas → rota canônica atual do app.
+ * Cobre regras no banco com `url` desatualizada sem exigir migração.
+ */
+const PUSH_PATH_ALIASES: Record<string, string> = {
+  "/missoes": "/missoes-semanais",
+};
+
+function applyPushPathAlias(path: string | undefined): string | undefined {
+  if (!path) return path;
+  return PUSH_PATH_ALIASES[path] ?? path;
+}
+
 function resolveMonitorVertenteUrl(vertente?: string | null): string {
   const v = (vertente || "").toLowerCase();
   if (v === "inclusao") return "/monitor/inclusao";
@@ -169,7 +192,7 @@ function resolveMetaBatidaClickUrl(
   }
   if (role.includes("professor")) {
     if (mod === "inclusao" || v.includes("inclus") || role.includes("inclusao")) return "/professor/inclusao";
-    if (mod === "psico" || v.includes("psico") || role.includes("psico")) return "/professor/psico";
+    if (mod === "psico" || v.includes("psico") || role.includes("psico")) return "/professor";
     return "/professor/pec";
   }
   if (role.includes("coordenador")) {
@@ -264,6 +287,43 @@ export function resolveIndicadorDestinoRoles(modulo?: string | null): string[] |
   return INDICADOR_ROLES_BY_MODULO[mod];
 }
 
+function resolveAcolhimentoStaffClickUrl(
+  userType?: string | null,
+  gatilho?: string | null
+): string {
+  const role = (userType || "").toLowerCase();
+  const filtroPendentes =
+    gatilho === "acolhimento_sem_status" ? "&filtro=pendentes" : "";
+  if (role.includes("monitor")) {
+    return `/monitor/psico?tab=acolhimentos${filtroPendentes}`;
+  }
+  if (role.includes("tecnica")) {
+    return `/tecnica/psicossocial?tab=acolhimentos${filtroPendentes}`;
+  }
+  return `/coordenador/psicossocial?tab=acolhimentos${filtroPendentes}`;
+}
+
+const ACOLHIMENTO_ALUNO_GATILHOS = new Set([
+  "acolhimento_agendado",
+  "acolhimento_serie_criada",
+  "acolhimento_cancelado",
+  "acolhimento_faltou",
+  "acolhimento_lembrete_d1",
+  "acolhimento_lembrete_2h",
+  "acolhimento_frequencia_baixa",
+]);
+
+const ACOLHIMENTO_STAFF_GATILHOS = new Set([
+  "acolhimento_novo_staff",
+  "acolhimento_cancelado_staff",
+  "acolhimento_resumo_dia",
+  "acolhimento_em_15min",
+  "acolhimento_muitas_faltas",
+  "acolhimento_frequencia_baixa_staff",
+  "acolhimento_sem_status",
+  "acolhimento_sem_proximo",
+]);
+
 /** Caminho relativo de clique para uma regra (sem host). */
 export function resolvePushClickPath(
   rule: PushRuleUrlSource,
@@ -273,6 +333,13 @@ export function resolvePushClickPath(
 
   if (gatilho && PUSH_GATILHOS_SEM_CLIQUE.has(gatilho)) {
     return undefined;
+  }
+
+  if (ACOLHIMENTO_ALUNO_GATILHOS.has(gatilho)) {
+    return "/aluno?tab=acolhimentos";
+  }
+  if (ACOLHIMENTO_STAFF_GATILHOS.has(gatilho)) {
+    return resolveAcolhimentoStaffClickUrl(ctx?.userType, gatilho);
   }
 
   if (gatilho === "historia_sucesso_publicada" || gatilho === "historia_sucesso_atualizada") {
@@ -309,10 +376,10 @@ export function resolvePushClickPath(
   }
 
   const explicit = rule.url?.trim();
-  if (explicit) return normalizePath(explicit);
+  if (explicit) return applyPushPathAlias(normalizePath(explicit));
 
   if (gatilho && PUSH_URL_BY_GATILHO[gatilho]) {
-    return normalizePath(PUSH_URL_BY_GATILHO[gatilho]);
+    return applyPushPathAlias(normalizePath(PUSH_URL_BY_GATILHO[gatilho]));
   }
 
   const byRoles = resolvePushUrlByRoles(rule.destino_roles);
@@ -352,6 +419,25 @@ export function toAbsolutePushUrl(pathOrUrl: string | null | undefined, baseUrl?
   return path;
 }
 
+/**
+ * Caminho relativo (sem host) para o clique do push.
+ * O service worker resolve contra a origin atual do app, evitando abrir
+ * outro domínio (ex.: APP_URL de produção) sem sessão → "Acesso negado".
+ */
+export function toRelativePushPath(pathOrUrl: string | null | undefined): string | undefined {
+  const raw = (pathOrUrl || "").trim();
+  if (!raw) return undefined;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      return applyPushPathAlias(parsed.pathname + parsed.search + parsed.hash) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return applyPushPathAlias(normalizePath(raw));
+}
+
 export function resolvePushClickUrl(
   rule: PushRuleUrlSource,
   baseUrl?: string,
@@ -363,11 +449,12 @@ export function resolvePushClickUrl(
 }
 
 export type FcmWebPushParts = {
-  webpush: {
-    notification: Record<string, unknown>;
-    fcmOptions?: { link: string };
-  };
+  /** Data-only no web: o SW exibe via showNotification e anexa data.url no clique. */
   data: Record<string, string>;
+  webpush?: {
+    headers?: Record<string, string>;
+    data?: Record<string, string>;
+  };
 };
 
 export function buildFcmWebPushParts(params: {
@@ -375,28 +462,21 @@ export function buildFcmWebPushParts(params: {
   body: string;
   clickUrl?: string | null;
   iconUrl: string;
-  badgeUrl: string;
+  badgeUrl?: string | null;
 }): FcmWebPushParts {
-  const clickUrl = params.clickUrl?.trim() || undefined;
-  const data: Record<string, string> = {
-    title: params.title,
-    body: params.body,
-  };
-  if (clickUrl) data.url = clickUrl;
+  // Sempre relativo: o SW abre na origin atual (mesmo app/sessão do usuário).
+  // Não usamos fcmOptions.link (URL absoluta) porque forçaria o domínio do
+  // servidor (APP_URL) e abriria uma origem sem cookie de sessão.
+  // Não usamos webpush.notification: o browser exibiria sem data.url no clique.
+  const clickUrl = toRelativePushPath(params.clickUrl);
+  const data = buildPushFcmDataFields(params.title, params.body, clickUrl);
 
   return {
-    webpush: {
-      notification: {
-        title: params.title,
-        body: params.body,
-        icon: params.iconUrl,
-        badge: params.badgeUrl,
-        vibrate: [200, 100, 200],
-        ...(clickUrl ? { data: { url: clickUrl } } : {}),
-      },
-      ...(clickUrl ? { fcmOptions: { link: clickUrl } } : {}),
-    },
     data,
+    webpush: {
+      headers: { Urgency: "high" },
+      data,
+    },
   };
 }
 
@@ -406,7 +486,7 @@ export function buildFcmTokenMessage(params: {
   body: string;
   clickUrl?: string | null;
   iconUrl: string;
-  badgeUrl: string;
+  badgeUrl?: string | null;
 }) {
   const parts = buildFcmWebPushParts(params);
   return {

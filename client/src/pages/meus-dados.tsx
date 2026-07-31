@@ -24,7 +24,7 @@ import { openPrivacyPreferences } from "@/lib/consentManager";
 import BottomNavigation from "@/components/bottom-navigation";
 import { LGPD_CONTACT_EMAIL, buildLgpdMailto } from "@/lib/lgpdContact";
 import { useAuthSession } from "@/hooks/useAuthSession";
-import { isNonDonorLgpdProfile, resolveLgpdBackPath } from "@/lib/lgpdBackPath";
+import { isConselhoLgpdProfile, isNonDonorLgpdProfile, resolveLgpdBackPath } from "@/lib/lgpdBackPath";
 
 const PLAN_LABELS: Record<string, string> = {
   eco: "Eco",
@@ -131,7 +131,11 @@ export default function MeusDados() {
   const isAluno = data?.tipoAtor === "aluno";
   const isPatrocinador = data?.tipoAtor === "patrocinador";
   const isStaff = ["coordenador", "professor", "monitor"].includes(String(data?.tipoAtor || ""));
-  const nonDonor = isNonDonorLgpdProfile(authSession?.papel, authSession?.role) || isAluno || isStaff || isPatrocinador;
+  const isConselho = isConselhoLgpdProfile(authSession?.papel, authSession?.role);
+  const nonDonor =
+    isNonDonorLgpdProfile(authSession?.papel, authSession?.role) || isAluno || isStaff || isPatrocinador;
+  /** Conselho consulta/exporta como conta (sem doação), mas pode editar cadastro. */
+  const canEditCadastrais = !isAluno && !isStaff && !isPatrocinador;
   const cursos = data?.cursos || [];
   const patrocinio = data?.patrocinio;
   const perfilStaff = data?.perfilStaff;
@@ -139,6 +143,16 @@ export default function MeusDados() {
     isAssinaturaAtiva(d)
   );
   const backPath = resolveLgpdBackPath(authSession?.papel, authSession?.role);
+  const displayNome =
+    (usuario?.nome as string | undefined) ||
+    (authSession?.nome as string | undefined) ||
+    localStorage.getItem("userName") ||
+    null;
+  const displayEmail =
+    (usuario?.email as string | undefined) ||
+    (authSession?.email as string | undefined) ||
+    localStorage.getItem("userEmail") ||
+    null;
 
   return (
     <motion.div
@@ -195,6 +209,11 @@ export default function MeusDados() {
                   <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />
                 ))}
               </div>
+            ) : isConselho ? (
+              <>
+                <Row label="Nome" value={displayNome} />
+                <Row label="E-mail" value={displayEmail} />
+              </>
             ) : (
               <>
                 <Row label="Nome" value={usuario?.nome} />
@@ -223,7 +242,7 @@ export default function MeusDados() {
                 <Row label="Cadastro em" value={formatDate(usuario?.created_at)} />
               </>
             )}
-            {!nonDonor && (
+            {canEditCadastrais && (
               <>
                 <Separator />
                 <Button
@@ -232,7 +251,7 @@ export default function MeusDados() {
                   className="w-full text-sm"
                   onClick={() => setLocation("/dados-cadastrais")}
                 >
-                  Editar meus dados
+                  {isConselho ? "Editar nome" : "Editar meus dados"}
                   <ChevronRight className="w-4 h-4 ml-auto" />
                 </Button>
               </>
@@ -431,7 +450,9 @@ export default function MeusDados() {
                   ? "Baixe um arquivo JSON com seu cadastro profissional, documentos aceitos e consentimentos (portabilidade LGPD)."
                   : isPatrocinador
                     ? "Baixe um arquivo JSON com seu cadastro, dados de patrocínio, documentos aceitos e consentimentos (portabilidade LGPD)."
-                    : "Baixe um arquivo JSON com cadastro, doações, documentos aceitos, histórico de consentimentos e solicitações registradas (portabilidade LGPD)."}
+                    : isConselho
+                      ? "Baixe um arquivo JSON com seu cadastro de conselheiro, documentos aceitos, histórico de consentimentos e solicitações registradas (portabilidade LGPD)."
+                      : "Baixe um arquivo JSON com cadastro, doações, documentos aceitos, histórico de consentimentos e solicitações registradas (portabilidade LGPD)."}
             </p>
             <Button
               onClick={() => void handleExportar()}
@@ -468,7 +489,7 @@ export default function MeusDados() {
         </Card>
       </div>
 
-      {!nonDonor && <BottomNavigation />}
+      {(!nonDonor || isConselho) && <BottomNavigation />}
     </motion.div>
   );
 }

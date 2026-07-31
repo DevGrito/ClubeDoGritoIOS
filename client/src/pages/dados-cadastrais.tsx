@@ -31,6 +31,7 @@ export default function DadosCadastrais() {
   // Detectar se o usuário é patrocinador
   const userPapel = String(authSession?.papel || authSession?.role || localStorage.getItem("userPapel") || "");
   const isPatrocinador = userPapel === "patrocinador";
+  const isConselho = userPapel === "conselho" || userPapel === "conselheiro";
 
   // TRECHO ADICIONADO
   useEffect(() => {
@@ -65,7 +66,15 @@ export default function DadosCadastrais() {
             nomeEmpresa: formData.nomeEmpresa ?? "",
             nomeResponsavel: formData.nomeResponsavel ?? "",
           }
-        : {
+        : isConselho
+          ? {
+              // Conselho só pode alterar o nome
+              nome: formData.nome ?? "",
+              sobrenome: formData.sobrenome ?? "",
+              email: userData?.email ?? formData.email ?? "",
+              telefone: userData?.telefone ?? formData.telefone ?? "",
+            }
+          : {
             nome: formData.nome ?? "",
             sobrenome: formData.sobrenome ?? "",
             email: formData.email ?? "",
@@ -77,7 +86,9 @@ export default function DadosCadastrais() {
       setIsEditing(false);
       toast({
         title: "Dados atualizados",
-        description: "Suas informações foram salvas com sucesso",
+        description: isConselho
+          ? "Seu nome foi atualizado com sucesso"
+          : "Suas informações foram salvas com sucesso",
       });
     } catch (error) {
       console.error("Error saving user data:", error);
@@ -104,7 +115,7 @@ export default function DadosCadastrais() {
     const planoAtual = ((formData.plano ?? userData?.plano) ?? "") as keyof typeof planNames;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-nav">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-100">
         <div className="max-w-md mx-auto px-4 pt-12 pb-4 flex items-center justify-between">
@@ -186,6 +197,32 @@ export default function DadosCadastrais() {
                   />
                 </div>
               </>
+            ) : isConselho ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="nome">Nome</Label>
+                  <Input
+                    ref={firstInputRef}
+                    id="nome"
+                    name="nome"
+                    value={formData.nome ?? ""}
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="sobrenome">Sobrenome</Label>
+                  <Input
+                    id="sobrenome"
+                    name="sobrenome"
+                    value={formData.sobrenome ?? ""}
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -222,24 +259,31 @@ export default function DadosCadastrais() {
                 type="email"
                 value={formData.email ?? ""}
                 onChange={handleChange}
-                disabled={!isEditing}
-                className="mt-1"
+                disabled={!isEditing || isConselho}
+                className={`mt-1 ${isConselho ? "bg-gray-100" : ""}`}
               />
+              {isConselho && (
+                <p className="text-xs text-gray-500 mt-1">
+                  O e-mail do conselho não pode ser alterado por aqui.
+                </p>
+              )}
             </div>
 
-            <div>
-              <Label htmlFor="telefone">Telefone</Label>
-              <Input
-                id="telefone"
-                name="telefone"
-                value={formData.telefone ?? ""}
-                onChange={handleChange}
-                disabled={!isEditing}
-                className="mt-1"
-              />
-            </div>
+            {!isConselho && (
+              <div>
+                <Label htmlFor="telefone">Telefone</Label>
+                <Input
+                  id="telefone"
+                  name="telefone"
+                  value={formData.telefone ?? ""}
+                  onChange={handleChange}
+                  disabled={!isEditing}
+                  className="mt-1"
+                />
+              </div>
+            )}
 
-            {!isPatrocinador && (
+            {!isPatrocinador && !isConselho && (
               <div>
                 <Label htmlFor="plano">Plano Atual</Label>
                 <Input

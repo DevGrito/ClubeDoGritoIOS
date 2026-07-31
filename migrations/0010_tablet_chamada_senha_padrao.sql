@@ -1,0 +1,4 @@
+-- Senha padrão dos tablets de chamada: ChamadaGrito@1234
+-- (hash bcrypt gerado pelo servidor no startup; este arquivo documenta o padrão)
+-- Usuários: chamada_pec (vertente pec), chamada_inclusao (vertente inclusao)
+-- Override via env TABLET_CHAMADA_SENHA no deploy.

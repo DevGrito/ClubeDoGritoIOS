@@ -94,8 +94,11 @@ export default function BottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 w-full bg-white border-t border-gray-200 shadow z-50">
-      <div className="flex justify-around py-2 max-w-xl mx-auto">
+    <nav
+      className="fixed bottom-0 w-full bg-white border-t border-gray-200 shadow z-50"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
+      <div className="flex justify-around py-2 max-w-xl mx-auto px-2">
         {navItems.map(({ icon: Icon, path, label }) => (
           <Link
             key={path}

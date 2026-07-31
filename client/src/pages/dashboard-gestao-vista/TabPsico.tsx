@@ -2,32 +2,23 @@ import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import {
   getPct, getColor, SectorCard, buildQp, appendPeriodoParams,
-  type PeriodoFiltro, metaFnPeriodo, periodoMesesLista,
+  type PeriodoFiltro, metaFnPeriodo, metaEspacoGritoPeriodo, formatMetaValor, metaNoPeriodo, isPeriodoSemMeta,
 } from "./shared";
+import { fetchGestaoVistaDashboard } from "./fetchGestaoVista";
 
 interface Props { ano: string; periodo: PeriodoFiltro; }
 
-const MESES_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-
-/** Meta anual 10: 1 por mês de fev a nov (jan e dez sem meta prevista) */
-const MESES_COM_META_ESPACO = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-
-function metaEspacoGritoPeriodo(periodo: PeriodoFiltro): number {
-  if (periodo === 'todos') {
-    const mesLimite = new Date().getMonth() + 1;
-    return [...MESES_COM_META_ESPACO].filter(m => m <= mesLimite).length;
-  }
-  return periodoMesesLista(periodo).filter(m => MESES_COM_META_ESPACO.has(m)).length;
-}
+const MESES_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 /* ── Card com meta ───────────────────────────────────────────────────── */
 function SsKpiCard({ label, valor, meta, format = 'number' as 'number' | 'percent', note }: {
   label: string; valor: number; meta: number; format?: 'number' | 'percent'; note?: string;
 }) {
-  const pct   = getPct(valor, meta);
-  const color = getColor(valor, meta, false);
-  const dVal  = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
-  const dMeta = format === 'percent' ? `${meta}%`  : meta.toLocaleString('pt-BR');
+  const hasMeta = meta > 0;
+  const pct = hasMeta ? getPct(valor, meta) : 0;
+  const color = hasMeta ? getColor(valor, meta, false) : '#64748b';
+  const dVal = format === 'percent' ? `${valor}%` : valor.toLocaleString('pt-BR');
+  const dMeta = formatMetaValor(meta, format);
 
   return (
     <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col h-full">
@@ -42,7 +33,9 @@ function SsKpiCard({ label, valor, meta, format = 'number' as 'number' | 'percen
             <span key={i} className="text-[10px] text-slate-500 leading-tight">{line}</span>
           ))}
         </div>
-        <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
+        {hasMeta && (
+          <span className="text-[14px] font-bold tabular-nums leading-none" style={{ color }}>{pct}%</span>
+        )}
       </div>
     </div>
   );
@@ -83,7 +76,7 @@ export default function TabPsico({ ano, periodo }: Props) {
 
   const { data: evolucao } = useQuery<any>({
     queryKey: ['/api/gestao-vista/evolucao-mensal', ano],
-    queryFn: () => fetch(`/api/gestao-vista/evolucao-mensal?ano=${ano}`).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(`/api/gestao-vista/evolucao-mensal?ano=${ano}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
@@ -100,23 +93,24 @@ export default function TabPsico({ ano, periodo }: Props) {
   });
   const metasAdm = metasDB?.metas ?? {};
 
-  const mg  = metodoGrito?.data || {};
+  const mg = metodoGrito?.data || {};
 
   const metaFn = (anual: number) => metaFnPeriodo(periodo, anual);
+  const semMeta = isPeriodoSemMeta(periodo);
 
   const anualAcolhimento = metasAdm.atendimentos ?? 250;
-  const anualVisitas     = metasAdm.visitas      ?? 250;
-  const anualEspaco      = mg?.espacosColetivos?.meta || 10;
+  const anualVisitas = metasAdm.visitas ?? 250;
+  const anualEspaco = mg?.espacosColetivos?.meta || 10;
 
   const metaAcolhimento = metaFn(anualAcolhimento);
-  const metaVisitas     = metaFn(anualVisitas);
-  const metaEspaco      = metaEspacoGritoPeriodo(periodo);
+  const metaVisitas = metaFn(anualVisitas);
+  const metaEspaco = metaEspacoGritoPeriodo(periodo);
 
   // Valores canônicos do endpoint unificado
   const valorAtendimentos = (psicoKpis?.atendimentos ?? 0) + (psicoKpis?.demandasEspontaneas ?? 0);
-  const valorVisitas      = psicoKpis?.visitas               ?? 0;
-  const valorColetivos    = intervencoesCount?.total ?? 0;
-  const valorEspaco       = psicoKpis?.espacoOGrito ?? 0;
+  const valorVisitas = psicoKpis?.visitas ?? 0;
+  const valorColetivos = intervencoesCount?.total ?? 0;
+  const valorEspaco = psicoKpis?.espacoOGrito ?? 0;
 
   const lineData = (evolucao?.dados || MESES_LABELS.map(m => ({ mes: m, visitas: 0, atendimentos: 0 }))).map(
     (d: any) => ({ ...d, total: (d.visitas || 0) + (d.atendimentos || 0) })
@@ -133,13 +127,13 @@ export default function TabPsico({ ano, periodo }: Props) {
               label="Acolhimento Individual"
               valor={valorAtendimentos}
               meta={metaAcolhimento}
-              note={`Meta anual: ${anualAcolhimento.toLocaleString('pt-BR')}`}
+              note={!semMeta ? `Meta anual: ${anualAcolhimento.toLocaleString('pt-BR')}` : undefined}
             />
             <SsKpiCard
               label="Visitas Domiciliares"
               valor={valorVisitas}
               meta={metaVisitas}
-              note={`Meta anual: ${anualVisitas.toLocaleString('pt-BR')}`}
+              note={!semMeta ? `Meta anual: ${anualVisitas.toLocaleString('pt-BR')}` : undefined}
             />
             <SimpleKpiCard
               label="Intervenções"
@@ -149,7 +143,7 @@ export default function TabPsico({ ano, periodo }: Props) {
               label="#EspaçoOGrito"
               valor={valorEspaco}
               meta={metaEspaco}
-              note={`Meta anual: ${anualEspaco.toLocaleString('pt-BR')}`}
+              note={!semMeta ? `Meta anual: ${anualEspaco.toLocaleString('pt-BR')}` : undefined}
             />
             <SimpleKpiCard
               label="Casas Mapeadas"
@@ -172,8 +166,8 @@ export default function TabPsico({ ano, periodo }: Props) {
                 <XAxis dataKey="mes" stroke="#64748b" fontSize={10} tickLine={false} />
                 <YAxis stroke="#64748b" fontSize={10} tickCount={5} />
                 <Line type="monotone" dataKey="atendimentos" stroke="#facc15" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#facc15', stroke: '#facc15' }} name="Atendimentos" />
-                <Line type="monotone" dataKey="visitas"      stroke="#f97316" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#f97316', stroke: '#f97316' }} name="Visitas Domiciliares" />
-                <Line type="monotone" dataKey="total"        stroke="#ffffff" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#ffffff', stroke: '#ffffff' }} name="Total" strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="visitas" stroke="#f97316" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#f97316', stroke: '#f97316' }} name="Visitas Domiciliares" />
+                <Line type="monotone" dataKey="total" stroke="#ffffff" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#ffffff', stroke: '#ffffff' }} name="Total" strokeDasharray="4 2" />
                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} iconSize={8} iconType="circle" />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', fontSize: 11 }}

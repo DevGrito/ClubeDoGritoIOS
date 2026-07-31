@@ -425,8 +425,10 @@ async function resolveUsersIdForStaffTable(
   table: "professores" | "monitores" | "coordenadores",
   entityId: number
 ): Promise<number | null> {
-  const staff = await pool.query<{ email: string | null; telefone: string | null; nome: string }>(
-    `SELECT email, telefone, nome FROM ${table} WHERE id = $1 LIMIT 1`,
+  // Produção: `professores` (e algumas fichas) podem não ter coluna `telefone`.
+  // Resolver só por e-mail/nome — evita 500 em area-status e POST /privacy/consent.
+  const staff = await pool.query<{ email: string | null; nome: string }>(
+    `SELECT email, nome FROM ${table} WHERE id = $1 LIMIT 1`,
     [entityId]
   );
   const row = staff.rows[0];
@@ -435,24 +437,6 @@ async function resolveUsersIdForStaffTable(
   if (row.email) {
     const byEmail = await lookupUserIdByEmail(row.email);
     if (byEmail) return byEmail;
-  }
-
-  if (row.telefone?.trim()) {
-    try {
-      const { consolidateUser } = await import("./userConsolidation");
-      const tipo =
-        table === "professores" ? "professor" : table === "monitores" ? "professor" : "admin";
-      const consolidated = await consolidateUser({
-        nome: row.nome,
-        telefone: row.telefone,
-        email: row.email || undefined,
-        tipo,
-        fonte: "educacao",
-      });
-      return consolidated.id;
-    } catch {
-      return null;
-    }
   }
 
   return null;

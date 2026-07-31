@@ -7,7 +7,7 @@ import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { syncAuthSessionAfterLogin } from "@/lib/auth-session";
-import { getPostLoginPath } from "@/lib/post-login-redirect";
+import { getPostLoginPath, readRedirectFromLocation } from "@/lib/post-login-redirect";
 import girlImage from "../app-assets/Gemini_Generated_Image_b8g3y7b8g3y7b8g3_1769198371783.png";
 
 export default function MonitorLogin() {
@@ -53,7 +53,7 @@ export default function MonitorLogin() {
         throw new Error("Sessão não foi criada. Tente novamente.");
       }
 
-      setLocation(getPostLoginPath(session));
+      setLocation(getPostLoginPath(session, readRedirectFromLocation()));
 
     } catch (error: any) {
       console.error("Erro ao fazer login:", error);

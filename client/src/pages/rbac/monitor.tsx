@@ -9,7 +9,7 @@ function toProxyUrl(url: string | null | undefined): string | null {
   return url;
 }
 const ScannerPresencaModalLazy = lazy(() => import("@/components/presenca/ScannerPresencaModal"));
-import { formatCPF } from "@/lib/utils";
+import { dedupeParticipantesBusca, formatCPF } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  matchesProgramaParticipanteFilter,
+  type ProgramaParticipanteFilter,
+} from "@/lib/programaParticipanteFilter";
+import { formatEnumLabel } from "@/lib/labelEnums";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +41,7 @@ import {
   buildIntervencaoObservacoes,
   canEditIntervencaoPsico,
   findChamadaParaIntervencao,
+  formatIntervencaoData,
   formatIntervencaoParticipantesResumo,
   getIntervencaoParticipantesResumo,
   intervencaoDataIso,
@@ -58,19 +64,28 @@ import {
 import PresencaInclusaoControl from "@/components/presenca/PresencaInclusaoControl";
 import { ChamadaPresencaNavButtons } from "@/components/presenca/ChamadaPresencaNavButtons";
 import { chamadaEstaPendente, chamadaOcupaDataLancamento, chamadaTemFotoComprovante } from "@shared/chamada-presenca";
+import {
+  isPsicoCategoriaEspacoOGrito,
+  isPsicoCategoriaMultiParticipante,
+  PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS,
+  PSICO_CATEGORIA_COLETIVO_LABELS,
+} from "@shared/psico-coletivo-categorias";
 import AulasHojePanel from "@/components/presenca/AulasHojePanel";
 import ParticipantesInclusaoSection from "@/components/ParticipantesInclusaoSection";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { GeracaoRendaSection } from "@/components/GeracaoRendaSection";
+import { formatDateBrazil } from "@/lib/brazil-date";
 import DemandaEspontaneaSection from "@/components/DemandaEspontaneaSection";
 import AtendidosComunidadeSection from "@/components/AtendidosComunidadeSection";
 import Favela3DSection from "@/components/Favela3DSection";
+import PsicoAcolhimentosSection from "@/components/PsicoAcolhimentosSection";
 import AreaConsentGate, { useAreaConsentReady } from "@/components/AreaConsentGate";
 import { PrivacyPreferencesDropdownItem } from "@/components/PrivacyPreferencesMenuItem";
 import { LgpdLegalHeaderButtons, LgpdMeusDadosSettingsPanel } from "@/components/LgpdLegalMenuSection";
 import { openPrivacyPreferences } from "@/lib/consentManager";
 import { PushNotificationSettings } from "@/components/PushNotificationSettings";
 import { DarkMetricCard, MoradasGeraisBreakdownModal, PsicoAtendBreakdownModal, PsicoVisitasBreakdownModal } from "@/components/CoordenadorDashboard";
+import { MoradaReformaCard } from "@/components/moradas/MoradaReformaCard";
 import { PsicoPerfilModal } from "@/components/PsicoPerfilModal";
 import { fetchAtendidoPerfil } from "@/lib/psicoPerfilApi";
 import {
@@ -144,6 +159,7 @@ import {
   Filter,
   MoreHorizontal,
   RefreshCw,
+  CalendarHeart,
 } from "lucide-react";
 
   type MonitorVertente = "selecao" | "pec" | "inclusao" | "psico";
@@ -318,7 +334,10 @@ const getVertente = (location?: string): MonitorVertente => {
     const [isFinalizando, setIsFinalizando] = useState(false);
     const [buscaParticipante, setBuscaParticipante] = useState("");
     const [statusFilterInclusao, setStatusFilterInclusao] = useState<'todos' | 'ativo' | 'inativo'>('todos');
-    const [psicoTab, setPsicoTab] = useState<"atendidos" | "alunos" | "frequencia" | "atividades" | "registros" | "confidencial" | "demanda" | "favela3d" | "mapeamento">("atendidos");
+    const [psicoTab, setPsicoTab] = useState<"atendidos" | "alunos" | "frequencia" | "atividades" | "registros" | "confidencial" | "demanda" | "favela3d" | "mapeamento" | "acompanhamentos" | "acolhimentos">("atendidos");
+    const [acolhimentoFiltroInicial, setAcolhimentoFiltroInicial] = useState<
+      "proximos" | "historico" | "cancelados" | "pendentes" | "todos" | undefined
+    >(undefined);
     const [showAtendBreakdown, setShowAtendBreakdown] = useState(false);
     const [showVisitasBreakdown, setShowVisitasBreakdown] = useState(false);
     const [showMoradasBreakdown, setShowMoradasBreakdown] = useState(false);
@@ -346,7 +365,23 @@ const getVertente = (location?: string): MonitorVertente => {
     const [mapeamentoObs, setMapeamentoObs] = useState("");
     const [mapeamentoEditId, setMapeamentoEditId] = useState<number | null>(null);
     const [mapeamentoDeleteId, setMapeamentoDeleteId] = useState<number | null>(null);
-    const changePsicoTab = (tab: "atendidos" | "alunos" | "frequencia" | "atividades" | "registros" | "confidencial" | "demanda" | "favela3d" | "mapeamento") => {
+
+    useEffect(() => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("tab") !== "acolhimentos") return;
+        setActiveSection("psico");
+        setPsicoTab("acolhimentos");
+        const f = params.get("filtro");
+        if (f === "pendentes" || f === "proximos" || f === "historico" || f === "cancelados" || f === "todos") {
+          setAcolhimentoFiltroInicial(f);
+        }
+      } catch {
+        /* ignore */
+      }
+    }, []);
+
+    const changePsicoTab = (tab: "atendidos" | "alunos" | "frequencia" | "atividades" | "registros" | "confidencial" | "demanda" | "favela3d" | "mapeamento" | "acompanhamentos" | "acolhimentos") => {
       setPsicoTab(tab);
       requestAnimationFrame(() => {
         setTimeout(() => {
@@ -616,6 +651,7 @@ const getVertente = (location?: string): MonitorVertente => {
     const [editingCpf, setEditingCpf] = useState<string | undefined>(undefined);
     const [viewMode, setViewMode] = useState(false);
     const [statusFilter, setStatusFilter] = useState<string>('todos');
+    const [programaFilterAlunos, setProgramaFilterAlunos] = useState<ProgramaParticipanteFilter>('grito');
     const [cadastroForm, setCadastroForm] = useState({
       nome_completo: '',
       nome: '',
@@ -1597,7 +1633,7 @@ const getVertente = (location?: string): MonitorVertente => {
       const json = await res.json().catch(() => ([]));
       return Array.isArray(json) ? json : [];
     },
-    enabled: isPsico && (psicoTab === "registros" || psicoTab === "confidencial"),
+    enabled: isPsico && (psicoTab === "registros" || psicoTab === "confidencial" || psicoTab === "mapeamento"),
   });
 
   const { data: psicoAtendidosRegistrados = [], isLoading: loadingAtendidosRegistrados } = useQuery({
@@ -1871,6 +1907,27 @@ const getVertente = (location?: string): MonitorVertente => {
     onError: () => toast({ title: "Erro", description: "Não foi possível excluir a reforma.", variant: "destructive" }),
   });
   const moradasReformasList = ((moradasReformasData as any)?.data ?? []) as any[];
+  const moradasParticipantesContato = useMemo(
+    () =>
+      dedupeParticipantesBusca([
+        ...(psicoAtendidos as any[]),
+        ...(atendidosComunidade as any[]).map((p: any) => ({
+          nome: p.nome,
+          __nome: p.nome,
+          cpf: p.cpf,
+          telefone: p.telefone,
+          endereco: p.endereco,
+          numero: p.numero,
+          complemento: p.complemento,
+          bairro: p.bairro || p.bairro_outro,
+          cidade: p.cidade,
+          estado: p.estado,
+          origem: "comunidade",
+          __vertente: "comunidade",
+        })),
+      ]),
+    [psicoAtendidos, atendidosComunidade]
+  );
   const moradasResumo = {
     total: moradasReformasList.length,
     emAndamento: moradasReformasList.filter((r: any) => ["em_reformar", "em_pausa", "ordem_servico_emitida"].includes(r.status)).length,
@@ -1896,6 +1953,7 @@ const getVertente = (location?: string): MonitorVertente => {
     { key: "sem_visita", label: "Sem visita", color: "#64748b" },
     { key: "finalizado", label: "Finalizado", color: "#22c55e" },
   ].map((item) => ({
+    key: item.key,
     label: item.label,
     color: item.color,
     value: moradasReformasList.filter((r: any) => r.status === item.key).length,
@@ -3107,14 +3165,6 @@ const getVertente = (location?: string): MonitorVertente => {
                   value={((mapeamentosStatsMonitor as any)?.total ?? 0) > 0 ? ((mapeamentosStatsMonitor as any)?.total ?? 0) : ((mapeamentosStatsMonitorTotal as any)?.total ?? 0)}
                   accentColor="#14b8a6"
                 />
-                <DarkMetricCard
-                  icon={Home}
-                  label="Moradas Gerais"
-                  value={moradasReformasList.length}
-                  accentColor="#22c55e"
-                  onClick={() => setShowMoradasBreakdown(true)}
-                  subtitle="Clique p/ detalhar"
-                />
               </div>
               );
             })()}
@@ -3146,6 +3196,7 @@ const getVertente = (location?: string): MonitorVertente => {
               <MoradasGeraisBreakdownModal
                 total={moradasReformasList.length}
                 porStatus={moradasDashboardPorStatus}
+                reformas={moradasReformasList}
                 onClose={() => setShowMoradasBreakdown(false)}
               />
             )}
@@ -3154,10 +3205,18 @@ const getVertente = (location?: string): MonitorVertente => {
             {monitorDashView === "favela" && (
             <div className="space-y-3">
               {/* Linha 1 — KPIs estáticos com dark cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                 <DarkMetricCard icon={Home}     label="Famílias Cadastradas" value={(favela3dStats as any)?.familias ?? 0}  accentColor="#f97316" />
                 <DarkMetricCard icon={Home}     label="Visitas"               value={(favela3dStats as any)?.visitas ?? 0}   accentColor="#06b6d4" />
                 <DarkMetricCard icon={Activity} label="Atendimentos"          value={(favela3dStats as any)?.atendimentos ?? 0} accentColor="#8b5cf6" />
+                <DarkMetricCard
+                  icon={Home}
+                  label="Moradas Gerais"
+                  value={moradasReformasList.length}
+                  accentColor="#22c55e"
+                  onClick={() => setShowMoradasBreakdown(true)}
+                  subtitle="Clique p/ detalhar"
+                />
               </div>
               {/* Linha 2 — Cards clicáveis por categoria */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
@@ -3165,6 +3224,7 @@ const getVertente = (location?: string): MonitorVertente => {
                   { key: "gerando_lideranca", label: "Gerando Liderança", count: (favela3dStats as any)?.gerandoLideranca ?? 0, color: "#fbbf24" },
                   { key: "assembleia",        label: "Assembleia",        count: (favela3dStats as any)?.assembleia       ?? 0, color: "#fb923c" },
                   { key: "grupo_mulheres",    label: "Grupo de Mulheres", count: (favela3dStats as any)?.grupoMulheres    ?? 0, color: "#f472b6" },
+                  { key: "triangulo",         label: "Triângulo",         count: (favela3dStats as any)?.triangulo        ?? 0, color: "#a78bfa" },
                 ].map(cat => (
                   <button
                     key={cat.key}
@@ -3197,6 +3257,7 @@ const getVertente = (location?: string): MonitorVertente => {
                     {categoriaModal === "gerando_lideranca" && "Gerando Liderança"}
                     {categoriaModal === "assembleia" && "Assembleia"}
                     {categoriaModal === "grupo_mulheres" && "Grupo de Mulheres"}
+                    {categoriaModal === "triangulo" && "Triângulo"}
                     {" — Detalhes"}
                   </DialogTitle>
                   <DialogDescription>Registros coletivos e dados demográficos dos participantes</DialogDescription>
@@ -3418,6 +3479,15 @@ const getVertente = (location?: string): MonitorVertente => {
                   >
                     <Heart className="w-4 h-4 mr-2" />
                     Acompanhamentos
+                  </Button>
+                  <Button
+                    className={`w-full ${psicoTab === 'acolhimentos' ? 'bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-500' : ''}`}
+                    variant="outline"
+                    onClick={() => changePsicoTab('acolhimentos')}
+                    data-testid="button-acolhimentos-monitor"
+                  >
+                    <CalendarHeart className="w-4 h-4 mr-2" />
+                    Acolhimentos
                   </Button>
                 </div>
               </CardContent>
@@ -4139,7 +4209,8 @@ const getVertente = (location?: string): MonitorVertente => {
                             } else {
                               createPsicoAtividadeMutation.mutate({
                                 ...payload,
-                                data: new Date(psicoAtividadeForm.data).toISOString(),
+                                // YYYY-MM-DD (não toISOString) — evita shift de fuso
+                                data: psicoAtividadeForm.data,
                                 horarioInicio: psicoAtividadeForm.horarioInicio,
                                 horarioFim: psicoAtividadeForm.horarioFim,
                                 participantesPresentes: payload.participantes_presentes,
@@ -4172,7 +4243,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                 <h4 className="font-medium text-sm">{at.titulo}</h4>
                                 <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
                                   <Badge variant="outline" className="text-xs">{tipoLabel[at.tipo] || at.tipo}</Badge>
-                                  <span>{at.data ? new Date(at.data).toLocaleDateString("pt-BR") : "-"}</span>
+                                  <span>{formatIntervencaoData(at.data)}</span>
                                   {at.horarioInicio && <span>{at.horarioInicio} - {at.horarioFim}</span>}
                                 </div>
                               </div>
@@ -4298,10 +4369,10 @@ const getVertente = (location?: string): MonitorVertente => {
 
               {/* REGISTROS GERAIS */}
               {psicoTab === "registros" && (() => {
-                const todosParaRegistro = [
+                const todosParaRegistro = dedupeParticipantesBusca([
                   ...(psicoAtendidos as any[]).map((p: any) => ({ nome: p.__nome || p.nome, cpf: p.cpf || p.__doc, origem: p.__vertente === "inclusao" ? "Inclusão" : "PEC" })),
                   ...(atendidosComunidade as any[]).map((p: any) => ({ nome: p.nome, cpf: p.cpf, origem: "Comunidade" })),
-                ];
+                ]);
                 return (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
@@ -4331,11 +4402,9 @@ const getVertente = (location?: string): MonitorVertente => {
                             <Select value={registroGeralForm.categoria} onValueChange={(v) => { setRegistroGeralForm({...registroGeralForm, categoria: v}); setEspGritoParticipantes([]); setEspGritoColaboradoresIds([]); setEspGritoColabBusca(""); setRegistroGeralParticipantes([]); setRegistroGeralPartBusca(""); }}>
                               <SelectTrigger><SelectValue placeholder="Selecione a categoria..." /></SelectTrigger>
                               <SelectContent>
-                                {registroGeralForm.tipoGeral === "atendimento_coletivo" && <>
-                                  <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                                  <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                                  <SelectItem value="workshop">Workshop</SelectItem>
-                                </>}
+                                {registroGeralForm.tipoGeral === "atendimento_coletivo" && PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS.map((cat) => (
+                                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -4346,7 +4415,7 @@ const getVertente = (location?: string): MonitorVertente => {
                           </div>
                         </div>
 
-                        {(registroGeralForm.categoria === "caravana_comunitaria" || registroGeralForm.categoria === "workshop") ? (
+                        {isPsicoCategoriaMultiParticipante(registroGeralForm.categoria) ? (
                           <div>
                             <label className="text-sm font-medium mb-1 block">Participantes <span className="text-gray-400 text-xs">({registroGeralParticipantes.length} selecionado(s))</span></label>
                             <div className="flex items-center gap-1 mb-2">
@@ -4435,9 +4504,9 @@ const getVertente = (location?: string): MonitorVertente => {
                         <div className="flex gap-2 justify-end">
                           <Button variant="outline" size="sm" onClick={() => setRegistrosSubTab("realizados")}>Cancelar</Button>
                           <Button size="sm" className="bg-blue-600 hover:bg-blue-700"
-                            disabled={!registroGeralForm.tipoGeral || !registroGeralForm.categoria || !registroGeralForm.conteudo || !registroGeralForm.data || (registroGeralForm.categoria === "espaco_o_grito" && espGritoColaboradoresIds.length === 0) || createRegistroGeralMutation.isPending}
+                            disabled={!registroGeralForm.tipoGeral || !registroGeralForm.categoria || !registroGeralForm.conteudo || !registroGeralForm.data || (isPsicoCategoriaEspacoOGrito(registroGeralForm.categoria) && espGritoColaboradoresIds.length === 0) || createRegistroGeralMutation.isPending}
                             onClick={() => {
-                              const isMP = registroGeralForm.categoria === "caravana_comunitaria" || registroGeralForm.categoria === "workshop";
+                              const isMP = isPsicoCategoriaMultiParticipante(registroGeralForm.categoria);
                               createRegistroGeralMutation.mutate({
                                 tipo: registroGeralForm.tipoGeral,
                                 categoria: registroGeralForm.categoria,
@@ -4445,7 +4514,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                 data: registroGeralForm.data,
                                 participanteNome: isMP ? (registroGeralParticipantes.length > 0 ? JSON.stringify(registroGeralParticipantes.map(p => p.nome)) : null) : (registroGeralForm.participanteNome || null),
                                 participanteCpf: isMP ? null : (registroGeralForm.participanteCpf || null),
-                                colaboradoresIds: registroGeralForm.categoria === "espaco_o_grito" ? espGritoColaboradoresIds : null,
+                                colaboradoresIds: isPsicoCategoriaEspacoOGrito(registroGeralForm.categoria) ? espGritoColaboradoresIds : null,
                               });
                             }}>
                             {createRegistroGeralMutation.isPending ? "Salvando..." : "Salvar Registro"}
@@ -4462,7 +4531,7 @@ const getVertente = (location?: string): MonitorVertente => {
                           <div className="text-center py-8 text-gray-400 border rounded-lg">Nenhum registro ainda</div>
                         ) : (
                           (registrosGerais as any[]).map((r: any) => {
-                            const catLabel: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop" };
+                            const catLabel: Record<string, string> = { atendimento_individual: "Atendimento Individual", atendimento_coletivo: "Atendimento Coletivo", ...PSICO_CATEGORIA_COLETIVO_LABELS };
                             const tipoDisplay = catLabel[r.tipo] || r.tipo;
                             const categoriaDisplay = r.categoria ? (catLabel[r.categoria] || r.categoria) : null;
                             let colaboradoresDisplay = "";
@@ -4494,11 +4563,9 @@ const getVertente = (location?: string): MonitorVertente => {
                                         <Select value={editGeraisGeralForm.categoria} onValueChange={(v) => { setEditGeraisGeralForm({...editGeraisGeralForm, categoria: v}); setEditGeraisColaboradoresIds([]); setEditGeraisColabBusca(""); setEditRegistroGeralParticipantes([]); }}>
                                           <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                                           <SelectContent>
-                                            {editGeraisGeralForm.tipoGeral === "atendimento_coletivo" && <>
-                                              <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                                              <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                                              <SelectItem value="workshop">Workshop</SelectItem>
-                                            </>}
+                                            {editGeraisGeralForm.tipoGeral === "atendimento_coletivo" && PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS.map((cat) => (
+                                              <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                                            ))}
                                           </SelectContent>
                                         </Select>
                                       </div>
@@ -4507,7 +4574,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                         <Input type="date" className="h-8 text-sm" value={editGeraisGeralForm.data} onChange={(e) => setEditGeraisGeralForm({...editGeraisGeralForm, data: e.target.value})} />
                                       </div>
                                     </div>
-                                    {(editGeraisGeralForm.categoria === "caravana_comunitaria" || editGeraisGeralForm.categoria === "workshop") && (
+                                    {isPsicoCategoriaMultiParticipante(editGeraisGeralForm.categoria) && (
                                       <div>
                                         <label className="text-xs font-medium mb-1 block">Participantes <span className="text-gray-400">({editRegistroGeralParticipantes.length} selecionado(s))</span></label>
                                         <div className="flex items-center gap-1 mb-1">
@@ -4551,7 +4618,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                         )}
                                       </div>
                                     )}
-                                    {editGeraisGeralForm.categoria === "espaco_o_grito" && (
+                                    {isPsicoCategoriaEspacoOGrito(editGeraisGeralForm.categoria) && (
                                       <div>
                                         <label className="text-xs font-medium mb-1 block">Colaboradores presentes <span className="text-gray-400">({editGeraisColaboradoresIds.length} selecionado(s))</span></label>
                                         <Input className="mb-1 h-8 text-sm" placeholder="Filtrar..." value={editGeraisColabBusca} onChange={(e) => setEditGeraisColabBusca(e.target.value)} />
@@ -4577,8 +4644,8 @@ const getVertente = (location?: string): MonitorVertente => {
                                       <Button size="sm" className="bg-blue-600 hover:bg-blue-700"
                                         disabled={updateRegistroGeralMutation.isPending}
                                         onClick={() => {
-                                          const isMP2 = editGeraisGeralForm.categoria === "caravana_comunitaria" || editGeraisGeralForm.categoria === "workshop";
-                                          updateRegistroGeralMutation.mutate({ id: r.id, tipo: editGeraisGeralForm.tipoGeral, categoria: editGeraisGeralForm.categoria, conteudo: editGeraisGeralForm.conteudo, data: editGeraisGeralForm.data, participanteNome: isMP2 ? (editRegistroGeralParticipantes.length > 0 ? JSON.stringify(editRegistroGeralParticipantes.map(p => p.nome)) : null) : (editGeraisGeralForm.participanteNome || null), colaboradoresIds: editGeraisGeralForm.categoria === "espaco_o_grito" ? editGeraisColaboradoresIds : null });
+                                          const isMP2 = isPsicoCategoriaMultiParticipante(editGeraisGeralForm.categoria);
+                                          updateRegistroGeralMutation.mutate({ id: r.id, tipo: editGeraisGeralForm.tipoGeral, categoria: editGeraisGeralForm.categoria, conteudo: editGeraisGeralForm.conteudo, data: editGeraisGeralForm.data, participanteNome: isMP2 ? (editRegistroGeralParticipantes.length > 0 ? JSON.stringify(editRegistroGeralParticipantes.map(p => p.nome)) : null) : (editGeraisGeralForm.participanteNome || null), colaboradoresIds: isPsicoCategoriaEspacoOGrito(editGeraisGeralForm.categoria) ? editGeraisColaboradoresIds : null });
                                         }}>
                                         {updateRegistroGeralMutation.isPending ? "Salvando..." : "Salvar"}
                                       </Button>
@@ -4602,7 +4669,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                           setEditGeraisColabBusca("");
                                           setEditRegistroGeralPartBusca("");
                                           setEditRegistroGeralPartFiltro("todos");
-                                          const isMP = editCat2 === "caravana_comunitaria" || editCat2 === "workshop";
+                                          const isMP = isPsicoCategoriaMultiParticipante(editCat2);
                                           if (isMP && r.participanteNome) {
                                             try { const arr = JSON.parse(r.participanteNome); setEditRegistroGeralParticipantes(Array.isArray(arr) ? arr.map((n: string) => ({ nome: n })) : []); } catch { setEditRegistroGeralParticipantes([]); }
                                           } else { setEditRegistroGeralParticipantes([]); }
@@ -4623,7 +4690,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                         </ul>
                                       </details>
                                     )}
-                                    {r.participanteNome && ((r.categoria || r.tipo) === "caravana_comunitaria" || (r.categoria || r.tipo) === "workshop") && (() => {
+                                    {r.participanteNome && isPsicoCategoriaMultiParticipante(String(r.categoria || r.tipo || "")) && (() => {
                                       try {
                                         const partic = JSON.parse(r.participanteNome) as string[];
                                         if (Array.isArray(partic) && partic.length > 0) {
@@ -4663,7 +4730,7 @@ const getVertente = (location?: string): MonitorVertente => {
                     <DialogDescription asChild>
                       <div className="space-y-1.5 mt-1">
                         {viewGeraisRecord?.categoria && (() => {
-                          const catLabels: Record<string, string> = { espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop" };
+                          const catLabels: Record<string, string> = { ...PSICO_CATEGORIA_COLETIVO_LABELS };
                           const label = catLabels[viewGeraisRecord.categoria] || viewGeraisRecord.categoria;
                           return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{label}</span>;
                         })()}
@@ -4761,10 +4828,10 @@ const getVertente = (location?: string): MonitorVertente => {
                             placeholder="Buscar por nome ou CPF"
                           />
                           {registroPartOpen && (() => {
-                            const todosParticipantes = [
+                            const todosParticipantes = dedupeParticipantesBusca([
                               ...(psicoAtendidos as any[] || []),
                               ...(atendidosComunidade as any[]).map((p: any) => ({ __nome: p.nome, cpf: p.cpf, __vertente: "comunidade" })),
-                            ];
+                            ]);
                             const filtrados = todosParticipantes.filter((p: any) => {
                               if (registroPartFiltroVertente !== "todos") {
                                 const vert = p.__vertente || "pec";
@@ -5101,6 +5168,15 @@ const getVertente = (location?: string): MonitorVertente => {
                 </div>
               )}
 
+              {psicoTab === "acolhimentos" && (
+                <PsicoAcolhimentosSection
+                  userId={String(authUserId || safeUserId || "")}
+                  userRole="monitor_psico"
+                  userName={perfilNome || userName}
+                  initialFiltro={acolhimentoFiltroInicial}
+                />
+              )}
+
               {/* ATENDIDOS COMUNIDADE */}
               {psicoTab === "demanda" && (
                 <AtendidosComunidadeSection
@@ -5333,10 +5409,10 @@ const getVertente = (location?: string): MonitorVertente => {
                                 placeholder="Buscar por nome (PEC/Inclusão/Comunidade)"
                               />
                               {moradaPartOpen && (() => {
-                                const todosParticipantes = [
+                                const todosParticipantes = dedupeParticipantesBusca([
                                   ...(psicoAtendidos as any[] || []),
                                   ...(atendidosComunidade as any[] || []).map((p: any) => ({ __nome: p.nome, cpf: p.cpf, __vertente: "comunidade" })),
-                                ];
+                                ]);
                                 const filtrados = todosParticipantes.filter((p: any) => {
                                   if (moradaPartFiltroVertente !== "todos") {
                                     const vert = p.__vertente || "pec";
@@ -5507,33 +5583,15 @@ const getVertente = (location?: string): MonitorVertente => {
                         ) : (
                           <div className="space-y-2">
                             {moradasReformasList.map((item: any) => (
-                              <div key={item.id} className="border rounded-lg p-3 bg-white">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <p className="font-medium text-sm text-gray-800">{item.participanteNome || item.participante_nome}</p>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{item.semana}° Semana</span>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => iniciarEdicaoMorada(item)}>
-                                      <Pencil className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-7 w-7 text-red-600 hover:text-red-700"
-                                      disabled={excluirMoradaReformaMutation.isPending}
-                                      onClick={() => {
-                                        setMoradaDeleteId(Number(item.id));
-                                      }}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {new Date(item.data + "T12:00:00").toLocaleDateString("pt-BR")} • {getMoradaStatusLabel(item.status)}
-                                </p>
-                                <p className="text-xs text-gray-600 mt-1">Cômodos: {(item.comodos || []).join(", ")}</p>
-                                {item.observacoes && <p className="text-xs text-gray-700 mt-1">{item.observacoes}</p>}
-                              </div>
+                              <MoradaReformaCard
+                                key={item.id}
+                                item={item}
+                                participantes={moradasParticipantesContato}
+                                getStatusLabel={getMoradaStatusLabel}
+                                onEdit={iniciarEdicaoMorada}
+                                onDelete={(id) => setMoradaDeleteId(id)}
+                                deletePending={excluirMoradaReformaMutation.isPending}
+                              />
                             ))}
                           </div>
                         )}
@@ -6059,6 +6117,19 @@ const getVertente = (location?: string): MonitorVertente => {
                         className="pl-10" 
                       />
                     </div>
+                    <Select
+                      value={programaFilterAlunos}
+                      onValueChange={(v) => setProgramaFilterAlunos(v as ProgramaParticipanteFilter)}
+                    >
+                      <SelectTrigger className="w-56" data-testid="select-filtro-programa-alunos-monitor">
+                        <SelectValue placeholder="Setor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="grito">Participantes Grito</SelectItem>
+                        <SelectItem value="pec">Participantes PEC</SelectItem>
+                        <SelectItem value="inclusao">Participantes Inclusão</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                       <SelectTrigger className="w-32">
                         <SelectValue placeholder="Status" />
@@ -6098,7 +6169,8 @@ const getVertente = (location?: string): MonitorVertente => {
                               (a.cpf || '').includes(searchTerm);
                             const alunoStatus = a.situacao_atendimento || a.status || 'ativo';
                             const matchesStatus = statusFilter === 'todos' || alunoStatus === statusFilter;
-                            return matchesSearch && matchesStatus;
+                            const matchesPrograma = matchesProgramaParticipanteFilter(a, programaFilterAlunos);
+                            return matchesSearch && matchesStatus && matchesPrograma;
                           }).length > 0 ? (
                           [...(alunosPec || [])]
                             .sort((a: any, b: any) => {
@@ -6112,7 +6184,8 @@ const getVertente = (location?: string): MonitorVertente => {
                                 (a.cpf || '').includes(searchTerm);
                               const alunoStatus = a.situacao_atendimento || a.status || 'ativo';
                               const matchesStatus = statusFilter === 'todos' || alunoStatus === statusFilter;
-                              return matchesSearch && matchesStatus;
+                              const matchesPrograma = matchesProgramaParticipanteFilter(a, programaFilterAlunos);
+                              return matchesSearch && matchesStatus && matchesPrograma;
                             }).map((aluno: any) => {
                             const alunoStatus = aluno.situacao_atendimento || aluno.status || 'ativo';
                             const isInativo = alunoStatus === 'inativo';
@@ -6123,7 +6196,7 @@ const getVertente = (location?: string): MonitorVertente => {
                                   {aluno.nome_completo}
                                 </TableCell>
                                 <TableCell>{maskCpfMonitor(aluno.cpf)}</TableCell>
-                                <TableCell>{aluno.data_nascimento ? new Date(aluno.data_nascimento).toLocaleDateString('pt-BR') : '-'}</TableCell>
+                                <TableCell>{aluno.data_nascimento ? formatDateBrazil(aluno.data_nascimento) : '-'}</TableCell>
                                 <TableCell>{aluno.telefone || '-'}</TableCell>
                                 <TableCell>
                                   <Badge className={isInativo ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}>
@@ -8871,7 +8944,7 @@ const getVertente = (location?: string): MonitorVertente => {
                             {item.dataNascimento && (
                               <div className="bg-gray-50 p-2 rounded">
                                 <p className="text-gray-500">Nascimento</p>
-                                <p className="font-medium">{new Date(item.dataNascimento).toLocaleDateString('pt-BR')}</p>
+                                <p className="font-medium">{formatDateBrazil(item.dataNascimento)}</p>
                               </div>
                             )}
                             {item.telefone && (
@@ -10370,6 +10443,7 @@ const getVertente = (location?: string): MonitorVertente => {
           foto={toProxyUrl(fullAlunoData?.foto_perfil)}
           nome={fullAlunoData?.nome_completo}
           cpf={fullAlunoData?.cpf ? maskCpfMonitor(fullAlunoData.cpf) : undefined}
+          historicoCpf={fullAlunoData?.cpf ? String(fullAlunoData.cpf).replace(/\D/g, "") : undefined}
           status={fullAlunoData?.situacao_atendimento}
           sections={fullAlunoData ? ([
             {
@@ -10378,7 +10452,7 @@ const getVertente = (location?: string): MonitorVertente => {
               fields: [
                 { label: "Nome", value: fullAlunoData.nome_completo },
                 { label: "Gênero", value: fullAlunoData.genero },
-                { label: "Data de Nascimento", value: fullAlunoData.data_nascimento ? new Date(fullAlunoData.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
+                { label: "Data de Nascimento", value: fullAlunoData.data_nascimento ? formatDateBrazil(fullAlunoData.data_nascimento) : undefined },
                 { label: "Nº Matrícula", value: fullAlunoData.codigo_matricula || fullAlunoData.matricula },
                 { label: "Data de Ingresso", value: fullAlunoData.data_ingresso ? new Date(fullAlunoData.data_ingresso + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
               ],
@@ -10463,6 +10537,7 @@ const getVertente = (location?: string): MonitorVertente => {
             }}
             editCpf={editingCpf}
             viewMode={viewMode}
+            pecApiVariant="monitor"
           />
         )}
 
@@ -10520,7 +10595,7 @@ const getVertente = (location?: string): MonitorVertente => {
                     </div>
                     <div>
                       <p className="text-sm text-gray-600">Escolaridade</p>
-                      <p className="font-medium">{selectedParticipante.escolaridade || '-'}</p>
+                      <p className="font-medium">{formatEnumLabel(selectedParticipante.escolaridade)}</p>
                     </div>
                   </div>
                 </div>

@@ -35,6 +35,7 @@ import { CheckinCard } from "@/components/CheckinCard";
 import ImpactGestaoVista from "@/components/ImpactGestaoVista";
 import { IndiqueGanhe } from "@/components/IndiqueGanhe";
 import { ProgramasIconGrid } from "@/components/ProgramasIconGrid";
+import { FAMILIAS_FAVELA3D_EXIBICAO, coletivosFavela3DNoPeriodo } from "@/pages/dashboard-gestao-vista/shared";
 import { isLeoByRole } from "@shared/conselho";
 import PrivacyPreferencesMenuItem from "@/components/PrivacyPreferencesMenuItem";
 import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from "@/components/AreaConsentGate";
@@ -634,12 +635,10 @@ export default function Welcome() {
     enabled: showInclusaoModal,
   });
 
-  // Buscar dados de Favela 3D do mês vigente
-  const { data: f3dData, isLoading: loadingF3D } = useQuery<any>({
-    queryKey: ['/api/gestao-vista/favela3d', anoAtual, mesAtual],
-    queryFn: () => fetch(`/api/gestao-vista/favela3d${periodoQuery}`).then(r => r.json()),
-    enabled: showF3DModal,
-  });
+  // Favela 3D — mesmos números do Dashboard Gestão à Vista (coletivos só do mês vigente)
+  const f3dFamiliasExibicao = FAMILIAS_FAVELA3D_EXIBICAO;
+  const f3dGerandoLiderMes = coletivosFavela3DNoPeriodo('gerando_lideranca', [mesAtual]);
+  const f3dAssembleiaMes = coletivosFavela3DNoPeriodo('assembleia', [mesAtual]);
 
   // Dados detalhados dos programas (placeholder - será substituído por dados reais futuramente)
   const programasData: Record<string, {
@@ -1220,7 +1219,7 @@ export default function Welcome() {
   }
 
   return (
-    <div className="min-h-screen bg-white pb-donor-nav font-inter">
+    <div className="min-h-screen bg-white pb-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 py-3 flex items-center">
@@ -1369,7 +1368,7 @@ export default function Welcome() {
                       key={beneficio.id}
                       className="relative flex-shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-gray-700 to-gray-900 cursor-pointer select-none hover:shadow-lg active:scale-[0.98] transition-transform duration-150"
                       style={{
-                        width: "320px",
+                        width: "min(320px, 85vw)",
                         height: "180px",
                         willChange: "transform",
                       }}
@@ -2024,102 +2023,74 @@ export default function Welcome() {
             <p className="text-sm text-gray-500 mt-1">Resultados do Mês • Em Tempo Real</p>
 
             <div className="space-y-4 mt-4">
-              {loadingF3D ? (
-                <div className="text-center py-8 text-gray-500">Carregando...</div>
-              ) : (
-                <>
-                  {/* Panorama Favela 3D — accordion card */}
-                  <div
-                    className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                    onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
-                  >
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
-                            <Users className="w-5 h-5 text-white" />
-                          </div>
-                          <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
-                        </div>
-                        {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+              {/* Panorama Favela 3D — accordion card */}
+              <div
+                className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                onClick={() => setExpandedF3DCard(expandedF3DCard === 'panorama' ? null : 'panorama')}
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                        <Users className="w-5 h-5 text-white" />
                       </div>
-                      {expandedF3DCard === 'panorama' && (
-                        <div className="mt-4 grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.familias ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Famílias</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
-                            <div className="text-2xl font-bold text-purple-600">{(f3dData?.visitas ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Visitas</p>
-                          </div>
-                        </div>
-                      )}
+                      <h3 className="text-lg font-bold text-gray-800">Panorama Favela 3D</h3>
                     </div>
+                    {expandedF3DCard === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                   </div>
-                  {/* Atendimentos Coletivos — accordion card */}
-                  <div
-                    className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
-                    onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
-                  >
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
-                            <TrendingUp className="w-5 h-5 text-white" />
-                          </div>
-                          <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
-                        </div>
-                        {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
+                  {expandedF3DCard === 'panorama' && (
+                    <div className="mt-4 grid grid-cols-1 gap-3">
+                      <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                        <div className="text-2xl font-bold text-purple-600">{f3dFamiliasExibicao.toLocaleString('pt-BR')}</div>
+                        <p className="text-xs text-gray-700 font-medium">Famílias</p>
                       </div>
-                      {expandedF3DCard === 'coletivos' && (
-                        <div className="mt-4 space-y-3">
-                          {/* Gerando Liderança */}
-                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Registros</p>
-                            </div>
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                            </div>
-                          </div>
-                          {/* Assembleia */}
-                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Registros</p>
-                            </div>
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                            </div>
-                          </div>
-                          {/* Grupo de Mulheres */}
-                          <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Registros</p>
-                            </div>
-                            <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                              <div className="text-2xl font-bold text-purple-600">{(f3dData?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                              <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
+                  )}
+                </div>
+              </div>
+              {/* Atendimentos Coletivos — accordion card */}
+              <div
+                className="bg-purple-50 rounded-2xl shadow-lg overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl"
+                onClick={() => setExpandedF3DCard(expandedF3DCard === 'coletivos' ? null : 'coletivos')}
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                        <TrendingUp className="w-5 h-5 text-white" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">Atendimentos Coletivos</h3>
+                    </div>
+                    {expandedF3DCard === 'coletivos' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                   </div>
-                </>
-              )}
+                  {expandedF3DCard === 'coletivos' && (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderMes.registros.toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Registros</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderMes.pessoas.toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                        </div>
+                      </div>
+                      <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaMes.registros.toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Registros</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
+                          <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaMes.pessoas.toLocaleString('pt-BR')}</div>
+                          <p className="text-xs text-gray-700 font-medium">Pessoas</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -2136,8 +2107,7 @@ export default function Welcome() {
 
         {/* 7. Missão da Semana */}
         <motion.div
-          className="relative mx-auto mb-[10px] bg-transparent cursor-pointer"
-          style={{ width: "338px", height: "156px" }}
+          className="relative mx-auto mb-[10px] bg-transparent cursor-pointer w-[min(338px,calc(100%-2.5rem))] h-[156px]"
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3 }}
@@ -2154,16 +2124,13 @@ export default function Welcome() {
               backgroundImage: 'url("/assets/migrated/BG_1756832442490.png")',
               backgroundSize: "cover",
               backgroundPosition: "center",
-              width: "338px",
-              height: "156px",
               borderRadius: "20px",
             }}
-            className="relative overflow-visible"
+            className="relative overflow-visible w-full h-full"
           >
             {/* Conteúdo do card - textos à esquerda */}
             <div
-              className="absolute left-0 top-0 z-30 p-6 flex flex-col justify-center h-full"
-              style={{ width: "200px" }}
+              className="absolute left-0 top-0 z-30 p-5 sm:p-6 flex flex-col justify-center h-full w-[min(200px,58%)]"
             >
               {/* Cabeçalho com ícone */}
               <motion.div
@@ -2306,7 +2273,7 @@ export default function Welcome() {
                   onClick={() => openStories(index)}
                   className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                   style={{
-                    width: "320px",
+                    width: "min(320px, 85vw)",
                     height: "180px",
                     backgroundImage: `url("/api/historias-inspiradoras/${story.id
                       }/imagem?tipo=box"), url(${JSON.stringify(

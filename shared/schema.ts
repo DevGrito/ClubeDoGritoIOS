@@ -2894,7 +2894,8 @@ export const enrollments = pgTable("enrollments", {
 export const instanceEnrollments = pgTable("instance_enrollments", {
   id: serial("id").primaryKey(),
   activity_instance_id: integer("activity_instance_id").references(() => activityInstances.id).notNull(),
-  student_cpf: text("student_cpf").references(() => aluno.cpf).notNull(),
+  // CPF do atendido (mestre). FK legada para aluno.cpf removida — aponta a atendidos_grito via migração.
+  student_cpf: text("student_cpf").notNull(),
   enrollment_date: date("enrollment_date").defaultNow(),
   active: boolean("active").default(true),
   evadido: boolean("evadido").default(false),
@@ -3585,7 +3586,8 @@ export const statusParticipanteEnum = pgEnum("status_participante_enum", [
   "em_andamento", 
   "concluido",
   "evadido",
-  "suspenso"
+  "suspenso",
+  "inativo",
 ]);
 
 // Enum para status de cursos
@@ -3774,8 +3776,9 @@ export const turmasInclusao = pgTable("turmas_inclusao", {
     export const participantesTurmas = pgTable("participantes_turmas", {
       id: serial("id").primaryKey(),
       participanteId: integer("participante_id")
-        .notNull()
         .references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Vínculo canônico pós-unificação (sem exigir espelho em participantes_inclusao). */
+      atendidoCpf: text("atendido_cpf"),
       turmaId: integer("turma_id")
         .notNull()
         .references(() => turmasInclusao.id, { onDelete: "cascade" }),
@@ -3793,7 +3796,10 @@ export const turmasInclusao = pgTable("turmas_inclusao", {
 export const inclusaoEvasoes = pgTable("inclusao_evasoes", {
   id: serial("id").primaryKey(),
   participanteTurmaId: integer("participante_turma_id").references(() => participantesTurmas.id, { onDelete: "set null" }),
-  participanteId: integer("participante_id").notNull().references(() => participantesInclusao.id, { onDelete: "cascade" }),
+  /** Legado — opcional após unificação (vínculo canônico = atendido_cpf). */
+  participanteId: integer("participante_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+  /** Vínculo canônico pós-unificação. */
+  atendidoCpf: text("atendido_cpf"),
   turmaId: integer("turma_id").notNull().references(() => turmasInclusao.id, { onDelete: "cascade" }),
   dataDesligamento: date("data_desligamento").notNull(),
   registradoEm: timestamp("registrado_em").defaultNow().notNull(),
@@ -3814,7 +3820,10 @@ export const pecEvasoes = pgTable("pec_evasoes", {
 // Presenças (registro de frequência)
 export const presencasInclusao = pgTable("presencas_inclusao", {
   id: serial("id").primaryKey(),
-  participanteId: integer("participante_id").notNull().references(() => participantesInclusao.id, { onDelete: "cascade" }),
+  /** Legado — opcional após unificação (vínculo canônico = atendido_cpf). */
+  participanteId: integer("participante_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+  /** Vínculo canônico pós-unificação. */
+  atendidoCpf: text("atendido_cpf"),
   turmaId: integer("turma_id").references(() => turmasInclusao.id, { onDelete: "cascade" }),
   data: date("data").notNull(),
   presente: boolean("presente").notNull().default(false),
@@ -4009,6 +4018,9 @@ export const monitorParticipantes = pgTable("monitor_participantes", {
   
   // FK para PEC (nullable)
   pecAlunoCpf: text("pec_aluno_cpf").references(() => aluno.cpf),
+
+  // Cadastro unificado (Fase 4) — nullable até backfill / sync
+  atendidoCpf: text("atendido_cpf"),
   
   // Campos de acompanhamento
   acompanhamentoStatus: text("acompanhamento_status").default("ativo"),
@@ -4206,7 +4218,7 @@ export const insertRelatorioInclusaoSchema = createInsertSchema(relatoriosInclus
 export const insertConfiguracaoInclusaoSchema = createInsertSchema(configuracoesInclusao);
 export const insertPresencaInclusaoSchema = createInsertSchema(presencasInclusao).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, createdAt: true, updatedAt: true });
-export const updateMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, monitorUserId: true, inclusaoParticipanteId: true, pecAlunoCpf: true, createdAt: true, updatedAt: true }).partial();
+export const updateMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, monitorUserId: true, inclusaoParticipanteId: true, pecAlunoCpf: true, atendidoCpf: true, createdAt: true, updatedAt: true }).partial();
 export const insertAtividadeMonitorSchema = createInsertSchema(atividadesMonitor).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMonitorGrupoSchema = createInsertSchema(monitorGrupos).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertMonitorGrupoSchema = z.infer<typeof insertMonitorGrupoSchema>;
@@ -5245,6 +5257,9 @@ export const documentosParticipante = pgTable("documentos_participante", {
   participanteInclusaoId: integer("participante_inclusao_id")
     .references(() => participantesInclusao.id, { onDelete: "cascade" }),
 
+  // Cadastro unificado (Fase 4)
+  atendidoCpf: text("atendido_cpf"),
+
   uploadedBy: integer("uploaded_by").references(() => users.id),
 
   createdAt: timestamp("created_at").defaultNow(),
@@ -5619,7 +5634,7 @@ export const ingressosPortal = pgTable("ingressos_portal", {
   id: serial("id").primaryKey(),
   eventoId: integer("evento_id").references(() => eventosGrito.id),
   codigo: text("codigo").notNull(),
-  status: text("status").default("disponivel"), // disponivel | resgatado | usado | cancelado
+  status: text("status").default("disponivel"), // disponivel | reservado | resgatado | usado | cancelado
   // Titular — quem resgatou
   usuarioPortalId: integer("usuario_portal_id").references(() => usuariosPortal.id),
   titularNome: text("titular_nome"),
@@ -5632,6 +5647,22 @@ export const ingressosPortal = pgTable("ingressos_portal", {
   beneficiarioCpf: text("beneficiario_cpf"),
   beneficiarioEmail: text("beneficiario_email"),
   beneficiarioTelefone: text("beneficiario_telefone"),
+  beneficiarioNascimento: date("beneficiario_nascimento"),
+  beneficiarioGenero: text("beneficiario_genero"),
+  beneficiarioLogradouro: text("beneficiario_logradouro"),
+  beneficiarioNumero: text("beneficiario_numero"),
+  beneficiarioBairro: text("beneficiario_bairro"),
+  beneficiarioCidade: text("beneficiario_cidade"),
+  beneficiarioEstado: text("beneficiario_estado"),
+  beneficiarioCep: text("beneficiario_cep"),
+  // Reserva / pagamento
+  orderRef: text("order_ref"),
+  reservedUntil: timestamp("reserved_until"),
+  metodoPagamento: text("metodo_pagamento"),
+  gateway: text("gateway"),
+  paymentId: text("payment_id"),
+  valorPago: integer("valor_pago"),
+  parcelas: integer("parcelas"),
   // Controle
   resgatadoEm: timestamp("resgatado_em"),
   checkinEm: timestamp("checkin_em"),
@@ -5734,7 +5765,7 @@ export const favela3dRegistros = pgTable("favela3d_registros", {
   conteudo: text("conteudo").notNull(),
   data: date("data").notNull(),
   status: text("status").default("ativo"),
-  categoria: text("categoria"), // gerando_lideranca, assembleia, grupo_mulheres (para atendimento_coletivo)
+  categoria: text("categoria"), // gerando_lideranca, assembleia, grupo_mulheres, triangulo (para atendimento_coletivo)
   participantesIds: integer("participantes_ids").array(), // IDs para atendimento coletivo
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -5757,7 +5788,7 @@ export const eventPaymentOrders = pgTable("event_payment_orders", {
   quantidade: integer("quantidade").notNull().default(1),
   valorTotal: integer("valor_total").notNull(),
   parcelas: integer("parcelas").default(1),
-  status: text("status").notNull().default("created"),
+  status: text("status").notNull().default("created"), // created | reserved | pending | processing | paid | fulfilling | fulfilled | expired | error
   cieloPaymentId: text("cielo_payment_id"),
   cieloStatus: integer("cielo_status"),
   titularNome: text("titular_nome").notNull(),
@@ -5768,6 +5799,8 @@ export const eventPaymentOrders = pgTable("event_payment_orders", {
   pixQrCodeString: text("pix_qr_code_string"),
   errorMessage: text("error_message"),
   returnCode: text("return_code"),
+  reservedUntil: timestamp("reserved_until"),
+  fulfilledEm: timestamp("fulfilled_em"),
   criadoEm: timestamp("criado_em").defaultNow().notNull(),
   atualizadoEm: timestamp("atualizado_em").defaultNow().notNull(),
 });
@@ -5828,3 +5861,136 @@ export const aulasExcecoesPec = pgTable("aulas_excecoes_pec", {
 export type AulaExcecaoPec = typeof aulasExcecoesPec.$inferSelect;
 export type InsertAulaExcecaoPec = typeof aulasExcecoesPec.$inferInsert;
 export const insertAulaExcecaoPecSchema = createInsertSchema(aulasExcecoesPec).omit({ id: true, createdAt: true });
+
+// ============================================================
+// ACOLHIMENTOS AGENDADOS — agenda psico (visível ao aluno sem conteúdo clínico)
+// ============================================================
+export const psicoAcolhimentoStatusEnum = [
+  "agendado",
+  "realizado",
+  "faltou",
+  "cancelado",
+  "reagendado",
+] as const;
+export type PsicoAcolhimentoStatus = (typeof psicoAcolhimentoStatusEnum)[number];
+
+export const psicoAcolhimentos = pgTable("psico_acolhimentos", {
+  id: serial("id").primaryKey(),
+  alunoCpf: varchar("aluno_cpf", { length: 11 }).notNull(),
+  alunoNome: varchar("aluno_nome", { length: 200 }).notNull(),
+  data: date("data").notNull(),
+  horaInicio: varchar("hora_inicio", { length: 8 }).notNull(),
+  horaFim: varchar("hora_fim", { length: 8 }),
+  local: text("local"),
+  profissionalUserId: integer("profissional_user_id").references(() => users.id),
+  profissionalNome: text("profissional_nome"),
+  status: varchar("status", { length: 30 }).notNull().default("agendado"),
+  observacaoInterna: text("observacao_interna"),
+  registroId: integer("registro_id"),
+  registroTipo: varchar("registro_tipo", { length: 40 }),
+  /** Id compartilhado quando o agendamento veio de uma série recorrente */
+  serieId: varchar("serie_id", { length: 64 }),
+  criadoPorUserId: integer("criado_por_user_id").notNull(),
+  criadoPorRole: varchar("criado_por_role", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PsicoAcolhimento = typeof psicoAcolhimentos.$inferSelect;
+export type InsertPsicoAcolhimento = typeof psicoAcolhimentos.$inferInsert;
+export const insertPsicoAcolhimentoSchema = createInsertSchema(psicoAcolhimentos).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ========================
+// UNIFICAÇÃO CADASTRO — CADASTRO MESTRE
+// ========================
+
+export const atendidosGrito = pgTable("atendidos_grito", {
+  cpf: text("cpf").primaryKey(),
+  cpfProvisorio: boolean("cpf_provisorio").notNull().default(false),
+  nomeCompleto: text("nome_completo").notNull(),
+  dataNascimento: date("data_nascimento"),
+  genero: text("genero"),
+  escolaridade: text("escolaridade"),
+  instituicaoEnsino: text("instituicao_ensino"),
+  telefone: text("telefone"),
+  email: text("email"),
+  whatsapp: text("whatsapp"),
+  bolsaFamilia: text("bolsa_familia"),
+  fotoPerfil: text("foto_perfil"),
+  numeroMatricula: text("numero_matricula").unique(),
+  status: text("status").notNull().default("ativo"),
+  cep: text("cep"),
+  logradouro: text("logradouro"),
+  numero: text("numero"),
+  complemento: text("complemento"),
+  bairro: text("bairro"),
+  cidade: text("cidade"),
+  estado: text("estado"),
+  dadosComplementares: jsonb("dados_complementares"),
+  fonteUltimaAtualizacao: text("fonte_ultima_atualizacao"),
+  legadoAtualizadoEm: timestamp("legado_atualizado_em"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const atendidosGritoPrograma = pgTable(
+  "atendidos_grito_programa",
+  {
+    id: serial("id").primaryKey(),
+    cpf: text("cpf")
+      .notNull()
+      .references(() => atendidosGrito.cpf, { onDelete: "cascade" }),
+    programa: text("programa").notNull(),
+    status: text("status").notNull().default("ativo"),
+    legadoTipo: text("legado_tipo"),
+    legadoId: text("legado_id"),
+    dataIngresso: timestamp("data_ingresso"),
+    dataEgresso: timestamp("data_egresso"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    uniqCpfPrograma: unique().on(t.cpf, t.programa),
+  })
+);
+
+export type AtendidoGrito = typeof atendidosGrito.$inferSelect;
+export type InsertAtendidoGrito = typeof atendidosGrito.$inferInsert;
+export type AtendidoGritoPrograma = typeof atendidosGritoPrograma.$inferSelect;
+export type InsertAtendidoGritoPrograma = typeof atendidosGritoPrograma.$inferInsert;
+
+export const insertAtendidoGritoSchema = createInsertSchema(atendidosGrito).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAtendidoGritoProgramaSchema = createInsertSchema(atendidosGritoPrograma).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// ========================
+// UNIFICAÇÃO CADASTRO — OBSERVAÇÕES CROSS-SETOR
+// ========================
+
+export const atendidosGritoObservacoes = pgTable("atendidos_grito_observacoes", {
+  id: serial("id").primaryKey(),
+  cpf: text("cpf").notNull(),
+  autorNome: text("autor_nome").notNull(),
+  autorSetor: text("autor_setor").notNull(),
+  autorUserId: integer("autor_user_id"),
+  texto: text("texto").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AtendidoGritoObservacao = typeof atendidosGritoObservacoes.$inferSelect;
+export type InsertAtendidoGritoObservacao = typeof atendidosGritoObservacoes.$inferInsert;
+export const insertAtendidoGritoObservacaoSchema = createInsertSchema(atendidosGritoObservacoes).omit({
+  id: true,
+  createdAt: true,
+});

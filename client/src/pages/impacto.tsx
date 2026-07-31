@@ -690,7 +690,7 @@ import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
     };
 
     return (
-      <div className="min-h-screen bg-white pb-donor-nav">
+      <div className="min-h-screen bg-white pb-nav">
         {/* Header */}
         <header className="bg-white">
           <div className="px-4 py-3 flex items-center">
@@ -943,7 +943,7 @@ import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
               `}</style>
               <div className="flex gap-6 px-4" style={{width: 'fit-content'}}>
                   {/* Pizza 1: Gênero */}
-                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col w-[min(300px,85vw)] h-[340px]">
                     <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                       Gênero
                     </h3>
@@ -998,7 +998,7 @@ import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
                   </div>
 
                   {/* Pizza 2: Raça/Cor */}
-                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col w-[min(300px,85vw)] h-[340px]">
                     <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                       Raça/Cor
                     </h3>
@@ -1053,7 +1053,7 @@ import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
                   </div>
 
                   {/* Pizza 3: Faixas Etárias */}
-                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col" style={{width: '300px', height: '340px'}}>
+                  <div className="flex-shrink-0 bg-white rounded-3xl p-5 shadow-lg snap-center flex flex-col w-[min(300px,85vw)] h-[340px]">
                     <h3 className="text-base font-bold text-gray-900 mb-3 text-center font-sans">
                       Faixas Etárias
                     </h3>
@@ -1251,7 +1251,7 @@ import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
                     onClick={() => openStories(index)}
                     className="relative flex-shrink-0 overflow-hidden rounded-2xl shadow-lg cursor-pointer hover:scale-[1.02] transition-transform duration-200"
                     style={{
-                    width: "320px",
+                    width: "min(320px, 85vw)",
                     height: "180px",
                     backgroundImage: `url("/api/historias-inspiradoras/${story.id}/imagem?tipo=box"), url(${JSON.stringify(
                       story.image ||

@@ -11,36 +11,40 @@ export default function GritoIntro() {
   };
 
   return (
-    <div className="min-h-screen bg-white relative overflow-hidden" style={{ maxWidth: '400px', margin: '0 auto' }}>
+    <div className="app-shell relative overflow-hidden bg-white">
       {/* Title Section */}
-      <div className="absolute top-12 left-6 z-10">
-        <h1 className="text-3xl font-normal text-black leading-tight tracking-normal font-inter">
+      <div
+        className="absolute left-6 z-10"
+        style={{ top: "max(3rem, calc(env(safe-area-inset-top, 0px) + 2rem))" }}
+      >
+        <h1 className="font-inter text-2xl leading-tight tracking-normal text-black sm:text-3xl">
           Que bom ter<br />
           <span className="font-bold">você por aqui!</span>
         </h1>
       </div>
 
       {/* Illustration - Large and positioned to create "vazado" effect */}
-      <div className="absolute inset-0 flex items-end justify-center" style={{ bottom: '0px' }}>
-        <img 
-          src={gritoIllustration} 
-          alt="Personagem com megafone" 
-          className="h-auto object-contain"
-          style={{ 
-            width: '620px',
-            maxHeight: '70vh',
-            transform: 'translateX(-110px) translateY(20px)'
+      <div className="absolute inset-0 flex items-end justify-center overflow-hidden">
+        <img
+          src={gritoIllustration}
+          alt="Personagem com megafone"
+          className="h-auto max-h-[70dvh] w-[min(155vw,38.75rem)] max-w-none object-contain"
+          style={{
+            transform: "translateX(-18%) translateY(1.25rem)",
           }}
         />
       </div>
 
       {/* Bottom Button */}
-      <div className="absolute bottom-8 right-6 z-10">
+      <div
+        className="absolute right-6 z-10"
+        style={{ bottom: "max(2rem, calc(env(safe-area-inset-bottom, 0px) + 1.5rem))" }}
+      >
         <Button
           onClick={handleNext}
-          className="w-16 h-16 bg-yellow-400 hover:bg-yellow-500 text-black rounded-full flex items-center justify-center shadow-lg"
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-yellow-400 text-black shadow-lg hover:bg-yellow-500"
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="h-6 w-6" />
         </Button>
       </div>
     </div>

@@ -8,10 +8,8 @@ function toProxyUrl(url: string | null | undefined): string | null {
   }
   return url;
 }
-import { formatCPF } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -37,12 +35,17 @@ import {
 } from "lucide-react";
 import { ComprehensiveStudentForm } from "@/components/comprehensive-student-form";
 import { ParticipanteDetalhesModal, type DetalhesSection } from "@/components/ParticipanteDetalhesModal";
+import {
+  type ProgramaParticipanteFilter,
+} from "@/lib/programaParticipanteFilter";
 
 interface ParticipantesInclusaoSectionProps {
   showImportExport?: boolean;
   readOnly?: boolean;
   filtroTurmaIds?: number[];
   hideSensitive?: boolean;
+  /** Default do filtro de setor (Grito = todos). */
+  defaultProgramaFilter?: ProgramaParticipanteFilter;
 }
 
 const maskCpfSection = (cpf: string | null | undefined): string => {
@@ -51,11 +54,19 @@ const maskCpfSection = (cpf: string | null | undefined): string => {
   return `***.***.*${clean[7]}${clean[8]}-${clean[9]}${clean[10]}`;
 };
 
-export default function ParticipantesInclusaoSection({ showImportExport = true, readOnly = false, filtroTurmaIds, hideSensitive = false }: ParticipantesInclusaoSectionProps) {
+export default function ParticipantesInclusaoSection({
+  showImportExport = true,
+  readOnly = false,
+  filtroTurmaIds,
+  hideSensitive = false,
+  defaultProgramaFilter = "grito",
+}: ParticipantesInclusaoSectionProps) {
   const { toast } = useToast();
 
   const [searchParticipante, setSearchParticipante] = useState<string>("");
   const [statusFilterParticipantes, setStatusFilterParticipantes] = useState<string>("ativos");
+  const [programaFilterParticipantes, setProgramaFilterParticipantes] =
+    useState<ProgramaParticipanteFilter>(defaultProgramaFilter);
   const [turmaFilterParticipantes, setTurmaFilterParticipantes] = useState<string>("todas");
 
   const [selectedParticipante, setSelectedParticipante] = useState<any>(null);
@@ -75,9 +86,19 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
   const [documentoPreviewNome, setDocumentoPreviewNome] = useState<string>("");
 
   const { data: participantesData = [], isLoading: isLoadingParticipantes } = useQuery({
-    queryKey: ['/api/participantes-inclusao'],
+    queryKey: [
+      '/api/participantes-inclusao',
+      statusFilterParticipantes,
+      programaFilterParticipantes,
+    ],
     queryFn: async () => {
-      const response = await fetch('/api/participantes-inclusao', { credentials: "include" });
+      const params = new URLSearchParams({
+        status: statusFilterParticipantes,
+        programa: programaFilterParticipantes,
+      });
+      const response = await fetch(`/api/participantes-inclusao?${params}`, {
+        credentials: "include",
+      });
       if (!response.ok) throw new Error('Falha ao carregar participantes');
       return response.json();
     },
@@ -101,13 +122,8 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
   }, [participantesData]);
 
   const participantesFiltrados = participantesData.filter((p: any) => {
-    const matchesSearch =
-      (p.nome || "").toLowerCase().includes(searchParticipante.toLowerCase()) ||
-      (p.cpf || "").includes(searchParticipante);
-
-    let matchesStatus = true;
-    if (statusFilterParticipantes === "ativos") matchesStatus = p.status !== "inativo";
-    if (statusFilterParticipantes === "inativos") matchesStatus = p.status === "inativo";
+    const q = searchParticipante.trim().toLowerCase();
+    const matchesSearch = !q || (p.nome || "").toLowerCase().includes(q);
 
     const matchesTurmaPorPermissao =
       !filtroTurmaIds ||
@@ -120,7 +136,7 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
       (p.turmas &&
         p.turmas.some((t: any) => t?.status !== "concluido" && t?.id === selectedTurmaId));
 
-    return matchesSearch && matchesStatus && matchesTurmaPorPermissao && matchesTurmaSelecionada;
+    return matchesSearch && matchesTurmaPorPermissao && matchesTurmaSelecionada;
   });
 
   const handleExportTemplate = () => {
@@ -314,6 +330,8 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
             foto={toProxyUrl(fullParticipanteData?.fotoUrl || selectedParticipante?.fotoUrl)}
             nome={fullParticipanteData?.nome || selectedParticipante?.nome}
             cpf={maskCpfSection(fullParticipanteData?.cpf || selectedParticipante?.cpf)}
+            historicoCpf={String(fullParticipanteData?.cpf || selectedParticipante?.cpf || "").replace(/\D/g, "")}
+            historicoParticipanteId={selectedParticipante?.id || fullParticipanteData?.id}
             status={fullParticipanteData?.status || selectedParticipante?.status}
             sections={(fullParticipanteData || selectedParticipante) ? ([
               {
@@ -408,17 +426,24 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                         className="hidden"
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
-                          if (!file || !selectedParticipante?.id) return;
+                          const cpfDigits = String(selectedParticipante?.cpf || "").replace(/\D/g, "");
+                          if (!file || (selectedParticipante?.id == null && cpfDigits.length !== 11)) return;
                           setUploadingDocumento(true);
                           const formData = new FormData();
                           formData.append('documento', file);
                           formData.append('tipoDocumento', 'Documento');
                           try {
-                            const res = await fetch(`/api/documentos/participante-inclusao/${selectedParticipante.id}`, { method: 'POST', body: formData });
+                            const uploadUrl = selectedParticipante?.id != null
+                              ? `/api/documentos/participante-inclusao/${selectedParticipante.id}`
+                              : `/api/documentos/participante-inclusao/cpf/${cpfDigits}`;
+                            const res = await fetch(uploadUrl, { method: 'POST', body: formData, credentials: "include" });
                             const data = await res.json();
                             if (data.success) {
                               toast({ title: "Documento enviado com sucesso!" });
-                              const docsRes = await fetch(`/api/documentos/participante-inclusao/${selectedParticipante.id}`);
+                              const docsUrl = selectedParticipante?.id != null
+                                ? `/api/documentos/participante-inclusao/${selectedParticipante.id}`
+                                : `/api/documentos/participante-inclusao/cpf/${cpfDigits}`;
+                              const docsRes = await fetch(docsUrl, { credentials: "include" });
                               const docsData = await docsRes.json();
                               setParticipanteDocumentos(docsData || []);
                             } else {
@@ -509,15 +534,19 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                 <Button
                   className={selectedParticipante?.status === 'inativo' ? "bg-green-500 hover:bg-green-600" : "bg-orange-500 hover:bg-orange-600"}
                   onClick={async () => {
-                    if (selectedParticipante?.id) {
+                    const cpfDigits = String(selectedParticipante?.cpf || "").replace(/\D/g, "");
+                    if (!selectedParticipante?.id && cpfDigits.length !== 11) return;
                       try {
-                        const newStatus = selectedParticipante.status === 'inativo' ? 'ativo' : 'inativo';
-                        await apiRequest(`/api/participantes-inclusao/${selectedParticipante.id}`, {
-                          method: 'PATCH',
-                          body: JSON.stringify({ status: newStatus })
-                        });
+                        const endpoint = selectedParticipante.status === 'inativo'
+                          ? (selectedParticipante.id != null
+                              ? `/api/participantes-inclusao/${selectedParticipante.id}/reativar`
+                              : `/api/participantes-inclusao/cpf/${cpfDigits}/reativar`)
+                          : (selectedParticipante.id != null
+                              ? `/api/participantes-inclusao/${selectedParticipante.id}/inativar`
+                              : `/api/participantes-inclusao/cpf/${cpfDigits}/inativar`);
+                        await apiRequest(endpoint, { method: 'PATCH' });
                         await queryClient.refetchQueries({ queryKey: ['/api/participantes-inclusao'] });
-                        if (newStatus === 'inativo') {
+                        if (selectedParticipante.status !== 'inativo') {
                           setStatusFilterParticipantes('todos');
                         }
                         toast({
@@ -535,7 +564,6 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                           variant: "destructive"
                         });
                       }
-                    }
                   }}
                 >
                   {selectedParticipante?.status === 'inativo' ? 'Reativar' : 'Inativar'}
@@ -551,7 +579,8 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
               setSelectedParticipante(null);
             }}
             mode="inclusao"
-            editId={selectedParticipante?.id}
+            editId={selectedParticipante?.id ?? undefined}
+            editCpf={selectedParticipante?.id == null ? String(selectedParticipante?.cpf || "").replace(/\D/g, "") || undefined : undefined}
           />
 
           <Dialog open={showDocumentoPreviewModal} onOpenChange={setShowDocumentoPreviewModal}>
@@ -594,12 +623,25 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
-                placeholder="Buscar participantes por nome ou CPF..."
+                placeholder="Buscar participantes por nome..."
                 className="pl-10"
                 value={searchParticipante}
                 onChange={(e) => setSearchParticipante(e.target.value)}
               />
             </div>
+            <Select
+              value={programaFilterParticipantes}
+              onValueChange={(v) => setProgramaFilterParticipantes(v as ProgramaParticipanteFilter)}
+            >
+              <SelectTrigger className="w-56" data-testid="select-filtro-programa-participantes">
+                <SelectValue placeholder="Setor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="grito">Participantes Grito</SelectItem>
+                <SelectItem value="pec">Participantes PEC</SelectItem>
+                <SelectItem value="inclusao">Participantes Inclusão</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={statusFilterParticipantes} onValueChange={setStatusFilterParticipantes}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Status" />
@@ -628,48 +670,40 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
           <Table>
             <TableHeader>
               <TableRow>
-                {!readOnly && !hideSensitive && <TableHead>Foto</TableHead>}
+                <TableHead>Foto</TableHead>
                 <TableHead>Nome</TableHead>
-                {!readOnly && <TableHead>CPF</TableHead>}
-                <TableHead>Telefone</TableHead>
-                <TableHead>Nascimento</TableHead>
-                <TableHead>Idade</TableHead>
-                {!readOnly && <TableHead>Turmas</TableHead>}
-                {!readOnly && !hideSensitive && <TableHead>Escolaridade</TableHead>}
                 {!readOnly && <TableHead>Ações</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoadingParticipantes ? (
                 <TableRow>
-                  <TableCell colSpan={readOnly ? 3 : 7} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={readOnly ? 2 : 3} className="text-center text-gray-500 py-8">
                     Carregando participantes...
                   </TableCell>
                 </TableRow>
               ) : participantesFiltrados.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={readOnly ? 3 : 7} className="text-center text-gray-500 py-8">
+                  <TableCell colSpan={readOnly ? 2 : 3} className="text-center text-gray-500 py-8">
                     {searchParticipante ? "Nenhum participante encontrado." : readOnly ? "Nenhum participante nas suas turmas." : "Nenhum participante cadastrado. Clique em \"Adicionar Participante\" para começar."}
                   </TableCell>
                 </TableRow>
               ) : (
                 participantesFiltrados.map((participante: any) => (
-                  <TableRow key={participante.id}>
-                    {!readOnly && !hideSensitive && (
-                      <TableCell>
-                        {participante.fotoUrl && participante.fotoUrl.trim() ? (
-                          <img
-                            src={toProxyUrl(participante.fotoUrl)!}
-                            alt={participante.nome}
-                            className="w-10 h-10 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                            <User className="w-5 h-5 text-blue-500" />
-                          </div>
-                        )}
-                      </TableCell>
-                    )}
+                  <TableRow key={participante.id ?? `cpf-${participante.cpf}`}>
+                    <TableCell>
+                      {participante.fotoUrl && participante.fotoUrl.trim() ? (
+                        <img
+                          src={toProxyUrl(participante.fotoUrl)!}
+                          alt={participante.nome}
+                          className="w-10 h-10 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                          <User className="w-5 h-5 text-blue-500" />
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
                         {participante.nome}
@@ -678,59 +712,31 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                         )}
                       </span>
                     </TableCell>
-                    {!readOnly && <TableCell>{hideSensitive ? maskCpfSection(participante.cpf) : formatCPF(participante.cpf)}</TableCell>}
-                    <TableCell>{participante.telefone}</TableCell>
-                    <TableCell>
-                      {participante.dataNascimento || participante.data_nascimento
-                        ? new Date((participante.dataNascimento || participante.data_nascimento) + 'T12:00:00').toLocaleDateString('pt-BR')
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const nasc = participante.dataNascimento || participante.data_nascimento;
-                        if (!nasc) return '-';
-                        const hoje = new Date();
-                        const n = new Date(nasc + 'T12:00:00');
-                        let idade = hoje.getFullYear() - n.getFullYear();
-                        const m = hoje.getMonth() - n.getMonth();
-                        if (m < 0 || (m === 0 && hoje.getDate() < n.getDate())) idade--;
-                        return `${idade} anos`;
-                      })()}
-                    </TableCell>
-                    {!readOnly && (
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {participante.turmas && participante.turmas.filter((t: any) => t.status !== 'concluido').length > 0 ? (
-                            participante.turmas
-                              .filter((t: any) => t.status !== 'concluido')
-                              .map((turma: any, idx: number) => (
-                              <Badge key={idx} className="bg-white border border-blue-500 text-blue-700 text-xs hover:bg-blue-50">
-                                {turma.nome}
-                              </Badge>
-                            ))
-                          ) : (
-                            <span className="text-sm text-gray-400">Sem turma</span>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
-                    {!readOnly && !hideSensitive && <TableCell>{participante.escolaridade}</TableCell>}
                     {!readOnly && (
                     <TableCell>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={participante.id == null && !String(participante.cpf || "").replace(/\D/g, "")}
                           onClick={async () => {
+                            const cpfDigits = String(participante.cpf || "").replace(/\D/g, "");
+                            if (participante.id == null && cpfDigits.length !== 11) return;
                             setSelectedParticipante(participante);
                             setLoadingParticipanteDetails(true);
                             setShowDetalhesParticipanteModal(true);
                             try {
-                              const res = await fetch(`/api/participantes-inclusao/${participante.id}`);
+                              const url = participante.id != null
+                                ? `/api/participantes-inclusao/${participante.id}`
+                                : `/api/participantes-inclusao/cpf/${cpfDigits}`;
+                              const res = await fetch(url, { credentials: "include" });
                               const data = await res.json();
                               setFullParticipanteData(data);
                               try {
-                                const docsRes = await fetch(`/api/documentos/participante-inclusao/${participante.id}`);
+                                const docsUrl = participante.id != null
+                                  ? `/api/documentos/participante-inclusao/${participante.id}`
+                                  : `/api/documentos/participante-inclusao/cpf/${cpfDigits}`;
+                                const docsRes = await fetch(docsUrl, { credentials: "include" });
                                 const docsData = await docsRes.json();
                                 setParticipanteDocumentos(docsData || []);
                               } catch (e) {
@@ -742,31 +748,37 @@ export default function ParticipantesInclusaoSection({ showImportExport = true, 
                               setLoadingParticipanteDetails(false);
                             }
                           }}
-                          data-testid={`button-view-participant-${participante.id}`}
+                          data-testid={`button-view-participant-${participante.id ?? participante.cpf}`}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={participante.id == null && !String(participante.cpf || "").replace(/\D/g, "")}
                           onClick={() => {
+                            const cpfDigits = String(participante.cpf || "").replace(/\D/g, "");
+                            if (participante.id == null && cpfDigits.length !== 11) return;
                             setSelectedParticipante(participante);
                             setShowEditParticipanteModal(true);
                           }}
-                          data-testid={`button-edit-participant-${participante.id}`}
+                          data-testid={`button-edit-participant-${participante.id ?? participante.cpf}`}
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={participante.id == null && !String(participante.cpf || "").replace(/\D/g, "")}
                           className={participante.status === 'inativo' ? "text-green-500 hover:text-green-700" : "text-orange-500 hover:text-orange-700"}
                           onClick={() => {
+                            const cpfDigits = String(participante.cpf || "").replace(/\D/g, "");
+                            if (participante.id == null && cpfDigits.length !== 11) return;
                             setSelectedParticipante(participante);
                             setShowInativarParticipanteModal(true);
                           }}
                           title={participante.status === 'inativo' ? "Reativar participante" : "Inativar participante"}
-                          data-testid={`button-toggle-status-participant-${participante.id}`}
+                          data-testid={`button-toggle-status-participant-${participante.id ?? participante.cpf}`}
                         >
                           {participante.status === 'inativo' ? (
                             <User className="w-4 h-4" />

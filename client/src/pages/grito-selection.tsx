@@ -138,10 +138,16 @@ export default function GritoSelection() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col justify-center p-6 relative" style={{ maxWidth: '400px', margin: '0 auto' }}>
+    <div
+      className="app-shell relative flex flex-col justify-center bg-gray-100 p-6"
+      style={{
+        paddingTop: "max(1.5rem, env(safe-area-inset-top, 0px))",
+        paddingBottom: "max(6rem, calc(env(safe-area-inset-bottom, 0px) + 5rem))",
+      }}
+    >
       {/* Title */}
-      <div className="mb-12 text-left">
-        <h1 className="text-3xl font-normal text-black leading-tight tracking-normal font-inter mb-8">
+      <div className="mb-8 text-left sm:mb-12">
+        <h1 className="mb-6 font-inter text-2xl font-normal leading-tight tracking-normal text-black sm:mb-8 sm:text-3xl">
           Agora me<br />
           conta, qual é<br />
           o seu <span className="font-bold">Grito?</span>
@@ -149,15 +155,15 @@ export default function GritoSelection() {
       </div>
 
       {/* Causas Buttons */}
-      <div className="space-y-3 mb-24">
+      <div className="mb-8 space-y-3">
         {causas.map((causa) => (
           <button
             key={causa.id}
             onClick={() => selectCausa(causa.id)}
-            className={`w-full px-6 py-4 rounded-full text-center font-medium text-base transition-all duration-200 ${
+            className={`w-full rounded-full px-6 py-4 text-center text-base font-medium transition-all duration-200 ${
               selectedCausa === causa.id
-                ? 'bg-yellow-400 text-black'
-                : 'bg-gray-800 text-white hover:bg-red-800'
+                ? "bg-yellow-400 text-black"
+                : "bg-gray-800 text-white hover:bg-red-800"
             }`}
           >
             {causa.nome}
@@ -166,16 +172,19 @@ export default function GritoSelection() {
       </div>
 
       {/* Continue Button */}
-      <div className="absolute bottom-8 right-6">
+      <div
+        className="absolute right-6 z-10"
+        style={{ bottom: "max(2rem, calc(env(safe-area-inset-bottom, 0px) + 1.5rem))" }}
+      >
         <Button
           onClick={handleSave}
           disabled={isLoading || !selectedCausa}
-          className="w-16 h-16 bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-300 text-black rounded-full flex items-center justify-center shadow-lg"
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-yellow-400 text-black shadow-lg hover:bg-yellow-500 disabled:bg-gray-300"
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="h-6 w-6" />
         </Button>
       </div>
-      
+
       {/* Confetti effect */}
       {showConfetti && <Confetti />}
     </div>

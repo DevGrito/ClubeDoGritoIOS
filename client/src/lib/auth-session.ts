@@ -1,8 +1,9 @@
 import { queryClient } from "@/lib/queryClient";
 import type { ConsentArea } from "@/hooks/usePrivacyConsent";
 import { syncStoredPrivacyConsentAfterAuth } from "@/lib/syncPrivacyConsentAfterAuth";
+import { clearLocalStoragePreservingLgpd } from "@/lib/privacyConsentStorage";
 
-export { clearLocalStoragePreservingLgpd } from "@/lib/privacyConsentStorage";
+export { clearLocalStoragePreservingLgpd };
 
 function consentAreaForSession(session: AuthSessionPayload): ConsentArea {
   const role = String(session.papel || session.role || "").toLowerCase();
@@ -31,25 +32,6 @@ async function syncPrivacyConsentAfterLogin(session: AuthSessionPayload): Promis
   });
 }
 
-const AUTH_STORAGE_KEYS = [
-  "userId",
-  "userPapel",
-  "userEmail",
-  "userName",
-  "monitorId",
-  "professorId",
-  "coordenadorId",
-  "coordenadorNome",
-  "coordenadorEmail",
-  "coordenadorData",
-  "actorType",
-  "isVerified",
-  "dev_panel_active",
-  "dev_panel_timestamp",
-  "hasActiveSubscription",
-  "subscriptionPaused",
-] as const;
-
 const AUTH_SESSION_KEYS = [
   "coordenador_auth",
   "coordenador_data",
@@ -74,22 +56,6 @@ export type AuthSessionPayload = {
   professorId?: number | null;
   monitorId?: number | null;
 };
-
-export function isAlunoPortalSession(session: AuthSessionPayload | null | undefined): boolean {
-  if (!session?.id) return false;
-  const actor = String(session.actorType || "").toLowerCase();
-  const papel = String(session.papel || session.role || "").toLowerCase();
-  return actor === "aluno_portal" || actor === "aluno" || papel === "aluno_portal" || papel === "aluno";
-}
-
-export function getAlunoPortalCpf(session: AuthSessionPayload | null | undefined): string {
-  if (!session) return "";
-  const fromCpf = String(session.cpf || "").replace(/\D/g, "");
-  if (fromCpf.length === 11) return fromCpf;
-  const fromId = String(session.id ?? "").replace(/\D/g, "");
-  if (fromId.length === 11) return fromId;
-  return "";
-}
 
 const ALUNO_PORTAL_CACHE_KEYS = ["aluno_cpf", "aluno_nome", "aluno_auth"] as const;
 const SCANNER_CACHE_KEYS = ["scanner_auth", "scanner_user", "scanner_nome"] as const;
@@ -130,17 +96,19 @@ export function syncSessionToLocalStorage(session: AuthSessionPayload): void {
 export async function syncAuthSessionAfterLogin(): Promise<AuthSessionPayload | null> {
   await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // WebView Android pode demorar a persistir o cookie após o POST de login.
+  const maxAttempts = 4;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 120 * attempt));
+    }
     const session = await fetchAuthSessionAndSyncCache();
-    if (session?.id) {
+    if (session) {
+      queryClient.setQueryData(["/api/auth/session"], session);
       await syncPrivacyConsentAfterLogin(session);
       return session;
     }
-    if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
   }
-
   return null;
 }
 
@@ -153,10 +121,10 @@ export async function fetchAuthSessionAndSyncCache(): Promise<AuthSessionPayload
   if (res.status === 401 || !res.ok) return null;
   const session = (await res.json()) as AuthSessionPayload;
   if (!session?.id) return null;
-  if (isAlunoPortalSession(session)) {
-    const cpfDigits = getAlunoPortalCpf(session);
+  if (session.actorType === "aluno_portal") {
+    const cpfDigits = String(session.cpf || session.id || "").replace(/\D/g, "");
     if (cpfDigits.length === 11) {
-      syncAlunoPortalCache({ ...session, cpf: cpfDigits });
+      syncAlunoPortalCache({ ...session, cpf: cpfDigits }, { notify: false });
     }
     return session;
   }
@@ -172,19 +140,29 @@ export async function fetchAuthSessionAndSyncCache(): Promise<AuthSessionPayload
   return session;
 }
 
+type SyncAlunoPortalCacheOptions = {
+  /** Dispara `aluno-auth-changed` (ex.: após login). Não usar em refetch de rotina. */
+  notify?: boolean;
+};
+
 /** Cache UI do portal do aluno (não é fonte de autorização). */
-export function syncAlunoPortalCache(session: AuthSessionPayload): void {
-  const cpf = getAlunoPortalCpf(session);
+export function syncAlunoPortalCache(
+  session: AuthSessionPayload,
+  options?: SyncAlunoPortalCacheOptions
+): void {
+  const cpf = (session.cpf || "").replace(/\D/g, "");
   const nome = session.nome || "";
   const prevCpf = sessionStorage.getItem("aluno_cpf") || "";
   const prevNome = sessionStorage.getItem("aluno_nome") || "";
-  const prevAuth = sessionStorage.getItem("aluno_auth");
+  const prevAuth = sessionStorage.getItem("aluno_auth") === "true";
 
   if (cpf) sessionStorage.setItem("aluno_cpf", cpf);
   if (nome) sessionStorage.setItem("aluno_nome", nome);
   sessionStorage.setItem("aluno_auth", "true");
 
-  if (cpf !== prevCpf || nome !== prevNome || prevAuth !== "true") {
+  const changed = !prevAuth || cpf !== prevCpf || (nome && nome !== prevNome);
+  const shouldNotify = options?.notify !== false && changed;
+  if (shouldNotify) {
     window.dispatchEvent(new Event("aluno-auth-changed"));
   }
 }
@@ -202,9 +180,7 @@ export function syncTabletChamadaCache(session: AuthSessionPayload): void {
 
 export async function fetchAlunoPortalSession(): Promise<AuthSessionPayload | null> {
   const session = await fetchAuthSessionAndSyncCache();
-  if (!session || !isAlunoPortalSession(session) || getAlunoPortalCpf(session).length !== 11) {
-    return null;
-  }
+  if (!session || session.actorType !== "aluno_portal" || !session.cpf) return null;
   return session;
 }
 
@@ -215,9 +191,8 @@ export async function logoutAndClearSession(): Promise<void> {
     // Keep local cleanup even when backend logout fails.
   }
 
-  for (const key of AUTH_STORAGE_KEYS) {
-    localStorage.removeItem(key);
-  }
+  // Limpa cache de auth/UI, preservando apenas consentimento LGPD.
+  clearLocalStoragePreservingLgpd();
   for (const key of AUTH_SESSION_KEYS) {
     sessionStorage.removeItem(key);
   }
@@ -230,5 +205,9 @@ export async function logoutAndClearSession(): Promise<void> {
   for (const key of TABLET_CHAMADA_CACHE_KEYS) {
     sessionStorage.removeItem(key);
   }
+
+  queryClient.setQueryData(["/api/auth/session"], null);
+  queryClient.removeQueries({ queryKey: ["/api/auth/session"] });
+  window.dispatchEvent(new Event("aluno-auth-changed"));
 }
 

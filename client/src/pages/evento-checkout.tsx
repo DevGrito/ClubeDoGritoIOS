@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useLocation, useSearch } from "wouter";
 import {
   ArrowLeft, Ticket, CreditCard, User, Lock, ShieldCheck,
@@ -10,13 +10,15 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import logoPath from "../app-assets/Logo_Clube_Do_grito.png";
-import { usePortalAuth } from "../hooks/usePortalAuth";
+import { usePortalAuth, clearPortalCaches } from "../hooks/usePortalAuth";
 import LoginModal from "../components/portal/LoginModal";
 
 const GREEN = "#058d4c";
 const RED = "#a90302";
 const YELLOW = "#ffcc00";
 const BRAND = "#f59e0b";
+const PIX_POLL_MS = 5000;
+const PIX_TIMEOUT_MS = 30 * 60 * 1000;
 
 function formatCard(v: string) { const n = v.replace(/\D/g, "").slice(0, 16); return n.replace(/(.{4})/g, "$1 ").trim(); }
 function formatExpiry(v: string) { const n = v.replace(/\D/g, "").slice(0, 4); return n.length > 2 ? `${n.slice(0, 2)}/${n.slice(2)}` : n; }
@@ -38,15 +40,26 @@ function genIdempotencyKey(): string {
   return `ck-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function parseQty(raw: string | null): number {
+  const n = parseInt(raw || "1", 10);
+  if (!Number.isInteger(n) || n < 1) return 1;
+  return Math.min(n, 10);
+}
+
+function pixStorageKey(eventoId: string) {
+  return `eventos:pix:${eventoId}`;
+}
+
 type Step = "dados" | "pagamento" | "pix-aguardando" | "sucesso";
 
 export default function EventoCheckout() {
   const { id } = useParams<{ id: string }>();
   const search = useSearch();
   const params = new URLSearchParams(search);
-  const initialQty = Math.max(1, parseInt(params.get("qty") || "1", 10));
+  const initialQty = parseQty(params.get("qty"));
   const [, navigate] = useLocation();
-  const { user, isLoggedIn } = usePortalAuth();
+  const queryClient = useQueryClient();
+  const { user, isLoggedIn, isLoading: authLoading } = usePortalAuth();
 
   const [showLogin, setShowLogin] = useState(false);
   const [step, setStep] = useState<Step>("dados");
@@ -55,17 +68,15 @@ export default function EventoCheckout() {
   const [imageAccepted, setImageAccepted] = useState(false);
   const [quantidade, setQuantidade] = useState(initialQty);
 
-  // Chave de idempotência — gerada uma vez por sessão de checkout, previne cobrança dupla
   const idempotencyKeyRef = useRef<string>(genIdempotencyKey());
   const resetIdempotencyKey = () => { idempotencyKeyRef.current = genIdempotencyKey(); };
 
-  // Dados do comprador
-  const [nome, setNome] = useState((user as any)?.nome || "");
-  const [cpf, setCpf] = useState((user as any)?.cpf ? formatCPF((user as any).cpf) : "");
-  const [email, setEmail] = useState(user?.email || "");
+  const [nome, setNome] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
+  const hydratedUserRef = useRef<number | null>(null);
 
-  // Pagamento
   const [metodo, setMetodo] = useState<"pix" | "cartao" | "">("");
   const [cardNumber, setCardNumber] = useState("");
   const [cardName, setCardName] = useState("");
@@ -74,32 +85,70 @@ export default function EventoCheckout() {
   const [parcelas, setParcelas] = useState(1);
   const [erroMsg, setErroMsg] = useState<string | null>(null);
 
-  // PIX
-  const [pixData, setPixData] = useState<{ qrCodeBase64?: string; qrCodeString?: string; orderRef?: string } | null>(null);
+  const [pixData, setPixData] = useState<{ qrCodeBase64?: string; qrCodeString?: string; orderRef?: string; reservedUntil?: string } | null>(null);
   const [pixCopiado, setPixCopiado] = useState(false);
-  const [pixStatus, setPixStatus] = useState<"aguardando" | "pago" | "erro">("aguardando");
+  const [pixStatus, setPixStatus] = useState<"aguardando" | "pago" | "erro" | "expirado">("aguardando");
   const [ingressosCriados, setIngressosCriados] = useState<any[]>([]);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollingActiveRef = useRef(false);
+  const pixStartedAtRef = useRef<number>(0);
 
   const { data: evento, isLoading, isError } = useQuery<any>({
     queryKey: ["/api/eventos-grito", id],
     queryFn: async () => { const r = await fetch(`/api/eventos-grito/${id}`); if (!r.ok) throw new Error(); return r.json(); },
   });
 
-  const { data: dispData } = useQuery<{ disponiveis: number; total: number }>({
+  const {
+    data: dispData,
+    isLoading: dispLoading,
+    isError: dispError,
+    refetch: refetchDisp,
+  } = useQuery<{ disponiveis: number; total: number }>({
     queryKey: ["/api/portal/eventos", id, "disponiveis"],
-    queryFn: async () => { const r = await fetch(`/api/portal/eventos/${id}/disponiveis`); if (!r.ok) return { disponiveis: 0, total: 0 }; return r.json(); },
+    queryFn: async () => {
+      const r = await fetch(`/api/portal/eventos/${id}/disponiveis`);
+      if (!r.ok) throw new Error("Falha ao carregar disponibilidade");
+      return r.json();
+    },
     enabled: !!evento,
+    retry: 1,
   });
+
+  useEffect(() => {
+    if (!user || hydratedUserRef.current === user.id) return;
+    hydratedUserRef.current = user.id;
+    setNome(user.nome || "");
+    setEmail(user.email || "");
+    if ((user as any).cpf) setCpf(formatCPF(String((user as any).cpf)));
+  }, [user]);
+
+  useEffect(() => {
+    if (dispData?.disponiveis != null) {
+      setQuantidade((q) => Math.min(Math.max(1, q), Math.min(dispData.disponiveis, 10)));
+    }
+  }, [dispData?.disponiveis]);
+
+  const invalidateAfterPurchase = useCallback(() => {
+    queryClient.removeQueries({ queryKey: ["/api/portal/meus-ingressos"] });
+    queryClient.removeQueries({ queryKey: ["/api/portal/ingressos-pendentes"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/portal/eventos", id, "disponiveis"] });
+  }, [queryClient, id]);
 
   const preco = evento?.preco || 0;
   const precoUnit = preco / 100;
   const total = precoUnit * quantidade;
   const totalFmt = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const unitFmt = precoUnit.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  const maxQty = Math.min(dispData?.disponiveis ?? 10, 10);
+  const maxQty = Math.min(dispData?.disponiveis ?? 0, 10);
   const bandeira = detectBandeira(cardNumber);
+  const checkoutBloqueado =
+    !evento ||
+    evento.gratuito ||
+    !(evento.preco > 0) ||
+    evento.status !== "disponivel" ||
+    dispError ||
+    dispLoading ||
+    maxQty < 1;
 
   const dadosOk =
     nome.trim().length >= 3 &&
@@ -114,26 +163,81 @@ export default function EventoCheckout() {
     cardExpiry.length === 5 &&
     cardCvv.length >= 3;
 
-  // ── Polling de status PIX ──────────────────────────────────────────────────
   const iniciarPollingPix = useCallback((orderRef: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingActiveRef.current = true;
+    if (!pixStartedAtRef.current) pixStartedAtRef.current = Date.now();
 
-    pollingRef.current = setInterval(async () => {
+    const tick = async () => {
       if (!pollingActiveRef.current) return;
+      if (Date.now() - pixStartedAtRef.current > PIX_TIMEOUT_MS) {
+        pollingActiveRef.current = false;
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        setPixStatus("expirado");
+        setErroMsg("Tempo esgotado. Gere um novo PIX.");
+        return;
+      }
       try {
-        const r = await fetch(`/api/payments/${orderRef}/status`);
-        const data = await r.json();
+        const r = await fetch(`/api/payments/${orderRef}/status`, { credentials: "include", cache: "no-store" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          if (r.status === 401) {
+            clearPortalCaches(queryClient);
+            setPixStatus("erro");
+            setErroMsg("Sessão expirada. Faça login novamente.");
+            pollingActiveRef.current = false;
+            if (pollingRef.current) clearInterval(pollingRef.current);
+          }
+          return;
+        }
+        if (data.status === "expired" || data.erro === "Reserva expirada") {
+          pollingActiveRef.current = false;
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setPixStatus("expirado");
+          setErroMsg("Reserva expirada. Gere um novo PIX.");
+          try { sessionStorage.removeItem(pixStorageKey(String(id))); } catch {}
+          return;
+        }
+        if (["denied", "canceled", "error"].includes(data.status)) {
+          pollingActiveRef.current = false;
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          setPixStatus("erro");
+          setErroMsg(data.erro || "Pagamento não concluído");
+          try { sessionStorage.removeItem(pixStorageKey(String(id))); } catch {}
+          return;
+        }
         if (data.pago) {
           pollingActiveRef.current = false;
           if (pollingRef.current) clearInterval(pollingRef.current);
           setPixStatus("pago");
           setIngressosCriados(data.ingressos || []);
-          setTimeout(() => { window.scrollTo({ top: 0, behavior: "smooth" }); setStep("sucesso"); }, 1500);
+          invalidateAfterPurchase();
+          try { sessionStorage.removeItem(pixStorageKey(String(id))); } catch {}
+          setTimeout(() => { window.scrollTo({ top: 0, behavior: "smooth" }); setStep("sucesso"); }, 1000);
         }
       } catch {}
-    }, 5000);
-  }, []);
+    };
+
+    tick();
+    pollingRef.current = setInterval(tick, PIX_POLL_MS);
+  }, [id, invalidateAfterPurchase, queryClient]);
+
+  // Restaurar PIX após recarga
+  useEffect(() => {
+    if (!id || !isLoggedIn) return;
+    try {
+      const raw = sessionStorage.getItem(pixStorageKey(String(id)));
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.orderRef) return;
+      setPixData(saved);
+      setMetodo("pix");
+      setStep("pix-aguardando");
+      setPixStatus("aguardando");
+      pixStartedAtRef.current = saved.startedAt || Date.now();
+      iniciarPollingPix(saved.orderRef);
+    } catch {}
+  }, [id, isLoggedIn, iniciarPollingPix]);
 
   useEffect(() => {
     return () => {
@@ -142,7 +246,6 @@ export default function EventoCheckout() {
     };
   }, []);
 
-  // ── Mutation PIX ───────────────────────────────────────────────────────────
   const pixMutation = useMutation({
     mutationFn: async () => {
       setErroMsg(null);
@@ -152,7 +255,7 @@ export default function EventoCheckout() {
         credentials: "include",
         body: JSON.stringify({
           eventoId: id,
-          nome, cpf, email, telefone, quantidade,
+          telefone, quantidade,
           idempotencyKey: idempotencyKeyRef.current,
         }),
       });
@@ -161,7 +264,17 @@ export default function EventoCheckout() {
       return data;
     },
     onSuccess: (data) => {
-      setPixData({ qrCodeBase64: data.qrCodeBase64, qrCodeString: data.qrCodeString, orderRef: data.orderRef });
+      const payload = {
+        qrCodeBase64: data.qrCodeBase64,
+        qrCodeString: data.qrCodeString,
+        orderRef: data.orderRef,
+        reservedUntil: data.reservedUntil,
+        startedAt: Date.now(),
+      };
+      setPixData(payload);
+      try { sessionStorage.setItem(pixStorageKey(String(id)), JSON.stringify(payload)); } catch {}
+      setPixStatus("aguardando");
+      pixStartedAtRef.current = Date.now();
       setStep("pix-aguardando");
       iniciarPollingPix(data.orderRef);
     },
@@ -171,7 +284,6 @@ export default function EventoCheckout() {
     },
   });
 
-  // ── Mutation Cartão ────────────────────────────────────────────────────────
   const cartaoMutation = useMutation({
     mutationFn: async () => {
       setErroMsg(null);
@@ -181,7 +293,7 @@ export default function EventoCheckout() {
         credentials: "include",
         body: JSON.stringify({
           eventoId: id,
-          nome, cpf, email, telefone, quantidade, parcelas,
+          telefone, quantidade, parcelas,
           cardNumber: cardNumber.replace(/\D/g, ""),
           cardName, cardExpiry, cardCvv,
           idempotencyKey: idempotencyKeyRef.current,
@@ -193,6 +305,7 @@ export default function EventoCheckout() {
     },
     onSuccess: (data) => {
       setIngressosCriados(data.ingressos || []);
+      invalidateAfterPurchase();
       window.scrollTo({ top: 0, behavior: "smooth" });
       setStep("sucesso");
     },
@@ -205,10 +318,22 @@ export default function EventoCheckout() {
   const isPending = pixMutation.isPending || cartaoMutation.isPending;
 
   const handlePagar = () => {
-    if (isPending) return;
+    if (isPending || checkoutBloqueado) return;
+    if (quantidade < 1 || quantidade > maxQty) {
+      setErroMsg("Quantidade indisponível");
+      return;
+    }
     if (metodo === "pix") pixMutation.mutate();
     else if (metodo === "cartao") cartaoMutation.mutate();
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: BRAND, borderTopColor: "transparent" }} />
+      </div>
+    );
+  }
 
   // ── Guard: login obrigatório ───────────────────────────────────────────────
   if (!isLoggedIn) {
@@ -236,6 +361,46 @@ export default function EventoCheckout() {
       <p className="text-gray-600 font-medium">Evento não encontrado</p>
     </div>
   );
+
+  if (evento.gratuito || !(evento.preco > 0) || evento.status !== "disponivel") {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-8">
+        <AlertCircle className="w-12 h-12 text-amber-500" />
+        <p className="text-gray-700 font-semibold text-center">
+          {evento.gratuito || !(evento.preco > 0)
+            ? "Este evento é gratuito. Use o resgate de ingressos."
+            : "Este evento não está disponível para compra."}
+        </p>
+        <button onClick={() => navigate(`/eventos/${id}`)} className="px-6 py-3 rounded-xl text-white font-bold text-sm" style={{ backgroundColor: GREEN }}>
+          Voltar ao evento
+        </button>
+      </div>
+    );
+  }
+
+  if (dispError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-8">
+        <AlertCircle className="w-12 h-12 text-red-500" />
+        <p className="text-gray-700 font-semibold text-center">Não foi possível verificar a disponibilidade</p>
+        <button onClick={() => refetchDisp()} className="px-6 py-3 rounded-xl text-white font-bold text-sm" style={{ backgroundColor: GREEN }}>
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+
+  if (!dispLoading && maxQty < 1) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-8">
+        <Ticket className="w-12 h-12 text-gray-400" />
+        <p className="text-gray-700 font-semibold text-center">Ingressos esgotados</p>
+        <button onClick={() => navigate(`/eventos/${id}`)} className="px-6 py-3 rounded-xl font-bold text-sm border border-gray-200">
+          Voltar
+        </button>
+      </div>
+    );
+  }
 
   // ── Tela PIX aguardando ────────────────────────────────────────────────────
   if (step === "pix-aguardando" && pixData) {
@@ -298,22 +463,50 @@ export default function EventoCheckout() {
             </div>
           )}
 
-          <div className={`rounded-2xl p-4 flex items-center gap-3 ${pixStatus === "pago" ? "bg-green-50 border border-green-200" : "bg-amber-50 border border-amber-200"}`}>
+          <div className={`rounded-2xl p-4 flex items-center gap-3 ${
+            pixStatus === "pago" ? "bg-green-50 border border-green-200"
+              : pixStatus === "erro" || pixStatus === "expirado" ? "bg-red-50 border border-red-200"
+              : "bg-amber-50 border border-amber-200"
+          }`}>
             {pixStatus === "pago" ? (
               <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            ) : pixStatus === "erro" || pixStatus === "expirado" ? (
+              <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
             ) : (
               <Loader2 className="w-5 h-5 text-amber-500 animate-spin shrink-0" />
             )}
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-semibold text-gray-800">
-                {pixStatus === "pago" ? "Pagamento confirmado!" : "Aguardando pagamento..."}
+                {pixStatus === "pago" ? "Pagamento confirmado!"
+                  : pixStatus === "expirado" ? "PIX expirado"
+                  : pixStatus === "erro" ? "Pagamento não concluído"
+                  : "Aguardando pagamento..."}
               </p>
               <p className="text-xs text-gray-500">
-                {pixStatus === "pago" ? "Seus ingressos estão sendo gerados." : "Verificando automaticamente a cada 5 segundos."}
+                {pixStatus === "pago" ? "Seus ingressos estão sendo gerados."
+                  : pixStatus === "expirado" || pixStatus === "erro"
+                    ? (erroMsg || "Tente gerar um novo PIX.")
+                    : "Verificando automaticamente a cada 5 segundos."}
               </p>
             </div>
           </div>
 
+          {(pixStatus === "erro" || pixStatus === "expirado") && (
+            <button
+              onClick={() => {
+                try { sessionStorage.removeItem(pixStorageKey(String(id))); } catch {}
+                setPixData(null);
+                setErroMsg(null);
+                setPixStatus("aguardando");
+                resetIdempotencyKey();
+                setStep("pagamento");
+              }}
+              className="w-full py-3 rounded-xl text-white font-bold text-sm"
+              style={{ backgroundColor: GREEN }}
+            >
+              Gerar novo PIX
+            </button>
+          )}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <p className="text-xs font-semibold text-gray-600">Como pagar</p>
             {[

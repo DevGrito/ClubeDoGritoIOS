@@ -31,15 +31,19 @@ import {
   Filter,
   Trash2,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Phone,
+  MapPin,
+  GraduationCap,
 } from "lucide-react";
 import { getDiasAulaParaTurma, getBrazilDateString, aplicarExcecoesNoCalendarioDeChamada, pickChamadaDataPreferencial, toYMDString, type DiaAula } from "@/lib/class-days";
 import { ChamadaPresencaNavButtons } from "@/components/presenca/ChamadaPresencaNavButtons";
 import { chamadaEstaPendente, chamadaOcupaDataLancamento, chamadaTemFotoComprovante } from "@shared/chamada-presenca";
 import { excluirChamadaPendente } from "@/lib/excluirChamadaPendente";
-
+import { formatCPF } from "@/lib/utils";
+import { ParticipanteDetalhesModal, type DetalhesSection } from "@/components/ParticipanteDetalhesModal";
 interface PresencaItem {
-  participanteId: number;
+  participanteId: number | null;
   nome: string;
   cpf?: string;
   presente: boolean;
@@ -58,7 +62,9 @@ interface PresencaInclusaoControlProps {
     data: string;
     teveAlimentacao?: boolean;
     presencas: Array<{
-      participanteId: number;
+      participanteId: number | null;
+      cpf?: string;
+      alunoCpf?: string;
       presente: boolean;
       justificativa: string;
       status: string;
@@ -69,7 +75,9 @@ interface PresencaInclusaoControlProps {
     data: string;
     teveAlimentacao?: boolean | null;
     presencas: Array<{
-      participanteId: number;
+      participanteId: number | null;
+      cpf?: string;
+      alunoCpf?: string;
       presente: boolean;
       justificativa: string;
       status: string;
@@ -124,8 +132,8 @@ export default function PresencaInclusaoControl({
   const [fotosGaleriaLoading, setFotosGaleriaLoading] = useState(false);
 
   const [showJustificativaModal, setShowJustificativaModal] = useState(false);
-  const [modalJustItems, setModalJustItems] = useState<{participanteId: number; nome: string; motivo: string; obs: string; contaComoPresenca?: boolean}[]>([]);
-  const pendingJustRef = useRef<Record<number, {motivo: string; obs: string; contaComoPresenca: boolean}>>({});
+  const [modalJustItems, setModalJustItems] = useState<{participanteId: number | null; cpf?: string; nome: string; motivo: string; obs: string; contaComoPresenca?: boolean}[]>([]);
+  const pendingJustRef = useRef<Record<string, {motivo: string; obs: string; contaComoPresenca: boolean}>>({});
   const [showAlimentacaoModal, setShowAlimentacaoModal] = useState(false);
 
   // Modal de justificativa para ativação de Chamada Manual
@@ -141,6 +149,52 @@ export default function PresencaInclusaoControl({
     turmaId: string; turmaNome: string; data: string; presentes: number; total: number;
   } | null>(null);
   const [motivoExclusao, setMotivoExclusao] = useState('');
+  const [showDetalhesModal, setShowDetalhesModal] = useState(false);
+  const [loadingDetalhes, setLoadingDetalhes] = useState(false);
+  const [fullParticipanteData, setFullParticipanteData] = useState<any>(null);
+
+  const handleClickAlunoHistorico = async (aluno: any) => {
+    setShowDetalhesModal(true);
+    setLoadingDetalhes(true);
+    setFullParticipanteData(null);
+    try {
+      const cpfDigits = String(aluno.cpf || aluno.alunoCpf || "").replace(/\D/g, "");
+      const id = aluno.participanteId ?? aluno.alunoId ?? aluno.id;
+      const url = id != null
+        ? `/api/participantes-inclusao/${id}`
+        : cpfDigits
+          ? `/api/participantes-inclusao/cpf/${cpfDigits}`
+          : null;
+      if (!url) {
+        toast({
+          title: "Dados insuficientes",
+          description: "Não foi possível abrir os detalhes deste participante.",
+          variant: "destructive",
+        });
+        setShowDetalhesModal(false);
+        return;
+      }
+      const res = await fetch(url, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setFullParticipanteData(data);
+      } else {
+        toast({
+          title: "Erro ao carregar participante",
+          description: "Não foi possível buscar os detalhes.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error("Erro ao buscar detalhes do participante:", err);
+      toast({
+        title: "Erro ao carregar participante",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingDetalhes(false);
+    }
+  };
 
   const solicitarExclusaoMutation = useMutation({
     mutationFn: async (payload: any) => {
@@ -475,13 +529,16 @@ export default function PresencaInclusaoControl({
         throw new Error("É obrigatório enviar ao menos uma foto comprovante para finalizar a chamada.");
       }
       const presencasPayload = presencas.map(p => {
-        const pendingJust = pendingJustRef.current[p.participanteId];
+        const identityKey = p.participanteId != null ? String(p.participanteId) : `cpf:${p.cpf || ""}`;
+        const pendingJust = pendingJustRef.current[identityKey];
         const justif = pendingJust?.motivo || p.justificativa || (!modoManual && !p.presente ? 'Sem justificativa' : '');
         const justifObs = pendingJust?.obs || '';
         const motivoInfo = MOTIVOS_FALTA.find(m => m.label === justif);
         const contaComoPresenca = !p.presente && (pendingJust?.contaComoPresenca ?? motivoInfo?.contaComoPresenca ?? false);
         return {
           participanteId: p.participanteId,
+          cpf: p.cpf || undefined,
+          alunoCpf: p.cpf || undefined,
           presente: p.presente,
           justificativa: justif,
           justificativaMotivo: !p.presente ? justif : null,
@@ -706,6 +763,7 @@ export default function PresencaInclusaoControl({
                     if (ausentes.length > 0) {
                       const items = ausentes.map(a => ({
                         participanteId: a.participanteId,
+                        cpf: a.cpf,
                         nome: a.nome,
                         motivo: a.justificativa || 'Sem justificativa',
                         obs: ''
@@ -942,7 +1000,7 @@ export default function PresencaInclusaoControl({
                           const catracaHora = aluno.viaCatraca && aluno.hora ? aluno.hora : catracaByName.get(aluno.nome) || null;
                           const hasCatracaEntry = !!(aluno.viaCatraca || catracaByName.has(aluno.nome));
                           return (
-                            <div key={aluno.participanteId} className={`flex items-center justify-between p-3 border rounded flex-wrap gap-2 ${hasCatracaEntry ? 'border-blue-200 bg-blue-50/30' : ''} ${!modoManual && !hasCatracaEntry && !aluno.presente ? 'opacity-60' : ''}`}>
+                            <div key={aluno.participanteId ?? aluno.cpf ?? aluno.nome} className={`flex items-center justify-between p-3 border rounded flex-wrap gap-2 ${hasCatracaEntry ? 'border-blue-200 bg-blue-50/30' : ''} ${!modoManual && !hasCatracaEntry && !aluno.presente ? 'opacity-60' : ''}`}>
                               <div className="flex items-center gap-3">
                                 <User className="w-4 h-4 text-gray-400" />
                                 <span>{aluno.nome}</span>
@@ -1350,7 +1408,16 @@ export default function PresencaInclusaoControl({
                                 const isFaltaJustificada = !p.presente && justif && justif !== 'Sem justificativa';
                                 return (
                                   <div key={idx} className={`flex items-start justify-between py-1.5 px-2 rounded text-sm ${p.presente ? 'bg-green-50' : isFaltaJustificada ? 'bg-yellow-50' : 'bg-red-50'}`}>
-                                    <span className="font-medium">{p.alunoNome || p.nome}</span>
+                                    <button
+                                      type="button"
+                                      className="font-medium text-left text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleClickAlunoHistorico(p);
+                                      }}
+                                    >
+                                      {p.alunoNome || p.nome}
+                                    </button>
                                     <div className="flex flex-col items-end gap-0.5 ml-2 shrink-0">
                                       <span className={`text-xs font-semibold ${p.presente ? 'text-green-700' : isFaltaJustificada ? 'text-yellow-700' : 'text-red-700'}`}>
                                         {p.presente ? 'Presente' : isFaltaJustificada ? 'Falta Justificada' : 'Falta'}
@@ -1402,7 +1469,7 @@ export default function PresencaInclusaoControl({
             </div>
 
             {modalJustItems.map((item, idx) => (
-              <div key={item.participanteId} className="border rounded-lg p-3 space-y-2">
+              <div key={item.participanteId ?? item.cpf ?? idx} className="border rounded-lg p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4 text-gray-400" />
                   <span className="font-medium text-sm">{item.nome}</span>
@@ -1455,9 +1522,10 @@ export default function PresencaInclusaoControl({
                   toast({ title: "Preencha todos os motivos", variant: "destructive" });
                   return;
                 }
-                const justMap: Record<number, {motivo: string; obs: string; contaComoPresenca: boolean}> = {};
+                const justMap: Record<string, {motivo: string; obs: string; contaComoPresenca: boolean}> = {};
                 for (const item of modalJustItems) {
-                  justMap[item.participanteId] = { motivo: item.motivo, obs: item.obs, contaComoPresenca: item.contaComoPresenca ?? false };
+                  const identityKey = item.participanteId != null ? String(item.participanteId) : `cpf:${item.cpf || ""}`;
+                  justMap[identityKey] = { motivo: item.motivo, obs: item.obs, contaComoPresenca: item.contaComoPresenca ?? false };
                 }
                 pendingJustRef.current = justMap;
                 setShowJustificativaModal(false);
@@ -1702,6 +1770,72 @@ export default function PresencaInclusaoControl({
         )}
       </DialogContent>
     </Dialog>
+
+    <ParticipanteDetalhesModal
+      open={showDetalhesModal}
+      onOpenChange={(v) => { setShowDetalhesModal(v); if (!v) setFullParticipanteData(null); }}
+      title="Detalhes do Participante"
+      loading={loadingDetalhes}
+      color="blue"
+      nome={fullParticipanteData?.nome}
+      cpf={fullParticipanteData ? formatCPF(fullParticipanteData.cpf) : undefined}
+      historicoCpf={fullParticipanteData?.cpf ? String(fullParticipanteData.cpf).replace(/\D/g, "") : undefined}
+      historicoParticipanteId={fullParticipanteData?.id}
+      status={fullParticipanteData?.status}
+      sections={fullParticipanteData ? ([
+        {
+          title: "Identificação",
+          icon: User,
+          fields: [
+            { label: "Gênero", value: fullParticipanteData.genero },
+            { label: "Idade", value: (() => { const idade = fullParticipanteData.idade; return (idade && idade > 0 && idade < 150) ? `${idade} anos` : undefined; })() },
+            { label: "Data de Nascimento", value: fullParticipanteData.dataNascimento ? new Date(String(fullParticipanteData.dataNascimento).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : undefined },
+            { label: "Data de Ingresso", value: fullParticipanteData.dataIngresso ? new Date(fullParticipanteData.dataIngresso).toLocaleDateString('pt-BR') : undefined },
+            { label: "Nº Matrícula", value: fullParticipanteData.codigoMatricula },
+            { label: "Forma de Acesso", value: fullParticipanteData.formaAcesso },
+            { label: "Nacionalidade", value: fullParticipanteData.nacionalidade },
+          ],
+        },
+        {
+          title: "Contato",
+          icon: Phone,
+          fields: [
+            { label: "Telefone", value: fullParticipanteData.telefone },
+            { label: "Email", value: fullParticipanteData.email },
+          ],
+        },
+        {
+          title: "Endereço",
+          icon: MapPin,
+          fields: [
+            { label: "CEP", value: fullParticipanteData.cep },
+            { label: "Logradouro", value: fullParticipanteData.logradouro, fullWidth: true },
+            { label: "Número", value: fullParticipanteData.numero },
+            { label: "Complemento", value: fullParticipanteData.complemento },
+            { label: "Bairro", value: fullParticipanteData.bairro },
+            { label: "Cidade", value: fullParticipanteData.cidade },
+            { label: "Estado", value: fullParticipanteData.estado },
+          ],
+        },
+        {
+          title: "Escolaridade e Profissional",
+          icon: GraduationCap,
+          cols: 2,
+          fields: [
+            { label: "Escolaridade", value: fullParticipanteData.escolaridade },
+            { label: "Experiência Profissional", value: fullParticipanteData.experienciaProfissional },
+            { label: "Objetivos Profissionais", value: fullParticipanteData.objetivosProfissionais, fullWidth: true },
+          ],
+        },
+        {
+          title: "Turmas",
+          icon: Users,
+          fields: (fullParticipanteData.turmas && Array.isArray(fullParticipanteData.turmas) && fullParticipanteData.turmas.length > 0)
+            ? fullParticipanteData.turmas.map((t: any) => ({ label: t.nome, value: t.status || "ativo" }))
+            : [{ label: "Turmas", value: "Nenhuma turma vinculada" }],
+        },
+      ] as DetalhesSection[]) : []}
+    />
     </>
   );
 }

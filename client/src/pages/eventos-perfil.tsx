@@ -22,24 +22,28 @@ export default function EventosPerfil() {
   const { user, isLoggedIn, isLoading, logout } = usePortalAuth();
   const [tab, setTab] = useState<Tab>("dados");
 
-  const { data: ingressos = [], isLoading: loadingIngressos } = useQuery<any[]>({
+  const { data: ingressos = [], isLoading: loadingIngressos, isError: erroIngressos, refetch: refetchIngressos } = useQuery<any[]>({
     queryKey: ["/api/portal/meus-ingressos"],
     queryFn: async () => {
       const r = await fetch("/api/portal/meus-ingressos", { credentials: "include" });
-      if (!r.ok) return [];
+      if (r.status === 401) throw new Error("Não autenticado");
+      if (!r.ok) throw new Error("Erro ao carregar ingressos");
       return r.json();
     },
     enabled: isLoggedIn,
+    retry: false,
   });
 
-  const { data: pendentes = [], isLoading: loadingPendentes } = useQuery<any[]>({
+  const { data: pendentes = [], isLoading: loadingPendentes, isError: erroPendentes, refetch: refetchPendentes } = useQuery<any[]>({
     queryKey: ["/api/portal/ingressos-pendentes"],
     queryFn: async () => {
       const r = await fetch("/api/portal/ingressos-pendentes", { credentials: "include" });
-      if (!r.ok) return [];
+      if (r.status === 401) throw new Error("Não autenticado");
+      if (!r.ok) throw new Error("Erro ao carregar transferências");
       return r.json();
     },
     enabled: isLoggedIn,
+    retry: false,
   });
 
   if (isLoading) {
@@ -129,6 +133,17 @@ export default function EventosPerfil() {
 
         {tab === "ingressos" && (
           <div className="space-y-4">
+            {(erroIngressos || erroPendentes) && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700 space-y-2">
+                <p>Não foi possível carregar seus ingressos.</p>
+                <button
+                  onClick={() => { refetchIngressos(); refetchPendentes(); }}
+                  className="text-xs font-semibold underline"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
             {/* Aviso sobre transferência */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
               <ArrowRightLeft className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -513,9 +528,14 @@ function IngressoCard({ ingresso }: { ingresso: any }) {
   const handleCancelarTransferencia = async () => {
     setCancelando(true);
     try {
-      await fetch(`/api/portal/ingressos/${ingresso.codigo}/cancelar-transferencia`, {
+      const r = await fetch(`/api/portal/ingressos/${ingresso.codigo}/cancelar-transferencia`, {
         method: "POST", credentials: "include",
       });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.error || "Não foi possível cancelar a transferência");
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/portal/meus-ingressos"] });
     } finally { setCancelando(false); }
   };

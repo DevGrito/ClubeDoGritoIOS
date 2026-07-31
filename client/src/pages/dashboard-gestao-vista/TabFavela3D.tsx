@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { KpiCard, KpiItemNoMeta, SectorCard, buildQp, type PeriodoFiltro } from "./shared";
+import { KpiCard, KpiItemNoMeta, SectorCard, buildQp, FAVELA3D_OCULTAR, FAMILIAS_FAVELA3D_EXIBICAO, coletivosFavela3DNoPeriodo, type PeriodoFiltro } from "./shared";
+import { fetchGestaoVistaDashboard } from "./fetchGestaoVista";
 
 interface Props { ano: string; periodo: PeriodoFiltro; }
 
@@ -17,7 +18,7 @@ const IGF_COLORS: Record<string, string> = {
 
 function CategoriaCard({ label, registros, pessoas }: { label: string; registros: number; pessoas: number; color: string }) {
   return (
-    <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col gap-2 h-full">
+    <div className="bg-slate-900/60 rounded-lg border border-slate-700/40 p-3 flex flex-col gap-2 flex-1 min-h-0">
       <p className="text-[10px] text-slate-400 uppercase tracking-widest leading-tight">{label}</p>
       <div className="grid grid-cols-2 gap-2 flex-1">
         <div className="bg-slate-800/60 rounded-lg p-2 flex flex-col justify-between">
@@ -37,18 +38,20 @@ export default function TabFavela3D({ ano, periodo }: Props) {
   const params = buildQp(ano, periodo);
   const { data: stats, isLoading } = useQuery<any>({
     queryKey: ['/api/gestao-vista/favela3d', ano, periodo],
-    queryFn: () => fetch(`/api/gestao-vista/favela3d${params}`).then(r => r.json()),
+    queryFn: () => fetchGestaoVistaDashboard(`/api/gestao-vista/favela3d${params}`).then(r => r.json()),
     refetchInterval: 60000,
   });
 
-  const familias            = stats?.familias              ?? 0;
+  const familias            = FAMILIAS_FAVELA3D_EXIBICAO;
   const visitas             = stats?.visitas               ?? 0;
   const atendimentosIndivid = stats?.atendimentos_individuais ?? 0;
 
-  const gerandoLider        = stats?.gerando_lideranca       ?? 0;
-  const gerandoLiderPessoas = stats?.gerando_lideranca_pessoas ?? 0;
-  const assembleia          = stats?.assembleia              ?? 0;
-  const assembleiaPessoas   = stats?.assembleia_pessoas       ?? 0;
+  const gerandoLiderData    = coletivosFavela3DNoPeriodo('gerando_lideranca', periodo);
+  const assembleiaData      = coletivosFavela3DNoPeriodo('assembleia', periodo);
+  const gerandoLider        = gerandoLiderData.registros;
+  const gerandoLiderPessoas = gerandoLiderData.pessoas;
+  const assembleia          = assembleiaData.registros;
+  const assembleiaPessoas   = assembleiaData.pessoas;
   const grupoMulheres       = stats?.grupo_mulheres          ?? 0;
   const grupoMulheresPessoas = stats?.grupo_mulheres_pessoas  ?? 0;
 
@@ -66,27 +69,63 @@ export default function TabFavela3D({ ano, periodo }: Props) {
     );
   }
 
+  const coletivosColSpan = FAVELA3D_OCULTAR.igf ? 'md:col-span-8' : 'md:col-span-4';
+
+  const coletivosSector = (
+    <div className={`${coletivosColSpan} flex flex-col gap-3 md:min-h-0`}>
+      <SectorCard title="Atendimentos Coletivos" accent="#fb923c" className="md:flex-1">
+        <div className="flex flex-col gap-2 h-full">
+          <CategoriaCard
+            label="Gerando Liderança"
+            registros={gerandoLider}
+            pessoas={gerandoLiderPessoas}
+            color="#fbbf24"
+          />
+          <CategoriaCard
+            label="Assembleia"
+            registros={assembleia}
+            pessoas={assembleiaPessoas}
+            color="#fb923c"
+          />
+          {!FAVELA3D_OCULTAR.grupoMulheres && (
+            <CategoriaCard
+              label="Grupo de Mulheres"
+              registros={grupoMulheres}
+              pessoas={grupoMulheresPessoas}
+              color="#f472b6"
+            />
+          )}
+        </div>
+      </SectorCard>
+    </div>
+  );
+
   return (
     <div className="flex flex-col md:grid md:grid-cols-12 gap-3 md:h-full md:min-h-0">
 
-      {/* ── Col esquerda: Panorama ── */}
+      {/* ── Panorama ── */}
       <div className="md:col-span-4 flex flex-col gap-3 md:min-h-0">
         <SectorCard title="Panorama Favela 3D" accent="#f59e0b" className="md:flex-1">
           <div className="flex flex-col gap-2 h-full">
-            <KpiCard className="flex-1">
+            <KpiCard className="flex-1 min-h-0">
               <KpiItemNoMeta label="Famílias Favela 3D" valor={familias} size="lg" />
             </KpiCard>
-            <KpiCard className="flex-1">
-              <KpiItemNoMeta label="Visitas Domiciliares" valor={visitas} size="lg" />
-            </KpiCard>
-            <KpiCard className="flex-1">
-              <KpiItemNoMeta label="Atend. Individuais" valor={atendimentosIndivid} size="lg" />
-            </KpiCard>
+            {!FAVELA3D_OCULTAR.visitasDomiciliares && (
+              <KpiCard className="flex-1 min-h-0">
+                <KpiItemNoMeta label="Visitas Domiciliares" valor={visitas} size="lg" />
+              </KpiCard>
+            )}
+            {!FAVELA3D_OCULTAR.atendIndividuais && (
+              <KpiCard className="flex-1 min-h-0">
+                <KpiItemNoMeta label="Atend. Individuais" valor={atendimentosIndivid} size="lg" />
+              </KpiCard>
+            )}
           </div>
         </SectorCard>
       </div>
 
-      {/* ── Col meio: IGF ── */}
+      {/* ── IGF ou Atendimentos (meio) ── */}
+      {!FAVELA3D_OCULTAR.igf ? (
       <div className="md:col-span-4 flex flex-col gap-3 md:min-h-0">
         <SectorCard title="Índice Gerando Falcões (IGF)" accent="#ef4444" className="md:flex-1">
           <div className="flex flex-col gap-2 h-full">
@@ -135,32 +174,9 @@ export default function TabFavela3D({ ano, periodo }: Props) {
           </div>
         </SectorCard>
       </div>
+      ) : null}
 
-      {/* ── Col direita: Atendimentos Coletivos por Categoria ── */}
-      <div className="md:col-span-4 flex flex-col gap-3 md:min-h-0">
-        <SectorCard title="Atendimentos Coletivos" accent="#fb923c" className="md:flex-1">
-          <div className="flex flex-col gap-2 h-full">
-            <CategoriaCard
-              label="Gerando Liderança"
-              registros={gerandoLider}
-              pessoas={gerandoLiderPessoas}
-              color="#fbbf24"
-            />
-            <CategoriaCard
-              label="Assembleia"
-              registros={assembleia}
-              pessoas={assembleiaPessoas}
-              color="#fb923c"
-            />
-            <CategoriaCard
-              label="Grupo de Mulheres"
-              registros={grupoMulheres}
-              pessoas={grupoMulheresPessoas}
-              color="#f472b6"
-            />
-          </div>
-        </SectorCard>
-      </div>
+      {coletivosSector}
 
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { clearLocalStoragePreservingLgpd } from "@/lib/auth-session";
+import { logoutAndClearSession } from "@/lib/auth-session";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,23 +119,20 @@ export default function Perfil() {
     //return isLeo;
   //};
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     console.log("Logout button clicked");
 
-    // Show confirmation toast
     toast({
       title: "Saindo da conta",
       description: "Você será desconectado...",
     });
-    
-    // Clear all storage completely
-    clearLocalStoragePreservingLgpd();
+
+    await logoutAndClearSession();
     sessionStorage.clear();
-    
-    // Small delay to show toast, then redirect with full page reload
+
     setTimeout(() => {
-      window.location.href = "/entrar";
-    }, 1000);
+      window.location.href = "/plans";
+    }, 500);
   };
 
   // Get user data from localStorage
@@ -341,7 +338,7 @@ export default function Perfil() {
 
   // Show improved profile page for logged in users
   return (
-    <div className="min-h-screen bg-white pb-donor-nav font-inter">
+    <div className="min-h-screen bg-white pb-nav font-inter">
       {/* Header */}
       <header className="bg-white">
         <div className="px-4 pt-12 pb-3 flex items-center">
@@ -391,8 +388,8 @@ export default function Perfil() {
 
       {/* Menu Sections */}
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {/* Seção de Indicações */}
-        <IndicacoesSection />
+        {/* Seção de Indicações — oculta só para conselho/conselheiro */}
+        {!(userPapel === "conselho" || userPapel === "conselheiro") && <IndicacoesSection />}
 
         {/* Menu Sections */}
         <div className="space-y-6">

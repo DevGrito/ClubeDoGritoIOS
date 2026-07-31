@@ -15,6 +15,7 @@ import {
   resolvePushUserKeyFromLocalCache,
   resolvePushUserKeyFromSession,
   resolvePushUserType,
+  shouldTrustAlunoPortalCache,
 } from "@/lib/pushUserKey";
 
 function normalizeCpfKey(cpf: string | null | undefined): string | null {
@@ -55,19 +56,21 @@ function useAlunoSessionStorage() {
 }
 
 export function PushNotificationsProvider({ children }: { children: ReactNode }) {
-  const { data: session } = useAuthSession();
+  const { data: session, isPending: sessionLoading } = useAuthSession();
   const { auth: alunoAuth, cpf: alunoCpf, nome: alunoNome } = useAlunoSessionStorage();
 
-  const alunoFallback = alunoAuth && alunoCpf ? { cpf: alunoCpf } : null;
+  const sessionIsAluno = isAlunoPushSession(session);
+  const alunoPortalActive = shouldTrustAlunoPortalCache(session, alunoAuth, sessionLoading);
+  const alunoFallback = alunoPortalActive && alunoCpf ? { cpf: alunoCpf } : null;
   const sessionKey = resolvePushUserKeyFromSession(session, alunoFallback);
-  const alunoCpfKey = alunoAuth ? normalizeCpfKey(alunoCpf) : null;
-  const sessionCpfKey = isAlunoPushSession(session)
+  const alunoCpfKey = alunoPortalActive ? normalizeCpfKey(alunoCpf) : null;
+  const sessionCpfKey = sessionIsAluno
     ? normalizeCpfKey(session?.cpf || String(session?.id ?? ""))
     : null;
   const localCacheKey = resolvePushUserKeyFromLocalCache();
   // Aluno: prioriza CPF estável; demais perfis: sessão HTTP ou cache local (doador/patrocinador)
   const userKey = alunoCpfKey || sessionCpfKey || sessionKey || localCacheKey;
-  const userType = resolvePushUserType(session, alunoAuth);
+  const userType = resolvePushUserType(session, alunoPortalActive);
 
   useEffect(() => {
     if (!userKey) return;

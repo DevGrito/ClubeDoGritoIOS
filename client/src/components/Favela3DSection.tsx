@@ -160,6 +160,7 @@ const CATEGORIAS_COLETIVO = [
   { value: "gerando_lideranca", label: "Gerando Liderança" },
   { value: "assembleia",        label: "Assembleia" },
   { value: "grupo_mulheres",    label: "Grupo de Mulheres" },
+  { value: "triangulo",         label: "Triângulo" },
 ];
 
 const EMPTY_REGISTRO = {
@@ -1006,6 +1007,7 @@ export default function Favela3DSection({ userId, userRole, initialTab }: Props)
     gerando_lideranca: "Gerando Liderança",
     assembleia: "Assembleia",
     grupo_mulheres: "Grupo de Mulheres",
+    triangulo: "Triângulo",
   };
   const coletivosPorCategoria: Record<string, Registro[]> = {};
   coletivos.forEach(r => {

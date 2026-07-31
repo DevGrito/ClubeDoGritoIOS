@@ -54,203 +54,203 @@ export default function Entrar() {
   const [modoCoordenador, setModoCoordenador] = useState(false);
 
   // Nova função para login por e-mail (conselho)
-      const handleEmailLogin = async () => {
-      if (!email.trim()) {
-        toast({ title: "Erro", description: "Por favor, digite seu e-mail", variant: "destructive" });
+  const handleEmailLogin = async () => {
+    if (!email.trim()) {
+      toast({ title: "Erro", description: "Por favor, digite seu e-mail", variant: "destructive" });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // escolhe endpoint por modo
+      const endpoint = modoCoordenador
+        ? "/api/auth/login-coordenador"
+        : "/api/auth/login-email"; // mantém o que você já usa para conselho/patrocinador
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), tipo: modoPatrocinador ? "patrocinador" : "conselho" }),
+      });
+
+      const data = await response.json();
+
+      if (response.status === 403 && data.rejected) {
+        toast({
+          title: "Acesso negado",
+          description: data.error || "Seu acesso ao Conselho foi negado pelo administrador.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
         return;
       }
 
-      setIsLoading(true);
-      try {
-        // escolhe endpoint por modo
-        const endpoint = modoCoordenador
-          ? "/api/auth/login-coordenador"
-          : "/api/auth/login-email"; // mantém o que você já usa para conselho/patrocinador
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email.trim(), tipo: modoPatrocinador ? "patrocinador" : "conselho" }),
-        });
-
-        const data = await response.json();
-
-        if (response.status === 403 && data.rejected) {
-          toast({
-            title: "Acesso negado",
-            description: data.error || "Seu acesso ao Conselho foi negado pelo administrador.",
-            variant: "destructive",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        if (response.status === 202 && data.pendingApproval) {
-          toast({
-            title: "Solicitação enviada",
-            description: data.message || "Sua solicitação de acesso ao Conselho foi enviada. Aguarde aprovação.",
-          });
-          setIsLoading(false);
-          setLocation("/aguardando-aprovacao");
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || "E-mail não autorizado");
-        }
-
-        const preserveSubscription = localStorage.getItem("hasActiveSubscription");
-        ["userId", "userName", "userEmail", "userTelefone", "userPhone", "userPapel", "userData", "monitorId", "coordenadorId", "professorId"].forEach((k) =>
-          localStorage.removeItem(k)
-        );
-
-        await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
-        const session = await syncAuthSessionAfterLogin();
-        if (!session) {
-          throw new Error("Sessão não foi criada. Tente fazer login novamente.");
-        }
-
-        localStorage.setItem("userData", JSON.stringify(data));
-        if (preserveSubscription) localStorage.setItem("hasActiveSubscription", preserveSubscription);
-
-        window.dispatchEvent(new CustomEvent("localStorageChanged"));
-
+      if (response.status === 202 && data.pendingApproval) {
         toast({
-          title: "Login realizado",
-          description: `Bem-vindo, ${session.nome ?? data.user?.nome ?? "usuário"}!`,
+          title: "Solicitação enviada",
+          description: data.message || "Sua solicitação de acesso ao Conselho foi enviada. Aguarde aprovação.",
         });
+        setIsLoading(false);
+        setLocation("/aguardando-aprovacao");
+        return;
+      }
 
-        setLocation(getPostLoginPath(session));
-      } catch (error: any) {
+      if (!response.ok) {
+        throw new Error(data.error || "E-mail não autorizado");
+      }
+
+      const preserveSubscription = localStorage.getItem("hasActiveSubscription");
+      ["userId", "userName", "userEmail", "userTelefone", "userPhone", "userPapel", "userData", "monitorId", "coordenadorId", "professorId"].forEach((k) =>
+        localStorage.removeItem(k)
+      );
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      const session = await syncAuthSessionAfterLogin();
+      if (!session) {
+        throw new Error("Sessão não foi criada. Tente fazer login novamente.");
+      }
+
+      localStorage.setItem("userData", JSON.stringify(data));
+      if (preserveSubscription) localStorage.setItem("hasActiveSubscription", preserveSubscription);
+
+      window.dispatchEvent(new CustomEvent("localStorageChanged"));
+
+      toast({
+        title: "Login realizado",
+        description: `Bem-vindo, ${session.nome ?? data.user?.nome ?? "usuário"}!`,
+      });
+
+      setLocation(getPostLoginPath(session));
+    } catch (error: any) {
+      toast({
+        title: "Erro no login",
+        description: error.message || "E-mail não autorizado ou erro interno",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEnviarCodigo = async () => {
+    // Se está no modo conselho/patrocinador/coordenador e tem e-mail, fazer login por e-mail
+    if ((modoConselho || modoPatrocinador || modoCoordenador) && email.trim()) {
+      await handleEmailLogin();
+      return;
+    }
+
+    // Se está no modo conselho/patrocinador mas não digitou e-mail, pedir e-mail
+    if ((modoConselho || modoPatrocinador) && !email.trim()) {
+      toast({
+        title: "Erro",
+        description: "Por favor, digite seu e-mail",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Fluxo normal por telefone
+    if (!telefone.trim()) {
+      toast({
+        title: "Erro",
+        description: "Por favor, digite seu telefone",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validação básica para BR
+    if (countryCode === "+55") {
+      const cleanPhone = telefone.replace(/\D/g, "");
+      if (cleanPhone.length < 11) {
+        setTelefoneError("Digite DDD + número com 9 dígitos (ex: 31999887766)");
+        return;
+      }
+    }
+    setTelefoneError("");
+
+    const fullPhone = countryCode + telefone.replace(/\D/g, "");
+
+    setIsLoading(true);
+    try {
+      // (Opcional) manter eligibility só pra "exists"
+      const eligibilityResponse = await fetch("/api/auth/check-login-eligibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: fullPhone }),
+      });
+
+      const eligibility = await eligibilityResponse.json().catch(() => ({}));
+
+      if (!eligibilityResponse.ok) {
+        throw new Error(eligibility.error || "Erro ao verificar telefone");
+      }
+
+      if (!eligibility.exists) {
         toast({
-          title: "Erro no login",
-          description: error.message || "E-mail não autorizado ou erro interno",
+          title: "Cadastro necessário",
+          description: "Este número não está cadastrado. Faça uma doação para se cadastrar.",
           variant: "destructive",
         });
-      } finally {
-        setIsLoading(false);
+        return;
       }
-    };
 
-      const handleEnviarCodigo = async () => {
-        // Se está no modo conselho/patrocinador/coordenador e tem e-mail, fazer login por e-mail
-        if ((modoConselho || modoPatrocinador || modoCoordenador) && email.trim()) {
-          await handleEmailLogin();
-          return;
-        }
+      // ✅ Agora quem manda é o /send-login-code (ele já decide se pode enviar ou se bloqueia)
+      const resp = await fetch("/api/send-login-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telefone: fullPhone }),
+      });
 
-        // Se está no modo conselho/patrocinador mas não digitou e-mail, pedir e-mail
-        if ((modoConselho || modoPatrocinador) && !email.trim()) {
-          toast({
-            title: "Erro",
-            description: "Por favor, digite seu e-mail",
-            variant: "destructive",
-          });
-          return;
-        }
+      const data = await resp.json().catch(() => ({}));
 
-        // Fluxo normal por telefone
-        if (!telefone.trim()) {
-          toast({
-            title: "Erro",
-            description: "Por favor, digite seu telefone",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Validação básica para BR
-        if (countryCode === "+55") {
-          const cleanPhone = telefone.replace(/\D/g, "");
-          if (cleanPhone.length < 11) {
-            setTelefoneError("Digite DDD + número com 9 dígitos (ex: 31999887766)");
-            return;
-          }
-        }
-        setTelefoneError("");
-
-        const fullPhone = countryCode + telefone.replace(/\D/g, "");
-
-        setIsLoading(true);
-        try {
-          // (Opcional) manter eligibility só pra "exists"
-          const eligibilityResponse = await fetch("/api/auth/check-login-eligibility", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phone: fullPhone }),
-          });
-
-          const eligibility = await eligibilityResponse.json().catch(() => ({}));
-
-          if (!eligibilityResponse.ok) {
-            throw new Error(eligibility.error || "Erro ao verificar telefone");
-          }
-
-          if (!eligibility.exists) {
-            toast({
-              title: "Cadastro necessário",
-              description: "Este número não está cadastrado. Faça uma doação para se cadastrar.",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          // ✅ Agora quem manda é o /send-login-code (ele já decide se pode enviar ou se bloqueia)
-          const resp = await fetch("/api/send-login-code", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ telefone: fullPhone }),
-          });
-
-          const data = await resp.json().catch(() => ({}));
-
-          if (!resp.ok) {
-            // ✅ 402 => assinatura inativa => manda direto pra tela pausada (sem ir pra etapa de código)
-            if (resp.status === 402) {
-              localStorage.setItem("userPhone", fullPhone);
-              localStorage.setItem("subscriptionPaused", "true");
-              toast({
-                title: "Assinatura inativa",
-                description: data.message || "Sua assinatura precisa ser reativada para continuar.",
-                variant: "destructive",
-                duration: 5000,
-              });
-              setLocation("/assinatura-pausada");
-              return;
-            }
-
-            toast({
-              title: "Erro",
-              description: data.message || data.error || "Não foi possível enviar o código.",
-              variant: "destructive",
-            });
-            return;
-          }
-
-          // ✅ Enviou código, vai pra etapa de código
-          localStorage.setItem("isLoginFlow", "true");
+      if (!resp.ok) {
+        // ✅ 402 => assinatura inativa => manda direto pra tela pausada (sem ir pra etapa de código)
+        if (resp.status === 402) {
           localStorage.setItem("userPhone", fullPhone);
-
-          setEtapa("codigo");
-
-          if (data.codigo) {
-            setCodigoGerado(data.codigo);
-            toast({ title: "Código de teste", description: `Use o código: ${data.codigo}` });
-          } else {
-            toast({ title: "Código enviado", description: "Verifique seu telefone para o código de verificação" });
-          }
-        } catch (error: any) {
-          console.error("❌ [LOGIN] Erro:", error);
+          localStorage.setItem("subscriptionPaused", "true");
           toast({
-            title: "Erro",
-            description: error?.message || "Não foi possível enviar o código. Tente novamente.",
+            title: "Assinatura inativa",
+            description: data.message || "Sua assinatura precisa ser reativada para continuar.",
             variant: "destructive",
+            duration: 5000,
           });
-        } finally {
-          setIsLoading(false);
+          setLocation("/assinatura-pausada");
+          return;
         }
-      };
-  
+
+        toast({
+          title: "Erro",
+          description: data.message || data.error || "Não foi possível enviar o código.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ✅ Enviou código, vai pra etapa de código
+      localStorage.setItem("isLoginFlow", "true");
+      localStorage.setItem("userPhone", fullPhone);
+
+      setEtapa("codigo");
+
+      if (data.codigo) {
+        setCodigoGerado(data.codigo);
+        toast({ title: "Código de teste", description: `Use o código: ${data.codigo}` });
+      } else {
+        toast({ title: "Código enviado", description: "Verifique seu telefone para o código de verificação" });
+      }
+    } catch (error: any) {
+      console.error("❌ [LOGIN] Erro:", error);
+      toast({
+        title: "Erro",
+        description: error?.message || "Não foi possível enviar o código. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleVerificarCodigo = async () => {
     if (!codigo.trim()) {
       toast({
@@ -303,6 +303,7 @@ export default function Entrar() {
       if (userData.donationStatus?.isDonor || userData.papel === "doador" || userData.user?.papel === "doador") {
         localStorage.setItem("isDonor", "true");
         localStorage.setItem("userType", "doador");
+        localStorage.removeItem("conselhoStatus");
       }
 
       const hasActiveSubscription =
@@ -324,17 +325,27 @@ export default function Entrar() {
 
       queryClient.invalidateQueries();
 
-      if (userData.conselhoStatus === "recusado") {
+      const role = session.papel || session.role || userData.user?.papel || userData.papel;
+
+      // Login por telefone (SMS) é o fluxo de doador/usuário comum.
+      // Só é considerado fluxo de conselho quando o papel confirmado pelo
+      // backend for realmente de conselho — nunca por status antigo.
+      const isCouncilFlow = role === "conselho" || role === "conselheiro";
+
+      if (!isCouncilFlow) {
+        localStorage.removeItem("conselhoStatus");
+      }
+
+      if (isCouncilFlow && userData.conselhoStatus === "recusado") {
         toast({
           title: "Acesso negado",
           description: "Seu acesso ao Conselho foi negado. Entre em contato com o administrador.",
           variant: "destructive",
         });
         setLocation("/perfil");
-      } else if (userData.needsCouncilApproval || userData.conselhoStatus === "pendente") {
+      } else if (isCouncilFlow && (userData.needsCouncilApproval || userData.conselhoStatus === "pendente")) {
         setLocation("/aguardando-aprovacao");
       } else {
-        const role = session.papel || session.role || userData.user?.papel || userData.papel;
         if (role?.startsWith("professor")) {
           localStorage.setItem(
             "professorTipo",
@@ -344,17 +355,17 @@ export default function Entrar() {
         setLocation(getPostLoginPath(session));
       }
 
-              
-          } catch (e: any) {
-            toast({
-              title: "Erro",
-              description: e?.message || "Código inválido ou expirado. Tente novamente.",
-              variant: "destructive",
-            });
-          } finally {
-            setIsLoading(false);
-          }
-        };
+
+    } catch (e: any) {
+      toast({
+        title: "Erro",
+        description: e?.message || "Código inválido ou expirado. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleVoltar = () => {
     if (etapa === "codigo") {
@@ -366,18 +377,24 @@ export default function Entrar() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+    <div
+      className="min-h-[100dvh] bg-gray-50 flex flex-col items-center justify-center p-4"
+      style={{
+        paddingTop: "max(1rem, env(safe-area-inset-top, 0px))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))",
+      }}
+    >
       <div className="w-full max-w-md space-y-6">
         <SessionExpiredAlert />
         <div className="text-center">
           <Logo size="lg" className="mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-black mb-2">Entrar</h1>
           <p className="text-gray-600">
-          {etapa === "telefone"
-            ? (modoConselho || modoPatrocinador || modoCoordenador)
-              ? "Digite seu e-mail para acessar"
-              : "Digite seu telefone para receber o código de acesso"
-            : "Digite o código recebido por SMS"}
+            {etapa === "telefone"
+              ? (modoConselho || modoPatrocinador || modoCoordenador)
+                ? "Digite seu e-mail para acessar"
+                : "Digite seu telefone para receber o código de acesso"
+              : "Digite o código recebido por SMS"}
           </p>
         </div>
 
@@ -577,9 +594,9 @@ export default function Entrar() {
 
         {/* Botão Voltar - só aparece quando não há botão dentro do Card */}
         {!(etapa === "telefone" && (modoConselho || modoPatrocinador)) && (
-          <Button 
-            onClick={handleVoltar} 
-            variant="ghost" 
+          <Button
+            onClick={handleVoltar}
+            variant="ghost"
             className="w-full"
             data-testid="voltar-principal"
           >

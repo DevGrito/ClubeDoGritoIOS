@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { onMessage } from 'firebase/messaging';
+import { readPushFcmData } from '@shared/pushFcmData';
 import { resolveMessaging, requestPushPermissionAndGetToken, clearPushTokenCache, fullResetPushSubscription, getWebPushSubscriptionKeys } from '@/lib/firebase';
 import { iosPushNeedsHomeScreen } from '@/utils/device';
 import { useToast } from '@/hooks/use-toast';
@@ -45,6 +46,7 @@ export function usePushNotifications(userKey: string | null, userType: string | 
   }, [userKey]);
 
   const optedOutRef = useRef(readOptedOut());
+  const prevUserKeyRef = useRef<string | null>(null);
   useEffect(() => {
     optedOutRef.current = readOptedOut();
   }, [readOptedOut, userKey]);
@@ -277,18 +279,22 @@ export function usePushNotifications(userKey: string | null, userType: string | 
     if (!userKey || !userType) return;
     if (typeof Notification === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
+    const accountSwitched =
+      prevUserKeyRef.current != null && prevUserKeyRef.current !== userKey;
+    prevUserKeyRef.current = userKey;
     if (localStorage.getItem(`push_opt_out_${userKey}`) || optedOutRef.current) return;
     if (Notification.permission === 'granted') {
+      const userConsent = accountSwitched;
       requestPushPermissionAndGetToken().then(async token => {
         if (optedOutRef.current || localStorage.getItem(`push_opt_out_${userKey}`)) return;
         if (token) {
-          let reg = await registerToken(token, false);
+          let reg = await registerToken(token, userConsent);
           if (optedOutRef.current || localStorage.getItem(`push_opt_out_${userKey}`)) return;
           if (reg.needsRefresh) {
             const newToken = await requestPushPermissionAndGetToken(true);
             if (optedOutRef.current || localStorage.getItem(`push_opt_out_${userKey}`)) return;
             if (newToken) {
-              reg = await registerToken(newToken, false);
+              reg = await registerToken(newToken, userConsent);
               if (optedOutRef.current || localStorage.getItem(`push_opt_out_${userKey}`)) return;
               if (reg.ok) {
                 setState(s => ({ ...s, token: newToken, permission: 'granted' }));
@@ -331,13 +337,13 @@ export function usePushNotifications(userKey: string | null, userType: string | 
     resolveMessaging().then(msg => {
       if (!msg) return;
       cleanup = onMessage(msg, async (payload) => {
-        const title = payload.notification?.title || 'Clube do Grito';
-        const body  = payload.notification?.body  || '';
-        const url   = payload.data?.url;
+        const fromData = readPushFcmData(payload.data);
+        const title = payload.notification?.title || fromData.title || 'Clube do Grito';
+        const body  = payload.notification?.body  || fromData.body  || '';
+        const url   = fromData.url;
 
-        // Mostra notificação nativa via firebase-messaging-sw.js quando o app está visível (foreground).
-        // Quando minimizado/fechado o browser exibe automaticamente via webpush.notification
-        // e NÃO chama onMessage — portanto sem risco de duplicata.
+        // Mostra notificação nativa via SW quando o app está visível (foreground).
+        // Em background o firebase-messaging-sw.js exibe via onBackgroundMessage.
         if (document.visibilityState !== 'visible') return;
         if (Notification.permission !== 'granted') return;
         try {
@@ -346,14 +352,22 @@ export function usePushNotifications(userKey: string | null, userType: string | 
             r.active?.scriptURL?.includes('firebase-messaging-sw.js')
           ) ?? await navigator.serviceWorker.ready;
           const origin = window.location.origin;
-          const absoluteUrl = url
-            ? (/^https?:\/\//i.test(url) ? url : origin + (url.startsWith('/') ? url : '/' + url))
+          const clickPath = url
+            ? (/^https?:\/\//i.test(url)
+              ? (() => {
+                  try {
+                    const parsed = new URL(url);
+                    return parsed.pathname + parsed.search + parsed.hash;
+                  } catch {
+                    return '/';
+                  }
+                })()
+              : url.startsWith('/') ? url : `/${url}`)
             : undefined;
           reg.showNotification(title, {
             body,
             icon: `${origin}/icons/icon-192.png`,
-            badge: `${origin}/icons/badge-96.png`,
-            ...(absoluteUrl ? { data: { url: absoluteUrl } } : {}),
+            ...(clickPath ? { data: { url: clickPath } } : {}),
           });
         } catch { /* silencioso */ }
       });

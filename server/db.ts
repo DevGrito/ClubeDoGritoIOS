@@ -468,6 +468,13 @@ export async function runAutoMigrations() {
     `);
 
     await pool.query(`
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS origem TEXT;
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS canal TEXT DEFAULT 'push';
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS disparado_por_user_id INTEGER REFERENCES users(id);
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS skipped_reason TEXT;
+    `);
+
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_inclusao_evasoes_ativa
         ON inclusao_evasoes (participante_id, turma_id)
         WHERE revertido_em IS NULL;
@@ -535,6 +542,303 @@ export async function runAutoMigrations() {
         );
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito_observacoes (
+        id SERIAL PRIMARY KEY,
+        cpf TEXT NOT NULL,
+        autor_nome TEXT NOT NULL,
+        autor_setor TEXT NOT NULL,
+        autor_user_id INTEGER,
+        texto TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_obs_cpf
+        ON atendidos_grito_observacoes (cpf);
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito (
+        cpf TEXT PRIMARY KEY,
+        cpf_provisorio BOOLEAN NOT NULL DEFAULT FALSE,
+        nome_completo TEXT NOT NULL,
+        data_nascimento DATE,
+        genero TEXT,
+        escolaridade TEXT,
+        instituicao_ensino TEXT,
+        telefone TEXT,
+        email TEXT,
+        whatsapp TEXT,
+        bolsa_familia TEXT,
+        foto_perfil TEXT,
+        numero_matricula TEXT UNIQUE,
+        status TEXT NOT NULL DEFAULT 'ativo',
+        cep TEXT,
+        logradouro TEXT,
+        numero TEXT,
+        complemento TEXT,
+        bairro TEXT,
+        cidade TEXT,
+        estado TEXT,
+        dados_complementares JSONB,
+        fonte_ultima_atualizacao TEXT,
+        legado_atualizado_em TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito_programa (
+        id SERIAL PRIMARY KEY,
+        cpf TEXT NOT NULL REFERENCES atendidos_grito(cpf) ON DELETE CASCADE,
+        programa TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ativo',
+        legado_tipo TEXT,
+        legado_id TEXT,
+        data_ingresso TIMESTAMP,
+        data_egresso TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE (cpf, programa)
+      );
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_programa_cpf
+        ON atendidos_grito_programa (cpf);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_status
+        ON atendidos_grito (status);
+    `);
+
+    // Fase 4 — FKs incrementais apontando ao mestre (dual-read com legado)
+    await pool.query(`
+      ALTER TABLE monitor_participantes
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE documentos_participante
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_monitor_participantes_atendido_cpf
+        ON monitor_participantes (atendido_cpf)
+        WHERE atendido_cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_documentos_participante_atendido_cpf
+        ON documentos_participante (atendido_cpf)
+        WHERE atendido_cpf IS NOT NULL;
+    `);
+
+    // Backfill monitor_participantes a partir do legado PEC
+    await pool.query(`
+      UPDATE monitor_participantes mp
+      SET atendido_cpf = ag.cpf
+      FROM atendidos_grito ag
+      WHERE mp.atendido_cpf IS NULL
+        AND mp.pec_aluno_cpf IS NOT NULL
+        AND REGEXP_REPLACE(mp.pec_aluno_cpf, '[^0-9]', '', 'g') = ag.cpf;
+    `);
+    // Backfill monitor_participantes a partir do legado Inclusão
+    await pool.query(`
+      UPDATE monitor_participantes mp
+      SET atendido_cpf = ag.cpf
+      FROM participantes_inclusao pi
+      JOIN atendidos_grito ag
+        ON ag.cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      WHERE mp.atendido_cpf IS NULL
+        AND mp.inclusao_participante_id = pi.id;
+    `);
+    // Backfill documentos PEC
+    await pool.query(`
+      UPDATE documentos_participante dp
+      SET atendido_cpf = ag.cpf
+      FROM atendidos_grito ag
+      WHERE dp.atendido_cpf IS NULL
+        AND dp.aluno_cpf IS NOT NULL
+        AND REGEXP_REPLACE(dp.aluno_cpf, '[^0-9]', '', 'g') = ag.cpf;
+    `);
+    // Backfill documentos Inclusão
+    await pool.query(`
+      UPDATE documentos_participante dp
+      SET atendido_cpf = ag.cpf
+      FROM participantes_inclusao pi
+      JOIN atendidos_grito ag
+        ON ag.cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      WHERE dp.atendido_cpf IS NULL
+        AND dp.participante_inclusao_id = pi.id;
+    `);
+
+    // FK opcional (só se ainda não existir) — ON DELETE SET NULL
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'monitor_participantes_atendido_cpf_fkey'
+        ) THEN
+          ALTER TABLE monitor_participantes
+            ADD CONSTRAINT monitor_participantes_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'documentos_participante_atendido_cpf_fkey'
+        ) THEN
+          ALTER TABLE documentos_participante
+            ADD CONSTRAINT documentos_participante_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `);
+
+    // Fase 5 — cadastro/matrícula sem escrita em legado:
+    // PEC: instance_enrollments.student_cpf aponta ao mestre
+    // Inclusão: participantes_turmas.atendido_cpf (+ participante_id legado opcional)
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM instance_enrollments ie
+          LEFT JOIN atendidos_grito ag ON ag.cpf = ie.student_cpf
+          WHERE ag.cpf IS NULL
+          LIMIT 1
+        ) THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'instance_enrollments_student_cpf_atendido_fkey'
+          ) THEN
+            ALTER TABLE instance_enrollments
+              ADD CONSTRAINT instance_enrollments_student_cpf_atendido_fkey
+              FOREIGN KEY (student_cpf) REFERENCES atendidos_grito(cpf)
+              ON DELETE RESTRICT;
+          END IF;
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'instance_enrollments_student_cpf_fkey'
+          ) THEN
+            ALTER TABLE instance_enrollments
+              DROP CONSTRAINT instance_enrollments_student_cpf_fkey;
+          END IF;
+        ELSE
+          RAISE WARNING 'FK de instance_enrollments mantida no legado: execute o backfill de atendidos_grito antes do corte';
+        END IF;
+      END $$;
+    `);
+
+    await pool.query(`
+      ALTER TABLE participantes_turmas
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE inclusao_evasoes
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE presencas_inclusao
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+
+    // participante_id passa a ser opcional (vínculos novos usam atendido_cpf)
+    await pool.query(`
+      ALTER TABLE participantes_turmas
+        ALTER COLUMN participante_id DROP NOT NULL;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        BEGIN
+          ALTER TABLE inclusao_evasoes ALTER COLUMN participante_id DROP NOT NULL;
+        EXCEPTION WHEN others THEN NULL;
+        END;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        BEGIN
+          ALTER TABLE presencas_inclusao ALTER COLUMN participante_id DROP NOT NULL;
+        EXCEPTION WHEN others THEN NULL;
+        END;
+      END $$;
+    `);
+
+    await pool.query(`
+      UPDATE participantes_turmas pt
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE pt.participante_id = pi.id
+        AND pt.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      UPDATE inclusao_evasoes ie
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE ie.participante_id = pi.id
+        AND ie.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      UPDATE presencas_inclusao pr
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE pr.participante_id = pi.id
+        AND pr.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM participantes_turmas
+          WHERE atendido_cpf IS NOT NULL
+          GROUP BY atendido_cpf, turma_id
+          HAVING COUNT(*) > 1
+          LIMIT 1
+        ) THEN
+          CREATE UNIQUE INDEX IF NOT EXISTS uniq_participantes_turmas_atendido_turma
+            ON participantes_turmas (atendido_cpf, turma_id)
+            WHERE atendido_cpf IS NOT NULL;
+        ELSE
+          RAISE WARNING 'Índice único de participantes_turmas adiado: há vínculos duplicados por CPF/turma';
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'participantes_turmas_atendido_cpf_fkey'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM participantes_turmas pt
+          LEFT JOIN atendidos_grito ag ON ag.cpf = pt.atendido_cpf
+          WHERE pt.atendido_cpf IS NOT NULL AND ag.cpf IS NULL
+          LIMIT 1
+        ) THEN
+          ALTER TABLE participantes_turmas
+            ADD CONSTRAINT participantes_turmas_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf)
+            ON DELETE RESTRICT;
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'participantes_turmas_id_or_cpf'
+        ) THEN
+          ALTER TABLE participantes_turmas
+            ADD CONSTRAINT participantes_turmas_id_or_cpf
+            CHECK (participante_id IS NOT NULL OR atendido_cpf IS NOT NULL);
+        END IF;
+      END $$;
+    `);
+
     console.log("✅ Migrações automáticas concluídas");
 
     const { rows: enumRows } = await pool.query<{ enumlabel: string }>(`
@@ -547,6 +851,16 @@ export async function runAutoMigrations() {
       if (!coordSetores.has(value)) {
         await pool.query(`ALTER TYPE coord_setor ADD VALUE '${value}'`);
       }
+    }
+
+    const { rows: partStatusRows } = await pool.query<{ enumlabel: string }>(`
+      SELECT e.enumlabel FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = 'status_participante_enum'
+    `);
+    const partStatuses = new Set(partStatusRows.map((r) => r.enumlabel));
+    if (!partStatuses.has("inativo")) {
+      await pool.query(`ALTER TYPE status_participante_enum ADD VALUE 'inativo'`);
     }
 
     await pool.query(`
@@ -590,6 +904,21 @@ export async function runAutoMigrations() {
       WHERE NOT EXISTS (
         SELECT 1 FROM coordenadores c WHERE lower(c.email) = lower(v.email)
       );
+    `);
+
+    await pool.query(`
+      UPDATE users
+      SET
+        conselho_status = NULL,
+        conselho_approved_by = NULL,
+        conselho_approved_at = NULL
+      WHERE conselho_status IS NOT NULL
+        AND COALESCE(role, '') NOT IN ('conselho', 'conselheiro')
+        AND (
+          tipo = 'doador'
+          OR role = 'doador'
+          OR subscription_status = 'active'
+        );
     `);
   } catch (error) {
     console.error(

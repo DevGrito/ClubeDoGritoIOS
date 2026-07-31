@@ -22,13 +22,35 @@ import {
   getPhoneSearchVariants,
   findBestActiveSubscription,
 } from "./stripeHelpers";
+import {
+  ensureAcolhimentoPushRules,
+  notifyAcolhimentoCriado,
+  notifyAcolhimentoStatusChange,
+  runAcolhimentoRemindersCron,
+  runAcolhimentoDailyMorningCron,
+  runAcolhimentoDailyFollowupCron,
+} from "./psicoAcolhimentoNotifications";
 import { keysToCamelCase } from "./utils/caseConversion";
 import { HttpError } from "./utils/httpError";
 import { initCronJobs } from "./jobs/cronJobs";
 import { registerAdminManualSubscription } from "./adminManualSubscription";
-import { registerPaymentRoutes, ensurePaymentOrdersTable } from "./routes/payments";
+import { registerPaymentRoutes, ensurePaymentOrdersTable, reconcileExpiredOrders } from "./routes/payments";
 import { registerLgpdObservabilityRoutes } from "./routes/lgpdObservability";
 import { registerDinamizeObservabilityRoutes } from "./routes/dinamizeObservability";
+import { registerAtendidosGritoRoutes } from "./routes/atendidosGrito";
+import {
+  migrateAtendidoGritoCpf,
+  syncAtendidoGritoSafe,
+  syncFromPsicoComunidade,
+  syncLegadoStatusToAtendidoGrito,
+  resolveAtendidoCpfIfExists,
+  getAtendidoGritoByCpf,
+  upsertPsicoComunidadeMasterOnly,
+  listPsicoComunidadeFromMaster,
+  getPsicoComunidadeFromMasterByProgramaId,
+  type BeneficiosSociaisExtras,
+} from "./services/atendidosGritoSync";
+import { isLegacyWriteEnabled } from "./services/atendidosGritoFlags";
 import {
   requireWebhookSecret,
   getCatracaWebhookToken,
@@ -37,6 +59,7 @@ import {
   catracaWebhookHeaders,
   resolveCatracaWebhookToken,
 } from "./middleware/webhookAuth";
+import { registerGestaoVistaViewRoutes } from "./middleware/gestaoVistaViewAuth";
 import { setDinamizeSyncAlertHandler } from "./dinamizeObservability";
 import { emitLgpdAlert } from "./lgpdObservability";
 import {
@@ -70,6 +93,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { computeServerConsentIntegrity } from "./privacyConsentLgpd";
 import { getPolicyBundleId } from "../shared/lgpdPolicyVersions";
+import { normalizeCpfDigits } from "../shared/cpf";
 import { execSync } from "node:child_process";
 // GCS Service for image upload and storage
 import {
@@ -82,6 +106,8 @@ import {
   streamSignedObjectToResponse,
   getSignedUrl,
   fileExists as gcsFileExists,
+  resolveLocalUploadPath,
+  isGCSAvailable,
   BUCKET_NAME,
 } from "./gcsService";
 import * as crypto from "crypto";
@@ -186,6 +212,7 @@ import {
   insertMonitorGrupoSchema,
   registrosAtividades,
   insertRegistroAtividadeSchema,
+  atendidosGrito,
   // ⚽ PEC (POLO ESPORTIVO CULTURAL)
   pecActivities,
   activityInstances,
@@ -202,6 +229,7 @@ import {
   psicoCasos,
   psicoAtendimentos,
   psicoPlanos,
+  psicoAcolhimentos,
   psicoInclusaoVinculo,
   psicoPecVinculo,
   indicadoresPsicoAtencaoSocial,
@@ -314,6 +342,7 @@ import {
 } from "./pushClickUrls";
 import { getMesAtualBrt, PUSH_INDICADOR_CATALOG } from "./pushIndicadorCatalog";
 import { runMetaBatidaCron } from "./pushMetaBatida";
+import { runPushCatracaOfflineCron, ensureCatracaOfflinePushRule } from "./pushCatracaOffline";
 import { insertPushLog, logPushSkipped } from "./pushLogging";
 import { filterFcmTokensByPushConsent, normalizeInAppTargetAudience } from "./pushConsent";
 import { resolveUserIdFromPushKey, canonicalPushUserKey, resolvePushUserKeyFromSession } from "./pushUserKey";
@@ -364,12 +393,17 @@ import {
   requireAlunoPortalAuth,
   requireScannerAuth,
   requireTabletChamadaAuth,
+  requireEventosPortalAuth,
   establishAlunoPortalSession,
   establishScannerSession,
   establishTabletChamadaSession,
+  establishEventosPortalSession,
   regenerateExpressSession,
+  destroyExpressSession,
   clearCrossActorSessionFields,
+  getPortalUserIdFromRequest,
 } from "./middleware/portalAuth";
+import { canAccessEventosAdmin } from "./middleware/eventosAdminPolicy";
 import {
   requireChamadasAuditoriaAccess,
   requirePresencaManualCoordenadorSenha,
@@ -535,17 +569,25 @@ function getTwilioClient() {
 // console.log('🔍 [STRIPE] STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? '✅ encontrada' : '❌ ausente');
 // console.log('🔍 [STRIPE] STRIPE_WEBHOOK_SECRET:', process.env.STRIPE_WEBHOOK_SECRET ? '✅ encontrada' : '❌ ausente');
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("Missing required Stripe secret: STRIPE_SECRET_KEY");
+// Stripe setup — em desenvolvimento local permite stub se a chave estiver ausente
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
+if (!stripeSecretKey) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing required Stripe secret: STRIPE_SECRET_KEY");
+  }
+  console.warn(
+    "⚠️ [STRIPE] STRIPE_SECRET_KEY ausente — usando stub local (pagamentos indisponíveis)."
+  );
+  process.env.STRIPE_SECRET_KEY = "sk_test_local_dev_placeholder";
 }
 
 // Verificar modo teste vs produção
-const isTestMode = process.env.STRIPE_SECRET_KEY.startsWith("sk_test_");
-const isLiveMode = process.env.STRIPE_SECRET_KEY.startsWith("sk_live_");
+const isTestMode = process.env.STRIPE_SECRET_KEY!.startsWith("sk_test_");
+const isLiveMode = process.env.STRIPE_SECRET_KEY!.startsWith("sk_live_");
 // console.log('🔍 [STRIPE] Modo:', isTestMode ? 'TESTE (sk_test_)' : isLiveMode ? 'PRODUÇÃO (sk_live_)' : '❓ DESCONHECIDO');
 // console.log('🔍 [STRIPE] Chave termina com:', '...' + process.env.STRIPE_SECRET_KEY.slice(-6));
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 console.log("✅ [STRIPE] Cliente Stripe inicializado com sucesso");
 
 // === PRODUTO FIXO PARA DOAÇÕES (cache em memória) ===
@@ -899,6 +941,12 @@ async function requireAuth(
       return next();
     }
 
+    // Portal público de eventos NÃO autentica via requireAuth administrativo
+    if (session?.actorType === "eventos_portal" || session?.portalUserId) {
+      logAuth("denied", "eventos_portal_not_staff");
+      return res.status(401).json({ error: "Autenticação obrigatória" });
+    }
+
     // 🔒 PRIORIDADE 2b: Sessão simplificada (ex.: login de desenvolvedor)
     if (session?.userId && session?.userPapel) {
       (req as any).user = {
@@ -1035,6 +1083,30 @@ function requireAdmin(
 
   console.log(`✅ [ADMIN ACCESS] Admin ${user.id} (${user.email}) autorizado`);
   next();
+}
+
+/** Staff autenticado para gerenciar eventos (bloqueia portal público e atores externos). */
+async function requireEventosAdmin(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  return requireAuth(req, res, () => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: "Usuário não autenticado" });
+    }
+    if (
+      canAccessEventosAdmin(user, {
+        isDeveloper: !!(req as any).isDeveloper,
+      })
+    ) {
+      return next();
+    }
+    return res.status(403).json({
+      error: "Acesso negado - privilégios administrativos necessários",
+    });
+  });
 }
 
 function requirePrivacyAuditAccess(
@@ -1374,6 +1446,152 @@ async function assertMoradasReformaRowAccess(
   if (access.canManageAll) return true;
   if (access.isMonitorPsico && access.userId === rowMonitorId) return true;
   return false;
+}
+
+function normalizeMoradaCpf(cpf: string | null | undefined): string {
+  return cpf ? String(cpf).replace(/\D/g, "") : "";
+}
+
+function formatMoradaEnderecoCompleto(row: Record<string, unknown>): string | null {
+  const rua = String(row.logradouro || row.endereco || "").trim();
+  const linha1 = [rua, row.numero].filter(Boolean).join(", ");
+  const bairro = String(row.bairro || row.bairro_outro || "").trim();
+  const cidadeUf = [row.cidade, row.estado].filter(Boolean).join(" / ");
+  const partes = [linha1, row.complemento, bairro, cidadeUf]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean) as string[];
+  return partes.length ? partes.join(" — ") : null;
+}
+
+function formatMoradaAlunoEndereco(row: Record<string, unknown>): string | null {
+  return formatMoradaEnderecoCompleto(row);
+}
+
+async function enrichMoradasGeraisRows(rows: any[]): Promise<any[]> {
+  if (!rows.length) return rows;
+
+  const cpfs = [
+    ...new Set(rows.map((r) => normalizeMoradaCpf(r.participante_cpf)).filter((c) => c.length >= 10)),
+  ];
+  const nomes = [
+    ...new Set(
+      rows.map((r) => String(r.participante_nome || "").toLowerCase().trim()).filter(Boolean)
+    ),
+  ];
+
+  const empty = Promise.resolve({ rows: [] as any[] });
+  const [
+    alunosCpfRes,
+    inclusaoCpfRes,
+    comunidadeCpfRes,
+    alunosNomeRes,
+    inclusaoNomeRes,
+    comunidadeNomeRes,
+  ] = await Promise.all([
+    cpfs.length
+      ? pool.query(
+        `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome_completo)) AS nome_norm,
+                  telefone, logradouro, numero, complemento, bairro, cidade, estado
+           FROM aluno WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+        [cpfs]
+      )
+      : empty,
+    cpfs.length
+      ? pool.query(
+        `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco
+           FROM participantes_inclusao WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+        [cpfs]
+      )
+      : empty,
+    cpfs.length
+      ? pool.query(
+        `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco, numero, complemento, bairro, bairro_outro, cidade, estado
+           FROM psico_atendidos_comunidade WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+        [cpfs]
+      )
+      : empty,
+    nomes.length
+      ? pool.query(
+        `SELECT LOWER(TRIM(nome_completo)) AS nome_norm,
+                  telefone, logradouro, numero, complemento, bairro, cidade, estado
+           FROM aluno WHERE LOWER(TRIM(nome_completo)) = ANY($1::text[])`,
+        [nomes]
+      )
+      : empty,
+    nomes.length
+      ? pool.query(
+        `SELECT LOWER(TRIM(nome)) AS nome_norm, telefone, endereco
+           FROM participantes_inclusao WHERE LOWER(TRIM(nome)) = ANY($1::text[])`,
+        [nomes]
+      )
+      : empty,
+    nomes.length
+      ? pool.query(
+        `SELECT LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco, numero, complemento, bairro, bairro_outro, cidade, estado
+           FROM psico_atendidos_comunidade WHERE LOWER(TRIM(nome)) = ANY($1::text[])`,
+        [nomes]
+      )
+      : empty,
+  ]);
+
+  const alunoByCpf = new Map(alunosCpfRes.rows.map((r: any) => [r.cpf_norm, r]));
+  const inclusaoByCpf = new Map(inclusaoCpfRes.rows.map((r: any) => [r.cpf_norm, r]));
+  const comunidadeByCpf = new Map(comunidadeCpfRes.rows.map((r: any) => [r.cpf_norm, r]));
+  const alunoByNome = new Map(alunosNomeRes.rows.map((r: any) => [r.nome_norm, r]));
+  const inclusaoByNome = new Map(inclusaoNomeRes.rows.map((r: any) => [r.nome_norm, r]));
+  const comunidadeByNome = new Map(comunidadeNomeRes.rows.map((r: any) => [r.nome_norm, r]));
+
+  const fromAluno = (hit: any) =>
+    hit
+      ? {
+        telefone: hit.telefone ?? null,
+        endereco: formatMoradaAlunoEndereco(hit),
+      }
+      : null;
+  const fromSimple = (hit: any) =>
+    hit
+      ? {
+        telefone: hit.telefone ?? null,
+        endereco: formatMoradaEnderecoCompleto(hit),
+      }
+      : null;
+
+  const resolveRowContact = (row: any) => {
+    const cpfNorm = normalizeMoradaCpf(row.participante_cpf);
+    const nomeNorm = String(row.participante_nome || "").toLowerCase().trim();
+    const origem = String(row.participante_origem || "").toLowerCase();
+
+    const tryPec = () =>
+      fromAluno(cpfNorm ? alunoByCpf.get(cpfNorm) : null) ||
+      fromAluno(nomeNorm ? alunoByNome.get(nomeNorm) : null);
+    const tryInclusao = () =>
+      fromSimple(cpfNorm ? inclusaoByCpf.get(cpfNorm) : null) ||
+      fromSimple(nomeNorm ? inclusaoByNome.get(nomeNorm) : null);
+    const tryComunidade = () =>
+      fromSimple(cpfNorm ? comunidadeByCpf.get(cpfNorm) : null) ||
+      fromSimple(nomeNorm ? comunidadeByNome.get(nomeNorm) : null);
+
+    if (origem === "comunidade") return tryComunidade();
+    if (origem === "inclusao") return tryInclusao();
+    if (origem === "pec") return tryPec();
+
+    return tryComunidade() || tryInclusao() || tryPec();
+  };
+
+  return rows.map((row) => {
+    const contact = resolveRowContact(row) || { telefone: null, endereco: null };
+    return {
+      ...row,
+      participante_telefone: contact.telefone,
+      participante_endereco: contact.endereco,
+    };
+  });
 }
 
 async function resolveProfessorContextByUserId(
@@ -2424,6 +2642,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // 204 = ok, sem corpo
     res.sendStatus(204);
   });
+
+  // Gestão à Vista — senha de visualização (cookie 24h) + proteção das APIs do dashboard
+  registerGestaoVistaViewRoutes(app);
 
   // Webhook para receber dados do Typeform
   // TRECHO ADICIONADO
@@ -4506,18 +4727,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return res.sendFile(filePath);
   });
 
-  // SEC-017: objetos no GCS referenciados por /uploads/... (ex: beneficios)
+  // SEC-017: objetos em /uploads/... — local primeiro, depois GCS
   app.get("/uploads/*", requireAuth, async (req, res) => {
     try {
-      const objectName = req.path.slice(1);
-      const [signedUrl] = await gcs
-        .bucket(GCS_BUCKET)
-        .file(objectName)
-        .getSignedUrl({
-          version: "v4",
-          action: "read",
-          expires: Date.now() + 5 * 60 * 1000,
-        });
+      const objectName = req.path.slice(1); // remove leading /
+      const localAbs = resolveLocalUploadPath(objectName);
+      if (localAbs && fs.existsSync(localAbs)) {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Content-Disposition", "inline");
+        res.setHeader("Cache-Control", "private, max-age=3600");
+        return res.sendFile(localAbs);
+      }
+
+      if (!isGCSAvailable || !bucket) {
+        return res.status(404).send("Arquivo não encontrado");
+      }
+
+      const [signedUrl] = await bucket.file(objectName).getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 5 * 60 * 1000,
+      });
       return res.redirect(302, signedUrl);
     } catch (err) {
       console.error("❌ /uploads/* Signed URL error:", err);
@@ -9361,25 +9591,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const userType = user.tipo || "user";
           console.log(`👤 USER TYPE CHECK - Phone: ${telefone}, Type: ${userType}`);
 
-          if (userType === "doador") {
+          const isDonorAccount =
+            userType === "doador" ||
+            user.role === "doador" ||
+            user.subscriptionStatus === "active";
+
+          if (isDonorAccount) {
             papel = "doador";
             needsCouncilApproval = false;
             console.log(`✅ DOADOR LOGIN - No approval needed`);
           } else {
             const conselhoStatus = user.conselhoStatus;
 
+            // Login por telefone (SMS) é o fluxo de doador/usuário comum.
+            // Membros do conselho entram por e-mail. Portanto, apenas um
+            // status "aprovado" eleva o papel; status antigos de
+            // "pendente"/"recusado" NÃO devem bloquear nem redirecionar
+            // este acesso (evita "Acesso ao Conselho negado" indevido).
             if (conselhoStatus === "aprovado") {
               papel = "conselho";
-              needsCouncilApproval = false;
-            } else if (conselhoStatus === "pendente") {
-              needsCouncilApproval = true;
-            } else if (conselhoStatus === "recusado") {
-              needsCouncilApproval = true;
-            } else {
-              needsCouncilApproval = false;
             }
+            needsCouncilApproval = false;
           }
         }
+      }
+
+      // Login por telefone é o fluxo de doador/usuário comum. Um status
+      // "recusado" antigo em contas assim é apenas resquício de uma
+      // solicitação passada e é limpo para não bloquear acessos futuros.
+      // (Um "pendente" legítimo é preservado, pois o fluxo de conselho
+      // por e-mail depende dele.)
+      if (papel !== "conselho" && user.conselhoStatus === "recusado") {
+        await storage.clearConselhoStatus(user.id);
+        user.conselhoStatus = null;
       }
 
       // ✅ Salvar sessão do usuário para que /api/auth/session retorne o usuário correto
@@ -9410,7 +9654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           papel,
           professorTipo,
         },
-        conselhoStatus: user.conselhoStatus || null,
+        conselhoStatus: papel === "conselho" ? (user.conselhoStatus || null) : null,
         needsCouncilApproval,
         hasActiveSubscription: true,
       };
@@ -9884,10 +10128,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } else {
               // Criar usuário automaticamente com os dados da tabela patrocinadores
               console.log(`👤 [EMAIL LOGIN] Criando usuário patrocinador automático para: ${cleanEmail}`);
+              // Telefone é único na tabela users — placeholder fixo travava a criação a partir do 2º patrocinador
+              const placeholderTelefonePatro = `+55000${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 100).toString().padStart(2, "0")}`;
               user = await storage.createUser({
-                cpf: "00000000000",
+                cpf: null,
                 nome: patrocinadoresRow.nome,
-                telefone: "+5500000000000",
+                telefone: placeholderTelefonePatro,
                 email: cleanEmail,
                 role: "patrocinador",
                 verificado: true,
@@ -9962,10 +10208,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             `👤 [EMAIL LOGIN] Criando novo usuário conselheiro: ${cleanEmail}`
           );
 
+          // CPF/telefone únicos na tabela users — placeholders fixos iguais
+          // travavam a criação a partir do 2º conselheiro.
+          const placeholderTelefone = `+55000${Date.now().toString().slice(-8)}${Math.floor(
+            Math.random() * 100
+          )
+            .toString()
+            .padStart(2, "0")}`;
+
           user = await storage.createUser({
-            cpf: "00000000000",
-            nome: "Membro do Conselho",
-            telefone: "+5500000000000",
+            cpf: null,
+            nome: conselheiroDb?.nome || "Membro do Conselho",
+            telefone: placeholderTelefone,
             email: cleanEmail,
             role: "conselho",
             verificado: true,
@@ -13986,7 +14240,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           };
 
           // ── Dados PEC da mesma fonte do coordenador ────────────────
-          let pecDataObj = { totalAlunos: 0, horasAula: 0, frequenciaMedia: 0, evasao: 0, nps: 0, alimentacao: 0, atendimentos: 0 };
+          let pecDataObj = { totalAlunos: 0, horasAula: 0, frequenciaMedia: 0, evasao: 0, nps: 0, avaliacaoAprendizagem: 0, alimentacao: 0, atendimentos: 0 };
           try {
             const pecMesFilter = gestaoVistaData.buildMesFilter(mesFiltro, 's.date');
             const pecCreatedFilter = gestaoVistaData.buildMesFilter(mesFiltro, 's.created_at');
@@ -13994,40 +14248,8 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             const anoFilter2026 = 'EXTRACT(YEAR FROM s.date) = 2026';
             const anoCreated2026 = 'EXTRACT(YEAR FROM s.created_at) = 2026';
 
-            // 1. Crianças Atendidas — ativos no período (sem evadidos)
-            if (mesFiltro === null) {
-              // todos/anual = snapshot atual: ativos (não evadidos) no ano
-              const allTimeRes = await pool.query(`SELECT COUNT(DISTINCT student_cpf) as cnt FROM instance_enrollments WHERE EXTRACT(YEAR FROM enrollment_date) = $1 AND evadido = false`, [ano]);
-              pecDataObj.totalAlunos = Number(allTimeRes.rows[0]?.cnt || 0);
-            } else if (Array.isArray(mesFiltro)) {
-              // trimestre = ativos ao fim do último dia do trimestre
-              const endMonth = mesFiltro[1];
-              const nextMonth = endMonth === 12 ? 1 : endMonth + 1;
-              const nextYear = endMonth === 12 ? ano + 1 : ano;
-              const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-              const r = await pool.query(`
-                SELECT COUNT(DISTINCT student_cpf) as total
-                FROM instance_enrollments
-                WHERE EXTRACT(YEAR FROM enrollment_date) = $1
-                  AND enrollment_date < $2
-                  AND (evadido = false OR data_evasao >= $2)
-              `, [ano, endDate]);
-              pecDataObj.totalAlunos = Number(r.rows[0]?.total || 0);
-            } else {
-              // mês específico = ativos ao fim daquele mês
-              const mesNum = Math.floor(Number(mesFiltro));
-              const nextMes = mesNum === 12 ? 1 : mesNum + 1;
-              const nextAno = mesNum === 12 ? ano + 1 : ano;
-              const endDate = `${nextAno}-${String(nextMes).padStart(2, '0')}-01`;
-              const r = await pool.query(`
-                SELECT COUNT(DISTINCT student_cpf) as total
-                FROM instance_enrollments
-                WHERE EXTRACT(YEAR FROM enrollment_date) = $1
-                  AND enrollment_date < $2
-                  AND (evadido = false OR data_evasao >= $2)
-              `, [ano, endDate]);
-              pecDataObj.totalAlunos = Number(r.rows[0]?.total || 0);
-            }
+            // 1. Crianças Atendidas — snapshot ao fim do período (data_entrada ∪ enrollment_date)
+            pecDataObj.totalAlunos = await gestaoVistaData.countCriancasAtendidasPEC(mesFiltro, ano);
 
             // 2. Horas Aula — tabela sessions com filtro de trimestre/mês
             const horasRes = await pool.query(`
@@ -14085,10 +14307,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
             // 5. NPS PEC com filtro de trimestre/mês
             try {
-              pecDataObj.nps = await gestaoVistaData.getNpsPEC2026(mesFiltro);
+              pecDataObj.nps = await gestaoVistaData.getNpsPEC2026(mesFiltro, ano);
             } catch (e) {
               console.error('Erro NPS PEC GV:', e);
               pecDataObj.nps = 0;
+            }
+
+            // 5b. Avaliação de Aprendizagem PEC (semestral)
+            try {
+              pecDataObj.avaliacaoAprendizagem = await gestaoVistaData.getAvaliacaoAprendizagemPEC(mesFiltro, ano);
+            } catch (e) {
+              console.error('Erro avaliação aprendizagem PEC GV:', e);
+              pecDataObj.avaliacaoAprendizagem = 0;
             }
 
             // 6. Alimentação PEC com filtro de trimestre/mês
@@ -14173,46 +14403,31 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             console.error('[GV 2026] Erro ao calcular frequência combinada:', freqErr);
           }
 
-          // Sobrescrever evasão: calcular percentual (evadidos / total matriculados)
+          // Sobrescrever evasão: percentual = evadidos distintos / matriculados (até fim do período)
           let evasaoIncPct = 0;
           try {
-            const mesNumEv = mes !== null ? mes : 0;
-            const evIncFilter = mesNumEv > 0
-              ? `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026 AND EXTRACT(MONTH FROM ev.data_desligamento) = ${mesNumEv}`
-              : `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026`;
-            const evIncTotalFilter = mesNumEv > 0
-              ? `AND EXTRACT(YEAR FROM pt.created_at) = 2026 AND EXTRACT(MONTH FROM pt.created_at) = ${mesNumEv}`
-              : `AND EXTRACT(YEAR FROM pt.created_at) = 2026`;
-            const evasaoIncResult = await pool.query(`
-              SELECT COUNT(*)::int AS total_cnt
-              FROM participantes_turmas pt
-              WHERE 1=1 ${evIncTotalFilter}
-            `);
-            const evasaoIncDesistResult = await pool.query(`
-              SELECT COUNT(*)::int AS evasao_cnt
-              FROM inclusao_evasoes ev
-              WHERE ev.revertido_em IS NULL ${evIncFilter}
-            `);
-            const evasaoInc = Number(evasaoIncDesistResult.rows?.[0]?.evasao_cnt || 0);
-            const totalInc = Number(evasaoIncResult.rows?.[0]?.total_cnt || 0);
-            evasaoIncPct = totalInc > 0 ? Math.round((evasaoInc / totalInc) * 100) : 0;
-            const evPecFilter = mesNumEv > 0
-              ? `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026 AND EXTRACT(MONTH FROM pe.data_desligamento) = ${mesNumEv}`
-              : `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026`;
-            const evPecTotalFilter = mesNumEv > 0
-              ? `AND EXTRACT(YEAR FROM enrollment_date) = 2026 AND EXTRACT(MONTH FROM enrollment_date) = ${mesNumEv}`
-              : `AND EXTRACT(YEAR FROM enrollment_date) = 2026`;
+            const taxaInc = await gestaoVistaData.getTaxaEvasaoInclusaoPct(mesFiltro, ano);
+            evasaoIncPct = taxaInc.pct;
+
+            // PEC: mesma base já usada em pecDataObj (crianças atendidas + evasões do período)
+            const pecEvasaoFilter = gestaoVistaData.buildMesFilter(mesFiltro, 'pe.data_desligamento');
             const evasaoPecResult = await pool.query(`
-              SELECT COUNT(*)::int AS cnt FROM pec_evasoes pe
-              WHERE pe.revertido_em IS NULL ${evPecFilter}
+              SELECT COUNT(DISTINCT REGEXP_REPLACE(pe.student_cpf, '[^0-9]', '', 'g'))::int AS cnt
+              FROM pec_evasoes pe
+              WHERE pe.revertido_em IS NULL
+                AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026
+                ${pecEvasaoFilter}
             `);
-            const totalPecResult = await pool.query(`SELECT COUNT(*)::int AS cnt FROM instance_enrollments WHERE ${evPecTotalFilter.replace('AND ', '')}`);
             const evasaoPecCount = Number(evasaoPecResult.rows?.[0]?.cnt || 0);
-            const totalPec = Number(totalPecResult.rows?.[0]?.cnt || 0);
-            const evasaoTotal = evasaoInc + evasaoPecCount;
-            const totalMatriculados = totalInc + totalPec;
+            const totalPec = pecDataObj.totalAlunos || 0;
+            const pecPct = totalPec > 0 ? Math.round((evasaoPecCount / totalPec) * 100) : 0;
+            // Mantém pecData alinhado (antes podia divergir se o filtro de mês fosse range)
+            pecDataObj.evasao = pecPct;
+
+            const evasaoTotal = taxaInc.evasoes + evasaoPecCount;
+            const totalMatriculados = taxaInc.matriculas + totalPec;
             const evasaoPct = totalMatriculados > 0 ? Math.round((evasaoTotal / totalMatriculados) * 100) : 0;
-            const metaEvasaoPct = 10; // Meta: < 10%
+            const metaEvasaoPct = metas2026.evasao ?? 10;
             const progress = Math.min((evasaoPct / metaEvasaoPct) * 100, 100);
             indicadores.evasao = {
               ...indicadores.evasao,
@@ -14222,7 +14437,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
               progress: progress,
               color: evasaoPct <= metaEvasaoPct ? 'green' : evasaoPct <= metaEvasaoPct * 1.5 ? 'yellow' : 'red',
             };
-            console.log(`[GV 2026] Evasão: Inc=${evasaoInc}/${totalInc} PEC=${evasaoPecCount}/${totalPec} → ${evasaoTotal}/${totalMatriculados} = ${evasaoPct}%`);
+            console.log(`[GV 2026] Evasão: Inc=${taxaInc.evasoes}/${taxaInc.matriculas} (${evasaoIncPct}%) PEC=${evasaoPecCount}/${totalPec} (${pecPct}%) → ${evasaoTotal}/${totalMatriculados} = ${evasaoPct}%`);
           } catch (evErr) {
             console.error('[GV 2026] Erro ao calcular evasão combinada:', evErr);
           }
@@ -16138,7 +16353,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       if (!user && phone) {
         // Create new user with council access
         user = await storage.createUser({
-          cpf: "00000000000", // Placeholder CPF for council members
+          cpf: null, // CPF é único na tabela users; placeholder fixo causava conflito
           nome: "Membro do Conselho",
           telefone: phone,
           email: email || "",
@@ -16518,11 +16733,11 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
 
       // Verificar CPF duplicado antes de tentar inserir
-      const cpfLimpo = studentData.cpf.replace(/\D/g, '');
-      const existingAluno = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, cpfLimpo)).limit(1);
-      if (existingAluno.length > 0) {
-        console.warn(`⚠️ [CRIAR ALUNO PEC] CPF duplicado detectado — CPF: "${cpfLimpo}" já existe na tabela aluno`);
-        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado no sistema. Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
+      const cpfLimpo = normalizeCpfDigits(studentData.cpf);
+      const existingAluno = await storage.getAluno(cpfLimpo);
+      if (existingAluno) {
+        console.warn(`⚠️ [CRIAR ALUNO PEC] CPF duplicado detectado — CPF: "${cpfLimpo}" já existe na tabela aluno (${existingAluno.nome_completo})`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado no sistema para "${existingAluno.nome_completo}". Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
       }
 
       // Garantir que professorId seja null quando inválido (0 ou não fornecido)
@@ -16544,7 +16759,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             nome: studentData.nome_completo,
             telefone: studentData.telefone,
             email: studentData.email,
-            cpf: studentData.cpf,
+            cpf: cpfLimpo,
             tipo: "aluno",
             fonte: "educacao",
           });
@@ -16554,7 +16769,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         }
       }
 
-      const novoAluno = await storage.createAluno(studentData);
+      const novoAluno = await storage.createAluno({ ...studentData, cpf: cpfLimpo });
       console.log(`✅ [CRIAR ALUNO PEC] Aluno criado com sucesso — CPF: "${novoAluno.cpf}", ID: ${novoAluno.id}`);
       try {
         const fr = (app as any)._firePushRulesByTrigger;
@@ -16808,6 +17023,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const area = req.query.area as "pec" | "inclusao" | undefined;
       const status = (req.query.status as "ativos" | "inativos" | "todos" | undefined) ?? "ativos";
+      const programaRaw = String(req.query.programa || "grito").toLowerCase();
+      const programa = (["grito", "pec", "inclusao"].includes(programaRaw)
+        ? programaRaw
+        : "grito") as "grito" | "pec" | "inclusao";
       const includeTurmas = req.query.includeTurmas === "true" || req.query.includeTurmas === "1";
 
       if (area && area !== "pec" && area !== "inclusao") {
@@ -16817,7 +17036,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
       }
 
-      const students = await storage.getAllAlunos({ area, status });
+      const students = await storage.getAllAlunos({ area, status, programa });
 
       const turmasByCpf = new Map<string, Array<{ id: number; nome: string; situation: string | null }>>();
       if (includeTurmas) {
@@ -16854,12 +17073,16 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           id: s.cpf,
           cpf: s.cpf,
           nome: s.nome_completo,
+          nome_completo: s.nome_completo,
           telefone: s.telefone || s.whatsapp || null,
           situacao_atendimento: s.situacao_atendimento ?? "ativo",
           area: s.area || null,
           createdAt: s.createdAt,
           foto_perfil: s.foto_perfil || null,
           data_nascimento: s.data_nascimento || null,
+          programas: Array.isArray(s.programas) ? s.programas : [],
+          temPec: s.temPec === true,
+          temInclusao: s.temInclusao === true,
           ...(includeTurmas ? { turmas: turmasByCpf.get(cpfNorm) || [] } : {}),
         };
       });
@@ -16893,12 +17116,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const studentData = req.body;
       console.log(`📝 [PUT /api/students/${cpf}] Atualizando aluno...`);
       const updated = await storage.updateAluno(cpf, studentData);
-      if (!updated) {
-        return res.status(404).json({ error: "Aluno não encontrado" });
-      }
       console.log(`✅ [PUT /api/students/${cpf}] Aluno atualizado com sucesso`);
       res.json(updated);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === "Aluno não encontrado") {
+        return res.status(404).json({ error: "Aluno não encontrado" });
+      }
       console.error("Error updating student:", error);
       res.status(500).json({ error: "Erro ao atualizar aluno" });
     }
@@ -16912,13 +17135,13 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const { cpf } = req.params;
       console.log(`🔒 [PATCH /api/students/${cpf}/inativar] Inativando aluno...`);
-      const updated = await storage.updateAluno(cpf, { situacao_atendimento: "inativo" });
-      if (!updated) {
+      const updated = await storage.inativarAluno(cpf);
+      console.log(`✅ [PATCH /api/students/${cpf}/inativar] Aluno inativado com sucesso`);
+      res.json({ success: true, message: "Aluno inativado com sucesso", aluno: updated });
+    } catch (error: any) {
+      if (error?.message === "Aluno não encontrado") {
         return res.status(404).json({ error: "Aluno não encontrado" });
       }
-      console.log(`✅ [PATCH /api/students/${cpf}/inativar] Aluno inativado com sucesso`);
-      res.json({ success: true, message: "Aluno inativado com sucesso" });
-    } catch (error) {
       console.error("Error inactivating student:", error);
       res.status(500).json({ error: "Erro ao inativar aluno" });
     }
@@ -16929,13 +17152,13 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const { cpf } = req.params;
       console.log(`🔓 [PATCH /api/students/${cpf}/reativar] Reativando aluno...`);
-      const updated = await storage.updateAluno(cpf, { situacao_atendimento: "ativo" });
-      if (!updated) {
+      const updated = await storage.reativarAluno(cpf);
+      console.log(`✅ [PATCH /api/students/${cpf}/reativar] Aluno reativado com sucesso`);
+      res.json({ success: true, message: "Aluno reativado com sucesso", aluno: updated });
+    } catch (error: any) {
+      if (error?.message === "Aluno não encontrado") {
         return res.status(404).json({ error: "Aluno não encontrado" });
       }
-      console.log(`✅ [PATCH /api/students/${cpf}/reativar] Aluno reativado com sucesso`);
-      res.json({ success: true, message: "Aluno reativado com sucesso" });
-    } catch (error) {
       console.error("Error reactivating student:", error);
       res.status(500).json({ error: "Erro ao reativar aluno" });
     }
@@ -18594,7 +18817,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/monitor/pec/alunos", requireAuth, requireMonitor, async (req, res) => {
     try {
       console.log(`📚 [MONITOR PEC] Listando todos os alunos`);
-      const students = await storage.getAllAlunos();
+      const students = await storage.getAllAlunos({ area: "pec", status: "todos" });
       console.log(`✅ [MONITOR PEC] ${students.length} alunos encontrados`);
       res.json(students);
     } catch (error: any) {
@@ -18625,10 +18848,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(400).json({ error: "A data de nascimento do aluno é obrigatória." });
       }
 
-      const existingAluno = await db.select({ cpf: aluno.cpf, nome: aluno.nome_completo }).from(aluno).where(eq(aluno.cpf, cpfLimpo)).limit(1);
-      if (existingAluno.length > 0) {
-        console.warn(`⚠️ [MONITOR PEC] CPF duplicado — CPF: "${cpfLimpo}" já cadastrado para "${existingAluno[0].nome}"`);
-        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado para "${existingAluno[0].nome}". Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
+      const existingAluno = await storage.getAluno(cpfLimpo);
+      if (existingAluno) {
+        console.warn(`⚠️ [MONITOR PEC] CPF duplicado — CPF: "${cpfLimpo}" já cadastrado para "${existingAluno.nome_completo}"`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} já está cadastrado para "${existingAluno.nome_completo}". Acesse o perfil existente para editar ou utilize a busca para localizá-lo.` });
       }
 
       if (studentData.telefone && studentData.nome_completo) {
@@ -18687,24 +18910,26 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/monitor/inclusao/participantes", requireAuth, requireMonitor, async (req, res) => {
     try {
       console.log(`📚 [MONITOR INCLUSÃO] Listando todos os participantes`);
-      const participantes = await db.select({
-        id: participantesInclusao.id,
-        nome: participantesInclusao.nome,
-        nomeCompleto: participantesInclusao.nome,
-        cpf: participantesInclusao.cpf,
-        email: participantesInclusao.email,
-        telefone: participantesInclusao.telefone,
-        genero: participantesInclusao.genero,
-        idade: participantesInclusao.idade,
-        status: participantesInclusao.status,
-        programaAtual: participantesInclusao.programaAtual,
-        createdAt: participantesInclusao.createdAt
-      }).from(participantesInclusao).orderBy(asc(participantesInclusao.nome));
+      const participantes = await storage.getAllParticipantes({ status: "todos" });
 
       // IDs com qualquer vínculo de turma (sem filtro de período ou status)
       const linkedResult = await db.execute(sql`SELECT DISTINCT participante_id FROM participantes_turmas`);
       const linkedIds = new Set((linkedResult.rows || []).map((r: any) => Number(r.participante_id)));
-      const participantesComFlag = participantes.map(p => ({ ...p, hasTurma: linkedIds.has(p.id) }));
+      const participantesComFlag = participantes.map((p: any) => ({
+        id: p.id,
+        nome: p.nome,
+        nomeCompleto: p.nome,
+        cpf: p.cpf,
+        email: p.email,
+        telefone: p.telefone,
+        genero: p.genero,
+        dataNascimento: p.dataNascimento,
+        idade: p.idade,
+        status: p.status,
+        programaAtual: p.programaAtual,
+        createdAt: p.createdAt,
+        hasTurma: p.id != null && linkedIds.has(Number(p.id)),
+      }));
 
       console.log(`✅ [MONITOR INCLUSÃO] ${participantes.length} participantes encontrados`);
       res.json(participantesComFlag);
@@ -18962,11 +19187,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           inclusaoId: monitorParticipantes.inclusaoParticipanteId,
           inclusaoNome: participantesInclusao.nome,
           inclusaoPrograma: participantesInclusao.programaAtual,
+          inclusaoCpf: participantesInclusao.cpf,
 
-          // PEC
+          // PEC / mestre
+          atendidoCpf: monitorParticipantes.atendidoCpf,
           pecCpf: monitorParticipantes.pecAlunoCpf,
           pecNome: aluno.nome_completo,
           pecMatricula: aluno.numero_matricula,
+          mestreNome: atendidosGrito.nomeCompleto,
+          mestreMatricula: atendidosGrito.numeroMatricula,
 
           // Acompanhamento
           observacoesPrivadas: monitorParticipantes.observacoesPrivadas,
@@ -18980,19 +19209,29 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         )
         .leftJoin(
           aluno,
-          eq(monitorParticipantes.pecAlunoCpf, aluno.cpf)
+          sql`REGEXP_REPLACE(COALESCE(${aluno.cpf}, ''), '[^0-9]', '', 'g') = REGEXP_REPLACE(COALESCE(${monitorParticipantes.atendidoCpf}, ${monitorParticipantes.pecAlunoCpf}, ''), '[^0-9]', '', 'g')`
+        )
+        .leftJoin(
+          atendidosGrito,
+          eq(monitorParticipantes.atendidoCpf, atendidosGrito.cpf)
         )
         .where(and(...filters));
 
       const alunosNormalizados = alunosData.map((row) => {
         const isPec = row.programType === "pec";
+        const cpfUnificado = row.atendidoCpf || row.pecCpf || null;
 
         return {
           id: row.id,
           programType: row.programType,
-          studentId: isPec ? row.pecCpf : row.inclusaoId,
-          nome: isPec ? row.pecNome : row.inclusaoNome,
-          grupo: isPec ? row.pecMatricula : row.inclusaoPrograma,
+          studentId: isPec ? (cpfUnificado || row.pecCpf) : row.inclusaoId,
+          atendidoCpf: cpfUnificado,
+          nome: isPec
+            ? (row.mestreNome || row.pecNome)
+            : (row.mestreNome || row.inclusaoNome),
+          grupo: isPec
+            ? (row.mestreMatricula || row.pecMatricula)
+            : row.inclusaoPrograma,
           observacoesPrivadas: row.observacoesPrivadas,
           acompanhamentoStatus: row.acompanhamentoStatus,
           ultimaInteracao: row.ultimaInteracao,
@@ -19100,28 +19339,77 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(403).json({ error: 'Acesso negado' });
       }
 
-      const { participanteId } = req.body;
+      const {
+        participanteId,
+        inclusaoParticipanteId,
+        pecAlunoCpf,
+        programType: programTypeBody,
+      } = req.body || {};
 
-      // Check if already assigned
-      const existing = await db.select()
-        .from(monitorParticipantes)
-        .where(eq(monitorParticipantes.participanteId, participanteId))
-        .limit(1);
+      const inclusaoIdRaw = inclusaoParticipanteId ?? participanteId ?? null;
+      const inclusaoId = inclusaoIdRaw != null ? parseInt(String(inclusaoIdRaw), 10) : null;
+      const pecCpfRaw = pecAlunoCpf ? String(pecAlunoCpf) : null;
+      const programType =
+        programTypeBody === "pec" || programTypeBody === "inclusao"
+          ? programTypeBody
+          : pecCpfRaw
+            ? "pec"
+            : "inclusao";
 
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'Participante já atribuído' });
+      if (programType === "pec" && !pecCpfRaw) {
+        return res.status(400).json({ error: "pecAlunoCpf é obrigatório para programa PEC" });
+      }
+      if (programType === "inclusao" && (!inclusaoId || Number.isNaN(inclusaoId))) {
+        return res.status(400).json({ error: "inclusaoParticipanteId é obrigatório para Inclusão" });
+      }
+
+      let atendidoCpf: string | null = null;
+      if (programType === "pec") {
+        atendidoCpf = await resolveAtendidoCpfIfExists(pecCpfRaw);
+        const existing = await db.select()
+          .from(monitorParticipantes)
+          .where(and(
+            eq(monitorParticipantes.monitorUserId, monitorId),
+            or(
+              eq(monitorParticipantes.pecAlunoCpf, pecCpfRaw!),
+              eq(monitorParticipantes.atendidoCpf, normalizeCpfDigits(pecCpfRaw!))
+            )
+          ))
+          .limit(1);
+        if (existing.length > 0) {
+          return res.status(400).json({ error: 'Participante já atribuído' });
+        }
+      } else {
+        const part = await db.select({ cpf: participantesInclusao.cpf })
+          .from(participantesInclusao)
+          .where(eq(participantesInclusao.id, inclusaoId!))
+          .limit(1);
+        atendidoCpf = await resolveAtendidoCpfIfExists(part[0]?.cpf);
+        const existing = await db.select()
+          .from(monitorParticipantes)
+          .where(and(
+            eq(monitorParticipantes.monitorUserId, monitorId),
+            eq(monitorParticipantes.inclusaoParticipanteId, inclusaoId!)
+          ))
+          .limit(1);
+        if (existing.length > 0) {
+          return res.status(400).json({ error: 'Participante já atribuído' });
+        }
       }
 
       const newAssignment = await db.insert(monitorParticipantes)
         .values({
           monitorUserId: monitorId,
-          participanteId: participanteId,
+          programType,
+          inclusaoParticipanteId: programType === "inclusao" ? inclusaoId : null,
+          pecAlunoCpf: programType === "pec" ? pecCpfRaw : null,
+          atendidoCpf,
           acompanhamentoStatus: 'ativo',
           observacoesPrivadas: ''
         })
         .returning();
 
-      console.log(`[RBAC MONITOR] Aluno ${participanteId} atribuido ao monitor ${monitorId}`);
+      console.log(`[RBAC MONITOR] Atribuído ao monitor ${monitorId} (${programType}) atendido=${atendidoCpf || 'sem-mestre'}`);
       res.json(newAssignment[0]);
     } catch (error: any) {
       console.error("Error assigning aluno:", error);
@@ -19150,11 +19438,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         .orderBy(participantesInclusao.nome);
 
       // Get already assigned IDs
-      const assignedIds = await db.select({ id: monitorParticipantes.participanteId })
+      const assignedIds = await db.select({ id: monitorParticipantes.inclusaoParticipanteId })
         .from(monitorParticipantes)
-        .where(eq(monitorParticipantes.monitorUserId, monitorId));
+        .where(and(
+          eq(monitorParticipantes.monitorUserId, monitorId),
+          eq(monitorParticipantes.programType, "inclusao")
+        ));
 
-      const assignedSet = new Set(assignedIds.map(a => a.id));
+      const assignedSet = new Set(assignedIds.map(a => a.id).filter((id): id is number => id != null));
       const available = allParticipantes.filter(p => !assignedSet.has(p.id));
 
       res.json(available);
@@ -19305,7 +19596,13 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
 
       // Caso contrário, criar na tabela atividadesMonitor (legacy)
-      const dataConverted = req.body.data ? new Date(req.body.data) : undefined;
+      // YYYY-MM-DD → meio-dia local (evita meia-noite UTC e shift de dia no BR)
+      const rawData = req.body.data;
+      const dataConverted = rawData
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(String(rawData))
+            ? new Date(`${rawData}T12:00:00`)
+            : new Date(rawData))
+        : undefined;
       const contexto = req.query.contexto as string || req.body.contexto;
 
       const validated = insertAtividadeMonitorSchema.parse({
@@ -20247,12 +20544,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const { participanteId, participanteCpf, participanteTipo } = req.body;
 
-      // Para Inclusão: usar turmasInclusao e participantesTurmas,
-      alunoTurma,
-        monitorPerfis
+      // Para Inclusão: usar turmasInclusao e participantesTurmas
       if (participanteTipo === 'inclusao') {
-        if (!participanteId) {
-          return res.status(400).json({ error: 'participanteId é obrigatório para Inclusão' });
+        const cpfInclusao = req.body.cpf || req.body.participanteCpf || participanteCpf;
+        let cpfCanonico = cpfInclusao ? String(cpfInclusao).replace(/\D/g, "") : "";
+
+        if ((!cpfCanonico || cpfCanonico.length !== 11) && participanteId) {
+          const part = await storage.getParticipanteById(Number(participanteId));
+          if (part?.cpf) cpfCanonico = String(part.cpf).replace(/\D/g, "");
+        }
+
+        if (!cpfCanonico || cpfCanonico.length !== 11) {
+          return res.status(400).json({ error: 'cpf é obrigatório para Inclusão (cadastro unificado)' });
         }
 
         // Verificar se turma existe
@@ -20264,31 +20567,16 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           return res.status(404).json({ error: 'Turma não encontrada' });
         }
 
-        // Verificar se já existe
-        const existing = await db.select().from(participantesTurmas)
-          .where(and(
-            eq(participantesTurmas.turmaId, grupoId),
-            eq(participantesTurmas.participanteId, participanteId)
-          ))
-          .limit(1);
-
-        if (existing.length) {
-          return res.status(400).json({ error: 'Participante já está na turma' });
+        try {
+          const dataIngresso = req.body.dataIngresso || undefined;
+          const result = await storage.addAtendidoCpfToTurmaInclusao(cpfCanonico, grupoId, dataIngresso);
+          console.log(`[RBAC MONITOR] CPF ${cpfCanonico} adicionado à turma inclusão ${grupoId}`);
+          return res.json(result);
+        } catch (ensureErr: any) {
+          return res.status(400).json({
+            error: ensureErr?.message || 'Não foi possível matricular na Inclusão',
+          });
         }
-
-        // Inserir na tabela participantesTurmas
-        const dataIngresso = req.body.dataIngresso || null;
-        const result = await db.insert(participantesTurmas).values({
-          turmaId: grupoId,
-          participanteId,
-          status: "ativo",
-          ...(dataIngresso ? { dataIngresso } : {}),
-        })
-          .returning();
-        await syncParticipanteInclusaoStatus(participanteId);
-
-        console.log(`[RBAC MONITOR] Participante ${participanteId} adicionado à turma inclusão ${grupoId}`);
-        return res.json(result[0]);
       }
 
       // Para PEC: usar activityInstances e instanceEnrollments
@@ -20306,11 +20594,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           return res.status(404).json({ error: 'Turma PEC não encontrada' });
         }
 
+        let cpfCanonico: string;
+        try {
+          cpfCanonico = await storage.ensurePecAlunoFromMaster(String(participanteCpf));
+        } catch (ensureErr: any) {
+          return res.status(400).json({ error: ensureErr?.message || 'Não foi possível preparar o aluno PEC' });
+        }
+
         // Verificar se já existe
         const existing = await db.select().from(instanceEnrollments)
           .where(and(
             eq(instanceEnrollments.activity_instance_id, grupoId),
-            eq(instanceEnrollments.student_cpf, participanteCpf)
+            eq(instanceEnrollments.student_cpf, cpfCanonico)
           ))
           .limit(1);
 
@@ -20323,13 +20618,13 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         const result = await db.insert(instanceEnrollments)
           .values({
             activity_instance_id: grupoId,
-            student_cpf: participanteCpf,
+            student_cpf: cpfCanonico,
             active: true,
             ...(enrollmentDate ? { enrollment_date: enrollmentDate } : {}),
           })
           .returning();
 
-        console.log(`[RBAC MONITOR] Aluno ${participanteCpf} adicionado à turma PEC ${grupoId}`);
+        console.log(`[RBAC MONITOR] Aluno ${cpfCanonico} adicionado à turma PEC ${grupoId}`);
         return res.json(result[0]);
       }
 
@@ -20572,22 +20867,32 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       if (!turmaId || !data) {
         return res.status(400).json({ error: "turmaId e data são obrigatórios" });
       }
-      const rows = await db.select({
-        participanteId: presencasInclusao.participanteId,
-        presente: presencasInclusao.presente,
-        observacoes: presencasInclusao.observacoes,
-        justificativa: presencasInclusao.justificativa,
-        nome: participantesInclusao.nome,
-      })
-        .from(presencasInclusao)
-        .innerJoin(participantesInclusao, eq(presencasInclusao.participanteId, participantesInclusao.id))
-        .where(and(
-          eq(presencasInclusao.turmaId, parseInt(turmaId as string)),
-          eq(presencasInclusao.data, data as string),
-        ));
+      const rows = await pool.query(
+        `SELECT
+           pr.participante_id AS "participanteId",
+           pr.atendido_cpf AS "atendidoCpf",
+           pr.presente,
+           pr.observacoes,
+           pr.justificativa,
+           COALESCE(pi.nome, ag.nome_completo) AS nome,
+           COALESCE(
+             REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g'),
+             pr.atendido_cpf,
+             ag.cpf
+           ) AS cpf
+         FROM presencas_inclusao pr
+         LEFT JOIN participantes_inclusao pi ON pi.id = pr.participante_id
+         LEFT JOIN atendidos_grito ag ON ag.cpf = COALESCE(
+           pr.atendido_cpf,
+           REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+         )
+         WHERE pr.turma_id = $1 AND pr.data = $2::date`,
+        [parseInt(turmaId as string), data]
+      );
 
-      const result = rows.map(r => ({
+      const result = rows.rows.map((r: any) => ({
         participanteId: r.participanteId,
+        cpf: r.cpf || r.atendidoCpf || undefined,
         nome: r.nome,
         presente: r.presente,
         justificativa: r.justificativa || undefined,
@@ -21023,16 +21328,21 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const insertedPresencas = [];
       for (const p of presencas) {
         let participanteId = p.id || p.participanteId;
-        if (!participanteId && p.alunoCpf) {
+        const cpfRaw = p.cpf || p.alunoCpf || p.atendidoCpf;
+        const cpfNorm = cpfRaw ? String(cpfRaw).replace(/\D/g, "") : "";
+        if (!participanteId && cpfNorm.length === 11) {
           const found = await db.select({ id: participantesInclusao.id })
             .from(participantesInclusao)
-            .where(eq(participantesInclusao.cpf, String(p.alunoCpf)))
+            .where(sql`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpfNorm}`)
             .limit(1);
           if (found[0]) participanteId = found[0].id;
         }
-        if (participanteId) {
+        if (participanteId || cpfNorm.length === 11) {
           const [presenca] = await db.insert(presencasInclusao).values({
-            participanteId: typeof participanteId === 'string' ? parseInt(participanteId) : participanteId,
+            participanteId: participanteId
+              ? (typeof participanteId === 'string' ? parseInt(participanteId) : participanteId)
+              : null,
+            atendidoCpf: cpfNorm.length === 11 ? cpfNorm : null,
             turmaId,
             data,
             presente: p.presente || false,
@@ -21202,6 +21512,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
               cpf: participantesInclusao.cpf,
               telefone: participantesInclusao.telefone,
               email: participantesInclusao.email,
+              endereco: participantesInclusao.endereco,
               idade: participantesInclusao.idade,
               genero: participantesInclusao.genero,
               status: participantesInclusao.status,
@@ -21232,6 +21543,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
               genero: aluno.genero,
               data_nascimento: aluno.data_nascimento,
               situacao: aluno.situacao_atendimento,
+              logradouro: aluno.logradouro,
+              numero: aluno.numero,
+              complemento: aluno.complemento,
+              bairro: aluno.bairro,
+              cidade: aluno.cidade,
+              estado: aluno.estado,
             })
             .from(aluno)
             .where(or(
@@ -22437,6 +22754,473 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
     }
   );
+
+  // ── ACOLHIMENTOS AGENDADOS (monitor + coordenador psico) ───────────────────
+  const PSICO_ACOLHIMENTO_ROLES = [
+    "coordenador_psico",
+    "coordenador",
+    "monitor_psico",
+    "tecnica_psico",
+    "leo",
+    "admin",
+    "super_admin",
+    "dev",
+    "desenvolvedor",
+  ];
+  const requirePsicoAcolhimentos = requireRole(PSICO_ACOLHIMENTO_ROLES);
+
+  const PSICO_ACOLHIMENTO_STATUS = new Set([
+    "agendado",
+    "realizado",
+    "faltou",
+    "cancelado",
+    "reagendado",
+  ]);
+
+  function normalizeHoraAcolhimento(v: any): string | null {
+    if (v == null || v === "") return null;
+    const m = String(v).match(/(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return `${m[1].padStart(2, "0")}:${m[2]}`;
+  }
+
+  function toPublicAcolhimentoAluno(row: typeof psicoAcolhimentos.$inferSelect) {
+    return {
+      id: row.id,
+      data: row.data,
+      horaInicio: row.horaInicio,
+      horaFim: row.horaFim,
+      local: row.local,
+      profissionalNome: row.profissionalNome,
+      status: row.status,
+    };
+  }
+
+  function monitorOwnsAcolhimento(
+    row: { profissionalUserId?: number | null; criadoPorUserId?: number | null },
+    userId: number,
+  ) {
+    return Number(row.profissionalUserId) === userId || Number(row.criadoPorUserId) === userId;
+  }
+
+  /** Monitor só age nos próprios; coordenador/técnica/admin veem e editam todos. */
+  function assertCanManageAcolhimento(req: any, row: any): string | null {
+    const role = getUserRoleFromRequest(req.user);
+    if (role !== "monitor_psico") return null;
+    const uid = Number(req.user?.id);
+    if (!Number.isFinite(uid) || !monitorOwnsAcolhimento(row, uid)) {
+      return "Você só pode alterar acolhimentos que você agendou";
+    }
+    return null;
+  }
+
+  app.get(
+    "/api/psico/acolhimentos",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const role = getUserRoleFromRequest(user);
+        const status = typeof req.query.status === "string" ? req.query.status : null;
+        const cpf = normalizeCpfDigits(req.query.cpf);
+        const conditions = [];
+        if (status && PSICO_ACOLHIMENTO_STATUS.has(status)) {
+          conditions.push(eq(psicoAcolhimentos.status, status));
+        }
+        if (cpf.length === 11) {
+          conditions.push(eq(psicoAcolhimentos.alunoCpf, cpf));
+        }
+        // Monitor psico: só os próprios. Coordenador/técnica/admin: todos.
+        if (role === "monitor_psico") {
+          const uid = Number(user?.id);
+          if (!Number.isFinite(uid) || uid <= 0) {
+            return res.json({ success: true, data: [] });
+          }
+          conditions.push(
+            or(
+              eq(psicoAcolhimentos.profissionalUserId, uid),
+              eq(psicoAcolhimentos.criadoPorUserId, uid),
+            ),
+          );
+        }
+        const whereExpr =
+          conditions.length === 0
+            ? undefined
+            : conditions.length === 1
+              ? conditions[0]
+              : and(...conditions);
+        const rows = whereExpr
+          ? await db
+              .select()
+              .from(psicoAcolhimentos)
+              .where(whereExpr)
+              .orderBy(desc(psicoAcolhimentos.data), desc(psicoAcolhimentos.horaInicio))
+          : await db
+              .select()
+              .from(psicoAcolhimentos)
+              .orderBy(desc(psicoAcolhimentos.data), desc(psicoAcolhimentos.horaInicio));
+        return res.json({ success: true, data: rows });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] list:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao listar" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/psico/acolhimentos",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const alunoCpf = normalizeCpfDigits(req.body?.alunoCpf);
+        const alunoNome = String(req.body?.alunoNome || "").trim();
+        const data = String(req.body?.data || "").split("T")[0];
+        const horaInicio = normalizeHoraAcolhimento(req.body?.horaInicio);
+        const horaFim = normalizeHoraAcolhimento(req.body?.horaFim);
+        const local = req.body?.local ? String(req.body.local).trim() : null;
+        const observacaoInterna = req.body?.observacaoInterna
+          ? String(req.body.observacaoInterna).trim()
+          : null;
+        const profissionalNome =
+          (req.body?.profissionalNome && String(req.body.profissionalNome).trim()) ||
+          user?.nome ||
+          user?.name ||
+          null;
+        const recorrente = Boolean(req.body?.recorrente);
+        const dataFim = req.body?.dataFim ? String(req.body.dataFim).split("T")[0] : null;
+
+        if (alunoCpf.length !== 11) {
+          return res.status(400).json({ success: false, error: "CPF do aluno inválido" });
+        }
+        if (!alunoNome) {
+          return res.status(400).json({ success: false, error: "Nome do aluno obrigatório" });
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+          return res.status(400).json({ success: false, error: "Data inválida" });
+        }
+        if (!horaInicio) {
+          return res.status(400).json({ success: false, error: "Horário de início obrigatório" });
+        }
+        if (recorrente) {
+          if (!dataFim || !/^\d{4}-\d{2}-\d{2}$/.test(dataFim)) {
+            return res.status(400).json({ success: false, error: "Data fim obrigatória para recorrência" });
+          }
+          if (dataFim < data) {
+            return res.status(400).json({ success: false, error: "Data fim deve ser igual ou posterior à data início" });
+          }
+        }
+
+        const datas: string[] = [data];
+        if (recorrente && dataFim) {
+          const [y0, m0, d0] = data.split("-").map(Number);
+          const cursor = new Date(y0, m0 - 1, d0, 12, 0, 0);
+          const [yf, mf, df] = dataFim.split("-").map(Number);
+          const fim = new Date(yf, mf - 1, df, 12, 0, 0);
+          // Próximas ocorrências no mesmo dia da semana, até dataFim
+          while (true) {
+            cursor.setDate(cursor.getDate() + 7);
+            if (cursor > fim) break;
+            const ds = [
+              cursor.getFullYear(),
+              String(cursor.getMonth() + 1).padStart(2, "0"),
+              String(cursor.getDate()).padStart(2, "0"),
+            ].join("-");
+            datas.push(ds);
+          }
+        }
+
+        const base = {
+          alunoCpf,
+          alunoNome,
+          horaInicio,
+          horaFim,
+          local,
+          profissionalUserId: user?.id ? Number(user.id) : null,
+          profissionalNome,
+          status: "agendado" as const,
+          observacaoInterna,
+          criadoPorUserId: Number(user?.id) || 0,
+          criadoPorRole: user?.papel || user?.role || null,
+          serieId:
+            recorrente && datas.length > 1
+              ? `ser_${alunoCpf}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+              : null,
+        };
+
+        const created = await db
+          .insert(psicoAcolhimentos)
+          .values(datas.map((d) => ({ ...base, data: d })))
+          .returning();
+
+        try {
+          const fr = (app as any)._firePushRulesByTrigger;
+          if (fr) {
+            await notifyAcolhimentoCriado({
+              pool,
+              fr,
+              alunoCpf,
+              alunoNome,
+              data,
+              horaInicio,
+              local,
+              total: created.length,
+              recorrente: recorrente && created.length > 1,
+              criadoPorUserId: user?.id ? Number(user.id) : null,
+              criadoPorNome: profissionalNome,
+            });
+          }
+        } catch (pushErr: any) {
+          console.warn("[PSICO-ACOLHIMENTOS] push create:", pushErr?.message || pushErr);
+        }
+
+        return res.status(201).json({
+          success: true,
+          data: recorrente ? created : created[0],
+          total: created.length,
+          recorrente,
+        });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] create:", error);
+        return res.status(400).json({ success: false, error: error.message || "Erro ao agendar" });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/psico/acolhimentos/:id/status",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const status = String(req.body?.status || "");
+        if (!Number.isFinite(id)) {
+          return res.status(400).json({ success: false, error: "ID inválido" });
+        }
+        if (!PSICO_ACOLHIMENTO_STATUS.has(status)) {
+          return res.status(400).json({ success: false, error: "Status inválido" });
+        }
+
+        const [existing] = await db
+          .select()
+          .from(psicoAcolhimentos)
+          .where(eq(psicoAcolhimentos.id, id))
+          .limit(1);
+        if (!existing) {
+          return res.status(404).json({ success: false, error: "Acolhimento não encontrado" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, existing);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+
+        const [updated] = await db
+          .update(psicoAcolhimentos)
+          .set({
+            status,
+            updatedAt: new Date(),
+            ...(req.body?.registroId != null
+              ? {
+                  registroId: Number(req.body.registroId),
+                  registroTipo: req.body.registroTipo ? String(req.body.registroTipo) : null,
+                }
+              : {}),
+          })
+          .where(eq(psicoAcolhimentos.id, id))
+          .returning();
+
+        if (!updated) {
+          return res.status(404).json({ success: false, error: "Acolhimento não encontrado" });
+        }
+
+        try {
+          const fr = (app as any)._firePushRulesByTrigger;
+          if (fr) {
+            await notifyAcolhimentoStatusChange({
+              pool,
+              fr,
+              row: {
+                id: updated.id,
+                alunoCpf: updated.alunoCpf,
+                alunoNome: updated.alunoNome,
+                data: String(updated.data),
+                horaInicio: updated.horaInicio,
+                local: updated.local,
+                profissionalUserId: updated.profissionalUserId,
+                status: updated.status,
+              },
+              actorUserId: (req as any).user?.id ? Number((req as any).user.id) : null,
+            });
+          }
+        } catch (pushErr: any) {
+          console.warn("[PSICO-ACOLHIMENTOS] push status:", pushErr?.message || pushErr);
+        }
+
+        return res.json({ success: true, data: updated });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] status:", error);
+        return res.status(400).json({ success: false, error: error.message || "Erro ao atualizar" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/psico/acolhimentos/:id",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const [existing] = await db
+          .select()
+          .from(psicoAcolhimentos)
+          .where(eq(psicoAcolhimentos.id, id))
+          .limit(1);
+        if (!existing) {
+          return res.status(404).json({ success: false, error: "Acolhimento não encontrado" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, existing);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+
+        await db.delete(psicoAcolhimentos).where(eq(psicoAcolhimentos.id, id));
+        return res.json({ success: true });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] delete:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao excluir" });
+      }
+    }
+  );
+
+  // Cancelar todos os encontros abertos de uma série (preserva realizado/faltou)
+  app.patch(
+    "/api/psico/acolhimentos/serie/:serieId/cancelar",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const serieId = String(req.params.serieId || "").trim();
+        if (!serieId) return res.status(400).json({ success: false, error: "Série inválida" });
+
+        const [sample] = await db
+          .select()
+          .from(psicoAcolhimentos)
+          .where(eq(psicoAcolhimentos.serieId, serieId))
+          .limit(1);
+        if (!sample) {
+          return res.status(404).json({ success: false, error: "Série não encontrada" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, sample);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+
+        const updated = await db
+          .update(psicoAcolhimentos)
+          .set({ status: "cancelado", updatedAt: new Date() })
+          .where(
+            and(
+              eq(psicoAcolhimentos.serieId, serieId),
+              or(
+                eq(psicoAcolhimentos.status, "agendado"),
+                eq(psicoAcolhimentos.status, "reagendado"),
+              ),
+            ),
+          )
+          .returning();
+
+        if (updated.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: "Nenhum encontro aberto encontrado nesta série",
+          });
+        }
+
+        try {
+          const fr = (app as any)._firePushRulesByTrigger;
+          if (fr) {
+            const row = updated[0];
+            const cpf = normalizeCpfDigits(row.alunoCpf);
+            const vars = {
+              nome: row.alunoNome || "",
+              aluno: row.alunoNome || "",
+              data: String(row.data).split("T")[0],
+              horario: String(row.horaInicio || "").slice(0, 5),
+              local: row.local || "",
+              total: String(updated.length),
+              dedupe_key: `acolhimento_serie_cancel:${serieId}`,
+            };
+            const dataBr = vars.data.includes("-")
+              ? vars.data.split("-").reverse().join("/")
+              : vars.data;
+            if (cpf.length === 11) {
+              await fr("acolhimento_cancelado", { ...vars, data: dataBr }, undefined, undefined, cpf);
+            }
+            await fr(
+              "acolhimento_cancelado_staff",
+              { ...vars, data: dataBr },
+              (req as any).user?.id ? String((req as any).user.id) : undefined,
+            );
+          }
+        } catch (pushErr: any) {
+          console.warn("[PSICO-ACOLHIMENTOS] push serie cancel:", pushErr?.message || pushErr);
+        }
+
+        return res.json({ success: true, total: updated.length, data: updated });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] serie cancel:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao cancelar série" });
+      }
+    }
+  );
+
+  // Excluir encontros abertos de uma série (preserva histórico realizado/faltou/cancelado)
+  app.delete(
+    "/api/psico/acolhimentos/serie/:serieId",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const serieId = String(req.params.serieId || "").trim();
+        if (!serieId) return res.status(400).json({ success: false, error: "Série inválida" });
+
+        const [sample] = await db
+          .select()
+          .from(psicoAcolhimentos)
+          .where(eq(psicoAcolhimentos.serieId, serieId))
+          .limit(1);
+        if (!sample) {
+          return res.status(404).json({ success: false, error: "Série não encontrada" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, sample);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+
+        const deleted = await db
+          .delete(psicoAcolhimentos)
+          .where(
+            and(
+              eq(psicoAcolhimentos.serieId, serieId),
+              or(
+                eq(psicoAcolhimentos.status, "agendado"),
+                eq(psicoAcolhimentos.status, "reagendado"),
+              ),
+            ),
+          )
+          .returning();
+
+        if (deleted.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: "Nenhum encontro aberto encontrado nesta série",
+          });
+        }
+
+        return res.json({ success: true, total: deleted.length });
+      } catch (error: any) {
+        console.error("[PSICO-ACOLHIMENTOS] serie delete:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao excluir série" });
+      }
+    }
+  );
+
   app.get("/api/coordenadores/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -25390,6 +26174,11 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     console.error("[meus-dados] Erro ao criar tabelas LGPD:", message);
   });
 
+  void ensureCatracaOfflinePushRule(pool).catch((e: unknown) => {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[Push] ensureCatracaOfflinePushRule:", message);
+  });
+
   void ensureStaffAreaConsentsTable().catch((e: unknown) => {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[staff_area_consents] Erro ao criar tabela:", message);
@@ -27258,10 +28047,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         `);
           formados = Number(formadosResult.rows?.[0]?.formados_cnt || 0);
 
-          // Evasão — fonte: inclusao_evasoes (registros ativos no período)
+          // Evasão — taxa = evadidos distintos / matriculados distintos (mesma regra do Impacto / PEC)
           const evasaoDateFilter = sql`AND EXTRACT(YEAR FROM ev.data_desligamento) = ${ano} AND EXTRACT(MONTH FROM ev.data_desligamento) BETWEEN ${mesInicio} AND ${mesFim}`;
           const evasaoResult = await db.execute(sql`
-          SELECT COUNT(*)::int AS evasao_cnt
+          SELECT COUNT(DISTINCT ev.participante_id)::int AS evasao_cnt
           FROM inclusao_evasoes ev
           WHERE ev.revertido_em IS NULL
           ${evasaoDateFilter}
@@ -27281,9 +28070,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         // FONTE UNIFICADA: usa gestaoVistaData para garantir mesmo número em todos os dashboards
         const horasAula = await gestaoVistaData.getHorasAulaInclusao2026([mesInicio, mesFim], ano);
 
-        const evasao = (formados + evasaoCount) > 0
-          ? Math.round((evasaoCount / (formados + evasaoCount)) * 100)
-          : (total > 0 ? Math.round((inativos / total) * 100) : 0);
+        const endDateInc = gestaoVistaData.buildPecEndDateRef([mesInicio, mesFim], ano);
+        let totalMatriculasInc = 0;
+        try {
+          const matRes = await pool.query(
+            `SELECT COUNT(DISTINCT pt.participante_id)::int AS cnt
+             FROM participantes_turmas pt
+             WHERE COALESCE(pt.data_inscricao, pt.created_at)::date <= $1::date`,
+            [endDateInc],
+          );
+          totalMatriculasInc = Number(matRes.rows?.[0]?.cnt || 0);
+        } catch (e) {
+          console.error("Error fetching matriculas inclusao:", e);
+        }
+
+        const evasao = totalMatriculasInc > 0
+          ? Math.round((evasaoCount / totalMatriculasInc) * 100)
+          : 0;
 
         // Atendimentos inclusão = total de presenças individuais presentes (cada aluno presente em cada aula = 1 atendimento)
         let totalPresencasInclusao = 0;
@@ -27844,6 +28647,47 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   )`).catch(() => { });
+  // Impede CPF real duplicado (ignora NULL e CPF placeholder 00000000xxx)
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS psico_atendidos_comunidade_cpf_real_uidx
+    ON psico_atendidos_comunidade (regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g'))
+    WHERE cpf IS NOT NULL
+      AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') ~ '^[0-9]{11}$'
+      AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') !~ '^0{8}[0-9]{3}$'
+  `).catch((err: any) => {
+    console.warn("⚠️ Índice único CPF comunidade:", err?.message || err);
+  });
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS psico_acolhimentos (
+      id SERIAL PRIMARY KEY,
+      aluno_cpf VARCHAR(11) NOT NULL,
+      aluno_nome VARCHAR(200) NOT NULL,
+      data DATE NOT NULL,
+      hora_inicio VARCHAR(8) NOT NULL,
+      hora_fim VARCHAR(8),
+      local TEXT,
+      profissional_user_id INTEGER REFERENCES users(id),
+      profissional_nome TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'agendado',
+      observacao_interna TEXT,
+      registro_id INTEGER,
+      registro_tipo VARCHAR(40),
+      criado_por_user_id INTEGER NOT NULL,
+      criado_por_role VARCHAR(50),
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+    )
+  `).catch((err: any) => {
+    console.warn("⚠️ psico_acolhimentos:", err?.message || err);
+  });
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_cpf ON psico_acolhimentos (aluno_cpf)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_data ON psico_acolhimentos (data)`).catch(() => {});
+  await pool.query(`ALTER TABLE psico_acolhimentos ADD COLUMN IF NOT EXISTS serie_id VARCHAR(64)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_serie ON psico_acolhimentos (serie_id)`).catch(() => {});
+  await ensureAcolhimentoPushRules(pool).catch((err: any) => {
+    console.warn("⚠️ ensureAcolhimentoPushRules:", err?.message || err);
+  });
 
   // GET /api/coordenador/professores - List professors by programa
   app.get(
@@ -32190,8 +33034,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // Upload de imagem para benefícios - USA GCS
-  // TRECHO ALTERADO
-  app.post("/api/beneficios/upload-image", requireAuth, requireAdmin, (req, res) => {
+  // Aceita os mesmos papéis da tela /dev/marketing (não só admin)
+  app.post(
+    "/api/beneficios/upload-image",
+    requireAuth,
+    requireRole(["admin", "dev", "desenvolvedor", "dev-marketing"]),
+    (req, res) => {
     secureUpload.single("image")(req, res, async (err) => {
       if (err) {
         console.error("❌ [BENEFIT IMAGE] Erro no upload:", err.message);
@@ -32226,29 +33074,38 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
         }
 
-        console.log(`📤 [BENEFIT IMAGE] Fazendo upload para GCS...`);
+        console.log(
+          `📤 [BENEFIT IMAGE] Fazendo upload (${isGCSAvailable ? "GCS" : "local"})...`
+        );
 
         // Gerar nome único para o arquivo
         const timestamp = Date.now();
         const randomString = Math.random().toString(36).slice(2, 10);
-        const fileName = `beneficios-${timestamp}-${randomString}`;
+        const ext =
+          path.extname(req.file.originalname).toLowerCase() ||
+          (req.file.mimetype === "image/png"
+            ? ".png"
+            : req.file.mimetype === "image/webp"
+              ? ".webp"
+              : ".jpg");
+        const fileName = `beneficios-${timestamp}-${randomString}${ext}`;
 
         // 🔧 DISK STORAGE: quando multer salva em disco, req.file.buffer é undefined.
         // Pegamos o buffer do path salvo pelo multer.
         const fileBuffer =
           (req.file as any).buffer ?? fs.readFileSync(req.file.path);
 
-        // Fazer upload para GCS (sua função já aceita Buffer)
+        // Fazer upload para GCS (com fallback local se GCS indisponível)
         const objectPath = await uploadToGCS(
           fileBuffer,
           fileName,
           req.file.mimetype
         );
         console.log(
-          `✅ [BENEFIT IMAGE] Upload concluído no GCS: ${objectPath}`
+          `✅ [BENEFIT IMAGE] Upload concluído: ${objectPath}`
         );
 
-        // Signed URL curta só para preview no modal (15 min)
+        // Preview: signed URL (GCS) ou caminho local /uploads/...
         const previewUrl = await getSignedUrl(objectPath, 15);
 
         if (req.file.path && fs.existsSync(req.file.path)) {
@@ -32264,8 +33121,9 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           originalName: req.file.originalname,
           size: req.file.size,
           mimetype: req.file.mimetype,
+          storage: isGCSAvailable ? "gcs" : "local",
         });
-      } catch (error) {
+      } catch (error: any) {
         console.error("❌ [BENEFIT IMAGE] Erro interno:", error);
 
         // tenta limpar o tmp se algo falhar
@@ -32275,7 +33133,9 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           } catch { }
         }
 
-        return res.status(500).json({ error: "Erro interno do servidor" });
+        return res.status(500).json({
+          error: error?.message || "Erro interno do servidor",
+        });
       }
     });
   });
@@ -33721,8 +34581,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       // se vier URL completa, extrai a chave; se vier chave, usa direto
       const key = raw.startsWith("http") ? extractFilePathFromUrl(raw) : raw;
 
-      const signed = await getSignedUrl(key, 60); // 60 min de validade
-      return res.redirect(302, signed);
+      try {
+        await streamSignedObjectToResponse(key, res, 3600);
+      } catch (gcsErr: any) {
+        console.warn(
+          "⚠️ [HISTORIAS] stream falhou:",
+          gcsErr?.code || gcsErr?.message
+        );
+        return res.status(502).json({ error: "Falha ao obter imagem" });
+      }
     } catch (e) {
       console.error("❌ [HISTORIAS] Erro ao gerar imagem:", e);
       return res.status(500).json({ error: "Erro interno do servidor" });
@@ -40334,14 +41201,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get('/api/pec/alunos', async (req, res) => {
     try {
       const status = req.query.status as string;
-      let conditions: any[] = [];
-      if (status === 'ativo') {
-        conditions.push(sql`(situacao_atendimento = 'ativo' OR situacao_atendimento IS NULL)`);
-      }
-      const query = conditions.length > 0
-        ? db.select().from(aluno).where(and(...conditions))
-        : db.select().from(aluno);
-      const result = await query;
+      const listStatus =
+        status === "ativo" || status === "ativos"
+          ? "ativos"
+          : status === "inativo" || status === "inativos"
+            ? "inativos"
+            : "todos";
+      // Pool unificado (atendidos_grito) — mesmo cadastro do PEC/Inclusão
+      const result = await storage.getAllAlunos({ status: listStatus as any });
       res.json(result);
     } catch (error) {
       console.error('Error fetching PEC alunos:', error);
@@ -40353,7 +41220,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.post('/api/pec/turma-alunos/:turmaId/adicionar', async (req, res) => {
     try {
       const turmaId = parseInt(req.params.turmaId);
-      const { studentCpf } = req.body;
+      let { studentCpf } = req.body;
 
       console.log(`📝 [MATRICULAR ALUNO PEC] TurmaId: ${turmaId}, CPF: "${studentCpf || 'não informado'}"`);
 
@@ -40365,6 +41232,13 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       if (isNaN(turmaId)) {
         console.warn(`⚠️ [MATRICULAR ALUNO PEC] TurmaId inválido: "${req.params.turmaId}"`);
         return res.status(400).json({ error: 'ID de turma inválido.' });
+      }
+
+      try {
+        studentCpf = await storage.ensurePecAlunoFromMaster(String(studentCpf));
+      } catch (ensureErr: any) {
+        console.warn(`⚠️ [MATRICULAR ALUNO PEC] ensure mestre: ${ensureErr?.message}`);
+        return res.status(400).json({ error: ensureErr?.message || "Não foi possível preparar o aluno para matrícula." });
       }
 
       // Verificar se já existe (ativo ou não)
@@ -40543,13 +41417,27 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       // Salvar alunos selecionados na tabela enrollments
       if (selectedStudents.length > 0) {
         try {
-          const enrollmentValues = selectedStudents.map((cpf: string) => ({
-            activity_instance_id: instance.id,
-            student_cpf: cpf,
-            active: true
-          }));
-          await db.insert(instanceEnrollments).values(enrollmentValues);
-          console.log(`✅ ${selectedStudents.length} alunos matriculados na turma ${instance.id}`);
+          const enrollmentValues: Array<{
+            activity_instance_id: number;
+            student_cpf: string;
+            active: boolean;
+          }> = [];
+          for (const rawCpf of selectedStudents) {
+            try {
+              const cpf = await storage.ensurePecAlunoFromMaster(String(rawCpf));
+              enrollmentValues.push({
+                activity_instance_id: instance.id,
+                student_cpf: cpf,
+                active: true,
+              });
+            } catch (ensureErr: any) {
+              console.error(`⚠️ Erro ensure aluno ${rawCpf}:`, ensureErr?.message || ensureErr);
+            }
+          }
+          if (enrollmentValues.length > 0) {
+            await db.insert(instanceEnrollments).values(enrollmentValues);
+            console.log(`✅ ${enrollmentValues.length} alunos matriculados na turma ${instance.id}`);
+          }
         } catch (enrollError) {
           console.error('⚠️ Erro ao matricular alunos:', enrollError);
           // Não falhar a criação da turma por isso
@@ -46468,19 +47356,22 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // GET /api/inclusao/atendidos-total — fonte única para ATENDIDOS (monitor + coordenador)
+  // Regra: DISTINCT CPF com vínculo em turma OU geração de renda (não usa presença)
   app.get("/api/inclusao/atendidos-total", requireAuth, async (req, res) => {
     try {
       const result = await pool.query(`
         SELECT COUNT(DISTINCT cpf) as total FROM (
-          SELECT pi.cpf
-          FROM participantes_inclusao pi
-          WHERE EXISTS (
-            SELECT 1 FROM participantes_turmas pt WHERE pt.participante_id = pi.id
-          )
+          SELECT REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g') AS cpf
+          FROM participantes_turmas pt
+          LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+          WHERE length(REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) = 11
+
           UNION
-          SELECT gr.cpf
+
+          SELECT REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g') AS cpf
           FROM inclusao_geracao_de_renda gr
           WHERE gr.cpf IS NOT NULL AND gr.cpf <> ''
+            AND length(REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g')) = 11
         ) combined
       `);
       const total = Number(result.rows[0]?.total || 0);
@@ -47983,10 +48874,32 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const vertente = normalizeVertente(req.query.vertente as string);
 
       if (vertente === "pec") {
+        const studentCpf = req.body.studentCpf || req.body.participanteCpf || req.body.cpf;
         const { personId } = req.body;
 
+        if (studentCpf) {
+          let cpfCanonico: string;
+          try {
+            cpfCanonico = await storage.ensurePecAlunoFromMaster(String(studentCpf));
+          } catch (ensureErr: any) {
+            return res.status(400).json({ error: ensureErr?.message || "Não foi possível preparar o aluno PEC" });
+          }
+          const [inscricao] = await db
+            .insert(instanceEnrollments)
+            .values({
+              activity_instance_id: turmaId,
+              student_cpf: cpfCanonico,
+              active: true,
+              ...(req.body.dataIngresso || req.body.enrollmentDate
+                ? { enrollment_date: req.body.dataIngresso || req.body.enrollmentDate }
+                : {}),
+            })
+            .returning();
+          return res.status(201).json(inscricao);
+        }
+
         if (!personId) {
-          return res.status(400).json({ error: "personId é obrigatório para PEC" });
+          return res.status(400).json({ error: "studentCpf (ou personId legado) é obrigatório para PEC" });
         }
 
         const [inscricao] = await db
@@ -47996,33 +48909,41 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             person_id: typeof personId === "string" ? parseInt(personId) : personId,
             active: true,
             enrolled_at: new Date(),
-          })
+          } as any)
           .returning();
 
         return res.status(201).json(inscricao);
       }
 
       // Inclusao
-      const { participanteId } = req.body;
+      let { participanteId } = req.body;
+      const cpfInclusao = req.body.cpf || req.body.participanteCpf;
+      let cpfCanonico = cpfInclusao ? String(cpfInclusao).replace(/\D/g, "") : "";
 
-      if (!participanteId) {
-        return res
-          .status(400)
-          .json({ error: "participanteId é obrigatório para Inclusão" });
+      if ((!cpfCanonico || cpfCanonico.length !== 11) && participanteId) {
+        const part = await storage.getParticipanteById(Number(participanteId));
+        if (part?.cpf) cpfCanonico = String(part.cpf).replace(/\D/g, "");
       }
 
-      const dataIngressoProf = req.body.dataIngresso || null;
-      const [inscricao] = await db
-        .insert(participantesTurmas)
-        .values({
-          turmaId,
-          participanteId,
-          status: "ativo",
-          ...(dataIngressoProf ? { dataIngresso: dataIngressoProf } : {}),
-        })
-        .returning();
+      if (!cpfCanonico || cpfCanonico.length !== 11) {
+        return res
+          .status(400)
+          .json({ error: "cpf é obrigatório para Inclusão (cadastro unificado)" });
+      }
 
-      return res.status(201).json(inscricao);
+      const dataIngressoProf = req.body.dataIngresso || undefined;
+      try {
+        const inscricao = await storage.addAtendidoCpfToTurmaInclusao(
+          cpfCanonico,
+          turmaId,
+          dataIngressoProf
+        );
+        return res.status(201).json(inscricao);
+      } catch (ensureErr: any) {
+        return res.status(400).json({
+          error: ensureErr?.message || "Não foi possível matricular na Inclusão",
+        });
+      }
     } catch (error: any) {
       console.error("Erro ao adicionar aluno à turma:", error);
       return res.status(500).json({ error: "Erro ao adicionar aluno" });
@@ -48172,22 +49093,24 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const insertedPresencas = [];
       for (const p of presencas || []) {
         let participanteId = p.id || p.participanteId;
-        if (!participanteId && (p.cpf || p.alunoCpf)) {
+        const cpfRaw = p.cpf || p.alunoCpf || p.atendidoCpf;
+        const cpfNorm = cpfRaw ? String(cpfRaw).replace(/\D/g, "") : "";
+        if (!participanteId && cpfNorm.length === 11) {
           const found = await db
             .select({ id: participantesInclusao.id })
             .from(participantesInclusao)
-            .where(eq(participantesInclusao.cpf, String(p.cpf || p.alunoCpf)))
+            .where(sql`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpfNorm}`)
             .limit(1);
           if (found[0]) participanteId = found[0].id;
         }
-        if (participanteId) {
+        if (participanteId || cpfNorm.length === 11) {
           const [presenca] = await db
             .insert(presencasInclusao)
             .values({
-              participanteId:
-                typeof participanteId === "string"
-                  ? parseInt(participanteId)
-                  : participanteId,
+              participanteId: participanteId
+                ? (typeof participanteId === "string" ? parseInt(participanteId) : participanteId)
+                : null,
+              atendidoCpf: cpfNorm.length === 11 ? cpfNorm : null,
               turmaId,
               data: dataYMD,
               presente: p.presente || false,
@@ -49382,7 +50305,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   // Listar todos os participantes
   app.get("/api/participantes-inclusao", async (req, res) => {
     try {
-      const participantes = await storage.getAllParticipantes();
+      const status = (req.query.status as "ativos" | "inativos" | "todos" | undefined) ?? "ativos";
+      const programaRaw = String(req.query.programa || "grito").toLowerCase();
+      const programa = (["grito", "pec", "inclusao"].includes(programaRaw)
+        ? programaRaw
+        : "grito") as "grito" | "pec" | "inclusao";
+      if (!["ativos", "inativos", "todos"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
+      }
+      const participantes = await storage.getAllParticipantes({ status, programa });
       res.json(participantes);
     } catch (error: any) {
       console.error("Erro ao listar participantes:", error);
@@ -49390,22 +50321,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     }
   });
 
-  // Buscar participante por ID
-  app.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const participante = await storage.getParticipanteById(id);
-      if (!participante) {
-        return res.status(404).json({ error: "Participante não encontrado" });
-      }
-      res.json(participante);
-    } catch (error: any) {
-      console.error("Erro ao buscar participante:", error);
-      res.status(500).json({ error: "Erro ao buscar participante" });
-    }
-  });
-
-  // Buscar participante por CPF
+  // Buscar participante por CPF (antes de :id para não capturar "cpf" como id)
   app.get(
     "/api/participantes-inclusao/cpf/:cpf",
     requireAuth,
@@ -49423,6 +50339,24 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       }
     }
   );
+
+  // Buscar participante por ID
+  app.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ error: "ID inválido" });
+      }
+      const participante = await storage.getParticipanteById(id);
+      if (!participante) {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      res.json(participante);
+    } catch (error: any) {
+      console.error("Erro ao buscar participante:", error);
+      res.status(500).json({ error: "Erro ao buscar participante" });
+    }
+  });
 
   // Criar novo participante
   const participanteAllowedKeys = [
@@ -50187,35 +51121,111 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(400).json({ error: "cpf inválido" });
       }
 
-      if (area === "pec") {
-        const rows = await db.execute(sql`
-        SELECT cpf, nome_completo FROM aluno WHERE cpf = ${cpf} LIMIT 1
-      `);
-        if (!rows.rows?.length) return res.json({ exists: false });
-        const aluno = rows.rows[0] as any;
+      // Pool único: se já existe no mestre, é a mesma pessoa (não cadastrar de novo)
+      const masterCpf = await resolveAtendidoCpfIfExists(cpf);
+      if (masterCpf) {
+        const row = await getAtendidoGritoByCpf(cpf);
         return res.json({
           exists: true,
-          nome: aluno.nome_completo ?? "Sem nome",
-          id: aluno.cpf ?? null,
+          nome: row?.nome_completo ?? "Sem nome",
+          cpf: masterCpf,
+          fonte: "atendidos_grito",
         });
       }
 
-      // inclusao
-      const rows = await db.execute(sql`
-      SELECT id, nome FROM participantes_inclusao WHERE cpf = ${cpf} LIMIT 1
-    `);
-      if (!rows.rows?.length) return res.json({ exists: false });
-      const part = rows.rows[0] as any;
-      return res.json({
-        exists: true,
-        nome: part.nome ?? "Sem nome",
-        id: part.id ?? null,
-      });
+      return res.json({ exists: false });
     } catch (e) {
       console.error("cpf-lookup error", e);
       res.status(500).json({ error: "erro ao consultar cpf" });
     }
   });
+  // Atualizar participante por CPF (cadastro só-mestre)
+  app.patch("/api/participantes-inclusao/cpf/:cpf", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) {
+        return res.status(400).json({ error: "CPF inválido" });
+      }
+      const { turmaIds, ...participanteData } = req.body;
+
+      ['email', 'cpf', 'telefone', 'codigoMatricula', 'identificador', 'dataIngresso'].forEach(field => {
+        if (participanteData[field] === '') {
+          participanteData[field] = null;
+        }
+      });
+      if (participanteData.dataIngresso && typeof participanteData.dataIngresso === "string") {
+        participanteData.dataIngresso = new Date(participanteData.dataIngresso);
+      }
+
+      const participante = await storage.updateParticipanteByCpf(cpf, participanteData);
+
+      if (Array.isArray(turmaIds)) {
+        const cpfAtual = String((participante as any).cpf || cpf).replace(/\D/g, "");
+        const turmasAtuais = await pool.query(
+          `SELECT turma_id FROM participantes_turmas
+           WHERE atendido_cpf = $1
+              OR participante_id IN (
+                   SELECT id FROM participantes_inclusao
+                   WHERE REGEXP_REPLACE(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1
+                 )`,
+          [cpfAtual]
+        );
+        const turmaIdsAtuais = turmasAtuais.rows.map((r: any) => Number(r.turma_id));
+        for (const turmaId of turmaIdsAtuais) {
+          if (!turmaIds.includes(turmaId)) {
+            await storage.removeParticipanteFromTurmaByCpf(cpfAtual, turmaId);
+          }
+        }
+        for (const turmaId of turmaIds) {
+          if (!turmaIdsAtuais.includes(turmaId)) {
+            await storage.addAtendidoCpfToTurmaInclusao(cpfAtual, turmaId);
+          }
+        }
+      }
+
+      const participanteCompleto = await storage.getParticipanteByCpf(
+        String((participante as any).cpf || cpf).replace(/\D/g, "")
+      );
+      res.json(participanteCompleto || participante);
+    } catch (error: any) {
+      if (error?.message === "Participante não encontrado") {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      console.error("Erro ao atualizar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao atualizar participante" });
+    }
+  });
+
+  app.patch("/api/participantes-inclusao/cpf/:cpf/inativar", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const participante = await storage.inativarParticipanteByCpf(cpf);
+      const participanteCompleto = await storage.getParticipanteByCpf(cpf);
+      res.json(participanteCompleto || participante);
+    } catch (error: any) {
+      if (error?.message === "Participante não encontrado") {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      console.error("Erro ao inativar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao inativar participante" });
+    }
+  });
+
+  app.patch("/api/participantes-inclusao/cpf/:cpf/reativar", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const participante = await storage.reativarParticipanteByCpf(cpf);
+      const participanteCompleto = await storage.getParticipanteByCpf(cpf);
+      res.json(participanteCompleto || participante);
+    } catch (error: any) {
+      if (error?.message === "Participante não encontrado") {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      console.error("Erro ao reativar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao reativar participante" });
+    }
+  });
+
   // Atualizar participante
   app.patch("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
     try {
@@ -50270,6 +51280,36 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     } catch (error: any) {
       console.error("Erro ao atualizar participante:", error);
       res.status(500).json({ error: "Erro ao atualizar participante" });
+    }
+  });
+
+  app.patch("/api/participantes-inclusao/:id/inativar", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const participante = await storage.inativarParticipante(id);
+      const participanteCompleto = await storage.getParticipanteById(id);
+      res.json(participanteCompleto || participante);
+    } catch (error: any) {
+      if (error?.message === "Participante não encontrado") {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      console.error("Erro ao inativar participante:", error);
+      res.status(500).json({ error: "Erro ao inativar participante" });
+    }
+  });
+
+  app.patch("/api/participantes-inclusao/:id/reativar", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const participante = await storage.reativarParticipante(id);
+      const participanteCompleto = await storage.getParticipanteById(id);
+      res.json(participanteCompleto || participante);
+    } catch (error: any) {
+      if (error?.message === "Participante não encontrado") {
+        return res.status(404).json({ error: "Participante não encontrado" });
+      }
+      console.error("Erro ao reativar participante:", error);
+      res.status(500).json({ error: "Erro ao reativar participante" });
     }
   });
 
@@ -50339,31 +51379,42 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           LIMIT 1
         )
         SELECT
-          pi.id,
-          pi.nome,
-          pi.cpf,
-          pi.telefone,
-          pi.data_nascimento AS "dataNascimento",
+          COALESCE(pi.id, NULL) AS id,
+          COALESCE(pi.nome, ag.nome_completo) AS nome,
+          COALESCE(
+            REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g'),
+            pt.atendido_cpf,
+            ag.cpf
+          ) AS cpf,
+          COALESCE(pi.telefone, ag.telefone, ag.whatsapp) AS telefone,
+          COALESCE(pi.data_nascimento, ag.data_nascimento) AS "dataNascimento",
           pt.id AS "participanteTurmaId",
           COALESCE(pt.status, 'ativo') AS status,
+          pt.data_desligamento::text AS "dataDesligamento",
+          pt.motivo_desligamento AS "motivoDesligamento",
           (iev.id IS NOT NULL) AS "evasaoAtiva",
           iev.data_desligamento::text AS "dataEvasao",
           iev.id AS "evasaoId",
           COALESCE(ie.evadido, false) AS "evadidoPec",
           pe_pec.data_desligamento::text AS "dataEvasaoPec"
         FROM participantes_turmas pt
-        JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN atendidos_grito ag ON ag.cpf = COALESCE(
+          pt.atendido_cpf,
+          REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+        )
         LEFT JOIN inclusao_evasoes iev ON iev.participante_turma_id = pt.id AND iev.revertido_em IS NULL
         LEFT JOIN pec ON true
         LEFT JOIN instance_enrollments ie ON ie.activity_instance_id = pec.activity_instance_id
-          AND length(regexp_replace(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')) > 0
+          AND length(regexp_replace(COALESCE(COALESCE(pi.cpf, ag.cpf, pt.atendido_cpf), ''), '[^0-9]', '', 'g')) > 0
           AND length(regexp_replace(COALESCE(ie.student_cpf, ''), '[^0-9]', '', 'g')) > 0
           AND regexp_replace(COALESCE(ie.student_cpf, ''), '[^0-9]', '', 'g')
-            = regexp_replace(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+            = regexp_replace(COALESCE(COALESCE(pi.cpf, ag.cpf, pt.atendido_cpf), ''), '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe_pec ON pe_pec.enrollment_id = ie.id AND pe_pec.revertido_em IS NULL
         WHERE pt.turma_id = $1
+          AND (pi.id IS NOT NULL OR pt.atendido_cpf IS NOT NULL OR ag.cpf IS NOT NULL)
         ${dateWhere}
-        ORDER BY pi.nome ASC
+        ORDER BY COALESCE(pi.nome, ag.nome_completo) ASC
         `,
         params
       );
@@ -50384,20 +51435,29 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
       const dataIngresso = req.body?.dataIngresso || undefined;
-      const relacao = await storage.addParticipanteToTurma(participanteId, turmaId, dataIngresso);
+      let cpfBody = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
 
-      const participante = await storage.getParticipanteById(participanteId);
-      if (participante && participante.status?.toLowerCase() === 'inativo') {
-        await db.update(participantesInclusao)
-          .set({ status: 'ativo' })
-          .where(eq(participantesInclusao.id, participanteId));
-        console.log(`✅ [REATIVAÇÃO] Participante ${participanteId} reativado ao ser adicionado à turma ${turmaId}`);
+      if (isNaN(turmaId)) {
+        return res.status(400).json({ error: "ID de turma inválido." });
       }
 
-      res.status(201).json(relacao);
+      // Resolver CPF: body, ou legado por id, ou falha
+      if ((!cpfBody || cpfBody.length !== 11) && participanteId && !Number.isNaN(participanteId)) {
+        const existente = await storage.getParticipanteById(participanteId);
+        if (existente?.cpf) cpfBody = String(existente.cpf).replace(/\D/g, "");
+      }
+
+      if (!cpfBody || cpfBody.length !== 11) {
+        return res.status(400).json({
+          error: "Informe o CPF do atendido para matricular na turma (cadastro unificado).",
+        });
+      }
+
+      const relacao = await storage.addAtendidoCpfToTurmaInclusao(cpfBody, turmaId, dataIngresso);
+      res.status(201).json({ ...relacao, cpf: cpfBody });
     } catch (error: any) {
       console.error("Erro ao adicionar participante à turma:", error);
-      res.status(500).json({ error: "Erro ao adicionar participante à turma" });
+      res.status(400).json({ error: error?.message || "Erro ao adicionar participante à turma" });
     }
   });
 
@@ -50416,6 +51476,58 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       } else {
         cb(new Error('Formato não permitido. Use PDF, JPEG, PNG ou WEBP.'));
       }
+    }
+  });
+
+  // Listar documentos por CPF (antes de :participanteId)
+  app.get("/api/documentos/participante-inclusao/cpf/:cpf", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF inválido" });
+      const result = await db.select().from(documentosParticipante)
+        .where(eq(documentosParticipante.atendidoCpf, cpf))
+        .orderBy(desc(documentosParticipante.createdAt));
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro ao listar documentos por CPF:", error);
+      res.status(500).json({ error: "Erro ao listar documentos" });
+    }
+  });
+
+  // Upload de documento por CPF (antes de :participanteId)
+  app.post("/api/documentos/participante-inclusao/cpf/:cpf", requireAuth, uploadDocumentos.single('documento'), async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF inválido" });
+      const tipoDocumento = req.body.tipoDocumento || 'Documento';
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Nenhum arquivo enviado" });
+      }
+
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 8);
+      const ext = req.file.originalname.split('.').pop();
+      const fileName = `documentos/inclusao/cpf/${cpf}/${timestamp}-${randomStr}.${ext}`;
+
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(cpf);
+
+      const [documento] = await db.insert(documentosParticipante).values({
+        nomeArquivo: req.file.originalname,
+        tipoDocumento: tipoDocumento,
+        urlArquivo: url,
+        tamanhoBytes: req.file.size,
+        mimeType: req.file.mimetype,
+        participanteInclusaoId: null,
+        atendidoCpf: atendidoCpf || cpf,
+        uploadedBy: req.session?.userId || null,
+      }).returning();
+
+      res.json({ success: true, documento });
+    } catch (error: any) {
+      console.error("Erro ao upload documento por CPF:", error);
+      res.status(500).json({ error: "Erro ao enviar documento" });
     }
   });
 
@@ -50451,6 +51563,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
 
+      const part = await db.select({ cpf: participantesInclusao.cpf })
+        .from(participantesInclusao)
+        .where(eq(participantesInclusao.id, participanteId))
+        .limit(1);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(part[0]?.cpf);
+
       // Salvar no banco
       const [documento] = await db.insert(documentosParticipante).values({
         nomeArquivo: req.file.originalname,
@@ -50459,6 +51577,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         tamanhoBytes: req.file.size,
         mimeType: req.file.mimetype,
         participanteInclusaoId: participanteId,
+        atendidoCpf,
         uploadedBy: req.session?.userId || null,
       }).returning();
 
@@ -50473,11 +51592,16 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/documentos/aluno/:cpf", requireAuth, async (req, res) => {
     try {
       const cpf = req.params.cpf;
+      const cpfDigits = normalizeCpfDigits(cpf);
 
       const result = await db
         .select()
         .from(documentosParticipante)
-        .where(eq(documentosParticipante.alunoCpf, cpf))
+        .where(or(
+          eq(documentosParticipante.alunoCpf, cpf),
+          eq(documentosParticipante.atendidoCpf, cpfDigits),
+          sql`REGEXP_REPLACE(COALESCE(${documentosParticipante.alunoCpf}, ''), '[^0-9]', '', 'g') = ${cpfDigits}`
+        ))
         .orderBy(desc(documentosParticipante.createdAt));
 
       res.json(result);
@@ -50503,6 +51627,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const fileName = `documentos/pec/${cpfClean}/${timestamp}-${randomStr}.${ext}`;
 
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(cpf);
 
       const [documento] = await db.insert(documentosParticipante).values({
         nomeArquivo: req.file.originalname,
@@ -50511,6 +51636,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         tamanhoBytes: req.file.size,
         mimeType: req.file.mimetype,
         alunoCpf: cpf,
+        atendidoCpf,
         participanteInclusaoId: null, // ✅ garante que PEC não vira inclusão
         uploadedBy: req.session?.userId || null,
       }).returning();
@@ -50557,12 +51683,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
 
-  // Desligar participante de uma turma — remove vínculo (não é evasão)
+  // Desligar participante de uma turma — remove vínculo (não é evasão),
+  // exceto Empregabilidade: mantém vínculo com status especial (presenças preservadas).
   app.delete("/api/participantes-inclusao/:participanteId/turmas/:turmaId", requireAuth, async (req, res) => {
     try {
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
-      const { motivo } = req.body || {};
+      const { motivo, cpf: cpfBody } = req.body || {};
+      let cpf = cpfBody ? String(cpfBody).replace(/\D/g, "") : "";
 
       if (!motivo || !isDesligamentoMotivoValido(motivo)) {
         return res.status(400).json({
@@ -50570,28 +51698,77 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         });
       }
 
-      const vinculo = await db.select().from(participantesTurmas)
-        .where(and(
-          eq(participantesTurmas.participanteId, participanteId),
-          eq(participantesTurmas.turmaId, turmaId),
-        ))
-        .limit(1);
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
 
-      if (vinculo.length === 0) {
+      let vinculoId: number | null = null;
+      if (cpf.length === 11) {
+        const r = await pool.query(
+          `SELECT pt.id FROM participantes_turmas pt
+           LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+           WHERE pt.turma_id = $1 AND (
+             pt.atendido_cpf = $2
+             OR REGEXP_REPLACE(COALESCE(pi.cpf,''), '[^0-9]', '', 'g') = $2
+           ) LIMIT 1`,
+          [turmaId, cpf]
+        );
+        vinculoId = r.rows[0]?.id ?? null;
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        const vinculo = await db.select().from(participantesTurmas)
+          .where(and(
+            eq(participantesTurmas.participanteId, participanteId),
+            eq(participantesTurmas.turmaId, turmaId),
+          ))
+          .limit(1);
+        vinculoId = vinculo[0]?.id ?? null;
+      }
+
+      if (!vinculoId) {
         return res.status(404).json({ error: "Vínculo participante-turma não encontrado" });
       }
 
       await db.update(inclusaoEvasoes)
         .set({ revertidoEm: new Date() })
         .where(and(
-          eq(inclusaoEvasoes.participanteTurmaId, vinculo[0].id),
+          eq(inclusaoEvasoes.participanteTurmaId, vinculoId),
           isNull(inclusaoEvasoes.revertidoEm),
         ));
 
-      await storage.removeParticipanteFromTurma(participanteId, turmaId);
-      console.log(`📤 [DESLIGAR INCLUSÃO] ParticipanteId: ${participanteId}, TurmaId: ${turmaId}, Motivo: "${motivo}"`);
+      if (motivo === "Empregabilidade") {
+        const hoje = new Date().toISOString().split("T")[0];
+        await db.update(participantesTurmas)
+          .set({
+            status: "empregabilidade",
+            motivoDesligamento: "Empregabilidade",
+            dataDesligamento: hoje,
+          })
+          .where(eq(participantesTurmas.id, vinculoId));
 
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+        console.log(`📤 [EMPREGABILIDADE INCLUSÃO] CPF/Id: ${cpf || participanteId}, TurmaId: ${turmaId}`);
+        const novoStatus = !Number.isNaN(participanteId) && participanteId > 0
+          ? await syncParticipanteInclusaoStatus(participanteId)
+          : "ativo";
+        return res.json({
+          message: "Participante movido para Empregabilidade",
+          motivo,
+          statusVinculo: "empregabilidade",
+          novoStatus,
+        });
+      }
+
+      if (cpf.length === 11) {
+        await storage.removeParticipanteFromTurmaByCpf(cpf, turmaId, motivo);
+      } else {
+        await storage.removeParticipanteFromTurma(participanteId, turmaId);
+      }
+      console.log(`📤 [DESLIGAR INCLUSÃO] CPF/Id: ${cpf || participanteId}, TurmaId: ${turmaId}, Motivo: "${motivo}"`);
+
+      let novoStatus = "inativo";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
 
       res.json({
         message: "Participante desligado da turma",
@@ -50610,13 +51787,28 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
       const dataEvasao = req.body?.dataEvasao || new Date().toISOString().split("T")[0];
+      let cpf = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
 
-      const relacao = await storage.registerInclusaoEvasao(participanteId, turmaId, dataEvasao);
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
+
+      let relacao = null as any;
+      if (cpf.length === 11) {
+        relacao = await storage.registerInclusaoEvasaoByCpf(cpf, turmaId, dataEvasao);
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        relacao = await storage.registerInclusaoEvasao(participanteId, turmaId, dataEvasao);
+      }
+
       if (!relacao) {
         return res.status(404).json({ error: "Vínculo participante-turma não encontrado" });
       }
 
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      let novoStatus = "evadido";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
       res.json({ message: "Evasão registrada com sucesso", dataEvasao, novoStatus, data: relacao });
     } catch (error: any) {
       if (error?.message?.includes("já possui evasão")) {
@@ -50632,13 +51824,28 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     try {
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
+      let cpf = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
 
-      const relacao = await storage.revertInclusaoEvasao(participanteId, turmaId);
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
+
+      let relacao = null as any;
+      if (cpf.length === 11) {
+        relacao = await storage.revertInclusaoEvasaoByCpf(cpf, turmaId);
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        relacao = await storage.revertInclusaoEvasao(participanteId, turmaId);
+      }
+
       if (!relacao) {
         return res.status(404).json({ error: "Evasão ativa não encontrada" });
       }
 
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      let novoStatus = "ativo";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
       res.json({ message: "Evasão revertida com sucesso", novoStatus, data: relacao });
     } catch (error: any) {
       console.error("❌ [REVERTER EVASÃO INCLUSÃO] Erro:", error);
@@ -50685,7 +51892,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const templateId = process.env.SLIDES_TEMPLATE_ID!;
 
       // Buscar dados do banco para preencher o relatório
-      const participantes = await storage.getAllParticipantes();
+      const participantes = await storage.getAllParticipantes({ status: "todos" });
       const programas = await storage.getAllProgramas();
       const turmas = await storage.getAllTurmas();
       console.log("📊 [EXPORT-SLIDES] Dados carregados:", {
@@ -51063,30 +52270,30 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireValidarPinManualAccess,
     senhaManualAttemptLimiter,
     async (req, res) => {
-    try {
-      const { pin, senha, vertente } = req.body;
-      const senhaInput = String(senha || pin || "").trim();
-      const vert = String(vertente || "").toLowerCase() as VertenteManual;
-      if (!senhaInput) {
-        return res.status(400).json({ valido: false, error: "Senha obrigatória" });
+      try {
+        const { pin, senha, vertente } = req.body;
+        const senhaInput = String(senha || pin || "").trim();
+        const vert = String(vertente || "").toLowerCase() as VertenteManual;
+        if (!senhaInput) {
+          return res.status(400).json({ valido: false, error: "Senha obrigatória" });
+        }
+        if (vert !== "pec" && vert !== "inclusao") {
+          return res.status(400).json({ valido: false, error: "Vertente inválida" });
+        }
+        const vertCheck = assertVertentePermitidaParaChamadaManual(req, vert);
+        if (!vertCheck.ok) {
+          return res.status(vertCheck.status).json({ valido: false, error: vertCheck.error });
+        }
+        const result = await validarSenhaManualAtiva(pool, vert, senhaInput);
+        if (!result.valido) {
+          return res.status(400).json({ valido: false, error: result.error || "Senha incorreta" });
+        }
+        return res.json({ valido: true });
+      } catch (e: any) {
+        console.error("POST /api/presenca/validar-pin-manual:", e);
+        return res.status(500).json({ valido: false, error: "Erro interno" });
       }
-      if (vert !== "pec" && vert !== "inclusao") {
-        return res.status(400).json({ valido: false, error: "Vertente inválida" });
-      }
-      const vertCheck = assertVertentePermitidaParaChamadaManual(req, vert);
-      if (!vertCheck.ok) {
-        return res.status(vertCheck.status).json({ valido: false, error: vertCheck.error });
-      }
-      const result = await validarSenhaManualAtiva(pool, vert, senhaInput);
-      if (!result.valido) {
-        return res.status(400).json({ valido: false, error: result.error || "Senha incorreta" });
-      }
-      return res.json({ valido: true });
-    } catch (e: any) {
-      console.error("POST /api/presenca/validar-pin-manual:", e);
-      return res.status(500).json({ valido: false, error: "Erro interno" });
-    }
-  });
+    });
 
   // GET /api/presenca-manual-senha/status — status da senha por vertente
   app.get(
@@ -51094,18 +52301,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireAuth,
     requirePresencaManualCoordenadorSenha,
     async (req, res) => {
-    try {
-      const vert = String(req.query.vertente || "").toLowerCase() as VertenteManual;
-      if (vert !== "pec" && vert !== "inclusao") {
-        return res.status(400).json({ error: "vertente inválida (pec ou inclusao)" });
+      try {
+        const vert = String(req.query.vertente || "").toLowerCase() as VertenteManual;
+        if (vert !== "pec" && vert !== "inclusao") {
+          return res.status(400).json({ error: "vertente inválida (pec ou inclusao)" });
+        }
+        const status = await getSenhaManualStatus(pool, vert);
+        return res.json(status);
+      } catch (e: any) {
+        console.error("GET /api/presenca-manual-senha/status:", e);
+        return res.status(500).json({ error: "Erro interno" });
       }
-      const status = await getSenhaManualStatus(pool, vert);
-      return res.json(status);
-    } catch (e: any) {
-      console.error("GET /api/presenca-manual-senha/status:", e);
-      return res.status(500).json({ error: "Erro interno" });
-    }
-  });
+    });
 
   // POST /api/presenca-manual-senha/definir — coordenador define ou troca senha
   app.post(
@@ -51113,36 +52320,36 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireAuth,
     requirePresencaManualCoordenadorSenha,
     async (req: any, res) => {
-    try {
-      const papel = String(req.user?.papel || req.user?.role || "").toLowerCase();
-      const { vertente, senhaAtual, senhaNova, senhaNovaConfirmacao } = req.body;
-      const vert = String(vertente || "").toLowerCase() as VertenteManual;
-      if (vert !== "pec" && vert !== "inclusao") {
-        return res.status(400).json({ error: "vertente inválida" });
+      try {
+        const papel = String(req.user?.papel || req.user?.role || "").toLowerCase();
+        const { vertente, senhaAtual, senhaNova, senhaNovaConfirmacao } = req.body;
+        const vert = String(vertente || "").toLowerCase() as VertenteManual;
+        if (vert !== "pec" && vert !== "inclusao") {
+          return res.status(400).json({ error: "vertente inválida" });
+        }
+        if (vert === "pec" && papel !== "coordenador_pec") {
+          return res.status(403).json({ error: "Apenas o coordenador PEC pode alterar esta senha." });
+        }
+        if (vert === "inclusao" && papel !== "coordenador_inclusao") {
+          return res.status(403).json({ error: "Apenas o coordenador de Inclusão pode alterar esta senha." });
+        }
+        if (!senhaNova || senhaNova !== senhaNovaConfirmacao) {
+          return res.status(400).json({ error: "Confirmação da nova senha não confere." });
+        }
+        const userId = parseInt(String(req.user?.id || "0"), 10);
+        const result = await definirOuTrocarSenhaManual(pool, vert, userId, {
+          senhaAtual: senhaAtual ? String(senhaAtual) : undefined,
+          senhaNova: String(senhaNova),
+        });
+        if (!result.success) {
+          return res.status(400).json({ error: result.error });
+        }
+        return res.json({ success: true, expiraEm: result.expiraEm });
+      } catch (e: any) {
+        console.error("POST /api/presenca-manual-senha/definir:", e);
+        return res.status(500).json({ error: "Erro interno" });
       }
-      if (vert === "pec" && papel !== "coordenador_pec") {
-        return res.status(403).json({ error: "Apenas o coordenador PEC pode alterar esta senha." });
-      }
-      if (vert === "inclusao" && papel !== "coordenador_inclusao") {
-        return res.status(403).json({ error: "Apenas o coordenador de Inclusão pode alterar esta senha." });
-      }
-      if (!senhaNova || senhaNova !== senhaNovaConfirmacao) {
-        return res.status(400).json({ error: "Confirmação da nova senha não confere." });
-      }
-      const userId = parseInt(String(req.user?.id || "0"), 10);
-      const result = await definirOuTrocarSenhaManual(pool, vert, userId, {
-        senhaAtual: senhaAtual ? String(senhaAtual) : undefined,
-        senhaNova: String(senhaNova),
-      });
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      return res.json({ success: true, expiraEm: result.expiraEm });
-    } catch (e: any) {
-      console.error("POST /api/presenca-manual-senha/definir:", e);
-      return res.status(500).json({ error: "Erro interno" });
-    }
-  });
+    });
 
   // POST /api/chamada-manual-log - Registra motivo de ativação do modo manual
   app.post(
@@ -51150,71 +52357,71 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireAuth,
     requireChamadaManualLogAccess,
     async (req: any, res) => {
-    try {
-      const { turmaId, data, motivo, observacao, vertente, origem } = req.body;
-      if (!data || !motivo || motivo.trim().length < 3) {
-        return res.status(400).json({ error: "data e motivo são obrigatórios" });
-      }
-      const obs = String(observacao || "").trim();
-      if (obs.length < 5) {
-        return res.status(400).json({ error: "observação é obrigatória (mínimo 5 caracteres)" });
-      }
-      const userId = req.user?.id ? parseInt(String(req.user.id), 10) : null;
-      const actorNome = req.user?.nome || req.user?.userName || null;
-      const sess = req.session as any;
-      const tabletUserId =
-        sess?.actorType === "tablet_chamada" ? sess.tabletChamadaUserId : null;
-      const vert =
-        String(vertente || sess?.tabletChamadaVertente || "").toLowerCase() || null;
-      const vertCheck = assertVertentePermitidaParaChamadaManual(req, vert);
-      if (!vertCheck.ok) {
-        return res.status(vertCheck.status).json({ error: vertCheck.error });
-      }
-      const origemFinal =
-        origem ||
-        (sess?.actorType === "tablet_chamada"
-          ? "tablet"
-          : papelOrigemChamadaManual(req.user?.papel || req.user?.role));
+      try {
+        const { turmaId, data, motivo, observacao, vertente, origem } = req.body;
+        if (!data || !motivo || motivo.trim().length < 3) {
+          return res.status(400).json({ error: "data e motivo são obrigatórios" });
+        }
+        const obs = String(observacao || "").trim();
+        if (obs.length < 5) {
+          return res.status(400).json({ error: "observação é obrigatória (mínimo 5 caracteres)" });
+        }
+        const userId = req.user?.id ? parseInt(String(req.user.id), 10) : null;
+        const actorNome = req.user?.nome || req.user?.userName || null;
+        const sess = req.session as any;
+        const tabletUserId =
+          sess?.actorType === "tablet_chamada" ? sess.tabletChamadaUserId : null;
+        const vert =
+          String(vertente || sess?.tabletChamadaVertente || "").toLowerCase() || null;
+        const vertCheck = assertVertentePermitidaParaChamadaManual(req, vert);
+        if (!vertCheck.ok) {
+          return res.status(vertCheck.status).json({ error: vertCheck.error });
+        }
+        const origemFinal =
+          origem ||
+          (sess?.actorType === "tablet_chamada"
+            ? "tablet"
+            : papelOrigemChamadaManual(req.user?.papel || req.user?.role));
 
-      const turmaIdInt = turmaId ? parseInt(String(turmaId), 10) : null;
+        const turmaIdInt = turmaId ? parseInt(String(turmaId), 10) : null;
 
-      // Tablet: uma ativação manual por turma + data + usuário (evita duplicata ao reabrir o modo manual)
-      if (origemFinal === "tablet" && tabletUserId && turmaIdInt) {
-        const dup = await pool.query(
-          `SELECT id FROM chamada_manual_logs
+        // Tablet: uma ativação manual por turma + data + usuário (evita duplicata ao reabrir o modo manual)
+        if (origemFinal === "tablet" && tabletUserId && turmaIdInt) {
+          const dup = await pool.query(
+            `SELECT id FROM chamada_manual_logs
            WHERE tablet_user_id = $1 AND turma_id = $2 AND data = $3::date
              AND COALESCE(origem, '') = 'tablet'
              AND LOWER(COALESCE(vertente, '')) = LOWER(COALESCE($4, ''))
            LIMIT 1`,
-          [tabletUserId, turmaIdInt, data, vert]
-        );
-        if (dup.rows.length > 0) {
-          return res.json({ success: true, jaRegistrado: true });
+            [tabletUserId, turmaIdInt, data, vert]
+          );
+          if (dup.rows.length > 0) {
+            return res.json({ success: true, jaRegistrado: true });
+          }
         }
-      }
 
-      await pool.query(
-        `INSERT INTO chamada_manual_logs
+        await pool.query(
+          `INSERT INTO chamada_manual_logs
           (turma_id, data, user_id, motivo, vertente, origem, observacao, tablet_user_id, actor_nome)
          VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          turmaIdInt,
-          data,
-          userId,
-          motivo.trim(),
-          vert,
-          origemFinal,
-          obs,
-          tabletUserId,
-          actorNome,
-        ]
-      );
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error("POST /api/chamada-manual-log error:", e);
-      res.status(500).json({ error: "Erro ao salvar log" });
-    }
-  });
+          [
+            turmaIdInt,
+            data,
+            userId,
+            motivo.trim(),
+            vert,
+            origemFinal,
+            obs,
+            tabletUserId,
+            actorNome,
+          ]
+        );
+        res.json({ success: true });
+      } catch (e: any) {
+        console.error("POST /api/chamada-manual-log error:", e);
+        res.status(500).json({ error: "Erro ao salvar log" });
+      }
+    });
 
   function papelOrigemChamadaManual(papel: string | undefined): string {
     const p = String(papel || "").toLowerCase();
@@ -51230,27 +52437,27 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     requireAuth,
     requireChamadasAuditoriaAccess,
     async (req: any, res) => {
-    try {
-      const mesesParam = String(req.query.meses || "").trim();
-      const meses = mesesParam
-        ? mesesParam.split(",").map((m) => m.trim()).filter((m) => /^\d{4}-\d{2}$/.test(m))
-        : [];
+      try {
+        const mesesParam = String(req.query.meses || "").trim();
+        const meses = mesesParam
+          ? mesesParam.split(",").map((m) => m.trim()).filter((m) => /^\d{4}-\d{2}$/.test(m))
+          : [];
 
-      const vertenteParam = String(req.query.vertente || "").toLowerCase().trim();
-      const vertenteFiltro =
-        vertenteParam === "pec" || vertenteParam === "inclusao" ? vertenteParam : null;
+        const vertenteParam = String(req.query.vertente || "").toLowerCase().trim();
+        const vertenteFiltro =
+          vertenteParam === "pec" || vertenteParam === "inclusao" ? vertenteParam : null;
 
-      const resultado = await buscarChamadasAuditoria({
-        meses,
-        vertente: vertenteFiltro,
-      });
+        const resultado = await buscarChamadasAuditoria({
+          meses,
+          vertente: vertenteFiltro,
+        });
 
-      return res.json(resultado);
-    } catch (e: any) {
-      console.error("GET /api/admin/chamadas-auditoria:", e);
-      return res.status(500).json({ error: "Erro ao buscar auditoria" });
-    }
-  });
+        return res.json(resultado);
+      } catch (e: any) {
+        console.error("GET /api/admin/chamadas-auditoria:", e);
+        return res.status(500).json({ error: "Erro ao buscar auditoria" });
+      }
+    });
 
   // GET /api/presencas-inclusao/pendentes-aprovacao - Faltas que contam como presença, aguardando aprovação
   app.get("/api/presencas-inclusao/pendentes-aprovacao", requireAuth, async (req, res) => {
@@ -52382,36 +53589,23 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             ? `EXTRACT(YEAR FROM s.date) = ${ano} AND EXTRACT(MONTH FROM s.date) = ${mes}`
             : `EXTRACT(YEAR FROM s.date) = ${ano}`;
 
-      // 1. Atendidos = alunos ativos ao fim do período (exclui evadidos que saíram até o fim do período)
-      const endMesPeriodo = pecTrimestre >= 1 && pecTrimestre <= 4
-        ? pecTrimestre * 3   // T1→3, T2→6, T3→9, T4→12
-        : pecRangeValid
-          ? pecMesFim
-          : mes > 0 ? mes : 12;
-      const endDatePeriodo = new Date(ano, endMesPeriodo, 0); // último dia do mês
-      const endDateStr = endDatePeriodo.toISOString().split('T')[0];
-      const atendidosRes = await pool.query(
-        turmaIds && turmaIds.length > 0
-          ? `SELECT COUNT(DISTINCT REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')) as cnt
-             FROM instance_enrollments ie
-             JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-             JOIN pec_activities pa ON pa.id = ai.activity_id
-             JOIN projects p ON p.id = pa.project_id
-             WHERE p.name IS NOT NULL
-               AND (ie.enrollment_date IS NULL OR ie.enrollment_date <= $1)
-               AND (ie.evadido = false OR ie.data_evasao > $1::date)
-               AND ie.activity_instance_id = ANY(ARRAY[${turmaIds.join(',')}]::int[])`
-          : `SELECT COUNT(DISTINCT REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')) as cnt
-             FROM instance_enrollments ie
-             JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-             JOIN pec_activities pa ON pa.id = ai.activity_id
-             JOIN projects p ON p.id = pa.project_id
-             WHERE p.name IS NOT NULL
-               AND (ie.enrollment_date IS NULL OR ie.enrollment_date <= $1)
-               AND (ie.evadido = false OR ie.data_evasao > $1::date)`,
-        [endDateStr]
+      // 1. Atendidos = snapshot ao fim do período (LEAST data_entrada, enrollment_date)
+      const hojePec = new Date();
+      let mesFiltroPec: gestaoVistaData.MesFiltro = mes > 0 ? mes : null;
+      if (pecTrimestre >= 1 && pecTrimestre <= 4) {
+        mesFiltroPec = [(pecTrimestre - 1) * 3 + 1, pecTrimestre * 3];
+      } else if (pecRangeValid) {
+        mesFiltroPec = [pecMesInicio, pecMesFim];
+      } else if (mes <= 0 && ano === hojePec.getFullYear()) {
+        mesFiltroPec = hojePec.getMonth() + 1;
+      } else if (mes <= 0) {
+        mesFiltroPec = null;
+      }
+      const atendidos = await gestaoVistaData.countCriancasAtendidasPEC(
+        mesFiltroPec,
+        ano,
+        turmaIds && turmaIds.length > 0 ? { turmaIds } : undefined,
       );
-      const atendidos = Number(atendidosRes.rows?.[0]?.cnt || 0);
 
       // 2. Horas aula, atendimentos, alimentação — sessions + attendance JSON
       const sessRes = await pool.query(`
@@ -52517,7 +53711,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             ${turmaIdsEnrollFilter}
             ${evFilter}
         `);
-        const totalMatr = Number(atendidosRes.rows?.[0]?.cnt) || 1;
+        const totalMatr = atendidos || 1;
         evasao = Math.round((Number(evRes.rows?.[0]?.cnt || 0) / totalMatr) * 100);
       } catch (e) { }
 
@@ -52536,13 +53730,24 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         alunosFormados = Number(fmRes.rows?.[0]?.cnt || 0);
       } catch (e) { }
 
-      // 7. NPS
+      // 7. NPS e Avaliação de Aprendizagem (semestral — sem default de mês corrente)
+      let mesFiltroIndicadores: gestaoVistaData.MesFiltro = mes > 0 ? mes : null;
+      if (pecTrimestre >= 1 && pecTrimestre <= 4) {
+        mesFiltroIndicadores = [(pecTrimestre - 1) * 3 + 1, pecTrimestre * 3];
+      } else if (pecRangeValid) {
+        mesFiltroIndicadores = [pecMesInicio, pecMesFim];
+      }
+
       let nps = 0;
+      let avaliacaoAprendizagem = 0;
       try {
-        nps = await gestaoVistaData.getNpsPEC2026(mes > 0 ? mes : null);
+        nps = await gestaoVistaData.getNpsPEC2026(mesFiltroIndicadores, ano);
+      } catch (e) { }
+      try {
+        avaliacaoAprendizagem = await gestaoVistaData.getAvaliacaoAprendizagemPEC(mesFiltroIndicadores, ano);
       } catch (e) { }
 
-      res.json({ atendidos, horasAula, atendimentos, alimentacao, frequenciaMedia, turmasTotais, turmasAtivas, turmasConcluidas, evasao, alunosFormados, nps });
+      res.json({ atendidos, horasAula, atendimentos, alimentacao, frequenciaMedia, turmasTotais, turmasAtivas, turmasConcluidas, evasao, alunosFormados, nps, avaliacaoAprendizagem });
     } catch (error: any) {
       console.error('Error in /api/pec/dashboard-kpis:', error);
       res.status(500).json({ error: 'Erro ao carregar KPIs do PEC' });
@@ -52628,8 +53833,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const ano = parseInt(req.query.ano as string) || new Date().getFullYear();
       const mes = req.query.mes ? parseInt(req.query.mes as string) : null;
       const startDate = mes ? `${ano}-${String(mes).padStart(2, '0')}-01` : `${ano}-01-01`;
-      const endDate = mes ? new Date(ano, mes, 0).toISOString().split('T')[0] : `${ano}-12-31`;
-      console.log(`🏀 [PEC] Buscando dados automáticos para ano ${ano}, mes ${mes ?? 'todos'}...`);
+      // Estoque de atendidos: fim do mês filtrado; em "todos" no ano corrente, corta no mês vigente
+      // (igual countCriancasAtendidasPEC) — evita usar 31/12 futuro e anular a regra de evasão.
+      const hojePecProg = new Date();
+      let endDate: string;
+      if (mes) {
+        endDate = new Date(ano, mes, 0).toISOString().split('T')[0];
+      } else if (ano === hojePecProg.getFullYear()) {
+        endDate = new Date(ano, hojePecProg.getMonth() + 1, 0).toISOString().split('T')[0];
+      } else {
+        endDate = `${ano}-12-31`;
+      }
+      console.log(`🏀 [PEC] Buscando dados automáticos para ano ${ano}, mes ${mes ?? 'todos'}, fim=${endDate}...`);
 
       // Categoriza projeto pelo nome (ordem importa: regra específica antes de genérica)
       function categorizaProjeto(projectName: string): string {
@@ -52677,7 +53892,14 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
             inst.project_name,
             COUNT(DISTINCT CASE
               WHEN (ie.enrollment_date IS NULL OR ie.enrollment_date <= $2::date)
-               AND (ie.evadido = false OR ie.data_evasao > $2::date)
+               AND (
+                 COALESCE(ie.evadido, false) = false
+                 OR (
+                   ie.data_evasao IS NOT NULL
+                   AND date_trunc('month', ie.data_evasao::date)
+                     >= date_trunc('month', $2::date)
+                 )
+               )
               THEN REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
             END) AS atendidos,
             COUNT(DISTINCT CASE
@@ -55671,8 +56893,12 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     }
   });
 
-  // Upload de foto do ganhador (dev)
-  app.post("/api/dev/beneficios/ganhadores/:id/foto", (req, res) => {
+  // Upload de foto do ganhador (dev) — GCS com fallback local
+  app.post(
+    "/api/dev/beneficios/ganhadores/:id/foto",
+    requireAuth,
+    requireRole(["admin", "dev", "desenvolvedor", "dev-marketing"]),
+    (req, res) => {
     console.log("📤 [DEV FOTO] Recebendo upload de foto...");
     console.log("📤 [DEV FOTO] Content-Type:", req.headers['content-type']);
 
@@ -55694,16 +56920,28 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         }
 
         const ext = file.originalname.split('.').pop() || 'jpg';
-        const filename = "ganhador-" + ganhadorId + "-" + Date.now() + "." + ext;
-        const blob = bucket.file("ganhadores/" + filename);
+        const filename = `ganhador-${ganhadorId}-${Date.now()}.${ext}`;
 
-        await blob.save(file.buffer, {
-          contentType: file.mimetype || "image/jpeg",
-          resumable: false
-        });
-
-        // Bucket usa uniform access - não precisa de makePublic()
-        const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/ganhadores/" + filename;
+        // Salva em uploads/beneficios/ganhadores/... (prefixo padrão do uploadToGCS)
+        // usando nome relativo ao UPLOAD_PREFIX via caminho completo custom
+        let fotoUrl: string;
+        if (isGCSAvailable && bucket) {
+          const objectKey = `ganhadores/${filename}`;
+          const blob = bucket.file(objectKey);
+          await blob.save(file.buffer, {
+            contentType: file.mimetype || "image/jpeg",
+            resumable: false,
+          });
+          fotoUrl = `https://storage.googleapis.com/${bucket.name}/${objectKey}`;
+        } else {
+          const objectKey = await uploadToGCS(
+            file.buffer,
+            `ganhador-${ganhadorId}-${Date.now()}.${ext}`,
+            file.mimetype || "image/jpeg"
+          );
+          // Guarda chave relativa; GET /api/ganhadores/:id/foto resolve local/GCS
+          fotoUrl = objectKey;
+        }
 
         await db.update(beneficioGanhadores)
           .set({
@@ -55715,12 +56953,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         res.json({ success: true, fotoUrl });
       } catch (error: any) {
         console.error("Erro ao fazer upload de foto (dev):", error);
-        res.status(500).json({ success: false, message: "Erro ao fazer upload" });
+        res.status(500).json({
+          success: false,
+          message: error?.message || "Erro ao fazer upload",
+        });
       }
     });
   });
 
-  // Endpoint para servir foto do ganhador via URL assinada
+  // Endpoint para servir foto do ganhador (local ou signed URL)
   app.get("/api/ganhadores/:id/foto", async (req, res) => {
     try {
       const ganhadorId = parseInt(req.params.id);
@@ -55733,16 +56974,25 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         return res.status(404).json({ error: "Foto não encontrada" });
       }
 
-      const fotoUrl = result.rows[0].foto_url;
-      // Extrair o path do GCS da URL completa
-      const match = fotoUrl.match(/storage\.googleapis\.com\/[^/]+\/(.+)$/);
-      if (!match) {
+      const fotoUrl = String(result.rows[0].foto_url);
+      const key =
+        fotoUrl.startsWith("http")
+          ? extractFilePathFromUrl(fotoUrl)
+          : normalizeObjectKey(fotoUrl);
+
+      if (!key) {
         return res.status(404).json({ error: "Path da foto inválido" });
       }
 
-      const objectKey = match[1];
-      const signedUrl = await getSignedUrl(objectKey, 60);
-      return res.redirect(302, signedUrl);
+      try {
+        await streamSignedObjectToResponse(key, res, 3600);
+      } catch (gcsErr: any) {
+        console.warn(
+          "⚠️ [GANHADOR FOTO] stream falhou:",
+          gcsErr?.code || gcsErr?.message
+        );
+        return res.status(502).json({ error: "Falha ao obter foto" });
+      }
     } catch (error) {
       console.error("Erro ao buscar foto do ganhador:", error);
       res.status(500).json({ error: "Erro interno" });
@@ -55789,17 +57039,22 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   // ================ UPLOAD DE FOTO PARA ALUNOS (PEC) ================
   app.post("/api/coordenador/alunos/:cpf/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single('foto'), async (req, res) => {
     try {
-      const cpf = req.params.cpf;
+      const cpfParam = req.params.cpf;
       const file = req.file;
 
-      console.log("📤 [ALUNO FOTO] Upload para CPF:", cpf);
+      const alunoRecord = await storage.getAluno(cpfParam);
+      if (!alunoRecord) {
+        return res.status(404).json({ success: false, message: "Aluno não encontrado para este CPF" });
+      }
+
+      console.log("📤 [ALUNO FOTO] Upload para CPF:", alunoRecord.cpf);
 
       if (!file) {
         return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
       }
 
       const ext = file.originalname.split('.').pop() || 'jpg';
-      const filename = "aluno-" + cpf.replace(/\D/g, '') + "-" + Date.now() + "." + ext;
+      const filename = "aluno-" + normalizeCpfDigits(alunoRecord.cpf) + "-" + Date.now() + "." + ext;
       const blob = bucket.file("alunos/" + filename);
 
       await blob.save(file.buffer, {
@@ -55809,13 +57064,16 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/alunos/" + filename;
 
-      // Atualizar aluno com URL da foto
-      await pool.query(
-        `UPDATE aluno SET foto_perfil = $1 WHERE cpf = $2`,
-        [fotoUrl, cpf]
+      const updateResult = await pool.query(
+        `UPDATE aluno SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+        [fotoUrl, alunoRecord.cpf]
       );
 
-      console.log("📸 [ALUNO FOTO] Foto atualizada para CPF " + cpf);
+      if (!updateResult.rowCount) {
+        return res.status(404).json({ success: false, message: "Não foi possível atualizar a foto do aluno" });
+      }
+
+      console.log("📸 [ALUNO FOTO] Foto atualizada para CPF " + alunoRecord.cpf);
       res.json({ success: true, fotoUrl });
     } catch (error: any) {
       console.error("Erro ao fazer upload de foto do aluno:", error);
@@ -55889,6 +57147,39 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.post("/api/coordenador/participantes/:id/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single('foto'), handleParticipanteFotoUpload);
   app.post("/api/participantes-inclusao/:id/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single('foto'), handleParticipanteFotoUpload);
+
+  app.post("/api/coordenador/participantes/cpf/:cpf/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single('foto'), async (req: any, res: any) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const file = req.file;
+      if (cpf.length !== 11) return res.status(400).json({ success: false, message: "CPF inválido" });
+      if (!file) return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+
+      const ext = file.originalname.split('.').pop() || 'jpg';
+      const filename = "participante-cpf-" + cpf + "-" + Date.now() + "." + ext;
+      const blob = bucket.file("participantes/" + filename);
+      await blob.save(file.buffer, {
+        contentType: file.mimetype || "image/jpeg",
+        resumable: false
+      });
+      const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/participantes/" + filename;
+
+      await pool.query(
+        `UPDATE atendidos_grito SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+        [fotoUrl, cpf]
+      );
+      await pool.query(
+        `UPDATE participantes_inclusao SET foto_url = $1
+         WHERE REGEXP_REPLACE(COALESCE(cpf,''), '[^0-9]', '', 'g') = $2`,
+        [fotoUrl, cpf]
+      ).catch(() => {});
+
+      res.json({ success: true, fotoUrl });
+    } catch (error: any) {
+      console.error("Erro ao upload foto participante por CPF:", error);
+      res.status(500).json({ success: false, message: "Erro ao fazer upload" });
+    }
+  });
 
   // Endpoint para servir foto do participante via URL assinada
   app.get("/api/participantes/:id/foto", async (req, res) => {
@@ -58004,6 +59295,10 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       if (!creatorId) return res.status(401).json({ error: 'Usuário não identificado' });
       const hi = horario_inicio ?? horarioInicio ?? '';
       const hf = horario_fim ?? horarioFim ?? '';
+      // YYYY-MM-DD → meio-dia (evita meia-noite UTC / shift de dia)
+      const dataNorm = typeof data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data)
+        ? `${data}T12:00:00`
+        : data;
       const result = await pool.query(`
         INSERT INTO atividades_monitor
           (monitor_user_id, titulo, descricao, tipo, data, horario_inicio, horario_fim,
@@ -58011,7 +59306,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'psicossocial','planejada')
         RETURNING *
       `, [
-        creatorId, titulo, descricao || null, tipo || 'outro', data,
+        creatorId, titulo, descricao || null, tipo || 'outro', dataNorm,
         hi || '00:00', hf || '00:00',
         participantes_presentes ?? participantesPresentes ?? 0,
         participantes_esperados ?? participantesEsperados ?? 0,
@@ -58057,6 +59352,9 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
       const hi = horario_inicio ?? horarioInicio ?? row.horario_inicio ?? '';
       const hf = horario_fim ?? horarioFim ?? row.horario_fim ?? '';
+      const dataNorm = typeof data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data)
+        ? `${data}T12:00:00`
+        : data;
 
       const result = await pool.query(
         `UPDATE atividades_monitor SET
@@ -58078,7 +59376,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           titulo,
           descricao ?? null,
           tipo || 'outro',
-          data,
+          dataNorm,
           hi || '00:00',
           hf || '00:00',
           participantes_presentes ?? participantesPresentes ?? row.participantes_presentes ?? 0,
@@ -58100,6 +59398,9 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.get("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
     try {
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        return res.json(await listPsicoComunidadeFromMaster());
+      }
       const result = await pool.query('SELECT * FROM psico_atendidos_comunidade ORDER BY nome ASC');
       res.json(result.rows);
     } catch (error: any) {
@@ -58111,6 +59412,11 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.get("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const row = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!row) return res.status(404).json({ error: "Atendido não encontrado" });
+        return res.json(row);
+      }
       const result = await pool.query('SELECT * FROM psico_atendidos_comunidade WHERE id=$1', [id]);
       if (result.rows.length === 0) return res.status(404).json({ error: "Atendido não encontrado" });
       res.json(result.rows[0]);
@@ -58127,7 +59433,26 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
       const ext = req.file.originalname.split('.').pop() || 'jpg';
       const fileName = `comunidade/atendido_${id}_${Date.now()}.${ext}`;
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido não encontrado" });
+        await pool.query(
+          `UPDATE atendidos_grito SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+          [url, normalizeCpfDigits(existing.cpf)]
+        );
+        await upsertPsicoComunidadeMasterOnly({ ...existing, foto_url: url } as any, id);
+        return res.json({ success: true, url });
+      }
+
       await pool.query('UPDATE psico_atendidos_comunidade SET foto_url=$1, updated_at=NOW() WHERE id=$2', [url, id]);
+      const { rows: updatedRows } = await pool.query('SELECT * FROM psico_atendidos_comunidade WHERE id=$1', [id]);
+      if (updatedRows[0]) {
+        await syncAtendidoGritoSafe(
+          () => syncFromPsicoComunidade(updatedRows[0]),
+          `fotoPsicoComunidade:${id}`
+        );
+      }
       res.json({ success: true, url });
     } catch (error: any) {
       console.error("Error uploading foto comunidade:", error);
@@ -58136,6 +59461,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   app.post("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
+    const client = await pool.connect();
     try {
       const {
         nome, cpf, data_nascimento, sexo, raca, telefone, email,
@@ -58145,7 +59471,42 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         demandas, observacoes, criado_por_user_id
       } = req.body;
       if (!nome) return res.status(400).json({ error: "Nome é obrigatório" });
-      const result = await pool.query(
+
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const row = await upsertPsicoComunidadeMasterOnly({
+          nome, cpf, data_nascimento, sexo, raca, telefone, email,
+          cep, endereco, numero, complemento, bairro, bairro_outro, cidade, estado,
+          numero_pessoas, criancas, adolescentes, adultos, idosos,
+          tem_cad_unico, tem_bolsa_familia, tem_bpc,
+          demandas, observacoes, criado_por_user_id,
+          pe_de_meia: req.body.pe_de_meia,
+          gas_do_povo: req.body.gas_do_povo,
+        });
+        return res.json(row);
+      }
+
+      const cpfDigits = cpf ? String(cpf).replace(/\D/g, "") : "";
+      const cpfIsPlaceholder = !cpfDigits || /^0{8}\d{3}$/.test(cpfDigits) || /^0+$/.test(cpfDigits);
+
+      await client.query("BEGIN");
+      if (cpfDigits && !cpfIsPlaceholder) {
+        // Serializa cadastros do mesmo CPF (evita race de clique duplo)
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`comunidade_cpf:${cpfDigits}`]);
+        const existing = await client.query(
+          `SELECT id, nome FROM psico_atendidos_comunidade
+           WHERE regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') = $1
+           LIMIT 1`,
+          [cpfDigits]
+        );
+        if (existing.rows.length > 0) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            error: `Já existe um cadastro de comunidade com este CPF: ${existing.rows[0].nome}`,
+            existingId: existing.rows[0].id,
+          });
+        }
+      }
+      const result = await client.query(
         `INSERT INTO psico_atendidos_comunidade
           (nome, cpf, data_nascimento, sexo, raca, telefone, email, cep, endereco, numero, complemento, bairro, bairro_outro, cidade, estado,
            numero_pessoas, criancas, adolescentes, adultos, idosos,
@@ -58165,16 +59526,83 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           tem_bpc || null, demandas || null, observacoes || null, criado_por_user_id || null
         ]
       );
-      res.json(result.rows[0]);
+      const row = result.rows[0];
+      const beneficiosExtras: BeneficiosSociaisExtras = {
+        pe_de_meia: req.body.pe_de_meia,
+        gas_do_povo: req.body.gas_do_povo,
+      };
+      await syncAtendidoGritoSafe(
+        () => syncFromPsicoComunidade(row, beneficiosExtras),
+        `createPsicoComunidade:${row.id}`
+      );
+      await client.query("COMMIT");
+      res.json(row);
     } catch (error: any) {
+      try { await client.query("ROLLBACK"); } catch {}
+      if (error?.code === "23505") {
+        return res.status(409).json({ error: "Já existe um cadastro de comunidade com este CPF." });
+      }
       console.error("Error creating atendido comunidade:", error);
       res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
     }
   });
 
   app.put("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido não encontrado" });
+        const oldCpf = normalizeCpfDigits(existing.cpf);
+        const newCpf = normalizeCpfDigits(req.body.cpf);
+        if (oldCpf && newCpf && oldCpf !== newCpf && oldCpf.length === 11 && newCpf.length === 11) {
+          await migrateAtendidoGritoCpf(oldCpf, newCpf);
+        }
+        const row = await upsertPsicoComunidadeMasterOnly(
+          {
+            nome: req.body.nome,
+            cpf: req.body.cpf,
+            data_nascimento: req.body.data_nascimento,
+            sexo: req.body.sexo,
+            raca: req.body.raca,
+            telefone: req.body.telefone,
+            email: req.body.email,
+            cep: req.body.cep,
+            endereco: req.body.endereco,
+            numero: req.body.numero,
+            complemento: req.body.complemento,
+            bairro: req.body.bairro,
+            bairro_outro: req.body.bairro_outro,
+            cidade: req.body.cidade,
+            estado: req.body.estado,
+            numero_pessoas: req.body.numero_pessoas,
+            criancas: req.body.criancas,
+            adolescentes: req.body.adolescentes,
+            adultos: req.body.adultos,
+            idosos: req.body.idosos,
+            tem_cad_unico: req.body.tem_cad_unico,
+            tem_bolsa_familia: req.body.tem_bolsa_familia,
+            tem_bpc: req.body.tem_bpc,
+            demandas: req.body.demandas,
+            observacoes: req.body.observacoes,
+            pe_de_meia: req.body.pe_de_meia,
+            gas_do_povo: req.body.gas_do_povo,
+            foto_url: existing.foto_url,
+          },
+          id
+        );
+        return res.json(row);
+      }
+
+      const { rows: existingRows } = await pool.query(
+        'SELECT cpf FROM psico_atendidos_comunidade WHERE id=$1',
+        [id]
+      );
+      if (existingRows.length === 0) return res.status(404).json({ error: "Atendido não encontrado" });
+      const oldCpf = normalizeCpfDigits(existingRows[0].cpf);
       const {
         nome, cpf, data_nascimento, sexo, raca, telefone, email,
         cep, endereco, numero, complemento, bairro, bairro_outro, cidade, estado,
@@ -58202,7 +59630,19 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
         ]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: "Atendido não encontrado" });
-      res.json(result.rows[0]);
+      const row = result.rows[0];
+      const newCpf = normalizeCpfDigits(row.cpf);
+      const beneficiosExtras: BeneficiosSociaisExtras = {
+        pe_de_meia: req.body.pe_de_meia,
+        gas_do_povo: req.body.gas_do_povo,
+      };
+      await syncAtendidoGritoSafe(async () => {
+        if (oldCpf && newCpf && oldCpf !== newCpf && oldCpf.length === 11 && newCpf.length === 11) {
+          await migrateAtendidoGritoCpf(oldCpf, newCpf);
+        }
+        await syncFromPsicoComunidade(row, beneficiosExtras);
+      }, `updatePsicoComunidade:${id}`);
+      res.json(row);
     } catch (error: any) {
       console.error("Error updating atendido comunidade:", error);
       res.status(500).json({ error: error.message });
@@ -58212,7 +59652,42 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   app.delete("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido não encontrado" });
+        await syncLegadoStatusToAtendidoGrito({
+          cpf: normalizeCpfDigits(existing.cpf),
+          programa: "psico_comunidade",
+          legadoStatus: "inativo",
+          legadoTipo: "atendidos_grito_programa",
+          legadoId: String(id),
+          dataEgresso: new Date(),
+        });
+        return res.json({ success: true });
+      }
+
+      const { rows: existingRows } = await pool.query(
+        'SELECT cpf, id FROM psico_atendidos_comunidade WHERE id=$1',
+        [id]
+      );
+      if (existingRows.length === 0) return res.status(404).json({ error: "Atendido não encontrado" });
       await pool.query('DELETE FROM psico_atendidos_comunidade WHERE id=$1', [id]);
+      const cpf = normalizeCpfDigits(existingRows[0].cpf);
+      if (cpf.length === 11) {
+        await syncAtendidoGritoSafe(
+          () =>
+            syncLegadoStatusToAtendidoGrito({
+              cpf,
+              programa: "psico_comunidade",
+              legadoStatus: "inativo",
+              legadoTipo: "psico_atendidos_comunidade",
+              legadoId: String(existingRows[0].id),
+              dataEgresso: new Date(),
+            }),
+          `deletePsicoComunidade:${id}`
+        );
+      }
       res.json({ success: true });
     } catch (error: any) {
       console.error("Error deleting atendido comunidade:", error);
@@ -58451,9 +59926,49 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
   app.get("/api/psico/todos-atendidos-para-atendimento", requireAuth, async (req, res) => {
     try {
-      const inclusao = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'inclusao' as origem FROM participantes_inclusao ORDER BY nome`);
-      const pec = await pool.query(`SELECT DISTINCT ON (a.cpf) a.cpf as id, a.nome_completo as nome, a.cpf, a.data_nascimento, NULL as telefone, 'pec' as origem FROM instance_enrollments ie JOIN aluno a ON ie.student_cpf = a.cpf WHERE ie.active = true ORDER BY a.cpf, a.nome_completo`);
-      const comunidade = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'comunidade' as origem FROM psico_atendidos_comunidade ORDER BY nome`);
+      const inclusao = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, endereco, 'inclusao' as origem FROM participantes_inclusao ORDER BY nome`);
+      const pec = await pool.query(`
+        SELECT DISTINCT ON (a.cpf)
+          a.cpf as id,
+          a.nome_completo as nome,
+          a.cpf,
+          a.data_nascimento,
+          a.telefone,
+          TRIM(BOTH ' — ' FROM CONCAT_WS(' — ',
+            NULLIF(TRIM(CONCAT_WS(', ', NULLIF(a.logradouro, ''), NULLIF(a.numero, ''))), ''),
+            NULLIF(a.complemento, ''),
+            NULLIF(a.bairro, ''),
+            NULLIF(TRIM(BOTH ' / ' FROM CONCAT_WS(' / ', NULLIF(a.cidade, ''), NULLIF(a.estado, ''))), '')
+          )) as endereco,
+          a.logradouro, a.numero, a.complemento, a.bairro, a.cidade, a.estado,
+          'pec' as origem
+        FROM instance_enrollments ie
+        JOIN aluno a ON ie.student_cpf = a.cpf
+        WHERE ie.active = true
+        ORDER BY a.cpf, a.nome_completo`);
+      // DISTINCT só por CPF real; CPF placeholder (00000000xxx) não identifica pessoa.
+      const comunidade = await pool.query(`
+        SELECT DISTINCT ON (dedupe_key)
+          id, nome, cpf, data_nascimento, telefone,
+          TRIM(BOTH ' — ' FROM CONCAT_WS(' — ',
+            NULLIF(TRIM(CONCAT_WS(', ', NULLIF(endereco, ''), NULLIF(numero, ''))), ''),
+            NULLIF(complemento, ''),
+            NULLIF(COALESCE(bairro, bairro_outro), ''),
+            NULLIF(TRIM(BOTH ' / ' FROM CONCAT_WS(' / ', NULLIF(cidade, ''), NULLIF(estado, ''))), '')
+          )) as endereco,
+          endereco as logradouro, numero, complemento, bairro, bairro_outro, cidade, estado,
+          'comunidade' as origem
+        FROM (
+          SELECT *,
+            CASE
+              WHEN regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') ~ '^[0-9]{11}$'
+               AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') !~ '^0{8}[0-9]{3}$'
+              THEN 'cpf:' || regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g')
+              ELSE 'id:' || id::text
+            END AS dedupe_key
+          FROM psico_atendidos_comunidade
+        ) t
+        ORDER BY dedupe_key, COALESCE(updated_at, created_at) DESC NULLS LAST, id DESC`);
 
       const todos = [
         ...inclusao.rows.map((r: any) => ({ ...r, origem: 'inclusao', label: `${r.nome} (Inclusão)` })),
@@ -58848,6 +60363,109 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
     ]));
   }
 
+  /** Amplia candidatos de CPF com o CPF canônico do mestre atendidos_grito. */
+  async function expandCpfCandidatesViaAtendidosGrito(cpfCandidatos: string[]): Promise<{
+    cpfs: string[];
+    masterCpf: string | null;
+    masterNome: string | null;
+  }> {
+    const with11 = cpfCandidatos.filter((c) => c.length >= 11);
+    if (with11.length === 0) {
+      return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+    }
+    try {
+      const r = await pool.query<{ cpf: string; nome_completo: string }>(
+        `SELECT cpf, nome_completo FROM atendidos_grito
+         WHERE cpf = ANY($1::text[])
+         LIMIT 1`,
+        [with11]
+      );
+      const row = r.rows[0];
+      if (!row) {
+        return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+      }
+      const masterCpf = normalizeDigits(row.cpf);
+      return {
+        cpfs: Array.from(new Set([masterCpf, ...cpfCandidatos].filter(Boolean))),
+        masterCpf,
+        masterNome: row.nome_completo || null,
+      };
+    } catch (err) {
+      console.warn("[WEBHOOK] falha ao consultar atendidos_grito:", err instanceof Error ? err.message : err);
+      return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+    }
+  }
+
+  async function findParticipanteInclusaoByCatraca(params: {
+    cpfCandidatos: string[];
+    catracaIdNormalizado: string;
+    catracaIdSemZeros: string;
+  }): Promise<{ row: any; resolucao: "atendidos_grito" | "legado_cpf" | "legado_id_catraca" | null }> {
+    const expanded = await expandCpfCandidatesViaAtendidosGrito(params.cpfCandidatos);
+    if (expanded.cpfs.some((cpf) => cpf.length >= 11)) {
+      const r = await pool.query(
+        `SELECT * FROM participantes_inclusao
+         WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
+         LIMIT 1`,
+        [expanded.cpfs]
+      );
+      if (r.rows[0]) {
+        return {
+          row: r.rows[0],
+          resolucao: expanded.masterCpf ? "atendidos_grito" : "legado_cpf",
+        };
+      }
+    }
+    const byId = await pool.query(
+      `SELECT *
+       FROM participantes_inclusao
+       WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
+          OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
+          OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
+       LIMIT 1`,
+      [params.catracaIdNormalizado, params.catracaIdSemZeros]
+    );
+    if (byId.rows[0]) {
+      return { row: byId.rows[0], resolucao: "legado_id_catraca" };
+    }
+    return { row: null, resolucao: null };
+  }
+
+  async function findAlunoPecByCatraca(params: {
+    cpfCandidatos: string[];
+    catracaIdNormalizado: string;
+    catracaIdSemZeros: string;
+  }): Promise<{ row: any; resolucao: "atendidos_grito" | "legado_cpf" | "legado_id_catraca" | null }> {
+    const expanded = await expandCpfCandidatesViaAtendidosGrito(params.cpfCandidatos);
+    if (expanded.cpfs.some((cpf) => cpf.length >= 11)) {
+      const r = await pool.query(
+        `SELECT * FROM aluno
+         WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
+         LIMIT 1`,
+        [expanded.cpfs]
+      );
+      if (r.rows[0]) {
+        return {
+          row: r.rows[0],
+          resolucao: expanded.masterCpf ? "atendidos_grito" : "legado_cpf",
+        };
+      }
+    }
+    const byId = await pool.query(
+      `SELECT *
+       FROM aluno
+       WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
+          OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
+          OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
+       LIMIT 1`,
+      [params.catracaIdNormalizado, params.catracaIdSemZeros]
+    );
+    if (byId.rows[0]) {
+      return { row: byId.rows[0], resolucao: "legado_id_catraca" };
+    }
+    return { row: null, resolucao: null };
+  }
+
   // Tolerância (em minutos): aluno tem até 30 min após o início da aula para entrar pela catraca (PEC e Inclusão Produtiva).
   const PRESENCA_TOLERANCIA_MINUTOS = 30;
 
@@ -59042,28 +60660,15 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
         // ── INSTITUTO O GRITO → Inclusão Produtiva ────────────────────────────
         if (ehInstituto) {
-          // 1. Buscar participante pelo CPF
-          let participante: any = null;
-          if (cpfCandidatos.some((cpf) => cpf.length >= 11)) {
-            const r = await pool.query(
-              `SELECT * FROM participantes_inclusao
-             WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
-             LIMIT 1`,
-              [cpfCandidatos]
-            );
-            participante = r.rows[0] || null;
-          }
-          if (!participante) {
-            const r = await pool.query(
-              `SELECT *
-             FROM participantes_inclusao
-             WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
-                OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
-                OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
-             LIMIT 1`,
-              [catracaIdNormalizado, catracaIdSemZeros]
-            );
-            participante = r.rows[0] || null;
+          // 1. Buscar participante: mestre (atendidos_grito) → CPF legado → id_catraca
+          const inclusaoResolved = await findParticipanteInclusaoByCatraca({
+            cpfCandidatos,
+            catracaIdNormalizado,
+            catracaIdSemZeros,
+          });
+          let participante: any = inclusaoResolved.row;
+          if (participante && inclusaoResolved.resolucao) {
+            addWebhookLog('info', `Inclusão: resolvido via ${inclusaoResolved.resolucao} id="${catracaId}"`);
           }
           if (!participante) {
             // Se unidade ausente OU INSTITUTO_O_GRITO, tenta fluxo PEC como fallback
@@ -59189,32 +60794,19 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
 
         // ── CASA SONHAR → PEC ─────────────────────────────────────────────────
         if (ehCasaSonhar) {
-          // 1. Buscar aluno pelo CPF ou id_catraca
-          let alunoRow: any = null;
-          if (cpfCandidatos.some((cpf) => cpf.length >= 11)) {
-            const r = await pool.query(
-              `SELECT * FROM aluno
-             WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
-             LIMIT 1`,
-              [cpfCandidatos]
-            );
-            alunoRow = r.rows[0] || null;
-          }
-          if (!alunoRow) {
-            const r = await pool.query(
-              `SELECT *
-             FROM aluno
-             WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
-                OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
-                OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
-             LIMIT 1`,
-              [catracaIdNormalizado, catracaIdSemZeros]
-            );
-            alunoRow = r.rows[0] || null;
+          // 1. Buscar aluno: mestre (atendidos_grito) → CPF legado → id_catraca
+          const pecResolved = await findAlunoPecByCatraca({
+            cpfCandidatos,
+            catracaIdNormalizado,
+            catracaIdSemZeros,
+          });
+          let alunoRow: any = pecResolved.row;
+          if (alunoRow && pecResolved.resolucao) {
+            addWebhookLog('info', `PEC: resolvido via ${pecResolved.resolucao} id="${catracaId}"`);
           }
           if (!alunoRow) {
             addWebhookLog('error', `PEC: aluno não encontrado id="${catracaId}"`);
-            logWebhookToDB({ ...webhookMeta, resultado: 'nao_encontrado', detalhe: 'aluno nao localizado no PEC' });
+            logWebhookToDB({ ...webhookMeta, resultado: 'nao_encontrado', detalhe: 'aluno nao localizado no PEC (mestre/legado)' });
             broadcastPresencaEvent({ tipo: 'entrada_desconhecida', catracaId, hora: horaAtual });
             return sendCatracaResponse(res, 404, "/webhook/presenca", { error: 'Aluno não encontrado', aluno_id: catracaId, resultado_final: 'nao_encontrado', motivo: 'aluno_nao_localizado_pec' }, { aluno_id: catracaId, vertente: "pec" });
           }
@@ -59222,12 +60814,18 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
           const nomeAluno = alunoRow.nome_completo;
 
           // 2. Buscar instâncias (turmas) ativas com schedule
+          const alunoCpfDigits = normalizeDigits(alunoRow.cpf);
           const matriculas = await pool.query(
             `SELECT ie.activity_instance_id, ai.title, ai.start_time, ai.end_time, ai.dias_semana
            FROM instance_enrollments ie
            JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-           WHERE ie.student_cpf = $1 AND ie.active = true AND ai.situation != 'encerrada'`,
-            [alunoRow.cpf]
+           WHERE ie.active = true
+             AND ai.situation != 'encerrada'
+             AND (
+               ie.student_cpf = $1
+               OR REGEXP_REPLACE(TRIM(COALESCE(ie.student_cpf,'')), '[^0-9]', '', 'g') = $2
+             )`,
+            [alunoRow.cpf, alunoCpfDigits]
           );
 
           if (matriculas.rows.length === 0) {
@@ -60072,7 +61670,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // GET /api/eventos-grito/meus — todos os eventos (admin: coordenador gerencia todos)
-  app.get('/api/eventos-grito/meus', requireAuth, async (req, res) => {
+  app.get('/api/eventos-grito/meus', requireEventosAdmin, async (req, res) => {
     try {
       await pool.query(`
         UPDATE eventos_grito SET status = 'realizado', atualizado_em = NOW()
@@ -60134,7 +61732,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   }
 
   // POST /api/eventos-grito — criar evento
-  app.post('/api/eventos-grito', requireAuth, async (req, res) => {
+  app.post('/api/eventos-grito', requireEventosAdmin, async (req, res) => {
     try {
       const { titulo, descricao, data_inicio, data_fim, hora_inicio, hora_fim,
         local, endereco, cidade, estado, capacidade, status, gratuito,
@@ -60158,7 +61756,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // PUT /api/eventos-grito/:id — atualizar
-  app.put('/api/eventos-grito/:id', requireAuth, async (req, res) => {
+  app.put('/api/eventos-grito/:id', requireEventosAdmin, async (req, res) => {
     try {
       const { titulo, descricao, data_inicio, data_fim, hora_inicio, hora_fim,
         local, endereco, cidade, estado, capacidade, status, gratuito, preco, categoria } = req.body;
@@ -60196,7 +61794,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // POST /api/eventos-grito/:id/banner — upload banner GCS
-  app.post('/api/eventos-grito/:id/banner', requireAuth, memUpload.single('banner'), async (req, res) => {
+  app.post('/api/eventos-grito/:id/banner', requireEventosAdmin, memUpload.single('banner'), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
       const ext = (req.file.originalname || 'img.jpg').split('.').pop();
@@ -60208,7 +61806,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // DELETE /api/eventos-grito/:id
-  app.delete('/api/eventos-grito/:id', requireAuth, async (req, res) => {
+  app.delete('/api/eventos-grito/:id', requireEventosAdmin, async (req, res) => {
     try {
       await pool.query(`DELETE FROM eventos_grito WHERE id=$1`, [req.params.id]);
       res.json({ ok: true });
@@ -60216,7 +61814,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // PATCH /api/eventos-grito/:id/cancelar — cancela evento
-  app.patch('/api/eventos-grito/:id/cancelar', requireAuth, async (req, res) => {
+  app.patch('/api/eventos-grito/:id/cancelar', requireEventosAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(`
         UPDATE eventos_grito SET status = 'cancelado', atualizado_em = NOW()
@@ -60228,7 +61826,7 @@ Gerado em: ${new Date().toLocaleString("pt-BR")}`;
   });
 
   // GET /api/eventos-grito/:id/estatisticas — estatísticas do evento
-  app.get('/api/eventos-grito/:id/estatisticas', requireAuth, async (req, res) => {
+  app.get('/api/eventos-grito/:id/estatisticas', requireEventosAdmin, async (req, res) => {
     try {
       const eventoId = req.params.id;
       // Dados do evento
@@ -61550,38 +63148,96 @@ async function sincronizar() {
   });
 
   // GET /api/aluno-portal/proxima-aula
+  // Escolhe a aula realmente mais próxima entre PEC e Inclusão (não prioriza uma área).
   app.get('/api/aluno-portal/proxima-aula', requireAlunoPortalAuth, async (req, res) => {
     try {
       const cpf = (req as any).alunoCpf as string;
       if (!cpf) return res.status(400).json({ error: 'CPF obrigatório' });
 
-      const hoje = new Date().toISOString().split('T')[0];
       const DIAS_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+      const brtNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+      const hoje = [
+        brtNow.getFullYear(),
+        String(brtNow.getMonth() + 1).padStart(2, '0'),
+        String(brtNow.getDate()).padStart(2, '0'),
+      ].join('-');
+      const horaAgora = [
+        String(brtNow.getHours()).padStart(2, '0'),
+        String(brtNow.getMinutes()).padStart(2, '0'),
+        String(brtNow.getSeconds()).padStart(2, '0'),
+      ].join(':');
 
-      // Helper: dado um curso com período e dias da semana, calcula a próxima data de ocorrência
-      function proximaOcorrencia(dataInicio: string, dataFim: string | null, diasSemana: string[] | null, horario: string | null) {
-        const inicio = new Date(dataInicio + 'T12:00:00');
+      function normDia(d: string) {
+        return d.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      }
+
+      function toDateStr(v: any): string | null {
+        if (!v) return null;
+        if (typeof v === 'string') return v.split('T')[0];
+        if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().split('T')[0];
+        return String(v).split('T')[0];
+      }
+
+      function normHorario(h: any): string | null {
+        if (h == null || h === '') return null;
+        const s = String(h);
+        // Aceita "HH:MM", "HH:MM:SS" ou Date/time do PG
+        const m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (!m) return null;
+        return `${m[1].padStart(2, '0')}:${m[2]}:${(m[3] || '00')}`;
+      }
+
+      function chaveOrdenacao(data: string, horario: string | null) {
+        return `${data}T${horario || '00:00:00'}`;
+      }
+
+      // Próxima ocorrência a partir de hoje (BRT), respeitando horário já passado no dia atual
+      function proximaOcorrencia(
+        dataInicio: string,
+        dataFim: string | null,
+        diasSemana: string[] | null,
+        horario: string | null,
+      ): string | null {
+        const inicioStr = dataInicio > hoje ? dataInicio : hoje;
+        const [yi, mi, di] = inicioStr.split('-').map(Number);
         const fim = dataFim ? new Date(dataFim + 'T23:59:59') : null;
-        const agora = new Date();
-        // Começa pelo maior entre hoje e dataInicio
-        const start = agora > inicio ? agora : inicio;
-        // Tenta os próximos 60 dias
+        const horaNorm = normHorario(horario);
+
         for (let i = 0; i <= 60; i++) {
-          const d = new Date(start);
-          d.setDate(d.getDate() + i);
+          const d = new Date(yi, mi - 1, di + i, 12, 0, 0);
           if (fim && d > fim) break;
+          const dataStr = [
+            d.getFullYear(),
+            String(d.getMonth() + 1).padStart(2, '0'),
+            String(d.getDate()).padStart(2, '0'),
+          ].join('-');
           const dayName = DIAS_SEMANA[d.getDay()];
-          const dataStr = d.toISOString().split('T')[0];
-          if (!diasSemana || diasSemana.length === 0) {
-            // Sem dias específicos: retorna o primeiro dia a partir de hoje dentro do período
-            return dataStr;
-          }
-          if (diasSemana.includes(dayName)) return dataStr;
+
+          if (diasSemana && diasSemana.length > 0 && !diasSemana.includes(dayName)) continue;
+
+          // Se é hoje e o horário da aula já passou, pula para a próxima ocorrência
+          if (dataStr === hoje && horaNorm && horaNorm <= horaAgora) continue;
+
+          return dataStr;
         }
         return null;
       }
 
-      // 1. PEC — tenta tabela sessions primeiro
+      type Candidato = { nome: string; data: string; horario: string | null; local: string | null; area: string };
+      const candidatos: Candidato[] = [];
+
+      const addCandidato = (c: Candidato | null) => {
+        if (!c?.data) return;
+        candidatos.push({
+          nome: c.nome,
+          data: toDateStr(c.data) || c.data,
+          horario: normHorario(c.horario),
+          local: c.local ?? null,
+          area: c.area,
+        });
+      };
+
+      // 1. PEC — próxima sessão cadastrada (candidato; não encerra a busca)
       const pecSess = await pool.query(
         `SELECT s.date, ai.title as turma, ai.start_time, ai.location
          FROM instance_enrollments ie
@@ -61589,19 +63245,21 @@ async function sincronizar() {
          JOIN sessions s ON s.activity_instance_id = ie.activity_instance_id
          WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
            AND ie.active = true
+           AND COALESCE(ie.evadido, false) = false
            AND (
-             s.date > $2
-             OR (s.date = $2 AND (ai.start_time IS NULL OR ai.start_time::time > (NOW() AT TIME ZONE 'America/Sao_Paulo')::time))
+             s.date > $2::date
+             OR (s.date = $2::date AND (ai.start_time IS NULL OR ai.start_time::time > $3::time))
            )
-         ORDER BY s.date ASC LIMIT 1`,
-        [cpf, hoje]
+         ORDER BY s.date ASC, ai.start_time ASC NULLS LAST
+         LIMIT 1`,
+        [cpf, hoje, horaAgora]
       );
-      if (pecSess.rows.length > 0) {
+      if (pecSess.rows[0]) {
         const r = pecSess.rows[0];
-        return res.json({ nome: r.turma, data: r.date, horario: r.start_time, local: r.location, area: 'pec' });
+        addCandidato({ nome: r.turma, data: r.date, horario: r.start_time, local: r.location, area: 'pec' });
       }
 
-      // 2. PEC — fallback: calcula próxima ocorrência usando dias_semana + período da activity_instance
+      // 2. PEC — cálculo por dias_semana + período (cobre turmas sem sessions geradas)
       const pecCursos = await pool.query(
         `SELECT ai.title as nome, ai.occurrence_start, ai.occurrence_end,
                 ai.start_time, ai.location, ai.dias_semana
@@ -61609,48 +63267,50 @@ async function sincronizar() {
          JOIN activity_instances ai ON ai.id = ie.activity_instance_id
          WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
            AND ie.active = true
-           AND ie.evadido = false
-           AND (ai.occurrence_end IS NULL OR ai.occurrence_end >= $2)
-         ORDER BY ai.occurrence_start ASC`,
+           AND COALESCE(ie.evadido, false) = false
+           AND (ai.occurrence_end IS NULL OR ai.occurrence_end >= $2::date)`,
         [cpf, hoje]
       );
-      // Normaliza nome de dia: remove acentos e coloca minúsculo
-      function normDia(d: string) {
-        return d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      }
-      let melhorPec: any = null;
       for (const r of pecCursos.rows) {
-        if (!r.occurrence_start) continue;
-        const startStr = typeof r.occurrence_start === 'string' ? r.occurrence_start.split('T')[0] : r.occurrence_start.toISOString().split('T')[0];
-        const endStr = r.occurrence_end ? (typeof r.occurrence_end === 'string' ? r.occurrence_end.split('T')[0] : r.occurrence_end.toISOString().split('T')[0]) : null;
-        // Normaliza dias_semana para minúsculo sem acento (igual ao array DIAS_SEMANA)
+        const startStr = toDateStr(r.occurrence_start);
+        if (!startStr) continue;
+        const endStr = toDateStr(r.occurrence_end);
         const dias = Array.isArray(r.dias_semana) ? r.dias_semana.map(normDia) : null;
         const data = proximaOcorrencia(startStr, endStr, dias, r.start_time);
-        if (data && (!melhorPec || data < melhorPec.data)) {
-          melhorPec = { nome: r.nome, data, horario: r.start_time, local: r.location, area: 'pec' };
-        }
+        if (data) addCandidato({ nome: r.nome, data, horario: r.start_time, local: r.location, area: 'pec' });
       }
-      if (melhorPec) return res.json(melhorPec);
 
-      // 3. Inclusão — tenta tabela aulas
+      // 3. Inclusão — próxima aula cadastrada (candidato; não encerra a busca)
       const inclAulas = await pool.query(
-        `SELECT a.data, a.start_time, pi.nome as programa, ti.local
+        `SELECT a.data, COALESCE(a.start_time, ti.horario_entrada) as start_time,
+                pi.nome as programa, ti.local
          FROM participantes_inclusao p
          JOIN participantes_turmas pt ON pt.participante_id = p.id
          JOIN turmas_inclusao ti ON ti.id = pt.turma_id
          JOIN programas_inclusao pi ON pi.id = ti.programa_id
          JOIN aulas a ON a.turma_id = ti.id
          WHERE REGEXP_REPLACE(p.cpf, '[^0-9]', '', 'g') = $1
-           AND a.data >= $2
-         ORDER BY a.data ASC LIMIT 1`,
-        [cpf, hoje]
+           AND pt.status = 'ativo'
+           AND (
+             a.data > $2::date
+             OR (
+               a.data = $2::date
+               AND (
+                 COALESCE(a.start_time, ti.horario_entrada) IS NULL
+                 OR COALESCE(a.start_time, ti.horario_entrada)::time > $3::time
+               )
+             )
+           )
+         ORDER BY a.data ASC, COALESCE(a.start_time, ti.horario_entrada) ASC NULLS LAST
+         LIMIT 1`,
+        [cpf, hoje, horaAgora]
       );
-      if (inclAulas.rows.length > 0) {
+      if (inclAulas.rows[0]) {
         const r = inclAulas.rows[0];
-        return res.json({ nome: r.programa, data: r.data, horario: r.start_time, local: r.local, area: 'inclusao' });
+        addCandidato({ nome: r.programa, data: r.data, horario: r.start_time, local: r.local, area: 'inclusao' });
       }
 
-      // 4. Inclusão — fallback: calcula próxima ocorrência por dias_semana + período
+      // 4. Inclusão — cálculo por dias_semana + período
       const inclCursos = await pool.query(
         `SELECT pi.nome as programa, ti.horario_entrada, ti.dias_semana,
                 ti.data_inicio, ti.data_fim, ti.local
@@ -61660,25 +63320,175 @@ async function sincronizar() {
          JOIN programas_inclusao pi ON pi.id = ti.programa_id
          WHERE REGEXP_REPLACE(p.cpf, '[^0-9]', '', 'g') = $1
            AND pt.status = 'ativo'
-           AND (ti.data_fim IS NULL OR ti.data_fim >= $2)`,
+           AND (ti.data_fim IS NULL OR ti.data_fim >= $2::date)`,
         [cpf, hoje]
       );
-      let melhorIncl: any = null;
       for (const r of inclCursos.rows) {
-        if (!r.data_inicio) continue;
-        const startStr = typeof r.data_inicio === 'string' ? r.data_inicio.split('T')[0] : r.data_inicio.toISOString().split('T')[0];
-        const endStr = r.data_fim ? (typeof r.data_fim === 'string' ? r.data_fim.split('T')[0] : r.data_fim.toISOString().split('T')[0]) : null;
-        const dias = Array.isArray(r.dias_semana) ? r.dias_semana : (r.dias_semana ? JSON.parse(r.dias_semana) : null);
-        const data = proximaOcorrencia(startStr, endStr, dias, r.horario_entrada);
-        if (data && (!melhorIncl || data < melhorIncl.data)) {
-          melhorIncl = { nome: r.programa, data, horario: r.horario_entrada, local: r.local, area: 'inclusao' };
+        const startStr = toDateStr(r.data_inicio);
+        if (!startStr) continue;
+        const endStr = toDateStr(r.data_fim);
+        let dias: string[] | null = null;
+        if (Array.isArray(r.dias_semana)) dias = r.dias_semana.map(normDia);
+        else if (r.dias_semana) {
+          try {
+            const parsed = typeof r.dias_semana === 'string' ? JSON.parse(r.dias_semana) : r.dias_semana;
+            dias = Array.isArray(parsed) ? parsed.map(normDia) : null;
+          } catch {
+            dias = null;
+          }
         }
+        const data = proximaOcorrencia(startStr, endStr, dias, r.horario_entrada);
+        if (data) addCandidato({ nome: r.programa, data, horario: r.horario_entrada, local: r.local, area: 'inclusao' });
       }
-      if (melhorIncl) return res.json(melhorIncl);
 
-      return res.json(null);
+      if (candidatos.length === 0) return res.json(null);
+
+      candidatos.sort((a, b) => chaveOrdenacao(a.data, a.horario).localeCompare(chaveOrdenacao(b.data, b.horario)));
+      const melhor = candidatos[0];
+      return res.json({
+        nome: melhor.nome,
+        data: melhor.data,
+        horario: melhor.horario,
+        local: melhor.local,
+        area: melhor.area,
+      });
     } catch (e: any) {
       console.error('[ALUNO-PORTAL PROXIMA-AULA]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/aluno-portal/acolhimentos — agenda/histórico sem conteúdo clínico
+  app.get('/api/aluno-portal/acolhimentos', requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const cpf = normalizeCpfDigits((req as any).alunoCpf);
+      if (cpf.length !== 11) return res.status(400).json({ error: 'CPF obrigatório' });
+
+      const rows = await db
+        .select()
+        .from(psicoAcolhimentos)
+        .where(eq(psicoAcolhimentos.alunoCpf, cpf))
+        .orderBy(desc(psicoAcolhimentos.data), desc(psicoAcolhimentos.horaInicio));
+
+      return res.json(rows.map(toPublicAcolhimentoAluno));
+    } catch (e: any) {
+      console.error('[ALUNO-PORTAL ACOLHIMENTOS]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/aluno-portal/proximo-acolhimento
+  app.get('/api/aluno-portal/proximo-acolhimento', requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const cpf = normalizeCpfDigits((req as any).alunoCpf);
+      if (cpf.length !== 11) return res.status(400).json({ error: 'CPF obrigatório' });
+
+      const brtNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+      const hoje = [
+        brtNow.getFullYear(),
+        String(brtNow.getMonth() + 1).padStart(2, '0'),
+        String(brtNow.getDate()).padStart(2, '0'),
+      ].join('-');
+      const horaAgora = [
+        String(brtNow.getHours()).padStart(2, '0'),
+        String(brtNow.getMinutes()).padStart(2, '0'),
+      ].join(':');
+
+      const rows = await db
+        .select()
+        .from(psicoAcolhimentos)
+        .where(
+          and(
+            eq(psicoAcolhimentos.alunoCpf, cpf),
+            or(
+              eq(psicoAcolhimentos.status, 'agendado'),
+              eq(psicoAcolhimentos.status, 'reagendado'),
+            ),
+          ),
+        )
+        .orderBy(asc(psicoAcolhimentos.data), asc(psicoAcolhimentos.horaInicio));
+
+      const proximo = rows.find((r) => {
+        const data = String(r.data).split('T')[0];
+        const hora = String(r.horaInicio || '00:00').slice(0, 5);
+        if (data > hoje) return true;
+        if (data === hoje && hora > horaAgora) return true;
+        return false;
+      });
+
+      return res.json(proximo ? toPublicAcolhimentoAluno(proximo) : null);
+    } catch (e: any) {
+      console.error('[ALUNO-PORTAL PROXIMO-ACOLHIMENTO]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/aluno-portal/eventos — eventos institucionais (Eventos Grito + eventos do monitor)
+  app.get('/api/aluno-portal/eventos', requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const eventos: any[] = [];
+
+      // Eventos do Grito (cadastrados por coordenação / marketing)
+      try {
+        await pool.query(`
+          UPDATE eventos_grito SET status = 'realizado', atualizado_em = NOW()
+          WHERE status IN ('disponivel','em_breve') AND data_inicio < CURRENT_DATE
+        `);
+        const { rows } = await pool.query(`
+          SELECT id, titulo, descricao, data_inicio, data_fim,
+                 hora_inicio, hora_fim, local, cidade, status, categoria
+          FROM eventos_grito
+          WHERE status IN ('disponivel', 'em_breve')
+          ORDER BY data_inicio ASC
+        `);
+        for (const r of rows) {
+          eventos.push({
+            id: `grito-${r.id}`,
+            titulo: r.titulo,
+            descricao: r.descricao,
+            data: r.data_inicio,
+            dataFim: r.data_fim,
+            horaInicio: r.hora_inicio,
+            horaFim: r.hora_fim,
+            local: r.local || r.cidade || null,
+            categoria: r.categoria,
+            fonte: 'eventos_grito',
+          });
+        }
+      } catch (e: any) {
+        console.warn('[ALUNO-PORTAL EVENTOS] eventos_grito:', e.message);
+      }
+
+      // Eventos cadastrados no calendário do monitor (tipo = evento)
+      try {
+        const { rows } = await pool.query(`
+          SELECT id, titulo, descricao, data, horario_inicio, horario_fim, local, status
+          FROM atividades_monitor
+          WHERE tipo = 'evento'
+            AND COALESCE(status, 'planejada') <> 'cancelada'
+          ORDER BY data ASC
+        `);
+        for (const r of rows) {
+          eventos.push({
+            id: `monitor-${r.id}`,
+            titulo: r.titulo,
+            descricao: r.descricao,
+            data: r.data,
+            dataFim: null,
+            horaInicio: r.horario_inicio,
+            horaFim: r.horario_fim,
+            local: r.local,
+            categoria: null,
+            fonte: 'monitor',
+          });
+        }
+      } catch (e: any) {
+        console.warn('[ALUNO-PORTAL EVENTOS] atividades_monitor:', e.message);
+      }
+
+      return res.json(eventos);
+    } catch (e: any) {
+      console.error('[ALUNO-PORTAL EVENTOS]', e.message);
       return res.status(500).json({ error: e.message });
     }
   });
@@ -62692,8 +64502,11 @@ async function sincronizar() {
         estado: estado || null,
       }).returning();
 
-      const sess = req.session as any;
-      if (sess) { sess.portalUserId = usuario.id; }
+      try {
+        await establishEventosPortalSession(req, { id: usuario.id, nome: usuario.nome });
+      } catch {
+        return res.status(500).json({ error: "Não foi possível iniciar a sessão" });
+      }
 
       const { senhaHash: _, ...usuarioSemSenha } = usuario;
       return res.json({ success: true, usuario: usuarioSemSenha });
@@ -62715,8 +64528,11 @@ async function sincronizar() {
       const valida = await bcrypt.compare(senha, usuario.senhaHash);
       if (!valida) return res.status(401).json({ error: "E-mail ou senha incorretos" });
 
-      const sess = req.session as any;
-      if (sess) { sess.portalUserId = usuario.id; }
+      try {
+        await establishEventosPortalSession(req, { id: usuario.id, nome: usuario.nome });
+      } catch {
+        return res.status(500).json({ error: "Não foi possível iniciar a sessão" });
+      }
 
       const { senhaHash: _, ...usuarioSemSenha } = usuario;
       return res.json({ success: true, usuario: usuarioSemSenha });
@@ -62728,8 +64544,7 @@ async function sincronizar() {
 
   app.post("/api/portal/logout", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      if (sess) { delete sess.portalUserId; }
+      await destroyExpressSession(req, res);
       return res.json({ success: true });
     } catch (e: any) {
       return res.status(500).json({ error: "Erro ao sair" });
@@ -62756,8 +64571,7 @@ async function sincronizar() {
 
   app.get("/api/portal/me", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { usuariosPortal } = await import("../shared/schema.js");
@@ -62774,16 +64588,31 @@ async function sincronizar() {
 
   // ─── Scanner Usuarios (autenticação para scanners de ingresso) ───────────────
 
+  const ensureScannerUsuariosTable = async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scanner_usuarios (
+        id SERIAL PRIMARY KEY,
+        nome TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT,
+        senha_hash TEXT NOT NULL,
+        ativo BOOLEAN NOT NULL DEFAULT true,
+        criado_em TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  };
+  await ensureScannerUsuariosTable();
+
   // POST /api/scanner/login — público
   app.post("/api/scanner/login", passwordLoginLimiter, async (req, res) => {
     try {
       const { username, senha } = req.body;
       if (!username || !senha) return res.status(400).json({ error: "Usuário e senha obrigatórios" });
 
-      const { Pool } = await import("pg");
-      const pool = new Pool({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      const { rows } = await pool.query("SELECT * FROM scanner_usuarios WHERE username = $1 AND ativo = true LIMIT 1", [username.trim()]);
-      await pool.end();
+      const { rows } = await pool.query(
+        "SELECT * FROM scanner_usuarios WHERE username = $1 AND ativo = true LIMIT 1",
+        [username.trim()]
+      );
 
       if (!rows.length) return res.status(401).json({ error: "Usuário não encontrado ou inativo" });
 
@@ -62809,12 +64638,12 @@ async function sincronizar() {
   // GET /api/dev/scanner-usuarios — lista (apenas dev/admin)
   app.get("/api/dev/scanner-usuarios", async (req: any, res) => {
     try {
-      const { Pool } = await import("pg");
-      const pool = new Pool({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      const { rows } = await pool.query("SELECT id, nome, username, email, ativo, criado_em FROM scanner_usuarios ORDER BY criado_em DESC");
-      await pool.end();
+      const { rows } = await pool.query(
+        "SELECT id, nome, username, email, ativo, criado_em FROM scanner_usuarios ORDER BY criado_em DESC"
+      );
       return res.json(rows);
     } catch (e: any) {
+      console.error("GET /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -62829,16 +64658,14 @@ async function sincronizar() {
       const bcrypt = (bcryptMod as any).default || bcryptMod;
       const senhaHash = await bcrypt.hash(senha, 10);
 
-      const { Pool } = await import("pg");
-      const pool = new Pool({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
       const { rows } = await pool.query(
         "INSERT INTO scanner_usuarios (nome, username, email, senha_hash) VALUES ($1, $2, $3, $4) RETURNING id, nome, username, email, ativo, criado_em",
         [nome.trim(), username.trim().toLowerCase(), email?.trim() || null, senhaHash]
       );
-      await pool.end();
       return res.status(201).json(rows[0]);
     } catch (e: any) {
       if (e.code === "23505") return res.status(409).json({ error: "Username já em uso" });
+      console.error("POST /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -62848,9 +64675,6 @@ async function sincronizar() {
     try {
       const { id } = req.params;
       const { nome, username, email, senha, ativo } = req.body;
-
-      const { Pool } = await import("pg");
-      const pool = new Pool({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
 
       let senhaHash: string | undefined;
       if (senha) {
@@ -62868,18 +64692,18 @@ async function sincronizar() {
       if (senhaHash) { sets.push(`senha_hash = $${idx++}`); vals.push(senhaHash); }
       if (ativo !== undefined) { sets.push(`ativo = $${idx++}`); vals.push(ativo); }
 
-      if (!sets.length) { await pool.end(); return res.status(400).json({ error: "Nenhum campo para atualizar" }); }
+      if (!sets.length) return res.status(400).json({ error: "Nenhum campo para atualizar" });
 
       vals.push(parseInt(id));
       const { rows } = await pool.query(
         `UPDATE scanner_usuarios SET ${sets.join(", ")} WHERE id = $${idx} RETURNING id, nome, username, email, ativo, criado_em`,
         vals
       );
-      await pool.end();
       if (!rows.length) return res.status(404).json({ error: "Scanner não encontrado" });
       return res.json(rows[0]);
     } catch (e: any) {
       if (e.code === "23505") return res.status(409).json({ error: "Username já em uso" });
+      console.error("PUT /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -62887,12 +64711,10 @@ async function sincronizar() {
   // DELETE /api/dev/scanner-usuarios/:id
   app.delete("/api/dev/scanner-usuarios/:id", async (req: any, res) => {
     try {
-      const { Pool } = await import("pg");
-      const pool = new Pool({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
       await pool.query("DELETE FROM scanner_usuarios WHERE id = $1", [parseInt(req.params.id)]);
-      await pool.end();
       return res.json({ success: true });
     } catch (e: any) {
+      console.error("DELETE /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -62942,8 +64764,7 @@ async function sincronizar() {
   // GET /api/portal/meus-ingressos — listar ingressos do usuário logado
   app.get("/api/portal/meus-ingressos", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { rows } = await pool.query(`
@@ -62989,8 +64810,7 @@ async function sincronizar() {
   // GET /api/portal/ingressos/:codigo — detalhes de um ingresso específico
   app.get("/api/portal/ingressos/:codigo", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { rows } = await pool.query(`
@@ -63018,8 +64838,7 @@ async function sincronizar() {
   // PUT /api/portal/ingressos/:codigo/beneficiario — atribuir ingresso a terceiro
   app.put("/api/portal/ingressos/:codigo/beneficiario", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { beneficiario_nome, beneficiario_cpf, beneficiario_email, beneficiario_telefone,
@@ -63088,8 +64907,7 @@ async function sincronizar() {
   // POST /api/portal/ingressos/:codigo/transferir — User 1 inicia transferência
   app.post("/api/portal/ingressos/:codigo/transferir", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { receptor_email, receptor_nome } = req.body;
@@ -63133,8 +64951,7 @@ async function sincronizar() {
   // POST /api/portal/ingressos/:codigo/cancelar-transferencia
   app.post("/api/portal/ingressos/:codigo/cancelar-transferencia", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { rows } = await pool.query(
@@ -63153,8 +64970,7 @@ async function sincronizar() {
   // POST /api/portal/ingressos/:codigo/receber — User 2 aceita transferência usando dados do perfil
   app.post("/api/portal/ingressos/:codigo/receber", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       // Verifica que o ingresso tem transferência pendente para esse usuário
@@ -63216,8 +65032,7 @@ async function sincronizar() {
   // POST /api/portal/ingressos/:codigo/recusar — User 2 recusa transferência
   app.post("/api/portal/ingressos/:codigo/recusar", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       // Volta o ingresso para o User 1, limpa transferência
@@ -63243,8 +65058,7 @@ async function sincronizar() {
   // GET /api/portal/ingressos-pendentes — ingressos transferidos aguardando aceite do usuário
   app.get("/api/portal/ingressos-pendentes", async (req: any, res) => {
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
 
       const { rows } = await pool.query(
@@ -63281,10 +65095,16 @@ async function sincronizar() {
   app.get("/api/portal/eventos/:id/disponiveis", async (req: any, res) => {
     try {
       const eventoId = parseInt(req.params.id);
+      // Reconcilia reservas expiradas (consulta Cielo antes de liberar)
+      try {
+        await reconcileExpiredOrders(eventoId);
+      } catch (e: any) {
+        console.warn("[disponiveis] reconcile:", e?.message || e);
+      }
       const { rows } = await pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status='disponivel') as disponiveis,
-          COUNT(*) as total
+          COUNT(*) FILTER (WHERE status IN ('disponivel','reservado','resgatado','usado')) as total
         FROM ingressos_portal WHERE evento_id=$1
       `, [eventoId]);
       return res.json({
@@ -63297,14 +65117,12 @@ async function sincronizar() {
   });
 
   // POST /api/portal/eventos/:id/resgatar — resgatar 1+ ingressos com dados de beneficiário
-  app.post("/api/portal/eventos/:id/resgatar", async (req: any, res) => {
+  app.post("/api/portal/eventos/:id/resgatar", requireEventosPortalAuth, async (req: any, res) => {
+    const client = await pool.connect();
     try {
-      const sess = req.session as any;
-      const portalUserId = sess?.portalUserId;
-      if (!portalUserId) return res.status(401).json({ error: "Não autenticado" });
+      const portalUserId = req.portalUserId as number;
 
       const eventoId = parseInt(req.params.id);
-      // ingressos: [{ para_terceiro: false } | { para_terceiro: true, beneficiario_nome, beneficiario_cpf, ... }]
       const { ingressos: loteIngressos } = req.body as { ingressos: any[] };
       if (!loteIngressos || !Array.isArray(loteIngressos) || loteIngressos.length === 0) {
         return res.status(400).json({ error: "Informe ao menos um ingresso" });
@@ -63313,86 +65131,130 @@ async function sincronizar() {
         return res.status(400).json({ error: "Máximo de 10 ingressos por operação" });
       }
 
-      // Verificar evento
-      const { rows: [evento] } = await pool.query('SELECT * FROM eventos_grito WHERE id=$1', [eventoId]);
-      if (!evento) return res.status(404).json({ error: "Evento não encontrado" });
-      if (evento.status !== "disponivel") return res.status(400).json({ error: "Evento não disponível" });
+      try {
+        await reconcileExpiredOrders(eventoId);
+      } catch (e: any) {
+        console.warn("[resgatar] reconcile:", e?.message || e);
+      }
 
-      // Buscar dados do usuário portal
-      const { rows: [usuarioPortal] } = await pool.query(
+      await client.query("BEGIN");
+
+      const { rows: [evento] } = await client.query(
+        'SELECT * FROM eventos_grito WHERE id=$1 FOR UPDATE',
+        [eventoId]
+      );
+      if (!evento) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Evento não encontrado" });
+      }
+      if (evento.status !== "disponivel") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Evento não disponível" });
+      }
+      if (!evento.gratuito && parseInt(evento.preco || "0", 10) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Evento pago: use o checkout para comprar ingressos" });
+      }
+
+      const { rows: [usuarioPortal] } = await client.query(
         'SELECT * FROM usuarios_portal WHERE id=$1', [portalUserId]
       );
-      if (!usuarioPortal) return res.status(401).json({ error: "Usuário não encontrado" });
+      if (!usuarioPortal) {
+        await client.query("ROLLBACK");
+        return res.status(401).json({ error: "Usuário não encontrado" });
+      }
 
-      // ── Regra: 1 ingresso por CPF por evento ──────────────────────────────────
       const cpfTitular = (usuarioPortal.cpf || "").replace(/\D/g, "");
 
-      // Verificar se o titular já tem ingresso neste evento
-      const { rows: jaTemIngresso } = await pool.query(
-        `SELECT id FROM ingressos_portal WHERE evento_id=$1 AND usuario_portal_id=$2 AND status != 'cancelado' LIMIT 1`,
-        [eventoId, portalUserId]
+      const { rows: jaTemIngresso } = await client.query(
+        `SELECT id FROM ingressos_portal
+         WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+           AND (
+             usuario_portal_id=$2
+             OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','')=$3
+             OR REPLACE(REPLACE(REPLACE(COALESCE(beneficiario_cpf,''),'.',''),'-',''),' ','')=$3
+           )
+         LIMIT 1`,
+        [eventoId, portalUserId, cpfTitular]
       );
       const titularJaTem = jaTemIngresso.length > 0;
 
-      // Se o titular já tem ingresso, todos os slots devem ser para_terceiro
       const paraMinhaSlots = loteIngressos.filter((s: any) => !s.para_terceiro);
       if (titularJaTem && paraMinhaSlots.length > 0) {
+        await client.query("ROLLBACK");
         return res.status(400).json({ error: "Você já possui um ingresso para este evento. Novos ingressos devem ser vinculados a outra pessoa." });
       }
-      // O primeiro slot "para mim" é permitido (apenas 1)
       if (paraMinhaSlots.length > 1) {
+        await client.query("ROLLBACK");
         return res.status(400).json({ error: "Você só pode reservar 1 ingresso para si mesmo." });
       }
 
-      // Coletar e validar CPFs dos terceiros
       const cpfsNoPedido: string[] = [];
       for (const slot of loteIngressos) {
         if (slot.para_terceiro) {
-          if (!slot.beneficiario_cpf) return res.status(400).json({ error: "CPF do portador é obrigatório para ingressos de terceiros." });
+          if (!slot.beneficiario_cpf) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "CPF do portador é obrigatório para ingressos de terceiros." });
+          }
           const cpfNums = slot.beneficiario_cpf.replace(/\D/g, "");
-          if (cpfNums.length !== 11) return res.status(400).json({ error: `CPF inválido: ${slot.beneficiario_cpf}` });
-          // Não pode ser o mesmo CPF do titular
-          if (cpfNums === cpfTitular) return res.status(400).json({ error: "Você não pode vincular um ingresso ao seu próprio CPF." });
-          // CPFs duplicados no mesmo pedido
-          if (cpfsNoPedido.includes(cpfNums)) return res.status(400).json({ error: `CPF ${slot.beneficiario_cpf} aparece mais de uma vez no pedido.` });
+          if (cpfNums.length !== 11) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: `CPF inválido: ${slot.beneficiario_cpf}` });
+          }
+          if (cpfNums === cpfTitular) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "Você não pode vincular um ingresso ao seu próprio CPF." });
+          }
+          if (cpfsNoPedido.includes(cpfNums)) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: `CPF ${slot.beneficiario_cpf} aparece mais de uma vez no pedido.` });
+          }
           cpfsNoPedido.push(cpfNums);
         }
       }
 
-      // Verificar se algum CPF de terceiro já tem ingresso neste evento
       if (cpfsNoPedido.length > 0) {
-        // Normaliza CPFs para formato xxx.xxx.xxx-xx
-        const cpfsFmt = cpfsNoPedido.map(n => `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`);
-        const { rows: terceirosComIngresso } = await pool.query(
-          `SELECT beneficiario_cpf FROM ingressos_portal
-           WHERE evento_id=$1 AND status != 'cancelado' AND beneficiario_cpf = ANY($2)`,
-          [eventoId, cpfsFmt]
+        const { rows: terceirosComIngresso } = await client.query(
+          `SELECT beneficiario_cpf, titular_cpf FROM ingressos_portal
+           WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+             AND (
+               REPLACE(REPLACE(REPLACE(COALESCE(beneficiario_cpf,''),'.',''),'-',''),' ','') = ANY($2::text[])
+               OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','') = ANY($2::text[])
+             )
+           LIMIT 1`,
+          [eventoId, cpfsNoPedido]
         );
         if (terceirosComIngresso.length > 0) {
-          return res.status(400).json({ error: `O CPF ${terceirosComIngresso[0].beneficiario_cpf} já possui um ingresso para este evento.` });
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `O CPF informado já possui um ingresso para este evento.`,
+          });
         }
       }
 
-      // Verificar disponibilidade
-      const { rows: disponiveisRows } = await pool.query(
-        'SELECT id, codigo FROM ingressos_portal WHERE evento_id=$1 AND status=$2 LIMIT $3',
-        [eventoId, 'disponivel', loteIngressos.length]
+      const { rows: disponiveisRows } = await client.query(
+        `SELECT id, codigo FROM ingressos_portal
+         WHERE evento_id=$1 AND status='disponivel'
+         ORDER BY id ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED`,
+        [eventoId, loteIngressos.length]
       );
       if (disponiveisRows.length < loteIngressos.length) {
+        await client.query("ROLLBACK");
         return res.status(400).json({
           error: `Apenas ${disponiveisRows.length} ingresso(s) disponível(eis)`,
           disponiveis: disponiveisRows.length,
         });
       }
 
-      // Atribuir cada ingresso
       const resgatados: any[] = [];
       for (let idx = 0; idx < loteIngressos.length; idx++) {
         const slot = loteIngressos[idx];
         const ticket = disponiveisRows[idx];
         const paraTerceiro = slot.para_terceiro === true;
 
-        const { rows: [updated] } = await pool.query(`
+        const { rows: [updated] } = await client.query(`
           UPDATE ingressos_portal SET
             status = 'resgatado',
             usuario_portal_id = $1,
@@ -63411,18 +65273,20 @@ async function sincronizar() {
             beneficiario_cidade = $14,
             beneficiario_estado = $15,
             beneficiario_cep = $16,
+            order_ref = NULL,
+            reserved_until = NULL,
             resgatado_em = NOW()
-          WHERE id = $17
+          WHERE id = $17 AND status = 'disponivel'
           RETURNING *
         `, [
           portalUserId,
           usuarioPortal.nome,
-          usuarioPortal.cpf || null,
+          cpfTitular || null,
           usuarioPortal.email || null,
           null,
           paraTerceiro,
           paraTerceiro ? (slot.beneficiario_nome || null) : null,
-          paraTerceiro ? (slot.beneficiario_cpf || null) : null,
+          paraTerceiro ? String(slot.beneficiario_cpf || "").replace(/\D/g, "") || null : null,
           paraTerceiro ? (slot.beneficiario_nascimento || null) : null,
           paraTerceiro ? (slot.beneficiario_genero || null) : null,
           paraTerceiro ? (slot.beneficiario_logradouro || null) : null,
@@ -63433,12 +65297,15 @@ async function sincronizar() {
           paraTerceiro ? (slot.beneficiario_cep || null) : null,
           ticket.id,
         ]);
+        if (!updated) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "Conflito de estoque. Tente novamente." });
+        }
         resgatados.push(updated);
       }
 
-      // Buscar ingressos completos com dados do evento
       const codigos = resgatados.map((r: any) => r.codigo);
-      const { rows: completos } = await pool.query(`
+      const { rows: completos } = await client.query(`
         SELECT
           i.*,
           e.titulo as evento_titulo,
@@ -63454,10 +65321,15 @@ async function sincronizar() {
         JOIN eventos_grito e ON e.id = i.evento_id
         WHERE i.codigo = ANY($1)
       `, [codigos]);
+
+      await client.query("COMMIT");
       return res.json({ success: true, ingressos: completos });
     } catch (e: any) {
+      try { await client.query("ROLLBACK"); } catch {}
       console.error("Portal resgatar error:", e);
       return res.status(500).json({ error: "Erro ao resgatar ingresso" });
+    } finally {
+      client.release();
     }
   });
 
@@ -63698,20 +65570,20 @@ async function sincronizar() {
     requireTabletChamadaAuth,
     senhaManualAttemptLimiter,
     async (req: any, res) => {
-    try {
-      const vertente = req.tabletChamadaVertente as VertenteManual;
-      const senha = String(req.body?.senha || "").trim();
-      if (!senha) return res.status(400).json({ valido: false, error: "Senha obrigatória" });
-      const result = await validarSenhaManualAtiva(pool, vertente, senha);
-      if (!result.valido) {
-        return res.status(400).json({ valido: false, error: result.error || "Senha incorreta" });
+      try {
+        const vertente = req.tabletChamadaVertente as VertenteManual;
+        const senha = String(req.body?.senha || "").trim();
+        if (!senha) return res.status(400).json({ valido: false, error: "Senha obrigatória" });
+        const result = await validarSenhaManualAtiva(pool, vertente, senha);
+        if (!result.valido) {
+          return res.status(400).json({ valido: false, error: result.error || "Senha incorreta" });
+        }
+        return res.json({ valido: true });
+      } catch (e: any) {
+        console.error("POST /api/tablet-chamada/validar-senha-manual:", e);
+        return res.status(500).json({ valido: false, error: "Erro interno" });
       }
-      return res.json({ valido: true });
-    } catch (e: any) {
-      console.error("POST /api/tablet-chamada/validar-senha-manual:", e);
-      return res.status(500).json({ valido: false, error: "Erro interno" });
-    }
-  });
+    });
 
   app.post("/api/tablet-chamada/login", passwordLoginLimiter, async (req, res) => {
     const LOGIN_ERRO_GENERICO = "Usuário ou senha incorretos";
@@ -63851,7 +65723,7 @@ async function sincronizar() {
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaId}
-            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado')
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           ORDER BY pi.nome
         `);
         const alunos = (result.rows as any[]).map((r) => ({
@@ -63871,7 +65743,7 @@ async function sincronizar() {
           a.telefone,
           a.foto_perfil AS foto_url
         FROM instance_enrollments ie
-        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
         WHERE ie.activity_instance_id = $1
           AND ie.active = true
@@ -64120,20 +65992,20 @@ async function sincronizar() {
       const vertente = req.tabletChamadaVertente as "pec" | "inclusao";
       const { turmaId, data, presentes, presencas, teveAlimentacao, modoChamada, justificativa, observacao } =
         req.body as {
-        turmaId: number | string;
-        data: string;
-        presentes?: { cpf: string; horaEntrada?: string }[];
-        presencas?: {
-          cpf: string;
-          presente: boolean;
-          horaEntrada?: string;
+          turmaId: number | string;
+          data: string;
+          presentes?: { cpf: string; horaEntrada?: string }[];
+          presencas?: {
+            cpf: string;
+            presente: boolean;
+            horaEntrada?: string;
+            justificativa?: string;
+          }[];
+          teveAlimentacao?: boolean;
+          modoChamada?: "facial" | "manual";
           justificativa?: string;
-        }[];
-        teveAlimentacao?: boolean;
-        modoChamada?: "facial" | "manual";
-        justificativa?: string;
-        observacao?: string;
-      };
+          observacao?: string;
+        };
 
       const modo = modoChamada === "manual" ? "manual" : "facial";
 
@@ -64201,7 +66073,7 @@ async function sincronizar() {
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaIdInt}
-            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado')
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
         `);
         const roster = rosterRes.rows as { participante_id: number; cpf: string }[];
 
@@ -64271,7 +66143,7 @@ async function sincronizar() {
           ie.student_cpf AS cpf,
           COALESCE(a.nome_completo, ie.student_cpf) AS nome
         FROM instance_enrollments ie
-        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
         WHERE ie.activity_instance_id = $1
           AND ie.active = true
@@ -64359,17 +66231,19 @@ async function sincronizar() {
       const toProxy = (url: string | null) =>
         url ? `/api/gcs-foto-proxy?path=${encodeURIComponent(url.replace(gcsPrefix, ""))}` : null;
 
+      // Mesmos filtros do roster do tablet: só alunos elegíveis da turma
       if (tipo === "inclusao") {
         const result = await db.execute(sql`
           SELECT pi.id, pi.cpf, pi.nome, pi.foto_url
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaIdInt}
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           ORDER BY pi.nome
         `);
         rows = (result.rows as any[]).map((r) => ({
           id: r.id,
-          cpf: String(r.cpf),
+          cpf: String(r.cpf || "").replace(/\D/g, ""),
           nome: r.nome,
           fotoUrl: toProxy(r.foto_url),
         }));
@@ -64380,14 +66254,16 @@ async function sincronizar() {
             COALESCE(a.nome_completo, ie.student_cpf) as nome,
             a.foto_perfil as foto_url
           FROM instance_enrollments ie
-          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
+          LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
           WHERE ie.activity_instance_id = ${turmaIdInt}
             AND ie.active = true
+            AND pe.id IS NULL
           ORDER BY COALESCE(a.nome_completo, ie.student_cpf)
         `);
         rows = (result.rows as any[]).map((r) => ({
           id: r.cpf,
-          cpf: String(r.cpf),
+          cpf: String(r.cpf || "").replace(/\D/g, ""),
           nome: r.nome,
           fotoUrl: toProxy(r.foto_url),
         }));
@@ -64461,6 +66337,7 @@ async function sincronizar() {
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${parseInt(turmaId)}
             AND REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           LIMIT 1
         `);
         if (!partResult.rows.length) {
@@ -64545,22 +66422,41 @@ async function sincronizar() {
       } else if (tipo === "pec") {
         const turmaIdInt = parseInt(turmaId);
 
-        // Busca nome do aluno
-        const alunoResult = await db.execute(sql`
-          SELECT nome_completo FROM aluno
-          WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+        // Exige matrícula ativa na turma (sem evasão) — mesma regra do roster
+        const enrollCheck = await db.execute(sql`
+          SELECT ie.id, COALESCE(a.nome_completo, ie.student_cpf) AS nome
+          FROM instance_enrollments ie
+          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
+          LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
+          WHERE ie.activity_instance_id = ${turmaIdInt}
+            AND ie.active = true
+            AND pe.id IS NULL
+            AND REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = ${cpfDigits}
           LIMIT 1
         `);
-        if (!alunoResult.rows.length) {
-          const horaNaoId = new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+        if (!enrollCheck.rows.length) {
+          const horaScan = new Date().toLocaleTimeString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
           try {
             const fr = (app as any)._firePushRulesByTrigger;
             if (fr) {
-              fr("aluno_nao_identificado", { cpf: cpfDigits, vertente: "pec", hora: horaNaoId });
+              fr(
+                "scanner_aluno_sem_turma",
+                { cpf: cpfDigits, turma: turmaId || "", hora: horaScan },
+                undefined,
+                undefined,
+                undefined,
+                { vertente: "pec" }
+              );
             }
-          } catch { }
+          } catch {}
+          return res.status(404).json({ error: "Aluno não encontrado nesta turma" });
         }
-        const nomeAluno = alunoResult.rows.length ? (alunoResult.rows[0] as any).nome_completo : cpfDigits;
+        const nomeAluno = (enrollCheck.rows[0] as any).nome || cpfDigits;
+        const alunoResult = { rows: [{ nome_completo: nomeAluno }] };
 
         // Busca sessão existente ou cria nova
         let sessionResult = await db.execute(sql`
@@ -64669,6 +66565,99 @@ async function sincronizar() {
     } catch (e) {
       console.error("POST /api/scanner-presenca/registrar:", e);
       res.status(500).json({ error: "Erro ao registrar presença" });
+    }
+  });
+
+  // POST /api/scanner-presenca/desfazer — remove presença marcada por engano no facial
+  app.post("/api/scanner-presenca/desfazer", requireAuth, async (req, res) => {
+    try {
+      const { tipo, turmaId, cpf, data } = req.body as {
+        tipo: string;
+        turmaId: string;
+        cpf: string;
+        data: string;
+      };
+      if (!tipo || !turmaId || !cpf || !data) {
+        return res.status(400).json({ error: "tipo, turmaId, cpf e data são obrigatórios" });
+      }
+
+      const cpfDigits = String(cpf).replace(/\D/g, "");
+      const turmaIdInt = parseInt(turmaId, 10);
+      if (!turmaIdInt || Number.isNaN(turmaIdInt)) {
+        return res.status(400).json({ error: "turmaId inválido" });
+      }
+
+      if (tipo === "inclusao") {
+        const partResult = await db.execute(sql`
+          SELECT pt.participante_id
+          FROM participantes_turmas pt
+          JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+          WHERE pt.turma_id = ${turmaIdInt}
+            AND REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+          LIMIT 1
+        `);
+        if (!partResult.rows.length) {
+          return res.status(404).json({ error: "Participante não encontrado na turma" });
+        }
+        const participanteId = (partResult.rows[0] as any).participante_id;
+        await db.execute(sql`
+          UPDATE presencas_inclusao
+          SET presente = false,
+              observacoes = COALESCE(observacoes, '') || ' | presença facial desfeita',
+              justificativa = COALESCE(NULLIF(TRIM(justificativa), ''), 'Removido do scanner facial')
+          WHERE participante_id = ${participanteId}
+            AND turma_id = ${turmaIdInt}
+            AND data = ${data}
+        `);
+        return res.json({ ok: true, tipo: "inclusao", cpf: cpfDigits });
+      }
+
+      if (tipo === "pec") {
+        const sessionResult = await db.execute(sql`
+          SELECT id, COALESCE(attendance, '[]'::jsonb) AS attendance
+          FROM sessions
+          WHERE activity_instance_id = ${turmaIdInt} AND date = ${data}::date
+          LIMIT 1
+        `);
+        if (!sessionResult.rows.length) {
+          return res.status(404).json({ error: "Chamada não encontrada" });
+        }
+        const sessionId = (sessionResult.rows[0] as any).id;
+        let attendanceArr: any[] = [];
+        try {
+          const raw = (sessionResult.rows[0] as any).attendance;
+          attendanceArr = Array.isArray(raw) ? raw : typeof raw === "string" ? JSON.parse(raw) : [];
+        } catch {
+          attendanceArr = [];
+        }
+
+        let found = false;
+        const updated = attendanceArr.map((e: any) => {
+          if (String(e.alunoCpf || "").replace(/\D/g, "") !== cpfDigits) return e;
+          found = true;
+          return {
+            ...e,
+            presente: false,
+            status: "falta",
+            origemScanner: false,
+            justificativa: e.justificativa || "Removido do scanner facial",
+          };
+        });
+        if (!found) {
+          return res.status(404).json({ error: "Aluno não estava marcado nesta chamada" });
+        }
+
+        await db.execute(sql`
+          UPDATE sessions SET attendance = ${JSON.stringify(updated)}::jsonb
+          WHERE id = ${sessionId}
+        `);
+        return res.json({ ok: true, tipo: "pec", cpf: cpfDigits, sessionId });
+      }
+
+      return res.status(400).json({ error: "tipo inválido" });
+    } catch (e) {
+      console.error("POST /api/scanner-presenca/desfazer:", e);
+      return res.status(500).json({ error: "Erro ao desfazer presença" });
     }
   });
 
@@ -64864,6 +66853,7 @@ async function sincronizar() {
         );
         rows = r.rows;
       }
+      rows = await enrichMoradasGeraisRows(rows);
       res.json({ data: rows, total: rows.length });
     } catch (e: any) {
       console.error("GET /api/moradas-gerais/reformas:", e);
@@ -65197,6 +67187,11 @@ async function sincronizar() {
     pool,
     requireAuth,
     requirePrivacyAuditAccess,
+  });
+  registerAtendidosGritoRoutes(app, {
+    pool,
+    requireAuth,
+    requireAnyRole,
   });
 
   // ── Dinamize: reenvio manual de doador ───────────────────────────────────
@@ -65582,7 +67577,7 @@ async function sincronizar() {
         origem: "evento",
         skippedReason: "user_opt_out",
         disparadoPorUserId: sessionUser?.id ? Number(sessionUser.id) : null,
-      }).catch(() => {});
+      }).catch(() => { });
 
       res.json({ success: true });
     } catch (err: any) {
@@ -65991,12 +67986,21 @@ async function sincronizar() {
         const payload = JSON.stringify(vars);
 
         for (const row of rows) {
-          // Respeitar cooldown por regra + destinatário
+          // Respeitar cooldown por regra + destinatário (+ dedupe_key quando houver, ex. catraca_offline por unidade)
           if (cooldown > 0) {
-            const lastLog = await pool.query(
-              "SELECT disparado_em FROM push_logs WHERE rule_id = $1 AND destinatario_key = $2 AND status = 'success' ORDER BY disparado_em DESC LIMIT 1",
-              [rule.id, row.user_key]
-            );
+            const dedupeKey = vars.dedupe_key?.trim() || null;
+            const lastLog = dedupeKey
+              ? await pool.query(
+                `SELECT disparado_em FROM push_logs
+                   WHERE rule_id = $1 AND destinatario_key = $2 AND status = 'success'
+                     AND payload->>'dedupe_key' = $3
+                   ORDER BY disparado_em DESC LIMIT 1`,
+                [rule.id, row.user_key, dedupeKey]
+              )
+              : await pool.query(
+                "SELECT disparado_em FROM push_logs WHERE rule_id = $1 AND destinatario_key = $2 AND status = 'success' ORDER BY disparado_em DESC LIMIT 1",
+                [rule.id, row.user_key]
+              );
             if (lastLog.rows.length > 0) {
               const minSinceLast = (Date.now() - new Date(lastLog.rows[0].disparado_em).getTime()) / 60000;
               if (minSinceLast < cooldown) continue;
@@ -66171,10 +68175,17 @@ async function sincronizar() {
       const conditions: string[] = [];
       const params: any[] = [];
 
+      const origemEfetivaSql = `COALESCE(pl.origem, CASE WHEN pl.disparado_por_user_id IS NOT NULL THEN 'manual' ELSE 'evento' END)`;
+
       if (gatilhoFilter) { conditions.push(`pl.gatilho = $${params.length + 1}`); params.push(gatilhoFilter); }
       if (ruleIdFilter) { conditions.push(`pl.rule_id = $${params.length + 1}`); params.push(parseInt(ruleIdFilter)); }
       if (statusFilter) { conditions.push(`pl.status = $${params.length + 1}`); params.push(statusFilter); }
-      if (origemFilter) { conditions.push(`pl.origem = $${params.length + 1}`); params.push(origemFilter); }
+      if (origemFilter === "manual") {
+        conditions.push(`(pl.disparado_por_user_id IS NOT NULL OR ${origemEfetivaSql} = 'manual')`);
+      } else if (origemFilter) {
+        conditions.push(`${origemEfetivaSql} = $${params.length + 1}`);
+        params.push(origemFilter);
+      }
       if (roleFilter) { conditions.push(`pl.destinatario_role = $${params.length + 1}`); params.push(roleFilter); }
       if (disparadoPorFilter) { conditions.push(`pl.disparado_por_user_id = $${params.length + 1}`); params.push(parseInt(disparadoPorFilter)); }
       if (dateFrom) { conditions.push(`pl.disparado_em >= $${params.length + 1}::timestamptz`); params.push(dateFrom); }
@@ -66198,13 +68209,18 @@ async function sincronizar() {
       params.push(limit);
       const result = await pool.query(
         `SELECT pl.*,
+                ${origemEfetivaSql} AS origem_efetiva,
                 pr.nome AS rule_nome,
                 du.nome AS destinatario_nome,
                 dp.nome AS disparado_por_nome
          FROM push_logs pl
          LEFT JOIN push_rules pr ON pl.rule_id = pr.id
          LEFT JOIN users du ON (
-           (pl.destinatario_key ~ '^[0-9]+$' AND du.id = pl.destinatario_key::integer)
+           (
+             pl.destinatario_key ~ '^[0-9]+$'
+             AND pl.destinatario_key::numeric <= 2147483647
+             AND du.id = pl.destinatario_key::integer
+           )
            OR REGEXP_REPLACE(COALESCE(du.cpf, ''), '[^0-9]', '', 'g') = pl.destinatario_key
          )
          LEFT JOIN users dp ON dp.id = pl.disparado_por_user_id
@@ -66213,8 +68229,14 @@ async function sincronizar() {
          LIMIT $${params.length}`,
         params
       );
-      res.json(result.rows);
+      res.json(
+        result.rows.map((row: any) => ({
+          ...row,
+          origem: row.origem_efetiva ?? row.origem ?? (row.disparado_por_user_id ? "manual" : "evento"),
+        }))
+      );
     } catch (err: any) {
+      console.error("[Push] Erro ao buscar logs:", err.message);
       res.status(500).json({ error: "Erro ao buscar logs" });
     }
   });
@@ -66681,23 +68703,12 @@ async function sincronizar() {
   });
   console.log("✅ [PUSH-CRON] CRON de chamadas pendentes agendado (20h BRT)");
 
-  // ── CRON: Catraca offline (a cada 4h durante horário ativo: 6h-22h BRT) ──
+  // ── CRON: Catraca offline — 1 push por unidade (Inclusão / PEC), 9h/13h/17h/21h BRT ──
   cron.schedule("0 9,13,17,21 * * *", async () => {
     try {
-      const { rows } = await pool.query(`
-        SELECT MAX(check_in_at) as ultima_presenca FROM presencas_aula
-        WHERE fonte = 'catraca' AND check_in_at IS NOT NULL
-      `);
-      const ultima = rows[0]?.ultima_presenca;
-      if (ultima) {
-        const horasSemEvento = (Date.now() - new Date(ultima).getTime()) / 3600000;
-        if (horasSemEvento > 24) {
-          await firePushRulesByTrigger("catraca_offline", {
-            horas: String(Math.floor(horasSemEvento)),
-            ultima: new Date(ultima).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
-          }).catch(() => { });
-        }
-      }
+      await runPushCatracaOfflineCron(pool, (gatilho, vars) =>
+        firePushRulesByTrigger(gatilho, vars).then(() => undefined)
+      );
     } catch (e: any) {
       console.error("❌ [PUSH-CRON] catraca_offline:", e.message);
     }
@@ -67351,6 +69362,35 @@ async function sincronizar() {
     }
   });
   console.log("✅ [PUSH-CRON] CRONs de aula agendados (a cada 15min): aula_proxima, aula_aluno_proxima, chamada_disponivel");
+
+  // ── CRON: acolhimentos psico (lembretes 2h / 15min) a cada 15 min ──
+  cron.schedule("*/15 * * * *", async () => {
+    try {
+      const fr = firePushRulesByTrigger;
+      await runAcolhimentoRemindersCron(pool, fr);
+    } catch (e: any) {
+      console.error("❌ [PUSH-CRON] acolhimento reminders:", e.message);
+    }
+  });
+
+  // ── CRON: acolhimentos — D-1 + resumo do dia (8h BRT = 11h UTC) ──
+  cron.schedule("0 11 * * *", async () => {
+    try {
+      await runAcolhimentoDailyMorningCron(pool, firePushRulesByTrigger);
+    } catch (e: any) {
+      console.error("❌ [PUSH-CRON] acolhimento morning:", e.message);
+    }
+  });
+
+  // ── CRON: acolhimentos — sem status ontem + sem próximo (9h BRT = 12h UTC) ──
+  cron.schedule("0 12 * * *", async () => {
+    try {
+      await runAcolhimentoDailyFollowupCron(pool, firePushRulesByTrigger);
+    } catch (e: any) {
+      console.error("❌ [PUSH-CRON] acolhimento followup:", e.message);
+    }
+  });
+  console.log("✅ [PUSH-CRON] CRONs de acolhimento psico: 15min + 8h/9h BRT");
 
   // ── CRON: termos_pendentes (toda segunda-feira às 9h BRT = 12h UTC) ──────
   cron.schedule("0 12 * * 1", async () => {

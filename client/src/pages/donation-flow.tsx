@@ -2406,7 +2406,13 @@ export default function DonationFlow() {
                   exit={{ opacity: 0, y: -50 }}
                   transition={{ duration: 0.6, ease: "easeInOut" }}
                 >
-                  <div className="flex flex-col h-screen justify-between px-6 py-8">
+                  <div
+                    className="flex flex-col min-h-[100dvh] justify-between px-6 py-8"
+                    style={{
+                      paddingTop: "max(2rem, env(safe-area-inset-top, 0px))",
+                      paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))",
+                    }}
+                  >
                     {/* Top spacing */}
                     <div className="flex-1"></div>
 

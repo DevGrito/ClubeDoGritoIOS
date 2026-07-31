@@ -4,6 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Play, Pause, X } from "lucide-react";
 import logoImg from "../../app-assets/image_1769454113778.png";
+import GestaoVistaViewGate from "@/components/GestaoVistaViewGate";
 import TabGeral from "./TabGeral";
 import TabInclusao from "./TabInclusao";
 import TabPEC from "./TabPEC";
@@ -15,23 +16,33 @@ import TabFavela3D from "./TabFavela3D";
 import { MESES, ANOS, type PeriodoFiltro, periodoLabel, isPeriodoTodos } from "./shared";
 
 const TABS = [
-  { id: 'geral',       label: 'Geral',                          short: 'Geral',           color: '#10b981' },
-  { id: 'inclusao',    label: 'Inclusão Produtiva',             short: 'Inclusão',        color: '#3b82f6' },
-  { id: 'pec',         label: 'Programa de Esporte e Cultura',  short: 'PEC',             color: '#10b981' },
-  { id: 'psico',       label: 'Psicossocial',                   short: 'Psicossocial',    color: '#8b5cf6' },
-  { id: 'favela3d',    label: 'Favela 3D',                      short: 'Favela 3D',       color: '#8b5cf6' },
-  { id: 'marketing',   label: 'Marketing e Tecnologia',         short: 'Marketing',       color: '#ec4899' },
-  { id: 'negocios',    label: 'Negócios Sociais',               short: 'Negócios',        color: '#f97316' },
-  { id: 'demografico', label: 'Dados Demográficos',             short: 'Demográfico',     color: '#06b6d4' },
+  { id: 'geral', label: 'Geral', short: 'Geral', color: '#10b981' },
+  { id: 'inclusao', label: 'Inclusão Produtiva', short: 'Inclusão', color: '#3b82f6' },
+  { id: 'pec', label: 'Programa de Esporte e Cultura', short: 'PEC', color: '#10b981' },
+  { id: 'psico', label: 'Psicossocial', short: 'Psicossocial', color: '#8b5cf6' },
+  { id: 'favela3d', label: 'Favela 3D', short: 'Favela 3D', color: '#8b5cf6' },
+  { id: 'marketing', label: 'Marketing e Tecnologia', short: 'Marketing', color: '#ec4899' },
+  { id: 'negocios', label: 'Negócios Sociais', short: 'Negócios', color: '#f97316' },
+  { id: 'demografico', label: 'Dados Demográficos', short: 'Demográfico', color: '#06b6d4' },
 ];
 
 const ROTATION_INTERVAL = 120000;
 
 interface Props {
   onClose?: () => void;
+  /** Quando true, encaixa em páginas (ex.: Conselho) em vez de ocupar a tela inteira */
+  embedded?: boolean;
 }
 
-export default function DashboardGestaoVista({ onClose }: Props) {
+export default function DashboardGestaoVista(props: Props) {
+  return (
+    <GestaoVistaViewGate>
+      <DashboardGestaoVistaContent {...props} />
+    </GestaoVistaViewGate>
+  );
+}
+
+function DashboardGestaoVistaContent({ onClose, embedded = false }: Props) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [ano, setAno] = useState('2026');
   const [periodo, setPeriodo] = useState<PeriodoFiltro>('todos');
@@ -120,16 +131,21 @@ export default function DashboardGestaoVista({ onClose }: Props) {
 
   const tabContent = (
     <>
-      {currentTab.id === 'geral'        && <TabGeral       ano={ano} periodo={periodo} isMobile={isMobile} />}
-      {currentTab.id === 'inclusao'     && <TabInclusao    ano={ano} periodo={periodo} />}
-      {currentTab.id === 'pec'          && <TabPEC         ano={ano} periodo={periodo} />}
-      {currentTab.id === 'psico'        && <TabPsico       ano={ano} periodo={periodo} />}
-      {currentTab.id === 'favela3d'     && <TabFavela3D    ano={ano} periodo={periodo} />}
-      {currentTab.id === 'marketing'    && <TabMarketing   ano={ano} periodo={periodo} />}
-      {currentTab.id === 'negocios'     && <TabNegocios    ano={ano} periodo={periodo} />}
-      {currentTab.id === 'demografico'  && <TabDemografico ano={ano} periodo={periodo} />}
+      {currentTab.id === 'geral' && <TabGeral ano={ano} periodo={periodo} isMobile={isMobile} />}
+      {currentTab.id === 'inclusao' && <TabInclusao ano={ano} periodo={periodo} />}
+      {currentTab.id === 'pec' && <TabPEC ano={ano} periodo={periodo} />}
+      {currentTab.id === 'psico' && <TabPsico ano={ano} periodo={periodo} />}
+      {currentTab.id === 'favela3d' && <TabFavela3D ano={ano} periodo={periodo} />}
+      {currentTab.id === 'marketing' && <TabMarketing ano={ano} periodo={periodo} />}
+      {currentTab.id === 'negocios' && <TabNegocios ano={ano} periodo={periodo} />}
+      {currentTab.id === 'demografico' && <TabDemografico ano={ano} periodo={periodo} />}
     </>
   );
+
+  const shellHeight = embedded ? 'min(85dvh, 920px)' : '100dvh';
+  const shellClass = embedded
+    ? 'rounded-xl overflow-hidden border border-slate-700/60 shadow-lg'
+    : '';
 
   /* ─────────────────────────────────────────────────────────────────── */
   /* MOBILE LAYOUT                                                        */
@@ -137,8 +153,8 @@ export default function DashboardGestaoVista({ onClose }: Props) {
   if (isMobile) {
     return (
       <div
-        className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col"
-        style={{ height: '100dvh' }}
+        className={`bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col ${shellClass}`}
+        style={{ height: shellHeight }}
       >
         {/* ── Mobile Header ── */}
         <div className="flex-shrink-0 bg-slate-800/80 border-b border-slate-700/50 px-4 py-3 flex flex-col gap-2.5">
@@ -202,7 +218,7 @@ export default function DashboardGestaoVista({ onClose }: Props) {
                   <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-52 p-2 bg-slate-800 border-slate-700" align="start">
+              <PopoverContent className="w-52 p-2 bg-slate-800 border-slate-700 z-[10001]" align="start">
                 <button
                   type="button"
                   onClick={selectTodosMeses}
@@ -253,8 +269,8 @@ export default function DashboardGestaoVista({ onClose }: Props) {
   /* ─────────────────────────────────────────────────────────────────── */
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col p-2 lg:p-3 gap-2 lg:gap-3 overflow-y-auto md:overflow-hidden"
-      style={{ height: '100dvh', touchAction: 'pan-y pinch-zoom' }}
+      className={`${embedded ? '' : 'min-h-screen'} bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col p-2 lg:p-3 gap-2 lg:gap-3 overflow-y-auto md:overflow-hidden ${shellClass}`}
+      style={{ height: shellHeight, touchAction: 'pan-y pinch-zoom' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -307,7 +323,7 @@ export default function DashboardGestaoVista({ onClose }: Props) {
               <SelectTrigger className="w-[90px] bg-slate-700/50 border-slate-600 text-white text-sm h-8">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectContent className="bg-slate-800 border-slate-700 z-[10001]">
                 {ANOS.map(a => (
                   <SelectItem key={a} value={a} className="text-white hover:bg-slate-700">{a}</SelectItem>
                 ))}
@@ -323,7 +339,7 @@ export default function DashboardGestaoVista({ onClose }: Props) {
                   <ChevronDown className="w-4 h-4 flex-shrink-0 opacity-70" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-56 p-2 bg-slate-800 border-slate-700" align="start">
+              <PopoverContent className="w-56 p-2 bg-slate-800 border-slate-700 z-[10001]" align="start">
                 <button
                   type="button"
                   onClick={selectTodosMeses}

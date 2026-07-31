@@ -41,21 +41,37 @@ export function buildIntervencaoObservacoes(
   return parts.join("\n").trim();
 }
 
+/**
+ * Extrai o dia civil (YYYY-MM-DD) de timestamps/ISO sem deslocar por fuso.
+ * Datas "só dia" costumam ser gravadas como meia-noite UTC; usar fuso local
+ * (ex.: America/Sao_Paulo) mostraria o dia anterior no Brasil.
+ */
 export function intervencaoDataIso(data: string | Date | null | undefined): string {
   if (!data) return "";
-  const s = String(data);
+  if (data instanceof Date) {
+    if (Number.isNaN(data.getTime())) return "";
+    return data.toLocaleDateString("en-CA", { timeZone: "UTC" });
+  }
+  const s = String(data).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const prefix = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (prefix) return prefix[1];
   try {
-    const d = data instanceof Date ? data : new Date(s);
+    const d = new Date(s);
     if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+      return d.toLocaleDateString("en-CA", { timeZone: "UTC" });
     }
   } catch {
     /* fallthrough */
   }
-  if (s.includes("T")) return s.split("T")[0];
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   return "";
+}
+
+/** Formata data de intervenção para exibição pt-BR sem shift de timezone. */
+export function formatIntervencaoData(data: string | Date | null | undefined): string {
+  const iso = intervencaoDataIso(data);
+  if (!iso) return "-";
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR");
 }
 
 export type PsicoChamadaRef = {

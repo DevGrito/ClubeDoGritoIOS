@@ -1,51 +1,13 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { User, Edit } from "lucide-react";
-
-const PT_MAP: Record<string, string> = {
-  sim: "Sim",
-  nao: "Não",
-  nao_informado: "Não informado",
-  nao_possui: "Não possui",
-  nao_sabe: "Não sabe",
-  nao_se_aplica: "Não se aplica",
-  cursando: "Cursando",
-  concluido: "Concluído",
-  interrompido: "Interrompido",
-  matutino: "Matutino",
-  vespertino: "Vespertino",
-  noturno: "Noturno",
-  ativo: "Ativo",
-  inativo: "Inativo",
-  masculino: "Masculino",
-  feminino: "Feminino",
-  outro: "Outro",
-  solteiro: "Solteiro(a)",
-  casado: "Casado(a)",
-  divorciado: "Divorciado(a)",
-  viuvo: "Viúvo(a)",
-  separado: "Separado(a)",
-  uniao_estavel: "União estável",
-  nao_alfabetizado: "Não alfabetizado",
-  fundamental_incompleto: "Fund. Incompleto",
-  fundamental_completo: "Fund. Completo",
-  medio_incompleto: "Médio Incompleto",
-  medio_completo: "Médio Completo",
-  superior_incompleto: "Superior Incompleto",
-  superior_completo: "Superior Completo",
-  pos_graduacao: "Pós-graduação",
-  sabe_ler_escrever: "Sabe ler e escrever",
-  nao_sabe_ler_nem_escrever: "Não sabe ler nem escrever",
-  sabe_assinar: "Sabe assinar o nome",
-};
+import { AtendidoGritoHistorico } from "@/components/atendidos-grito/AtendidoGritoHistorico";
+import { formatEnumLabel } from "@/lib/labelEnums";
 
 function normalizeValue(val: string | null | undefined): string | undefined {
   if (val === null || val === undefined || val === "") return undefined;
-  const key = String(val).toLowerCase().trim();
-  if (PT_MAP[key]) return PT_MAP[key];
-  return String(val)
-    .replace(/_/g, " ")
-    .replace(/^\w/, (c) => c.toUpperCase());
+  const formatted = formatEnumLabel(val, "");
+  return formatted || undefined;
 }
 
 export interface DetalhesField {
@@ -77,6 +39,9 @@ interface ParticipanteDetalhesModalProps {
   documentosPanel?: React.ReactNode;
   onEdit?: () => void;
   editLabel?: string;
+  /** CPF com 11 dígitos para o histórico unificado (se omitido, extrai do prop `cpf`) */
+  historicoCpf?: string;
+  historicoParticipanteId?: number | null;
 }
 
 const colorMap = {
@@ -121,9 +86,12 @@ export function ParticipanteDetalhesModal({
   documentosPanel,
   onEdit,
   editLabel = "Editar",
+  historicoCpf,
+  historicoParticipanteId,
 }: ParticipanteDetalhesModalProps) {
   const c = colorMap[color];
   const isAtivo = !status || status === "ativo" || status === "Ativo";
+  const cpfHistorico = String(historicoCpf || cpf || "").replace(/\D/g, "");
 
   const gridCols = (cols?: 2 | 3 | 4) => {
     if (cols === 4) return "grid-cols-2 md:grid-cols-4";
@@ -197,6 +165,14 @@ export function ParticipanteDetalhesModal({
                   {documentosPanel}
                 </div>
               </div>
+            )}
+
+            {cpfHistorico.length === 11 && (
+              <AtendidoGritoHistorico
+                cpf={cpfHistorico}
+                nomeAluno={nome}
+                participanteId={historicoParticipanteId ?? undefined}
+              />
             )}
 
             <div className="flex gap-2 pt-4 border-t">

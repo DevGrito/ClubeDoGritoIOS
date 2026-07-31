@@ -22,8 +22,11 @@ function StatusBadge({ status }: { status: string }) {
     disponivel: { label: "Disponível", cls: "bg-green-500" },
     em_breve: { label: "Em breve", cls: "bg-amber-500" },
     encerrado: { label: "Encerrado", cls: "bg-gray-400" },
+    realizado: { label: "Realizado", cls: "bg-gray-400" },
+    cancelado: { label: "Cancelado", cls: "bg-red-500" },
+    ativo: { label: "Disponível", cls: "bg-green-500" },
   };
-  const s = map[status] || map["em_breve"];
+  const s = map[status] || { label: "Indisponível", cls: "bg-gray-400" };
   return (
     <span className={`${s.cls} text-white text-sm font-bold px-3 py-1 rounded-full`}>{s.label}</span>
   );
@@ -124,10 +127,11 @@ export default function EventoDetalhe() {
     queryKey: ["/api/portal/eventos", id, "disponiveis"],
     queryFn: async () => {
       const r = await fetch(`/api/portal/eventos/${id}/disponiveis`);
-      if (!r.ok) return { disponiveis: 0 };
+      if (!r.ok) throw new Error("Erro ao carregar disponibilidade");
       return r.json();
     },
     enabled: !!evento && evento.status === "disponivel",
+    retry: 1,
   });
 
   const maxCompra = Math.min(disponiveisData?.disponiveis ?? 0, 10);
@@ -154,6 +158,23 @@ export default function EventoDetalhe() {
     },
   });
 
+  const abrirResgateGratuito = async () => {
+    const result = await queryClient.fetchQuery({
+      queryKey: ["/api/portal/meus-ingressos", id],
+      queryFn: async () => {
+        const r = await fetch("/api/portal/meus-ingressos", { credentials: "include" });
+        if (r.status === 401) return [];
+        if (!r.ok) throw new Error("Erro ao carregar ingressos");
+        const all = await r.json();
+        return all.filter((ing: any) => String(ing.evento_id) === String(id) && ing.status !== "cancelado");
+      },
+    });
+    const jaTem = (result?.length ?? 0) > 0;
+    setQuantidade(1);
+    setSlots([defaultSlot(jaTem)]);
+    setStep("escolher");
+  };
+
   const handleShare = async () => {
     if (navigator.share) {
       try { await navigator.share({ title: evento?.titulo, url: window.location.href }); } catch {}
@@ -164,15 +185,11 @@ export default function EventoDetalhe() {
 
   const handleIniciar = () => {
     if (!isLoggedIn) { setShowLogin(true); return; }
-    // Evento pago: vai para tela de checkout
     if (evento && !evento.gratuito && evento.preco > 0) {
       navigate(`/eventos/${id}/checkout?qty=1`);
       return;
     }
-    // Evento gratuito: abre modal de resgate
-    setQuantidade(1);
-    setSlots([defaultSlot(titularJaTem)]);
-    setStep("escolher");
+    void abrirResgateGratuito();
   };
 
   const handleChangeQuantidade = (delta: number) => {
@@ -627,12 +644,12 @@ export default function EventoDetalhe() {
         <LoginModal
           onClose={() => setShowLogin(false)}
           message={evento && !evento.gratuito && evento.preco > 0 ? "Faça login para comprar seu ingresso" : "Faça login para resgatar seu ingresso"}
-          onSuccess={() => {
+          onSuccess={async () => {
             setShowLogin(false);
             if (evento && !evento.gratuito && evento.preco > 0) {
               navigate(`/eventos/${id}/checkout?qty=1`);
             } else {
-              setStep("escolher");
+              await abrirResgateGratuito();
             }
           }}
         />

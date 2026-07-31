@@ -108,12 +108,9 @@ function parseMoraDesdeAno(v: any): number | undefined {
 function excelSerialToJSDate(serial: number): Date | null {
   if (!isFinite(serial)) return null;
 
-  // Excel (sistema 1900): dia 1 = 1899-12-31, com bug do 1900-02-29 (serial 60)
-  // Fórmula padrão: (serial - 25569) dias desde 1970-01-01
-  // Ajuste do bug: se serial >= 60, subtrai 1 dia
-  const s = serial >= 60 ? serial - 1 : serial;
-
-  const utcMillis = Math.round((s - 25569) * 86400 * 1000);
+  // Excel (sistema 1900): a constante 25569 já incorpora o bug do 1900-02-29.
+  // Subtrair mais 1 dia aqui deslocaria todas as datas modernas para trás.
+  const utcMillis = Math.round((serial - 25569) * 86400 * 1000);
   const d = new Date(utcMillis);
   if (isNaN(d.getTime())) return null;
   return d;

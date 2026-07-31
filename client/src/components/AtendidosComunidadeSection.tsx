@@ -10,6 +10,7 @@ import { ComprehensiveStudentForm } from "@/components/comprehensive-student-for
 import {
   Users, Plus, Search, Loader2, User, Edit2, Trash2, ChevronDown, ChevronUp
 } from "lucide-react";
+import { formatDateBrazil } from "@/lib/brazil-date";
 
 interface Props {
   userId: string | number;
@@ -54,7 +55,11 @@ function formatCPF(v?: string | null) {
 
 function calcIdade(dataNasc?: string | null) {
   if (!dataNasc) return null;
-  const d = new Date(dataNasc);
+  const match = String(dataNasc).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)
+    : new Date(dataNasc);
+  if (Number.isNaN(d.getTime())) return null;
   const hoje = new Date();
   let age = hoje.getFullYear() - d.getFullYear();
   const m = hoje.getMonth() - d.getMonth();
@@ -171,7 +176,7 @@ export default function AtendidosComunidadeSection({ userId }: Props) {
                   <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-4">
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                       <div><span className="text-gray-400 text-xs block">CPF</span><span className="font-mono">{formatCPF(p.cpf)}</span></div>
-                      <div><span className="text-gray-400 text-xs block">Nasc.</span>{p.data_nascimento ? new Date(p.data_nascimento).toLocaleDateString("pt-BR") : "—"}</div>
+                      <div><span className="text-gray-400 text-xs block">Nasc.</span>{p.data_nascimento ? formatDateBrazil(p.data_nascimento) : "—"}</div>
                       <div><span className="text-gray-400 text-xs block">Gênero</span>{p.sexo || "—"}</div>
                       <div><span className="text-gray-400 text-xs block">Raça/Cor</span>{p.raca || "—"}</div>
                       <div><span className="text-gray-400 text-xs block">Telefone</span>{p.telefone || "—"}</div>

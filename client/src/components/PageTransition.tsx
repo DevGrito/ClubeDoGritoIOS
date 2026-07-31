@@ -6,33 +6,28 @@ interface PageTransitionProps {
   children: React.ReactNode;
 }
 
-/** Layout com scroll interno (ex.: área do aluno) — sem motion/absolute. */
-const fullscreenAppPages = ["/aluno"];
+// Shell próprio com scroll interno (ex.: portal aluno)
+const fullscreenLockedPages = ["/aluno"];
 
-/**
- * Telas do doador e afins: o wrapper absolute+transform do Framer Motion
- * trava o scroll no WebView Android. Renderiza sem motion, com overflow.
- */
-const scrollSafePages = [
-  "/tdoador",
-  "/beneficios",
-  "/beneficios-onboarding",
-  "/pagamentos",
-  "/perfil",
-  "/impacto",
-  "/sorteio",
-  "/missoes-semanais",
-  "/missoes",
-  "/noticias",
-  "/central-ajuda",
-  "/change-plan",
-  "/dados-cadastrais",
-  "/configuracoes",
-  "/sobre",
+// Dashboards: sem slide/absolute (evita tela “cortada”), mas com scroll da página
+const fullscreenScrollPages = [
+  "/dev",
+  "/dev/marketing",
+  "/painel/estrategico/lancamento",
+  "/dashboard/gestao/vista",
+  "/gestao-vista",
 ];
 
+function isFullscreenLocked(path: string) {
+  return fullscreenLockedPages.includes(path);
+}
+
+function isFullscreenScroll(path: string) {
+  return fullscreenScrollPages.includes(path);
+}
+
 // Páginas do menu amarelo que NÃO devem ter animação de slide
-const menuPages = ["/tdoador", "/sorteio", "/noticias", "/pagamentos", "/central-ajuda", "/perfil", "/beneficios", "/impacto"];
+const menuPages = ["/tdoador", "/sorteio", "/noticias", "/pagamentos", "/central-ajuda", "/perfil", "/beneficios"];
 
 // Definir hierarquia de páginas para determinar direção da animação
 const pageHierarchy = {
@@ -62,8 +57,6 @@ const pageHierarchy = {
   "/central-ajuda": 16,
   "/sorteio-admin": 24,
   "/dev": 25,
-  "/impacto": 17,
-  "/missoes-semanais": 18,
 };
 
 let previousPath = "/";
@@ -113,29 +106,21 @@ export function PageTransition({ children }: PageTransitionProps) {
   };
 
   if (!isReady) {
-    if (fullscreenAppPages.includes(location)) {
-      return <div className="h-screen w-full">{children}</div>;
+    if (isFullscreenLocked(location)) {
+      return <div className="fixed inset-0 overflow-hidden">{children}</div>;
     }
-    if (scrollSafePages.includes(location)) {
-      return (
-        <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain touch-pan-y bg-white [-webkit-overflow-scrolling:touch]">
-          {children}
-        </div>
-      );
+    if (isFullscreenScroll(location)) {
+      return <div className="fixed inset-0 overflow-y-auto overscroll-contain">{children}</div>;
     }
     return <div className="absolute inset-0 w-full h-full bg-white">{children}</div>;
   }
 
-  if (fullscreenAppPages.includes(location)) {
-    return <div className="h-screen w-full">{children}</div>;
+  if (isFullscreenLocked(location)) {
+    return <div className="fixed inset-0 overflow-hidden">{children}</div>;
   }
 
-  if (scrollSafePages.includes(location)) {
-    return (
-      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain touch-pan-y bg-white [-webkit-overflow-scrolling:touch]">
-        {children}
-      </div>
-    );
+  if (isFullscreenScroll(location)) {
+    return <div className="fixed inset-0 overflow-y-auto overscroll-contain">{children}</div>;
   }
 
   return (

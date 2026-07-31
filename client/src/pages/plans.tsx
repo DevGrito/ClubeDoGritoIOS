@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Logo from "@/components/logo";
 import useEmblaCarousel from 'embla-carousel-react';
+import { cn } from "@/lib/utils";
 
 import { planDetails, planPrices, periodicityLabels } from "@/lib/stripe";
 import { useToast } from "@/hooks/use-toast";
@@ -36,11 +37,28 @@ export default function Plans() {
   const [tier, setTier] = useState("");
   const [estimatedGritos, setEstimatedGritos] = useState(0);
   const { toast } = useToast();
-  const [emblaRef] = useEmblaCarousel({ 
-    loop: false, 
-    align: 'start',
-    containScroll: 'trimSnaps'
+  // Carrossel só no mobile; a partir de tablet o Embla desliga e o CSS assume o grid
+  const [emblaRef] = useEmblaCarousel({
+    loop: false,
+    align: "start",
+    containScroll: "trimSnaps",
+    breakpoints: {
+      "(min-width: 768px)": { active: false },
+    },
   });
+
+  // Mobile: slide do carrossel. Desktop: card compacto, sem esticar na altura
+  const planSlideClass =
+    "embla__slide flex-none w-[min(300px,85vw)] min-w-[min(300px,85vw)] cursor-pointer transition-all duration-300 md:w-[280px] md:min-w-[280px] md:max-w-[280px]";
+
+  const planCardShellClass =
+    "bg-white rounded-3xl shadow-lg h-[520px] grid grid-rows-[auto_auto_1fr_auto] p-5 sm:p-6 md:h-auto md:min-h-0 md:flex md:flex-col md:p-5";
+
+  const planBenefitsClass =
+    "space-y-3 overflow-y-auto pr-2 md:overflow-visible md:pr-0 md:space-y-2 md:mb-4";
+
+  const planWrapperClass =
+    "rounded-3xl h-[520px] md:h-auto md:min-h-0";
 
   // Capturar parâmetro ref da URL (link de indicação/marketing)
   const urlParams = new URLSearchParams(window.location.search);
@@ -326,31 +344,33 @@ export default function Plans() {
      }}>
       {/* Main Container com fundo branco sem card */}
       <div className="min-h-screen bg-white">
-            <div className="w-full mx-auto">
+            <div className="w-full max-w-[1280px] mx-auto">
           
-          {/* Header com botão Entrar */}
-          <div className="flex justify-end items-center pr-4 pb-4">
-          <Button
+          {/* Header: título + Entrar */}
+          <div className="flex items-start justify-between gap-4 px-6 sm:px-8 pb-6 md:pb-8">
+            <h1
+              className="text-gray-800 leading-tight text-left text-2xl md:text-[28px] lg:text-[32px] max-w-lg"
+              style={{ fontFamily: 'Inter', fontWeight: '400' }}
+            >
+              Mais benefícios<br className="md:hidden" />
+              {" "}para você.{" "}
+              <span style={{ fontWeight: '700' }}>
+                Mais<br className="md:hidden" />
+                {" "}futuro para eles.
+              </span>
+            </h1>
+            <Button
               onClick={() => setLocation('/entrar')}
-              className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 py-1.5 text-xs rounded-full shadow-md"
+              className="shrink-0 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 py-1.5 md:px-5 md:py-2 text-xs md:text-sm rounded-full shadow-md"
               data-testid="button-entrar"
             >
               ENTRAR
             </Button>
           </div>
 
-          {/* Título */}
-          <div className="px-8 pb-8">
-            <h1 className="text-gray-800 leading-tight text-left" style={{ fontFamily: 'Inter', fontSize: '24px', fontWeight: '400' }}>
-              Mais benefícios<br />
-              para você. <span style={{ fontWeight: '700' }}>Mais<br />
-              futuro para eles.</span>
-            </h1>
-          </div>
-
-          {/* Carrossel de Planos Customizados */}
-          <div className="embla overflow-hidden" ref={emblaRef}>
-            <div className="embla__container flex gap-4 px-8 pb-8">
+          {/* Planos: carrossel no mobile; no notebook/PC cards de 300px centralizados (2x2 ou 4 em linha) */}
+          <div className="embla overflow-hidden md:overflow-visible" ref={emblaRef}>
+            <div className="embla__container flex gap-4 px-6 sm:px-8 pb-8 md:flex-wrap md:justify-center md:gap-5 md:pb-10 md:items-start">
               {Object.entries(planDetails).map(([planId, plan], index) => {
                 // Skip platinum and diamante plans
                 if (planId === 'platinum' || planId === 'diamante') {
@@ -364,14 +384,10 @@ export default function Plans() {
                 // Render premium plans with special wrappers (keeping old code structure for other plans)
                 if (planId === 'platinum_old') {
                   return (
-                    <div 
-                      key={planId}
-                      className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                      style={{ width: '300px', minWidth: '300px' }}
-                    >
+                    <div key={planId} className={planSlideClass}>
                       {/* Wrapper Premium Dourado */}
-                      <div className="bg-gradient-to-br from-yellow-300 to-amber-500 p-1 rounded-3xl h-[550px]">
-                        <div className="bg-white rounded-3xl shadow-lg h-full grid grid-rows-[auto_auto_1fr_auto] p-6">
+                      <div className={cn("bg-gradient-to-br from-yellow-300 to-amber-500 p-1", planWrapperClass)}>
+                        <div className={planCardShellClass}>
                           
                           {/* Badge interno */}
                           <div className="flex justify-center mb-4">
@@ -393,8 +409,8 @@ export default function Plans() {
                             </div>
                           </div>
 
-                          {/* Lista de Benefícios - Scrollable */}
-                          <div className="overflow-y-auto space-y-3 pr-2">
+                          {/* Lista de Benefícios */}
+                          <div className={planBenefitsClass}>
                             {getPlanBenefits(planId).map((benefit, idx) => (
                               <div key={idx} className="flex items-start gap-3">
                                 <div className="mt-1 flex-shrink-0">
@@ -426,13 +442,9 @@ export default function Plans() {
 
                 if (planId === 'diamante') {
                   return (
-                    <div 
-                      key={planId}
-                      className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                      style={{ width: '300px', minWidth: '300px' }}
-                    >
+                    <div key={planId} className={planSlideClass}>
                       {/* Wrapper Premium Diamante */}
-                      <div className="bg-gradient-to-br from-gray-800 via-white to-gray-800 p-1 rounded-3xl h-[550px]">
+                      <div className={cn("bg-gradient-to-br from-gray-800 via-white to-gray-800 p-1", planWrapperClass)}>
                         <div className="bg-gray-900 text-white rounded-3xl shadow-lg h-full grid grid-rows-[auto_auto_1fr_auto] p-6">
                           
                           {/* Badge interno */}
@@ -455,8 +467,8 @@ export default function Plans() {
                             </div>
                           </div>
 
-                          {/* Lista de Benefícios - Scrollable */}
-                          <div className="overflow-y-auto space-y-3 pr-2">
+                          {/* Lista de Benefícios */}
+                          <div className={planBenefitsClass}>
                             {getPlanBenefits(planId).map((benefit, idx) => (
                               <div key={idx} className="flex items-start gap-3">
                                 <div className="mt-1 flex-shrink-0">
@@ -488,20 +500,17 @@ export default function Plans() {
 
                 // Render regular plans (eco, voz, grito)
                 return (
-                  <div 
-                    key={planId}
-                    className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                    style={{ width: '300px', minWidth: '300px' }}
-                  >
+                  <div key={planId} className={planSlideClass}>
                     {/* Card Regular */}
-                    <div className={`bg-white rounded-3xl shadow-lg h-[550px] grid grid-rows-[auto_auto_1fr_auto] p-6 ${
-                      planId === 'voz' 
-                        ? 'border-4 border-green-500' 
+                    <div className={cn(
+                      planCardShellClass,
+                      planId === 'voz'
+                        ? 'border-4 border-green-500'
                         : 'border border-gray-200'
-                    }`}>
+                    )}>
                       
                       {/* Badge interno para planos populares */}
-                      <div className="flex justify-center mb-4">
+                      <div className="flex justify-center mb-3 md:mb-2 min-h-[28px]">
                         {'popular' in plan && plan.popular && (
                           <div className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-semibold">
                             POPULAR
@@ -510,20 +519,20 @@ export default function Plans() {
                       </div>
                       
                       {/* Título e Preço */}
-                      <div className="text-center mb-4">
-                        <h3 className="text-2xl font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter' }}>
+                      <div className="text-center mb-3 md:mb-2">
+                        <h3 className="text-2xl md:text-xl font-bold text-gray-800 mb-2 md:mb-1" style={{ fontFamily: 'Inter' }}>
                           {plan.name.toUpperCase()}
                         </h3>
-                        <p className="text-gray-600 text-sm mb-4" style={{ fontFamily: 'Inter' }}>
+                        <p className="text-gray-600 text-sm mb-3 md:mb-2" style={{ fontFamily: 'Inter' }}>
                           {plan.description}
                         </p>
-                        <div className="text-3xl font-bold text-gray-800" style={{ fontFamily: 'Inter' }}>
+                        <div className="text-3xl md:text-2xl font-bold text-gray-800" style={{ fontFamily: 'Inter' }}>
                           {primaryPrice.display}
                         </div>
                       </div>
 
-                      {/* Lista de Benefícios - Scrollable */}
-                      <div className="overflow-y-auto space-y-3 pr-2">
+                      {/* Lista de Benefícios */}
+                      <div className={planBenefitsClass}>
                         {getPlanBenefits(planId).map((benefit, idx) => (
                           <div key={idx} className="flex items-start gap-3">
                             <div className="mt-1 flex-shrink-0">
@@ -537,7 +546,7 @@ export default function Plans() {
                       </div>
 
                       {/* Botão fixo */}
-                      <div className="pt-4">
+                      <div className="pt-4 md:pt-2 md:mt-auto">
                         <Button 
                           className="w-full bg-green-500 hover:bg-green-600 text-white rounded-full font-semibold py-3 text-base shadow-md transition-all duration-200"
                           style={{ fontFamily: 'Inter' }}
@@ -553,16 +562,13 @@ export default function Plans() {
               })}
 
               {/* Card de Valor Livre - NOVO */}
-              <div 
-                className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                style={{ width: '300px', minWidth: '300px' }}
-              >
+              <div className={planSlideClass}>
                 {/* Wrapper Valor Livre com gradiente especial */}
-                <div className="bg-gradient-to-br from-blue-400 to-purple-600 p-1 rounded-3xl h-[550px]">
-                  <div className="bg-white rounded-3xl shadow-lg h-full grid grid-rows-[auto_auto_1fr_auto] p-6">
+                <div className={cn("bg-gradient-to-br from-blue-400 to-purple-600 p-1", planWrapperClass)}>
+                  <div className={planCardShellClass}>
                     
                     {/* Badge interno */}
-                    <div className="flex justify-center mb-4">
+                    <div className="flex justify-center mb-3 md:mb-2 min-h-[28px]">
                       <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-1 rounded-full text-sm font-semibold">
                         <Sparkles className="w-4 h-4 inline mr-1" />
                         SEJA PLATINUM
@@ -570,20 +576,20 @@ export default function Plans() {
                     </div>
                     
                     {/* Título e Descrição */}
-                    <div className="text-center mb-4">
-                      <h3 className="text-2xl font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter' }}>
+                    <div className="text-center mb-3 md:mb-2">
+                      <h3 className="text-2xl md:text-xl font-bold text-gray-800 mb-2 md:mb-1" style={{ fontFamily: 'Inter' }}>
                         PLATINUM
                       </h3>
-                      <p className="text-gray-600 text-sm mb-4" style={{ fontFamily: 'Inter' }}>
+                      <p className="text-gray-600 text-sm mb-3 md:mb-2" style={{ fontFamily: 'Inter' }}>
                         Cobrança mensal automática no valor que você escolher
                       </p>
-                      <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600" style={{ fontFamily: 'Inter' }}>
+                      <div className="text-xl md:text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600" style={{ fontFamily: 'Inter' }}>
                         ESCOLHA SEU VALOR
                       </div>
                     </div>
 
-                    {/* Lista de Benefícios - Scrollable */}
-                    <div className="overflow-y-auto space-y-3 pr-2">
+                    {/* Lista de Benefícios */}
+                    <div className={planBenefitsClass}>
                       <div className="flex items-start gap-3">
                         <div className="mt-1 flex-shrink-0">
                           <Check className="w-5 h-5 text-green-500" />
@@ -667,7 +673,7 @@ export default function Plans() {
                     </div>
 
                     {/* Botão fixo */}
-                    <div className="pt-4">
+                    <div className="pt-4 md:pt-2 md:mt-auto">
                       <Button 
                         className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-full font-semibold py-3 text-base shadow-md transition-all duration-200"
                         style={{ fontFamily: 'Inter' }}
@@ -957,7 +963,7 @@ export default function Plans() {
 
       {/* ── Rodapé ─────────────────────────────────────────────── */}
       <footer className="bg-gray-100 border-t border-gray-200 px-6 py-6 mt-8">
-        <div className="max-w-lg mx-auto text-center space-y-3">
+        <div className="max-w-lg md:max-w-4xl mx-auto text-center space-y-3">
           <p className="text-xs text-gray-500" style={{ fontFamily: 'Inter' }}>
             © {new Date().getFullYear()} Instituto O Grito. Todos os direitos reservados.
           </p>

@@ -214,17 +214,18 @@ export default function BeneficiosOnboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-white relative">
+    <div className="min-h-dvh bg-white relative">
       {/* Botão de voltar - só aparece da segunda tela em diante */}
       <AnimatePresence mode="wait">
         {currentStep > 0 && (
           <motion.button
             key={`back-button-${currentStep}`}
             onClick={handleBack}
-            className="fixed top-10 left-10 z-50 flex items-center justify-center text-xl"
+            className="fixed z-50 flex items-center justify-center text-xl left-6 sm:left-10"
             style={{
               color: '#000000',
-              fontFamily: 'Inter, sans-serif'
+              fontFamily: 'Inter, sans-serif',
+              top: 'max(2.5rem, calc(env(safe-area-inset-top, 0px) + 1.25rem))',
             }}
             initial={{ opacity: 0, scale: 0.8, x: -20 }}
             animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -243,15 +244,21 @@ export default function BeneficiosOnboarding() {
           // Primeira tela - Boas vindas ao Clube do Grito
           <motion.div 
             key="step1"
-            className="min-h-screen bg-white flex flex-col px-8"
+            className="min-h-[100dvh] bg-white flex flex-col px-6 sm:px-8"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
             transition={{ duration: 0.6, ease: "easeInOut" }}
           >
-            <div className="pt-48">
+            <div
+              className="flex flex-col flex-1"
+              style={{
+                paddingTop: "max(4rem, calc(env(safe-area-inset-top, 0px) + 3rem))",
+                paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))",
+              }}
+            >
               <p 
-                className="text-2xl leading-relaxed mb-32 text-left"
+                className="text-xl sm:text-2xl leading-relaxed mb-12 sm:mb-32 text-left"
                 style={{ 
                   color: '#000000', 
                   fontFamily: 'Inter, sans-serif',
@@ -262,7 +269,7 @@ export default function BeneficiosOnboarding() {
                 no <span className="font-bold">Clube do Grito</span>.
               </p>
               
-              <div className="mt-56">
+              <div className="mt-auto pb-8">
                 <button
                   onClick={handleNext}
                   className="px-8 py-3 rounded-2xl font-medium text-lg "
@@ -281,7 +288,7 @@ export default function BeneficiosOnboarding() {
           // Segunda tela - Sistema de Gritos
           <motion.div 
             key="step2"
-            className="min-h-screen bg-white px-8 pt-8"
+            className="min-h-[100dvh] bg-white px-6 sm:px-8 pt-8"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
@@ -292,7 +299,7 @@ export default function BeneficiosOnboarding() {
               <motion.img 
                 src={phoneIllustration} 
                 alt="Celular com moeda dourada" 
-                className="w-300 h-auto"
+                className="w-full max-w-xs mx-auto h-auto"
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
@@ -314,7 +321,10 @@ export default function BeneficiosOnboarding() {
               </p>
             </div>
             
-            <div className="fixed bottom-6 right-6">
+            <div
+              className="fixed right-6 z-20"
+              style={{ bottom: "max(1.5rem, calc(env(safe-area-inset-bottom, 0px) + 1rem))" }}
+            >
               <button
                 onClick={handleNext}
                 className="bg-yellow-400 text-black px-6 py-3 rounded-full font-medium hover:bg-yellow-500 transition-colors cursor-pointer text-lg"
@@ -330,7 +340,7 @@ export default function BeneficiosOnboarding() {
           // Terceira tela - Parabéns pelos 50 Gritos
           <motion.div 
             key="step3"
-            className="min-h-screen bg-white px-8 pt-8"
+            className="min-h-[100dvh] bg-white px-6 sm:px-8 pt-8"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
@@ -398,7 +408,10 @@ export default function BeneficiosOnboarding() {
               </p>
             </div>
             
-            <div className="fixed bottom-6 right-6">
+            <div
+              className="fixed right-6 z-20"
+              style={{ bottom: "max(1.5rem, calc(env(safe-area-inset-bottom, 0px) + 1rem))" }}
+            >
               <button
                 onClick={handleNext}
                 className="bg-yellow-400 text-black px-6 py-3 rounded-full font-medium hover:bg-yellow-500 transition-colors cursor-pointer text-lg"
@@ -414,7 +427,7 @@ export default function BeneficiosOnboarding() {
           // Quarta tela - Impacto na Comunidade
           <motion.div 
             key="step4"
-            className="min-h-screen bg-white px-8 pt-8"
+            className="min-h-[100dvh] bg-white px-6 sm:px-8 pt-8"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
@@ -456,7 +469,10 @@ export default function BeneficiosOnboarding() {
               </motion.div>
             </div>
             
-            <div className="fixed bottom-6 right-6">
+            <div
+              className="fixed right-6 z-20"
+              style={{ bottom: "max(1.5rem, calc(env(safe-area-inset-bottom, 0px) + 1rem))" }}
+            >
               <button
                 onClick={handleNext}
                 className="bg-black text-white px-8 py-3 rounded-full font-medium hover:bg-gray-800 transition-colors cursor-pointer text-lg"

@@ -1,12 +1,14 @@
 import {
   appendPeriodoParams,
   isPeriodoTodos,
+  metaEspacoGritoPeriodo,
   periodoMesesLista,
+  periodoQtdMesesMeta,
   type PeriodoFiltro,
 } from "@/pages/dashboard-gestao-vista/shared";
 
 export type { PeriodoFiltro };
-export { appendPeriodoParams, isPeriodoTodos, periodoMesesLista };
+export { appendPeriodoParams, isPeriodoTodos, metaEspacoGritoPeriodo, periodoMesesLista };
 
 export function buildPeriodoSearchParams(ano: number, periodo: PeriodoFiltro): URLSearchParams {
   const params = new URLSearchParams();
@@ -36,22 +38,9 @@ export function mesesDoPeriodo(periodo: PeriodoFiltro): number[] {
   return periodoMesesLista(periodo);
 }
 
-/** Qtd de meses para prorratear meta numérica (0 = meta anual inteira, ex. período "todos"). */
+/** Qtd de meses para prorratear meta numérica (0 = meta anual inteira ou só janeiro). */
 export function periodoQtdMesesParaMeta(periodo: PeriodoFiltro): number {
-  if (periodo === "todos") return 0;
-  return mesesDoPeriodo(periodo).length;
-}
-
-/** Meses com meta prevista para #EspaçoOGrito (fev–nov; jan e dez sem meta). */
-const MESES_COM_META_ESPACO_GRITO = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-
-/** Meta de #EspaçoOGrito: 1 por mês elegível no período (meta anual = 10). */
-export function metaEspacoGritoPeriodo(periodo: PeriodoFiltro): number {
-  if (periodo === "todos") {
-    const mesLimite = new Date().getMonth() + 1;
-    return [...MESES_COM_META_ESPACO_GRITO].filter((m) => m <= mesLimite).length;
-  }
-  return periodoMesesLista(periodo).filter((m) => MESES_COM_META_ESPACO_GRITO.has(m)).length;
+  return periodoQtdMesesMeta(periodo);
 }
 
 export function filterByPeriodo(

@@ -23,6 +23,7 @@ import {
   Home,
   Zap,
   Layers,
+  User,
 } from "lucide-react";
 import {
   BarChart,
@@ -124,7 +125,6 @@ type CoordenadorDashboardProps = {
   metaGeracaoRenda?: number;
   metaFormados?: number;
   casasMapeadas?: number;
-  moradasGeraisStats?: { total: number; porStatus: { label: string; value: number; color: string }[] };
 };
 
 // ── Metas padrão ────────────────────────────────────────────────────────────
@@ -714,20 +714,60 @@ export function PsicoVisitasBreakdownModal({ data, onClose }: { data: DashboardD
 export function MoradasGeraisBreakdownModal({
   total,
   porStatus,
+  reformas = [],
   onClose,
 }: {
   total: number;
-  porStatus: { label: string; value: number; color: string }[];
+  porStatus: { key?: string; label: string; value: number; color: string }[];
+  reformas?: {
+    status: string;
+    participanteNome?: string;
+    participante_nome?: string;
+    participante_telefone?: string;
+    participante_endereco?: string;
+  }[];
   onClose: () => void;
 }) {
+  const [expandedStatus, setExpandedStatus] = useState<string | null>(null);
   const items = porStatus.filter((item) => item.value > 0);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
+  const getPeopleForStatus = (statusKey: string) =>
+    reformas
+      .filter((r) => r.status === statusKey)
+      .map((r) => ({
+        nome: (r.participanteNome || r.participante_nome || "").trim(),
+        telefone: r.participante_telefone || "",
+        endereco: r.participante_endereco || "",
+      }))
+      .filter((p) => p.nome)
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
+
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/70 overflow-hidden overscroll-none"
+      onClick={onClose}
+      onWheel={(e) => {
+        if (e.target === e.currentTarget) e.preventDefault();
+      }}
+    >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] max-w-xl flex flex-col"
+        className="bg-slate-900 border border-slate-700 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] max-w-xl flex flex-col h-[min(92dvh,92vh)] sm:h-auto sm:max-h-[88vh] min-h-0 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-700">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-700 shrink-0">
           <div>
             <h3 className="text-base sm:text-lg font-bold text-white">Moradas Gerais por Status</h3>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -738,25 +778,98 @@ export function MoradasGeraisBreakdownModal({
             <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>
-        <div className="p-4 sm:p-5 flex flex-col gap-3">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 pt-4 sm:pt-5 pb-8 flex flex-col gap-3 [scrollbar-width:thin] [scrollbar-color:rgb(71_85_105)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-600">
           {items.length > 0 ? (
-            items.map(({ label, value, color }) => {
+            items.map(({ key, label, value, color }) => {
+              const statusKey = key ?? label;
               const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+              const isExpanded = expandedStatus === statusKey;
+              const people = getPeopleForStatus(statusKey);
               return (
-                <div key={label} className="bg-slate-800 rounded-xl p-4 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}22` }}>
-                    <Home className="w-5 h-5" style={{ color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-slate-200">{label}</span>
-                      <span className="text-sm font-bold text-white">{value.toLocaleString("pt-BR")}</span>
+                <div key={statusKey} className={`rounded-xl ${isExpanded ? "border shadow-lg" : "overflow-hidden"}`} style={isExpanded ? { borderColor: `${color}33`, boxShadow: `0 8px 24px ${color}12` } : undefined}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedStatus(isExpanded ? null : statusKey)}
+                    className={`w-full p-4 flex items-center gap-4 text-left transition-all cursor-pointer rounded-t-xl ${
+                      isExpanded
+                        ? "bg-slate-800 border border-b-0"
+                        : "bg-slate-800 hover:bg-slate-700 rounded-xl"
+                    }`}
+                    style={isExpanded ? { borderColor: `${color}44` } : undefined}
+                  >
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}22` }}>
+                      <Home className="w-5 h-5" style={{ color }} />
                     </div>
-                    <div className="w-full bg-slate-700 rounded-full h-1.5">
-                      <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-slate-200">{label}</span>
+                        <span className="text-sm font-bold text-white">{value.toLocaleString("pt-BR")}</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-1.5">
+                        <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        {pct}% do total · {isExpanded ? "clique p/ recolher" : "clique p/ ver nomes"}
+                      </span>
                     </div>
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">{pct}% do total</span>
-                  </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-slate-500 shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {isExpanded && (
+                    <div
+                      className="border-t border-slate-700/60 px-3 py-3 sm:px-4 sm:py-4"
+                      style={{
+                        background: `linear-gradient(160deg, ${color}14 0%, rgb(15 23 42 / 0.95) 45%, rgb(2 6 23 / 0.98) 100%)`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                          Pessoas neste status
+                        </span>
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: `${color}22`, color }}
+                        >
+                          {people.length}
+                        </span>
+                      </div>
+                      {people.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-4">Nenhuma pessoa neste status.</p>
+                      ) : (
+                        <div className="space-y-1.5 pb-1">
+                          {people.map((person, i) => (
+                            <div
+                              key={`${statusKey}-${person.nome}-${i}`}
+                              className="flex items-start gap-2.5 rounded-lg bg-slate-900/70 border border-slate-700/50 px-3 py-2.5 backdrop-blur-sm"
+                            >
+                              <div
+                                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                                style={{ backgroundColor: `${color}18`, border: `1px solid ${color}33` }}
+                              >
+                                <User className="w-3.5 h-3.5" style={{ color }} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-slate-100 leading-snug">{person.nome}</p>
+                                {person.telefone && (
+                                  <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                                    <MessageCircle className="w-3 h-3 shrink-0" />
+                                    {person.telefone}
+                                  </p>
+                                )}
+                                {person.endereco && (
+                                  <p className="text-[11px] text-slate-400 mt-0.5 flex items-start gap-1">
+                                    <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                                    <span className="leading-snug">{person.endereco}</span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -1089,14 +1202,13 @@ export default function CoordenadorDashboard({
   ocultarFiltroPeriodo = false,
   tipo = "pec", titleOverride, minAno = 2025,
   turmasAtivasPec, turmasDetalhadas,
-  metaGeracaoRenda, metaFormados, casasMapeadas, moradasGeraisStats
+  metaGeracaoRenda, metaFormados, casasMapeadas
 }: CoordenadorDashboardProps) {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showTurmas, setShowTurmas] = useState(false);
   const [showGeracaoRenda, setShowGeracaoRenda] = useState(false);
   const [showAtendBreakdown, setShowAtendBreakdown] = useState(false);
   const [showVisitasBreakdown, setShowVisitasBreakdown] = useState(false);
-  const [showMoradasBreakdown, setShowMoradasBreakdown] = useState(false);
   const [showEvasaoModal, setShowEvasaoModal] = useState(false);
   const [pecMetricBreakdown, setPecMetricBreakdown] = useState<PecBreakdownMetric | null>(null);
   const [inclusaoMetricBreakdown, setInclusaoMetricBreakdown] = useState<InclusaoBreakdownMetric | null>(null);
@@ -1479,17 +1591,6 @@ export default function CoordenadorDashboard({
             />
           )}
 
-          {tipo === "psico" && (
-            <DarkMetricCard
-              icon={Home}
-              label="Moradas Gerais"
-              value={moradasGeraisStats?.total ?? 0}
-              accentColor="#22c55e"
-              onClick={() => setShowMoradasBreakdown(true)}
-              subtitle="Clique p/ detalhar"
-            />
-          )}
-
           {/* Turmas Totais — PEC e Inclusão */}
           {(tipo === "pec" || tipo === "inclusao") && (turmasAtivasPec || turmasDetalhadas) && (
             <DarkMetricCard
@@ -1540,13 +1641,6 @@ export default function CoordenadorDashboard({
       )}
       {showVisitasBreakdown && (
         <PsicoVisitasBreakdownModal data={d} onClose={() => setShowVisitasBreakdown(false)} />
-      )}
-      {showMoradasBreakdown && (
-        <MoradasGeraisBreakdownModal
-          total={moradasGeraisStats?.total ?? 0}
-          porStatus={moradasGeraisStats?.porStatus ?? []}
-          onClose={() => setShowMoradasBreakdown(false)}
-        />
       )}
       {showEvasaoModal && tipo === "pec" && (
         <EvasaoMotivoModal ano={ano} periodo={periodo} onClose={() => setShowEvasaoModal(false)} />

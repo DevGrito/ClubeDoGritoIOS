@@ -3,7 +3,7 @@ import { db } from '../db';
 import { ingressos } from '@shared/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_local_dev_placeholder");
 
 interface SyncResult {
   total: number;

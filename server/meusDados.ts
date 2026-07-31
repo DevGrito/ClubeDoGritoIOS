@@ -44,9 +44,7 @@ async function safeQuery<T = Record<string, unknown>>(
   }
 }
 
-export function normalizeCpfDigits(raw: unknown): string {
-  return String(raw ?? "").replace(/\D/g, "");
-}
+export { normalizeCpfDigits } from "@shared/cpf";
 
 export function isAlunoMeusDadosActor(actorType?: string, papel?: string): boolean {
   const a = (actorType || "").toLowerCase();

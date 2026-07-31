@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import {
@@ -6,7 +6,8 @@ import {
   Star, Settings, LogOut, ChevronLeft, ChevronRight, FileText,
   Menu, X, CheckCircle2, XCircle, AlertCircle, User, Shield,
   MapPin, Phone, Mail, GraduationCap,
-  CalendarDays, Loader2, AlertTriangle, Eye, EyeOff, ImageIcon
+  CalendarDays, Loader2, AlertTriangle, Eye, EyeOff, ImageIcon,
+  HeartHandshake,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest, authFetch } from '@/lib/queryClient';
-import { logoutAndClearSession, isAlunoPortalSession, getAlunoPortalCpf } from '@/lib/auth-session';
+import { logoutAndClearSession } from '@/lib/auth-session';
 import { useAuthSession } from '@/hooks/useAuthSession';
 import AreaConsentGate, { AreaConsentLoading, useAreaConsentReady } from '@/components/AreaConsentGate';
 import { openPrivacyPreferences } from '@/lib/consentManager';
@@ -110,8 +111,9 @@ const DIA_SEMANA_NUM: Record<string, number> = {
 };
 const SEMANA_UTIL = [1, 2, 3, 4, 5];
 
-function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
+function CalendarioMini({ cursos, acolhimentos = [], mes, ano, onMudarMes }: {
   cursos: any[];
+  acolhimentos?: any[];
   mes: number;
   ano: number;
   onMudarMes: (delta: number) => void;
@@ -127,7 +129,7 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
 
   const cursosAtivos = (cursos || []).filter(c => c.status === 'ativo' || c.status === 'emandamento');
 
-  function temAulaNodia(dia: number): { temAula: boolean; cursosDia: any[] } {
+  function eventosNoDia(dia: number): { temAula: boolean; temAcolhimento: boolean; cursosDia: any[]; acolhimentosDia: any[] } {
     const data = new Date(ano, mes - 1, dia);
     const dow  = data.getDay();
     const dataStr = `${ano}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
@@ -146,7 +148,17 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
       return false;
     });
 
-    return { temAula: cursosDia.length > 0, cursosDia };
+    const acolhimentosDia = (acolhimentos || []).filter((a: any) => {
+      const d = String(a.data || '').split('T')[0];
+      return d === dataStr;
+    });
+
+    return {
+      temAula: cursosDia.length > 0,
+      temAcolhimento: acolhimentosDia.length > 0,
+      cursosDia,
+      acolhimentosDia,
+    };
   }
 
   const celulas: (number | null)[] = [];
@@ -185,20 +197,24 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
         ))}
         {celulas.map((d, i) => {
           if (!d) return <div key={i} />;
-          const { temAula, cursosDia } = temAulaNodia(d);
+          const { temAula, temAcolhimento } = eventosNoDia(d);
+          const temEvento = temAula || temAcolhimento;
           const isHoje = ehMesAtual && d === hojeNum;
+          const selected = diaVer === d;
 
           return (
             <div
               key={i}
-              onClick={() => temAula ? setDiaVer(diaVer === d ? null : d) : undefined}
+              onClick={() => temEvento ? setDiaVer(selected ? null : d) : undefined}
               className={`flex items-center justify-center mx-auto rounded-full text-sm font-medium transition-all select-none
                 w-9 h-9
-                ${temAula && diaVer === d ? 'bg-yellow-400 text-gray-900 cursor-pointer' :
+                ${selected && temAcolhimento && !temAula ? 'bg-teal-500 text-white cursor-pointer' :
+                  selected && temAula ? 'bg-yellow-400 text-gray-900 cursor-pointer' :
+                  temAcolhimento && !temAula ? 'bg-teal-100 text-teal-800 cursor-pointer hover:bg-teal-200' :
                   temAula ? 'bg-yellow-100 text-yellow-800 cursor-pointer hover:bg-yellow-300' :
                   isHoje  ? 'ring-2 ring-yellow-400 text-gray-900' :
                   'text-gray-600'}
-                ${isHoje && temAula ? 'ring-2 ring-yellow-500' : ''}
+                ${isHoje && temEvento ? 'ring-2 ring-yellow-500' : ''}
               `}
             >
               {d}
@@ -213,8 +229,8 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
             {String(diaVer).padStart(2,'0')}/{String(mes).padStart(2,'0')}/{ano}
           </p>
-          {temAulaNodia(diaVer).cursosDia.map((c, i) => (
-            <div key={i} className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2.5">
+          {eventosNoDia(diaVer).cursosDia.map((c, i) => (
+            <div key={`a-${i}`} className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2.5">
               <div className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-900 truncate">{c.nome}</p>
@@ -224,14 +240,40 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
               </div>
             </div>
           ))}
+          {eventosNoDia(diaVer).acolhimentosDia.map((a: any, i: number) => (
+            <div
+              key={`ac-${i}`}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 border ${
+                a.status === 'cancelado'
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-teal-50 border-teal-200'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full shrink-0 ${a.status === 'cancelado' ? 'bg-amber-500' : 'bg-teal-500'}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">
+                  {a.status === 'cancelado' ? 'Acolhimento cancelado' : 'Acolhimento'}
+                </p>
+                <p className="text-xs text-gray-600">
+                  {fmtHora(a.horaInicio)}
+                  {a.local ? ` · ${a.local}` : ''}
+                  {a.status && a.status !== 'agendado' && a.status !== 'cancelado' ? ` · ${String(a.status)}` : ''}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* Legenda */}
-      <div className="flex items-center gap-4 text-xs text-gray-500 pt-1 border-t border-gray-100">
+      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500 pt-1 border-t border-gray-100">
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-full bg-yellow-300 inline-block" />
           Dia com aula
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-teal-300 inline-block" />
+          Acolhimento
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-full border-2 border-yellow-400 inline-block" />
@@ -244,9 +286,25 @@ function CalendarioMini({ cursos, mes, ano, onMudarMes }: {
 
 // ─── Seções ───────────────────────────────────────────────────────────────────
 
-function SecaoDashboard({ perfil, proxAula, frequencia, cursos, foto }: any) {
+function SecaoDashboard({ perfil, proxAula, proxAcolhimento, frequencia, cursos, acolhimentos = [], foto }: any) {
   const percentual = frequencia?.percentualGeral ?? 0;
   const cursosAtivos = (cursos || []).filter((c: any) => c.status === 'ativo' || c.status === 'emandamento');
+  const listaAcolhimentos = acolhimentos || [];
+  const temAcolhimentos = listaAcolhimentos.length > 0;
+  const hojeStr = new Date().toISOString().split('T')[0];
+  const acolhimentosCanceladosAvisos = listaAcolhimentos
+    .filter((a: any) => a.status === 'cancelado' && String(a.data || '').split('T')[0] >= hojeStr)
+    .sort((a: any, b: any) => String(a.data).localeCompare(String(b.data)));
+
+  const concluidosAcolhimento = listaAcolhimentos.filter(
+    (a: any) => a.status === 'realizado' || a.status === 'faltou'
+  );
+  const presentesAcolhimento = concluidosAcolhimento.filter((a: any) => a.status === 'realizado').length;
+  const faltasAcolhimento = concluidosAcolhimento.filter((a: any) => a.status === 'faltou').length;
+  const percentualAcolhimento =
+    concluidosAcolhimento.length > 0
+      ? Math.round((presentesAcolhimento / concluidosAcolhimento.length) * 100)
+      : 0;
 
   const freqCor = percentual >= 90
     ? 'text-green-600'
@@ -260,8 +318,20 @@ function SecaoDashboard({ perfil, proxAula, frequencia, cursos, foto }: any) {
     ? 'bg-yellow-400'
     : 'bg-red-500';
 
+  const freqAcolhCor = percentualAcolhimento >= 90
+    ? 'text-green-600'
+    : percentualAcolhimento >= 85
+    ? 'text-teal-600'
+    : 'text-red-500';
+
+  const freqAcolhBarCor = percentualAcolhimento >= 90
+    ? 'bg-green-500'
+    : percentualAcolhimento >= 85
+    ? 'bg-teal-500'
+    : 'bg-red-500';
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Boas vindas */}
       <div className="flex items-center gap-3 py-2">
         <Avatar className="w-12 h-12 border-2 border-gray-200 shrink-0">
@@ -276,86 +346,161 @@ function SecaoDashboard({ perfil, proxAula, frequencia, cursos, foto }: any) {
         </div>
       </div>
 
-      {/* Próxima aula */}
-      {proxAula && (
-        <Card className="border border-yellow-200 bg-yellow-50 shadow-none">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <CalendarDays className="w-4 h-4 text-yellow-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs text-yellow-700 font-semibold uppercase tracking-wide mb-0.5">Próxima Aula</p>
-                <p className="text-sm font-bold text-gray-900">{proxAula.nome}</p>
-                <p className="text-xs text-gray-700 mt-0.5">
-                  {fmtDiaSemana(proxAula.data) && `${fmtDiaSemana(proxAula.data)}, `}{fmtData(proxAula.data)}{proxAula.horario ? ` às ${fmtHora(proxAula.horario)}` : ''}
-                  {proxAula.local ? ` · ${proxAula.local}` : ''}
-                </p>
+      {/* ── Cursos e Oficinas ── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Cursos e Oficinas</p>
+
+        {proxAula && (
+          <Card className="border border-yellow-200 bg-yellow-50 shadow-none">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <CalendarDays className="w-4 h-4 text-yellow-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-yellow-700 font-semibold uppercase tracking-wide mb-0.5">Próxima Aula</p>
+                  <p className="text-sm font-bold text-gray-900">{proxAula.nome}</p>
+                  <p className="text-xs text-gray-700 mt-0.5">
+                    {fmtDiaSemana(proxAula.data) && `${fmtDiaSemana(proxAula.data)}, `}{fmtData(proxAula.data)}{proxAula.horario ? ` às ${fmtHora(proxAula.horario)}` : ''}
+                    {proxAula.local ? ` · ${proxAula.local}` : ''}
+                  </p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )}
 
-      {/* Cards de métricas */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Frequência */}
-        <Card className="col-span-2 border border-gray-200 shadow-none">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-700 font-medium mb-1">Frequência Geral</p>
-            <p className={`text-4xl font-bold ${freqCor}`}>{percentual}%</p>
-            <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${freqBarCor}`} style={{ width: `${percentual}%` }} />
-            </div>
-            <div className="flex justify-between mt-2">
-              <span className="text-xs text-gray-700">{frequencia?.totalPresente ?? 0} presenças</span>
-              <span className="text-xs text-gray-700">{frequencia?.totalFalta ?? 0} faltas</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-2 gap-3">
+          <Card className="col-span-2 border border-gray-200 shadow-none">
+            <CardContent className="p-4">
+              <p className="text-xs text-gray-700 font-medium mb-0.5">Frequência em cursos e oficinas</p>
+              <p className="text-[11px] text-gray-500 mb-2">Presenças nas aulas dos seus cursos e oficinas</p>
+              <p className={`text-4xl font-bold ${freqCor}`}>{percentual}%</p>
+              <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${freqBarCor}`} style={{ width: `${percentual}%` }} />
+              </div>
+              <div className="flex justify-between mt-2">
+                <span className="text-xs text-gray-700">{frequencia?.totalPresente ?? 0} presenças</span>
+                <span className="text-xs text-gray-700">{frequencia?.totalFalta ?? 0} faltas</span>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Cursos Ativos */}
-        <Card className="border border-gray-200 shadow-none">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-700 font-medium mb-1">Cursos e Oficinas Ativos</p>
-            <p className="text-3xl font-bold text-gray-900">{cursosAtivos.length}</p>
-            <p className="text-xs text-gray-600 mt-1">{(cursos || []).length} no total</p>
-          </CardContent>
-        </Card>
+          <Card className="border border-gray-200 shadow-none">
+            <CardContent className="p-4">
+              <p className="text-xs text-gray-700 font-medium mb-1">Cursos e Oficinas Ativos</p>
+              <p className="text-3xl font-bold text-gray-900">{cursosAtivos.length}</p>
+              <p className="text-xs text-gray-600 mt-1">{(cursos || []).length} no total</p>
+            </CardContent>
+          </Card>
 
-        {/* Próxima aula horário */}
-        <Card className="border border-gray-200 shadow-none">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-700 font-medium mb-1">Próxima Aula</p>
-            {proxAula ? (
-              <>
-                <p className="text-sm font-bold text-gray-900">{fmtHora(proxAula.horario) || '—'}</p>
-                <p className="text-xs text-gray-600 mt-1 truncate">
-                  {fmtDiaSemana(proxAula.data) ? `${fmtDiaSemana(proxAula.data)}, ${fmtData(proxAula.data)}` : fmtData(proxAula.data)}
-                </p>
-                {proxAula.local && <p className="text-xs text-gray-500 truncate">{proxAula.local}</p>}
-              </>
-            ) : (
-              <p className="text-sm text-gray-600">—</p>
-            )}
-          </CardContent>
-        </Card>
+          <Card className="border border-gray-200 shadow-none">
+            <CardContent className="p-4">
+              <p className="text-xs text-gray-700 font-medium mb-1">Próxima Aula</p>
+              {proxAula ? (
+                <>
+                  <p className="text-sm font-bold text-gray-900">{fmtHora(proxAula.horario) || '—'}</p>
+                  <p className="text-xs text-gray-600 mt-1 truncate">
+                    {fmtDiaSemana(proxAula.data) ? `${fmtDiaSemana(proxAula.data)}, ${fmtData(proxAula.data)}` : fmtData(proxAula.data)}
+                  </p>
+                  {proxAula.local && <p className="text-xs text-gray-500 truncate">{proxAula.local}</p>}
+                </>
+              ) : (
+                <p className="text-sm text-gray-600">—</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {cursosAtivos.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Em andamento</p>
+            <div className="space-y-2">
+              {cursosAtivos.map((c: any, i: number) => (
+                <div key={i} className="border-l-[3px] border-l-yellow-400 border border-gray-200 bg-white rounded-lg px-3 py-2.5">
+                  <p className="text-sm font-semibold text-gray-800 leading-tight">{c.nome}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {c.diasSemana?.length > 0 ? c.diasSemana.map(diaSemanaLabel).join(' · ') : (c.turno ? turnoLabel(c.turno) : '')}
+                    {c.horarioEntrada ? ` · ${fmtHora(c.horarioEntrada)}–${fmtHora(c.horarioSaida)}` : ''}
+                    {c.local ? ` · ${c.local}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Cursos em andamento */}
-      {cursosAtivos.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Cursos ou Oficinas em Andamento</p>
-          <div className="space-y-2">
-            {cursosAtivos.map((c: any, i: number) => (
-              <div key={i} className="border-l-[3px] border-l-yellow-400 border border-gray-200 bg-white rounded-lg px-3 py-2.5">
-                <p className="text-sm font-semibold text-gray-800 leading-tight">{c.nome}</p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  {c.diasSemana?.length > 0 ? c.diasSemana.map(diaSemanaLabel).join(' · ') : (c.turno ? turnoLabel(c.turno) : '')}
-                  {c.horarioEntrada ? ` · ${fmtHora(c.horarioEntrada)}–${fmtHora(c.horarioSaida)}` : ''}
-                  {c.local ? ` · ${c.local}` : ''}
-                </p>
-              </div>
-            ))}
-          </div>
+      {/* ── Acolhimentos (só se tiver) ── */}
+      {temAcolhimentos && (
+        <div className="space-y-3 pt-2 border-t border-gray-100">
+          <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide">Acolhimentos</p>
+
+          {proxAcolhimento && (
+            <Card className="border border-teal-200 bg-teal-50 shadow-none">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <HeartHandshake className="w-4 h-4 text-teal-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-teal-700 font-semibold uppercase tracking-wide mb-0.5">Próximo Acolhimento</p>
+                    <p className="text-sm font-bold text-gray-900">
+                      {fmtDiaSemana(proxAcolhimento.data) && `${fmtDiaSemana(proxAcolhimento.data)}, `}
+                      {fmtData(proxAcolhimento.data)}
+                      {proxAcolhimento.horaInicio ? ` às ${fmtHora(proxAcolhimento.horaInicio)}` : ''}
+                    </p>
+                    {proxAcolhimento.local && (
+                      <p className="text-xs text-gray-700 mt-0.5">{proxAcolhimento.local}</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {acolhimentosCanceladosAvisos.map((a: any) => (
+            <Card key={`cancel-${a.id}`} className="border border-amber-300 bg-amber-50 shadow-none">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-amber-800 font-semibold uppercase tracking-wide mb-0.5">
+                      Acolhimento cancelado
+                    </p>
+                    <p className="text-sm font-bold text-gray-900">
+                      O acolhimento de {fmtData(a.data)}
+                      {a.horaInicio ? ` às ${fmtHora(a.horaInicio)}` : ''} foi cancelado.
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {a.local ? `${a.local} · ` : ''}
+                      Em caso de dúvida, fale com a equipe psicossocial.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          <Card className="border border-teal-100 bg-white shadow-none">
+            <CardContent className="p-4">
+              <p className="text-xs text-gray-700 font-medium mb-0.5">Frequência nos acolhimentos</p>
+              <p className="text-[11px] text-gray-500 mb-2">Comparecimento nos acolhimentos já realizados</p>
+              {concluidosAcolhimento.length === 0 ? (
+                <p className="text-sm text-gray-500">Ainda sem acolhimentos concluídos para calcular.</p>
+              ) : (
+                <>
+                  <p className={`text-4xl font-bold ${freqAcolhCor}`}>{percentualAcolhimento}%</p>
+                  <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${freqAcolhBarCor}`}
+                      style={{ width: `${percentualAcolhimento}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-xs text-gray-700">{presentesAcolhimento} compareceu</span>
+                    <span className="text-xs text-gray-700">{faltasAcolhimento} faltas</span>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
@@ -442,7 +587,7 @@ function SecaoCursos({ cursos }: { cursos: any[] }) {
   );
 }
 
-function SecaoCalendario({ cursos }: { cursos: any[] }) {
+function SecaoCalendario({ cursos, acolhimentos = [] }: { cursos: any[]; acolhimentos?: any[] }) {
   const hoje = new Date();
   const [mes, setMes] = useState(hoje.getMonth() + 1);
   const [ano, setAno] = useState(hoje.getFullYear());
@@ -458,10 +603,6 @@ function SecaoCalendario({ cursos }: { cursos: any[] }) {
 
   // ── Aulas da Semana ──────────────────────────────────────────────────────
   const DIAS_SEMANA_SEQ = ['segunda','terca','quarta','quinta','sexta','sabado','domingo'];
-  const DIAS_LABEL: Record<string, string> = {
-    segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta',
-    sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo',
-  };
   const DIAS_SHORT: Record<string, string> = {
     segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui',
     sexta: 'Sex', sabado: 'Sáb', domingo: 'Dom',
@@ -492,25 +633,27 @@ function SecaoCalendario({ cursos }: { cursos: any[] }) {
       return true;
     });
 
-    return { diaKey, dateStr, data, isHoje, lista };
-  }).filter(d => d.lista.length > 0);
+    const acolhimentosDia = (acolhimentos || []).filter((a: any) => String(a.data || '').split('T')[0] === dateStr);
+
+    return { diaKey, dateStr, data, isHoje, lista, acolhimentosDia };
+  }).filter(d => d.lista.length > 0 || d.acolhimentosDia.length > 0);
 
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <CalendarioMini cursos={cursos} mes={mes} ano={ano} onMudarMes={mudarMes} />
+        <CalendarioMini cursos={cursos} acolhimentos={acolhimentos} mes={mes} ano={ano} onMudarMes={mudarMes} />
       </div>
 
       {/* Card Aulas da Semana */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          Aulas da Semana
+          Aulas e Acolhimentos da Semana
         </p>
         {aulasSemanais.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">Nenhuma aula esta semana.</p>
+          <p className="text-sm text-gray-400 text-center py-4">Nenhum compromisso esta semana.</p>
         ) : (
           <div className="space-y-3">
-            {aulasSemanais.map(({ diaKey, dateStr, isHoje, lista }) => (
+            {aulasSemanais.map(({ diaKey, dateStr, isHoje, lista, acolhimentosDia }) => (
               <div key={diaKey}>
                 {/* Cabeçalho do dia */}
                 <div className="flex items-center gap-2 mb-1.5">
@@ -539,12 +682,200 @@ function SecaoCalendario({ cursos }: { cursos: any[] }) {
                       </div>
                     </div>
                   ))}
+                  {acolhimentosDia.map((a: any, i: number) => (
+                    <div
+                      key={`ac-${i}`}
+                      className={`border-l-[3px] rounded-r-lg px-3 py-2 ${
+                        a.status === 'cancelado'
+                          ? 'border-l-amber-500 bg-amber-50'
+                          : 'border-l-teal-500 bg-teal-50'
+                      }`}
+                    >
+                      <p className="text-sm font-semibold text-gray-900 leading-tight">
+                        {a.status === 'cancelado' ? 'Acolhimento cancelado' : 'Acolhimento'}
+                      </p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                        {a.horaInicio && (
+                          <span className={`text-xs font-medium ${a.status === 'cancelado' ? 'text-amber-800' : 'text-teal-700'}`}>
+                            {fmtHora(a.horaInicio)}
+                          </span>
+                        )}
+                        {a.local && (
+                          <span className="text-xs text-gray-500 flex items-center gap-0.5">
+                            <MapPin className="w-3 h-3 shrink-0" />{a.local}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const ACOLHIMENTO_STATUS_LABEL: Record<string, string> = {
+  agendado: 'Agendado',
+  realizado: 'Compareceu',
+  faltou: 'Não compareceu',
+  cancelado: 'Cancelado',
+  reagendado: 'Reagendado',
+};
+
+function SecaoAcolhimentos({ acolhimentos }: { acolhimentos: any[] }) {
+  const [aba, setAba] = useState<'proximos' | 'passados' | 'todos'>('proximos');
+  const [filtroData, setFiltroData] = useState('');
+  const hoje = new Date().toISOString().split('T')[0];
+
+  const isProximo = (a: any) => {
+    const data = String(a.data || '').split('T')[0];
+    if (a.status === 'cancelado') return data >= hoje;
+    if (a.status === 'agendado' || a.status === 'reagendado') return data >= hoje;
+    return false;
+  };
+  const isPassado = (a: any) => {
+    const data = String(a.data || '').split('T')[0];
+    if (a.status === 'realizado' || a.status === 'faltou') return true;
+    if (a.status === 'agendado' || a.status === 'reagendado' || a.status === 'cancelado') {
+      return data < hoje;
+    }
+    return false;
+  };
+
+  const proximos = useMemo(
+    () => (acolhimentos || []).filter(isProximo),
+    [acolhimentos, hoje]
+  );
+  const passados = useMemo(
+    () => (acolhimentos || []).filter(isPassado),
+    [acolhimentos, hoje]
+  );
+  const todos = acolhimentos || [];
+
+  const lista = useMemo(() => {
+    let list =
+      aba === 'proximos' ? [...proximos] : aba === 'passados' ? [...passados] : [...todos];
+    if (filtroData) {
+      list = list.filter((a) => String(a.data || '').split('T')[0] === filtroData);
+    }
+    return list.sort((a, b) => {
+      const ka = `${String(a.data).split('T')[0]}T${a.horaInicio || '00:00'}`;
+      const kb = `${String(b.data).split('T')[0]}T${b.horaInicio || '00:00'}`;
+      return aba === 'proximos' ? ka.localeCompare(kb) : kb.localeCompare(ka);
+    });
+  }, [aba, proximos, passados, todos, filtroData]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex border-b border-gray-200 overflow-x-auto">
+        {(
+          [
+            ['proximos', `Próximos (${proximos.length})`],
+            ['passados', `Passados (${passados.length})`],
+            ['todos', `Todos (${todos.length})`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setAba(id)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap
+              ${aba === id ? 'text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}
+          >
+            {label}
+            {aba === id && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-yellow-400 rounded-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <Input
+          type="date"
+          className="h-9 text-sm max-w-[180px] border-gray-200"
+          value={filtroData}
+          onChange={(e) => setFiltroData(e.target.value)}
+          title="Filtrar por data"
+        />
+        {filtroData && (
+          <button
+            type="button"
+            className="text-xs text-gray-500 hover:text-gray-800 underline-offset-2 hover:underline"
+            onClick={() => setFiltroData('')}
+          >
+            Limpar data
+          </button>
+        )}
+      </div>
+
+      {lista.length === 0 ? (
+        <p className="text-sm text-gray-500 text-center py-12">
+          {filtroData
+            ? 'Nenhum acolhimento nesta data.'
+            : aba === 'proximos'
+              ? 'Nenhum acolhimento próximo.'
+              : aba === 'passados'
+                ? 'Nenhum acolhimento passado.'
+                : 'Nenhum acolhimento registrado.'}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {lista.map((a: any) => (
+            <div
+              key={a.id}
+              className={`border-l-[3px] border border-gray-200 bg-white rounded-lg p-4 ${
+                a.status === 'cancelado'
+                  ? 'border-l-amber-500 bg-amber-50/50'
+                  : a.status === 'realizado'
+                    ? 'border-l-green-500'
+                    : a.status === 'faltou'
+                      ? 'border-l-red-400'
+                      : 'border-l-sky-500'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <p className="font-semibold text-gray-900 leading-snug">
+                  {fmtDiaSemana(a.data) ? `${fmtDiaSemana(a.data)}, ` : ''}
+                  {fmtData(a.data)}
+                </p>
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${
+                  a.status === 'realizado' ? 'bg-green-100 text-green-800' :
+                  a.status === 'faltou' ? 'bg-red-100 text-red-700' :
+                  a.status === 'cancelado' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
+                  'bg-sky-100 text-sky-800'
+                }`}>
+                  {ACOLHIMENTO_STATUS_LABEL[a.status] || a.status}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {a.horaInicio && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <Clock className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {fmtHora(a.horaInicio)}
+                    {a.horaFim ? ` – ${fmtHora(a.horaFim)}` : ''}
+                  </div>
+                )}
+                {a.local && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <MapPin className="w-3 h-3 text-yellow-500 shrink-0" />
+                    {a.local}
+                  </div>
+                )}
+                {a.status === 'cancelado' && (
+                  <p className="text-xs text-amber-800 mt-1 font-medium">
+                    Este acolhimento foi cancelado pela equipe.
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1222,7 +1553,7 @@ function SecaoConfiguracoes({ perfil, fotoAtual, onSair }: {
         <div className="space-y-8">
           <LgpdMeusDadosSettingsPanel />
 
-          <div>
+          <div className="pb-2">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3">Notificações push</p>
             <PushNotificationSettings variant="inline" />
           </div>
@@ -1293,6 +1624,7 @@ const MENU = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'cursos', label: 'Cursos e Oficinas', icon: BookOpen },
   { id: 'calendario', label: 'Calendário', icon: Calendar },
+  { id: 'acolhimentos', label: 'Acolhimentos', icon: HeartHandshake },
   { id: 'horarios', label: 'Horários', icon: Clock },
   { id: 'frequencia', label: 'Frequência', icon: BarChart3 },
   { id: 'avaliacao', label: 'Minha Voz', icon: Star },
@@ -1362,26 +1694,36 @@ export default function AlunoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [fotoPortal, setFotoPortal] = useState<string | null>(null);
 
-  const { data: authSession, isLoading: loadingAuth, isFetched: authFetched, isFetching: authFetching } = useAuthSession();
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("tab") === "acolhimentos") setSecao("acolhimentos");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const { data: authSession, isLoading: loadingAuth, isFetched: authFetched } = useAuthSession();
   const cpfFromSession = (() => {
-    if (!isAlunoPortalSession(authSession)) {
+    if (authSession?.actorType !== 'aluno_portal') {
       return sessionStorage.getItem('aluno_cpf') || '';
     }
-    const fromSession = getAlunoPortalCpf(authSession);
-    if (fromSession.length === 11) return fromSession;
+    const fromCpf = String(authSession.cpf || '').replace(/\D/g, '');
+    if (fromCpf.length === 11) return fromCpf;
+    const fromId = String(authSession.id ?? '').replace(/\D/g, '');
+    if (fromId.length === 11) return fromId;
     return sessionStorage.getItem('aluno_cpf') || '';
   })();
   const cpf = cpfFromSession.replace(/\D/g, '');
-  const autenticado = isAlunoPortalSession(authSession) && cpf.length === 11;
+  const autenticado =
+    authSession?.actorType === 'aluno_portal' && cpf.length === 11;
 
   const { ready: consentReady, checking: consentChecking, markReady: markConsentReady } =
     useAreaConsentReady('students', { enabled: autenticado });
 
   React.useEffect(() => {
-    if (authFetched && !loadingAuth && !authFetching && !autenticado) {
-      setLocation('/login/aluno');
-    }
-  }, [autenticado, authFetched, loadingAuth, authFetching, setLocation]);
+    if (authFetched && !loadingAuth && !autenticado) setLocation('/login/aluno');
+  }, [autenticado, authFetched, loadingAuth, setLocation]);
 
   const usarDemoData = false;
 
@@ -1424,15 +1766,68 @@ export default function AlunoPage() {
     enabled: autenticado && !!cpf,
   });
 
+  const { data: proxAcolhimentoReal } = useQuery<any>({
+    queryKey: ['/api/aluno-portal/proximo-acolhimento', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/proximo-acolhimento`);
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+  });
+
+  const { data: acolhimentosReal = [] } = useQuery<any[]>({
+    queryKey: ['/api/aluno-portal/acolhimentos', cpf],
+    queryFn: async () => {
+      const r = await authFetch(`/api/aluno-portal/acolhimentos`);
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: autenticado && !!cpf,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+  });
+
   const perfil     = usarDemoData ? MOCK_PERFIL     : perfilReal;
   const cursos     = usarDemoData ? MOCK_CURSOS     : cursosReal;
   const frequencia = usarDemoData ? MOCK_FREQUENCIA : frequenciaReal;
   const proxAula   = usarDemoData ? MOCK_PROX_AULA  : proxAulaReal;
+  const proxAcolhimento = usarDemoData ? null : proxAcolhimentoReal;
+  const acolhimentos = usarDemoData ? [] : acolhimentosReal;
 
   // Sincroniza fotoPortal sempre que a foto do perfil mudar (ex: após novo upload)
   React.useEffect(() => {
     if (perfil?.foto) setFotoPortal(perfil.foto);
   }, [perfil?.foto]);
+
+  const mainRef = useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    window.scrollTo(0, 0);
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+    mainRef.current?.scrollTo(0, 0);
+  }, [secao]);
 
   const sair = async () => {
     await logoutAndClearSession();
@@ -1471,9 +1866,10 @@ export default function AlunoPage() {
       );
     }
     switch (secao) {
-      case 'dashboard':     return <SecaoDashboard perfil={perfil} proxAula={proxAula} frequencia={frequencia} cursos={cursos} foto={fotoPortal} />;
+      case 'dashboard':     return <SecaoDashboard perfil={perfil} proxAula={proxAula} proxAcolhimento={proxAcolhimento} frequencia={frequencia} cursos={cursos} acolhimentos={acolhimentos} foto={fotoPortal} />;
       case 'cursos':        return <SecaoCursos cursos={cursos} />;
-      case 'calendario':    return <SecaoCalendario cursos={cursos} />;
+      case 'calendario':    return <SecaoCalendario cursos={cursos} acolhimentos={acolhimentos} />;
+      case 'acolhimentos':  return <SecaoAcolhimentos acolhimentos={acolhimentos} />;
       case 'horarios':      return <SecaoHorarios cursos={cursos} />;
       case 'frequencia':    return <SecaoFrequencia frequencia={frequencia} />;
       case 'avaliacao':     return <SecaoNPS cpf={cpf} />;
@@ -1483,7 +1879,7 @@ export default function AlunoPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 lg:overflow-hidden">
+    <div className="fixed inset-0 z-0 flex overflow-hidden bg-gray-50 lg:static lg:z-auto lg:h-screen">
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
@@ -1561,9 +1957,9 @@ export default function AlunoPage() {
       </aside>
 
       {/* Área principal */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 lg:p-6">
-        <div className="flex-1 flex flex-col min-h-0 lg:bg-white lg:rounded-2xl lg:border lg:border-gray-200 lg:shadow-sm lg:overflow-hidden">
-          <header className="fixed lg:sticky top-0 inset-x-0 lg:inset-x-auto z-30 bg-white border-b border-gray-200 flex items-center gap-3 px-4 py-3 lg:px-6 shrink-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:p-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:rounded-2xl lg:border lg:border-gray-200 lg:bg-white lg:shadow-sm">
+          <header className="z-30 flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:sticky lg:top-0 lg:px-6">
             <button className="lg:hidden p-1 rounded hover:bg-gray-100" onClick={() => setSidebarOpen(true)}>
               <Menu className="w-5 h-5 text-gray-600" />
             </button>
@@ -1580,13 +1976,16 @@ export default function AlunoPage() {
             )}
           </header>
 
-          <main className="flex-1 overflow-auto touch-pan-y pt-16 lg:pt-0 p-4 pb-24 lg:pb-6 lg:p-6 lg:min-h-0 [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {renderConteudo()}
+          <main
+            ref={mainRef}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y p-4 lg:p-6 [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          >
+            <div key={secao}>{renderConteudo()}</div>
           </main>
         </div>
 
-        {/* Bottom nav (mobile) */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 bg-black z-30">
+        {/* Bottom nav (mobile) — no fluxo flex, não fixed */}
+        <nav className="shrink-0 border-t border-white/10 bg-black pb-[env(safe-area-inset-bottom,0px)] lg:hidden">
           <div className="grid grid-cols-5">
             {BOTTOM_NAV.map(id => {
               const item = MENU.find(m => m.id === id)!;

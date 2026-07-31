@@ -542,7 +542,7 @@ export default function ChangePlan() {
                 <div 
                   key={planId}
                   className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                  style={{ width: '300px', minWidth: '300px' }}
+                  style={{ width: 'min(300px, 85vw)', minWidth: 'min(300px, 85vw)' }}
                 >
                   {/* Card Regular */}
                   <div className={`rounded-3xl shadow-lg h-[550px] grid grid-rows-[auto_auto_1fr_auto] p-6 ${
@@ -619,7 +619,7 @@ export default function ChangePlan() {
             {/* Card de Valor Livre - PLATINUM */}
             <div 
               className="embla__slide flex-none cursor-pointer transition-all duration-300"
-              style={{ width: '300px', minWidth: '300px' }}
+              style={{ width: 'min(300px, 85vw)', minWidth: 'min(300px, 85vw)' }}
             >
               {/* Wrapper Valor Livre com gradiente especial */}
               <div className={`p-1 rounded-3xl h-[550px] ${

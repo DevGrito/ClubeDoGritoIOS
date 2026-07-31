@@ -591,15 +591,10 @@ export default function ImpactGestaoVista({
     if (ano >= 2026 && mes === 1) setMes(null);
   }, [ano, mes]);
 
-  // Último mês concluído: mês anterior ao corrente (fevereiro em diante; em janeiro usa 1)
-  // Exemplo: estamos em maio (5) → ultimoMesConcluido = 4 (abril)
+  // Acumulado: mesma regra do dashboard (?ano=), inclui mês corrente.
+  // Antes mesAte=mês anterior zerava fluxo do mês atual (ex.: evasão Inclusão só em julho).
   const mesReferenciaAtual = new Date().getMonth() + 1;
-  const ultimoMesConcluido = mesReferenciaAtual > 1 ? mesReferenciaAtual - 1 : 1;
-
-  // Em modo "Todos" (mes===null) e ano 2026, passa mesAte ao backend para buscar
-  // dados cumulativos somente até o último mês concluído (não inclui mês em curso)
-  const mesAteApi = ano >= 2026 && mes === null ? ultimoMesConcluido : undefined;
-  const { data, isLoading, error } = useGestaoVista(ano, mes, mesAteApi);
+  const { data, isLoading, error } = useGestaoVista(ano, mes, undefined);
 
   const { data: metasInclusao } = useQuery<{ metas: Record<string, number> }>({
     queryKey: ['/api/metas-indicadores', ano, 'inclusao'],
@@ -610,12 +605,9 @@ export default function ImpactGestaoVista({
   // true quando o filtro aponta para um mês que ainda não chegou
   const isMesFuturo = ano >= 2026 && mes !== null && mes > mesReferenciaAtual;
 
-  // mesReferencia para calcMetaEsperada:
-  // - modo mês: usa o mês selecionado
-  // - modo "Todos": usa ultimoMesConcluido, pois calcMetaEsperada(N) = (N-1) meses ativos
-  //   ex: ultimoMesConcluido=4 (abril) → calcMetaEsperada(4) = 3 meses (fev+mar+abr) ✓
+  // mesReferencia para calcMetaEsperada: acumulado usa mês corrente
   const mesReferencia = ano >= 2026
-    ? (mes !== null ? (mes as number) : ultimoMesConcluido)
+    ? (mes !== null ? (mes as number) : mesReferenciaAtual)
     : undefined;
 
   // Detectar preferência de movimento reduzido

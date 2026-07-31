@@ -18,7 +18,7 @@ export function SplashGateComponent({ timeout = 1500 }: SplashGateProps) {
     // PRIMEIRO: Verificar se é uma rota pública de login
     const currentPath = window.location.pathname;
     console.log('🔍 [SPLASH GATE] Current path:', currentPath);
-    const publicRoutes = ['/login/aluno', '/login/coordenador', '/login/monitor', '/login/developer', '/login/marketing', '/scanner-login', '/vendedor/outlet', '/confeccao'];
+    const publicRoutes = ['/login/coordenador', '/login/monitor', '/login/developer', '/login/marketing', '/scanner-login', '/vendedor/outlet', '/confeccao'];
     
     if (publicRoutes.includes(currentPath)) {
       console.log('🔓 [SPLASH GATE] Rota pública de login detectada - bypass ativado:', currentPath);
@@ -217,7 +217,6 @@ function getDefaultRouteForRole(userPapel: string, userEmail?: string | null): s
     case 'professor_lider':
       return '/professor';
     case 'aluno':
-    case 'aluno_portal':
       return '/aluno';
     case 'conselho':
     case 'conselheiro':

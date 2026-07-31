@@ -663,7 +663,7 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
                       <div 
                         key={plano.id}
                         className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                        style={{ width: '300px', minWidth: '300px' }}
+                        style={{ width: 'min(300px, 85vw)', minWidth: 'min(300px, 85vw)' }}
                       >
                         {/* Wrapper Platinum com gradiente especial */}
                         <div className={`bg-gradient-to-br from-blue-400 to-purple-600 p-1 rounded-3xl h-[550px] ${plano.isAnterior ? 'ring-4 ring-blue-500' : ''}`}>
@@ -754,7 +754,7 @@ function ReactivateForm({ onPaymentReady }: ReactivateFormProps) {
                     <div 
                       key={plano.id}
                       className="embla__slide flex-none cursor-pointer transition-all duration-300"
-                      style={{ width: '300px', minWidth: '300px' }}
+                      style={{ width: 'min(300px, 85vw)', minWidth: 'min(300px, 85vw)' }}
                     >
                       {/* Card Regular - IGUAL AO PLANS.TSX */}
                       <div className={`bg-white rounded-3xl h-[550px] grid grid-rows-[auto_auto_1fr_auto] p-6 ${

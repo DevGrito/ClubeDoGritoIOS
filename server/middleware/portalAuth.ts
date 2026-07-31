@@ -1,23 +1,10 @@
 import type { Request, Response, NextFunction } from "express";
+import { getPortalSession, getMutablePortalSession, type PortalSession } from "./portalSession";
 
-export type PortalSession = {
-  alunoCpf?: string;
-  alunoTipo?: string;
-  alunoNome?: string;
-  scannerUserId?: number;
-  scannerNome?: string;
-  scannerUsername?: string;
-  tabletChamadaUserId?: number;
-  tabletChamadaNome?: string;
-  tabletChamadaUsername?: string;
-  tabletChamadaVertente?: "pec" | "inclusao";
-  actorType?: string;
-  userPapel?: string;
-  userId?: number;
-};
+export type { PortalSession };
 
 export async function saveExpressSession(req: Request): Promise<void> {
-  const sess = req.session as PortalSession & { save?: (cb: (err?: Error) => void) => void };
+  const sess = getPortalSession(req) as PortalSession & { save?: (cb: (err?: Error) => void) => void };
   if (sess?.save) {
     await new Promise<void>((resolve, reject) =>
       sess.save!((err) => (err ? reject(err) : resolve()))
@@ -27,7 +14,7 @@ export async function saveExpressSession(req: Request): Promise<void> {
 
 /** Regenera ID da sessão (mitiga session fixation após login). */
 export async function regenerateExpressSession(req: Request): Promise<void> {
-  const sess = req.session as { regenerate?: (cb: (err?: Error) => void) => void };
+  const sess = req.session as { regenerate?: (cb: (err?: Error) => void) => void } | undefined;
   if (!sess?.regenerate) return;
   await new Promise<void>((resolve, reject) =>
     sess.regenerate!((err) => (err ? reject(err) : resolve()))
@@ -35,7 +22,7 @@ export async function regenerateExpressSession(req: Request): Promise<void> {
 }
 
 /** Limpa campos de outros atores antes de gravar sessão de portal. */
-export function clearCrossActorSessionFields(sess: PortalSession & Record<string, unknown>): void {
+export function clearCrossActorSessionFields(sess: PortalSession): void {
   delete sess.user;
   delete sess.userId;
   delete sess.userPapel;
@@ -72,7 +59,7 @@ export function getAlunoCpfFromRequest(req: Request): string {
 }
 
 export function requireAlunoPortalAuth(req: Request, res: Response, next: NextFunction): void {
-  const sess = req.session as PortalSession;
+  const sess = getPortalSession(req);
   const cpf = String(sess?.alunoCpf || "").replace(/\D/g, "");
   if (!cpf || sess?.actorType !== "aluno_portal") {
     res.status(401).json({ error: "Autenticação obrigatória" });
@@ -91,18 +78,18 @@ export function requireAlunoPortalAuth(req: Request, res: Response, next: NextFu
 }
 
 export function requireScannerAuth(req: Request, res: Response, next: NextFunction): void {
-  const sess = req.session as PortalSession;
+  const sess = getPortalSession(req);
   const scannerUserId = sess?.scannerUserId;
   if (!scannerUserId || sess?.actorType !== "scanner") {
     res.status(401).json({ error: "Autenticação obrigatória" });
     return;
   }
-  (req as Request & { scannerUserId: number }).scannerUserId = scannerUserId;
+  (req as Request & { scannerUserId: number }).scannerUserId = Number(scannerUserId);
   next();
 }
 
 export function requireTabletChamadaAuth(req: Request, res: Response, next: NextFunction): void {
-  const sess = req.session as PortalSession;
+  const sess = getPortalSession(req);
   const tabletChamadaUserId = sess?.tabletChamadaUserId;
   const vertente = sess?.tabletChamadaVertente;
   if (!tabletChamadaUserId || sess?.actorType !== "tablet_chamada" || !vertente) {
@@ -114,7 +101,7 @@ export function requireTabletChamadaAuth(req: Request, res: Response, next: Next
     return;
   }
   (req as Request & { tabletChamadaUserId: number; tabletChamadaVertente: "pec" | "inclusao" }).tabletChamadaUserId =
-    tabletChamadaUserId;
+    Number(tabletChamadaUserId);
   (req as Request & { tabletChamadaUserId: number; tabletChamadaVertente: "pec" | "inclusao" }).tabletChamadaVertente =
     vertente;
   next();
@@ -124,8 +111,7 @@ export async function establishAlunoPortalSession(
   req: Request,
   data: { cpf: string; tipo: string; nome: string; studentId?: number | null }
 ): Promise<void> {
-  const sess = req.session as PortalSession & Record<string, unknown>;
-  if (!sess) return;
+  const sess = getMutablePortalSession(req);
 
   clearCrossActorSessionFields(sess);
   const cpfLimpo = data.cpf.replace(/\D/g, "");
@@ -143,8 +129,7 @@ export async function establishScannerSession(
   req: Request,
   usuario: { id: number; nome: string; username: string }
 ): Promise<void> {
-  const sess = req.session as PortalSession & Record<string, unknown>;
-  if (!sess) return;
+  const sess = getMutablePortalSession(req);
 
   clearCrossActorSessionFields(sess);
   sess.scannerUserId = usuario.id;
@@ -162,8 +147,7 @@ export async function establishTabletChamadaSession(
   req: Request,
   usuario: { id: number; nome: string; username: string; vertente: "pec" | "inclusao" }
 ): Promise<void> {
-  const sess = req.session as PortalSession & Record<string, unknown>;
-  if (!sess) return;
+  const sess = getMutablePortalSession(req);
 
   clearCrossActorSessionFields(sess);
   sess.tabletChamadaUserId = usuario.id;
@@ -176,4 +160,49 @@ export async function establishTabletChamadaSession(
   sess.userName = usuario.nome;
   sess.actorId = usuario.id;
   await saveExpressSession(req);
+}
+
+/**
+ * Sessão pública do portal de eventos.
+ * NÃO grava userId/userPapel genéricos — isso faria o usuário passar por requireAuth administrativo.
+ */
+export async function establishEventosPortalSession(
+  req: Request,
+  usuario: { id: number; nome: string }
+): Promise<void> {
+  await regenerateExpressSession(req);
+  const sess = getMutablePortalSession(req);
+
+  clearCrossActorSessionFields(sess);
+  sess.portalUserId = usuario.id;
+  sess.actorType = "eventos_portal";
+  await saveExpressSession(req);
+}
+
+export function requireEventosPortalAuth(req: Request, res: Response, next: NextFunction): void {
+  const sess = getPortalSession(req);
+  const portalUserId = sess?.portalUserId;
+  if (!portalUserId || sess?.actorType !== "eventos_portal") {
+    res.status(401).json({ error: "Não autenticado" });
+    return;
+  }
+  (req as Request & { portalUserId: number }).portalUserId = Number(portalUserId);
+  next();
+}
+
+export function getPortalUserIdFromRequest(req: Request): number | null {
+  const sess = getPortalSession(req);
+  if (!sess?.portalUserId || sess.actorType !== "eventos_portal") return null;
+  return Number(sess.portalUserId) || null;
+}
+
+export async function destroyExpressSession(req: Request, res: Response): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (!req.session?.destroy) {
+      resolve();
+      return;
+    }
+    req.session.destroy((err?: Error) => (err ? reject(err) : resolve()));
+  });
+  res.clearCookie("og.sid");
 }

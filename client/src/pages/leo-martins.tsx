@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import DashboardFinanceiro from "@/components/DashboardFinanceiro";
 import CoordenadorDashboard from "@/components/CoordenadorDashboard";
 import TabMarketing from "@/pages/dashboard-gestao-vista/TabMarketing";
+import { FAMILIAS_FAVELA3D_EXIBICAO, coletivosFavela3DNoPeriodo } from "@/pages/dashboard-gestao-vista/shared";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -1013,12 +1014,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     fetchDadosMensaisPEC();
   }, [anoIndicadores]);
 
-  // Favela 3D 2026 — novos blocos
-  const { data: favela3d2026 } = useQuery<any>({
-    queryKey: ['/api/gestao-vista/favela3d', 2026],
-    queryFn: () => fetch('/api/gestao-vista/favela3d?ano=2026').then(r => r.json()),
-    enabled: anoFavela3D === 2026,
-  });
+  // Mesmos números do Dashboard Gestão à Vista — coletivos acumulados no ano
+  const f3dFamiliasLeo = FAMILIAS_FAVELA3D_EXIBICAO;
+  const f3dGerandoLiderAno = coletivosFavela3DNoPeriodo('gerando_lideranca', 'todos');
+  const f3dAssembleiaAno = coletivosFavela3DNoPeriodo('assembleia', 'todos');
 
   // Buscar dados mensais de Favela 3D
   useEffect(() => {
@@ -1370,9 +1369,12 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
     queryFn: () => fetch('/api/metas-indicadores?ano=2026&vertente=pec').then(r => r.json()),
     staleTime: 60000,
   });
+  const dadosProgramasPecUrl = kpiPecMes === 'todos'
+    ? '/api/pec/dados-programas?ano=2026'
+    : `/api/pec/dados-programas?ano=2026&mes=${kpiPecMes}`;
   const { data: dadosProgramasPec } = useQuery<any>({
-    queryKey: ['/api/pec/dados-programas', 2026],
-    queryFn: () => fetch('/api/pec/dados-programas?ano=2026').then(r => r.json()),
+    queryKey: ['/api/pec/dados-programas', 2026, kpiPecMes],
+    queryFn: () => fetch(dadosProgramasPecUrl).then(r => r.json()),
     enabled: activeSection === 'pec' && anoIndicadores === 2026,
   });
 
@@ -4349,18 +4351,10 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                       {expandedF3DSection === 'panorama' ? <ChevronUp className="w-5 h-5 text-gray-600" /> : <ChevronDown className="w-5 h-5 text-gray-600" />}
                     </div>
                     {expandedF3DSection === 'panorama' && (
-                      <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="mt-4 grid grid-cols-1 gap-3">
                         <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.familias ?? 0).toLocaleString('pt-BR')}</div>
+                          <div className="text-2xl font-bold text-purple-600">{f3dFamiliasLeo.toLocaleString('pt-BR')}</div>
                           <p className="text-xs text-gray-700 font-medium">Famílias</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.atendimentos_individuais ?? 0).toLocaleString('pt-BR')}</div>
-                          <p className="text-xs text-gray-700 font-medium">Atendimentos</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center shadow-sm col-span-2">
-                          <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.visitas ?? 0).toLocaleString('pt-BR')}</div>
-                          <p className="text-xs text-gray-700 font-medium">Visitas</p>
                         </div>
                       </div>
                     )}
@@ -4386,33 +4380,22 @@ export default function LeoMartins({ demoMode = false }: LeoMartinsProps) {
                         <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Gerando Liderança</p>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.gerando_lideranca ?? 0).toLocaleString('pt-BR')}</div>
+                            <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderAno.registros.toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Registros</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.gerando_lideranca_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <div className="text-2xl font-bold text-purple-600">{f3dGerandoLiderAno.pessoas.toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Pessoas</p>
                           </div>
                         </div>
                         <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Assembleia</p>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.assembleia ?? 0).toLocaleString('pt-BR')}</div>
+                            <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaAno.registros.toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Registros</p>
                           </div>
                           <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.assembleia_pessoas ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Pessoas</p>
-                          </div>
-                        </div>
-                        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Grupo de Mulheres</p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.grupo_mulheres ?? 0).toLocaleString('pt-BR')}</div>
-                            <p className="text-xs text-gray-700 font-medium">Registros</p>
-                          </div>
-                          <div className="bg-white rounded-lg p-3 text-center shadow-sm">
-                            <div className="text-2xl font-bold text-purple-600">{(favela3d2026?.grupo_mulheres_pessoas ?? 0).toLocaleString('pt-BR')}</div>
+                            <div className="text-2xl font-bold text-purple-600">{f3dAssembleiaAno.pessoas.toLocaleString('pt-BR')}</div>
                             <p className="text-xs text-gray-700 font-medium">Pessoas</p>
                           </div>
                         </div>

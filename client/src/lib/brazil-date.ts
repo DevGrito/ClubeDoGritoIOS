@@ -26,10 +26,12 @@ export function formatDateBrazil(dateInput: string | Date): string {
   
   let date: Date;
   if (typeof dateInput === 'string') {
-    // Se for string no formato YYYY-MM-DD, parse diretamente
-    if (dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const [year, month, day] = dateInput.split('-').map(Number);
-      date = new Date(year, month - 1, day);
+    // Datas de calendário não representam um instante. Preserve os componentes
+    // recebidos mesmo quando a API serializa o DATE como meia-noite em UTC.
+    const dateOnly = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+    if (dateOnly) {
+      const [, year, month, day] = dateOnly;
+      date = new Date(Number(year), Number(month) - 1, Number(day), 12);
     } else {
       date = new Date(dateInput);
     }

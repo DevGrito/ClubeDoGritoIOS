@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatCPF } from "@/lib/utils";
+import { dedupeParticipantesBusca, formatCPF } from "@/lib/utils";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import AreaConsentGate, { useAreaConsentReady } from "@/components/AreaConsentGate";
 import AtendidosComunidadeSection from "@/components/AtendidosComunidadeSection";
@@ -23,6 +23,11 @@ import {
   type PeriodoFiltro,
 } from "@/lib/dashboardPeriodoFiltro";
 import { PsicoPerfilModal } from "@/components/PsicoPerfilModal";
+import {
+  PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS,
+  PSICO_CATEGORIA_COLETIVO_LABELS,
+} from "@shared/psico-coletivo-categorias";
+import { formatIntervencaoData } from "@/lib/psicoIntervencaoObs";
 import { PushNotificationSettings } from "@/components/PushNotificationSettings";
 import { LgpdMeusDadosSettingsPanel } from "@/components/LgpdLegalMenuSection";
 import {
@@ -325,10 +330,10 @@ export default function TecnicaPsicoPage() {
   const metaEspaco = metaEspacoGritoPeriodo(periodoFiltro);
   const stats = dashStats as any ?? {};
 
-  const todosParaConf = [
+  const todosParaConf = dedupeParticipantesBusca([
     ...(todosParticipantes as any[]),
     ...(atendidosComunidade as any[]).map((p: any) => ({ __nome: p.nome, cpf: p.cpf, __vertente: "comunidade" })),
-  ];
+  ]);
 
   const tipoLabel: Record<string, string> = {
     atendimento_individual: "Atendimento Individual", visita_domiciliar: "Visita Domiciliar",
@@ -802,7 +807,7 @@ export default function TecnicaPsicoPage() {
                           <span className="font-medium text-sm">{a.titulo || a.tipo || "Atividade"}</span>
                           <div className="flex gap-2">
                             {a.tipo && <span className="text-xs bg-violet-100 text-violet-700 rounded px-2 py-0.5 capitalize">{a.tipo.replace(/_/g, " ")}</span>}
-                            {a.data && <span className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">{new Date(a.data + (a.data.includes("T") ? "" : "T12:00:00")).toLocaleDateString("pt-BR")}</span>}
+                            {a.data && <span className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">{formatIntervencaoData(a.data)}</span>}
                           </div>
                         </div>
                         {a.conteudo && <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{a.conteudo}</p>}
@@ -840,9 +845,9 @@ export default function TecnicaPsicoPage() {
                         <Select value={registroGeralForm.categoria} onValueChange={(v) => setRegistroGeralForm({ ...registroGeralForm, categoria: v })}>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="espaco_o_grito">Espaço O Grito</SelectItem>
-                            <SelectItem value="caravana_comunitaria">Caravana Comunitária</SelectItem>
-                            <SelectItem value="workshop">Workshop</SelectItem>
+                            {PSICO_ATENDIMENTO_COLETIVO_CATEGORIAS.map((cat) => (
+                              <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -874,7 +879,7 @@ export default function TecnicaPsicoPage() {
                 ) : (
                   <div className="space-y-2">
                     {(registrosGerais as any[]).map((r: any) => {
-                      const catLabel: Record<string, string> = { atendimento_coletivo: "Atendimento Coletivo", espaco_o_grito: "Espaço O Grito", caravana_comunitaria: "Caravana Comunitária", workshop: "Workshop" };
+                      const catLabel: Record<string, string> = { atendimento_coletivo: "Atendimento Coletivo", ...PSICO_CATEGORIA_COLETIVO_LABELS };
                       return (
                         <div key={r.id} className="border rounded-lg p-3 space-y-1 bg-white">
                           <div className="flex items-center gap-2 flex-wrap">

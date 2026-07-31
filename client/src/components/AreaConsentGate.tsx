@@ -224,9 +224,10 @@ export default function AreaConsentGate({ area, onAccept, onNavigate }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [acceptedLocally, setAcceptedLocally] = useState(false);
 
   const handleAccept = async () => {
-    if (!mandatoryChecked) return;
+    if (!mandatoryChecked || saving || acceptedLocally) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -241,6 +242,7 @@ export default function AreaConsentGate({ area, onAccept, onNavigate }: Props) {
         source: `area_gate_${area}`,
       });
       saveAreaConsent(area, { ...optionals });
+      setAcceptedLocally(true);
       onAccept();
     } catch {
       setSaveError(
@@ -251,96 +253,112 @@ export default function AreaConsentGate({ area, onAccept, onNavigate }: Props) {
     }
   };
 
+  if (acceptedLocally) {
+    return <AreaConsentLoading />;
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-white"
       style={{
         fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
-        paddingTop: "env(safe-area-inset-top, 0px)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        paddingTop: "max(1rem, env(safe-area-inset-top, 0px))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))",
       }}
     >
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
-        <div className="w-full max-w-md mx-auto px-5 py-6 sm:py-8 flex flex-col items-center gap-5">
-          <img src={logoPath} alt="Clube do Grito" className="h-14 w-14 sm:h-16 sm:w-16 object-contain rounded-full shrink-0" />
+      <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col px-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-4">
+          <div className="flex flex-col items-center gap-5">
+            <img
+              src={logoPath}
+              alt="Clube do Grito"
+              className="h-14 w-14 shrink-0 rounded-full object-contain sm:h-16 sm:w-16"
+            />
 
-          <div className="text-center w-full">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center shrink-0">
-                <Shield className="w-4 h-4 text-black" />
+            <div className="text-center">
+              <div className="mb-2 flex items-center justify-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yellow-400">
+                  <Shield className="h-4 w-4 text-black" />
+                </div>
+                <h1 className="text-sm font-bold leading-snug text-gray-900 sm:text-base">
+                  {config.title}
+                </h1>
               </div>
-              <h1 className="text-base font-bold text-gray-900 leading-snug">{config.title}</h1>
+              <p className="text-left text-sm leading-relaxed text-gray-600">{config.notice}</p>
             </div>
-            <p className="text-sm text-gray-600 leading-relaxed text-left">{config.notice}</p>
-          </div>
 
-          <div className="w-full bg-gray-50 rounded-2xl border border-gray-100 p-4 space-y-3">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={mandatoryChecked}
-                onChange={(e) => setMandatoryChecked(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded accent-yellow-400 flex-shrink-0"
-              />
-              <span className="text-xs text-gray-700 leading-relaxed">
-                <span className="text-red-500 font-bold mr-0.5">*</span>
-                {config.mandatoryLabel}
-              </span>
-            </label>
-
-            {(config.optionals || []).map((opt) => (
-              <label key={opt.key} className="flex items-start gap-2.5 cursor-pointer">
+            <div className="w-full space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <label className="flex cursor-pointer items-start gap-2.5">
                 <input
                   type="checkbox"
-                  checked={optionals[opt.key] ?? false}
-                  onChange={(e) => setOptionals((prev) => ({ ...prev, [opt.key]: e.target.checked }))}
-                  className="mt-0.5 w-4 h-4 rounded accent-yellow-400 flex-shrink-0"
+                  checked={mandatoryChecked}
+                  onChange={(e) => setMandatoryChecked(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 rounded accent-yellow-400"
                 />
-                <span className="text-xs text-gray-700 leading-relaxed">{opt.label}</span>
+                <span className="text-xs leading-relaxed text-gray-700">
+                  <span className="mr-0.5 font-bold text-red-500">*</span>
+                  {config.mandatoryLabel}
+                </span>
               </label>
-            ))}
 
-            <p className="text-xs text-gray-400 pt-1">
-              <span className="text-red-500 font-bold">*</span> Obrigatório para acessar esta área.
-            </p>
-            {saveError && (
-              <p className="text-xs text-red-600 text-center pt-1">{saveError}</p>
-            )}
-          </div>
+              {(config.optionals || []).map((opt) => (
+                <label key={opt.key} className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={optionals[opt.key] ?? false}
+                    onChange={(e) =>
+                      setOptionals((prev) => ({ ...prev, [opt.key]: e.target.checked }))
+                    }
+                    className="mt-0.5 h-4 w-4 flex-shrink-0 rounded accent-yellow-400"
+                  />
+                  <span className="text-xs leading-relaxed text-gray-700">{opt.label}</span>
+                </label>
+              ))}
 
-          <div className="flex flex-wrap gap-3 justify-center pb-2">
-            <button
-              onClick={() => onNavigate("/politica-de-privacidade")}
-              className="text-xs text-gray-400 underline hover:text-gray-600"
-            >
-              Política de Privacidade
-            </button>
-            <span className="text-gray-300 text-xs">·</span>
-            <button
-              onClick={() => onNavigate("/termos-de-uso")}
-              className="text-xs text-gray-400 underline hover:text-gray-600"
-            >
-              Termos de Uso
-            </button>
-            <span className="text-gray-300 text-xs">·</span>
-            <button
-              onClick={() => onNavigate("/direitos-do-titular")}
-              className="text-xs text-gray-400 underline hover:text-gray-600"
-            >
-              Direitos do Titular
-            </button>
+              <p className="pt-1 text-xs text-gray-400">
+                <span className="font-bold text-red-500">*</span> Obrigatório para acessar esta área.
+              </p>
+              {saveError && (
+                <p className="pt-1 text-center text-xs text-red-600">{saveError}</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-3 pb-2">
+              <button
+                type="button"
+                onClick={() => onNavigate("/politica-de-privacidade")}
+                className="text-xs text-gray-400 underline hover:text-gray-600"
+              >
+                Política de Privacidade
+              </button>
+              <span className="text-xs text-gray-300">·</span>
+              <button
+                type="button"
+                onClick={() => onNavigate("/termos-de-uso")}
+                className="text-xs text-gray-400 underline hover:text-gray-600"
+              >
+                Termos de Uso
+              </button>
+              <span className="text-xs text-gray-300">·</span>
+              <button
+                type="button"
+                onClick={() => onNavigate("/direitos-do-titular")}
+                className="text-xs text-gray-400 underline hover:text-gray-600"
+              >
+                Direitos do Titular
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="shrink-0 border-t border-gray-100 bg-white px-5 py-3">
-        <div className="w-full max-w-md mx-auto">
+        <div className="shrink-0 border-t border-gray-100 bg-white pt-4">
           <button
+            type="button"
             onClick={handleAccept}
             disabled={!mandatoryChecked || saving}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-sm transition-all bg-yellow-400 hover:bg-yellow-500 text-black disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-yellow-400 py-3.5 text-sm font-bold text-black transition-all hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
           >
-            <CheckCircle className="w-4 h-4" />
+            <CheckCircle className="h-4 w-4" />
             {saving ? "Salvando..." : "Aceitar e continuar"}
           </button>
         </div>

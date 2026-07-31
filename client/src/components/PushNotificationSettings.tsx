@@ -1,11 +1,12 @@
 import { useEffect, useId } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Smartphone } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { usePushNotificationsContext } from "@/contexts/PushNotificationsContext";
-import { iosPushNeedsHomeScreen } from "@/utils/device";
+import { iosPushNeedsHomeScreen, isIOS } from "@/utils/device";
 
 export type PushNotificationSettingsProps = {
   variant?: "card" | "panel" | "inline";
@@ -83,6 +84,31 @@ export function PushNotificationSettings({
       ? "Ativas neste dispositivo"
       : "Desativadas no app (pode ativar novamente)";
 
+  const iphoneNeedsHomeScreen = iosPushNeedsHomeScreen();
+  const iphoneInstalledOnHomeScreen = isIOS() && !iphoneNeedsHomeScreen;
+
+  const iphoneNotice = iphoneNeedsHomeScreen ? (
+    <Alert className="border-amber-200 bg-amber-50 text-amber-950">
+      <Smartphone className="h-4 w-4 text-amber-700" />
+      <AlertTitle className="text-amber-950">iPhone: instale na Tela de Início</AlertTitle>
+      <AlertDescription className="text-amber-900/90">
+        <p className="mb-2">
+          No iPhone, as notificações só funcionam com o app instalado na Tela de Início — não pelo Safari em aba normal.
+        </p>
+        <ol className="list-decimal list-inside space-y-1 text-xs sm:text-sm">
+          <li>Abra este site no <strong>Safari</strong></li>
+          <li>Toque em <strong>Compartilhar</strong> (ícone com seta para cima)</li>
+          <li>Escolha <strong>Adicionar à Tela de Início</strong></li>
+          <li>Abra o app <strong>pelo ícone</strong> e ative as notificações aqui</li>
+        </ol>
+      </AlertDescription>
+    </Alert>
+  ) : iphoneInstalledOnHomeScreen ? (
+    <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+      App instalado na Tela de Início — você pode ativar as notificações abaixo.
+    </p>
+  ) : null;
+
   const row = (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center space-x-3 min-w-0">
@@ -101,7 +127,7 @@ export function PushNotificationSettings({
         checked={pushEnabled}
         disabled={loading || browserBlocked}
         onCheckedChange={handlePushToggle}
-        className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-gray-200"
+        className="shrink-0 data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-gray-200"
       />
     </div>
   );
@@ -114,7 +140,8 @@ export function PushNotificationSettings({
 
   if (variant === "inline") {
     return (
-      <div className={className}>
+      <div className={`space-y-3 ${className}`}>
+        {iphoneNotice}
         {row}
         {lgpdNote}
       </div>
@@ -123,8 +150,9 @@ export function PushNotificationSettings({
 
   if (variant === "panel") {
     return (
-      <div className={`border rounded-lg p-4 bg-white ${className}`}>
-        <h3 className="font-semibold mb-3 text-gray-900">Notificações push</h3>
+      <div className={`border rounded-lg p-4 bg-white space-y-3 ${className}`}>
+        <h3 className="font-semibold text-gray-900">Notificações push</h3>
+        {iphoneNotice}
         {row}
         {lgpdNote}
       </div>
@@ -137,6 +165,7 @@ export function PushNotificationSettings({
         <CardTitle className="text-lg text-black font-semibold">Notificações push</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {iphoneNotice}
         {row}
         {lgpdNote}
       </CardContent>
