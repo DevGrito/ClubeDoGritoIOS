@@ -34,6 +34,9 @@ __export(schema_exports, {
   alunoTurma: () => alunoTurma,
   alunoTurmaRelations: () => alunoTurmaRelations,
   appSecrets: () => appSecrets,
+  atendidosGrito: () => atendidosGrito,
+  atendidosGritoObservacoes: () => atendidosGritoObservacoes,
+  atendidosGritoPrograma: () => atendidosGritoPrograma,
   atividadesMonitor: () => atividadesMonitor,
   atividadesMonitorRelations: () => atividadesMonitorRelations,
   attendance: () => attendance2,
@@ -167,6 +170,9 @@ __export(schema_exports, {
   insertAlunoResponsavelSchema: () => insertAlunoResponsavelSchema,
   insertAlunoSchema: () => insertAlunoSchema,
   insertAlunoTurmaSchema: () => insertAlunoTurmaSchema,
+  insertAtendidoGritoObservacaoSchema: () => insertAtendidoGritoObservacaoSchema,
+  insertAtendidoGritoProgramaSchema: () => insertAtendidoGritoProgramaSchema,
+  insertAtendidoGritoSchema: () => insertAtendidoGritoSchema,
   insertAtividadeMonitorSchema: () => insertAtividadeMonitorSchema,
   insertAttendanceSchema: () => insertAttendanceSchema,
   insertAulaExcecaoInclusaoSchema: () => insertAulaExcecaoInclusaoSchema,
@@ -264,6 +270,7 @@ __export(schema_exports, {
   insertProfessorSchema: () => insertProfessorSchema,
   insertProgramaInclusaoSchema: () => insertProgramaInclusaoSchema,
   insertProjectSchema: () => insertProjectSchema,
+  insertPsicoAcolhimentoSchema: () => insertPsicoAcolhimentoSchema,
   insertPsicoAtendimentoSchema: () => insertPsicoAtendimentoSchema,
   insertPsicoCasoSchema: () => insertPsicoCasoSchema,
   insertPsicoFamiliaSchema: () => insertPsicoFamiliaSchema,
@@ -356,6 +363,8 @@ __export(schema_exports, {
   programasInclusao: () => programasInclusao,
   programasInclusaoRelations: () => programasInclusaoRelations,
   projects: () => projects,
+  psicoAcolhimentoStatusEnum: () => psicoAcolhimentoStatusEnum,
+  psicoAcolhimentos: () => psicoAcolhimentos,
   psicoAtendidosComunidade: () => psicoAtendidosComunidade,
   psicoAtendimentos: () => psicoAtendimentos,
   psicoCasos: () => psicoCasos,
@@ -460,7 +469,7 @@ function validateBrazilianPhone(phone) {
   }
   return false;
 }
-var roleEnum, cpfSchema, gvIndicators, gvWorkstreams, gvPrograms, insertGVIndicatorSchema, insertGVWorkstreamSchema, insertGVProgramSchema, impactData, insertImpactDataSchema, dadosDemograficos, insertDadosDemograficosSchema, ROUTE_PERMISSIONS, users, councilRequests, conselheiros, insertConselheiroSchema, developers, doadores, historicoDoacao, typeformResponses, doadoresRelations, historicoRelations, donorSubscriptions, billingEvents, donorSubscriptionsRelations, billingEventsRelations, insertDonorSubscriptionSchema, insertBillingEventSchema, doadoresExternos, insertDoadorExternoSchema, indicacoes, indicacaoPontosLedger, stripeEvents, indicacoesRelations, indicacaoPontosLedgerRelations, insertIndicacaoSchema, insertIndicacaoPontosSchema, marketingCampaigns, marketingLinks, mktClicks, marketingCampaignsRelations, marketingLinksRelations, mktClicksRelations, insertMarketingCampaignSchema, insertMarketingLinkSchema, insertMktClickSchema, pais, maes, responsaveis, aluno, turma, alunoTurma, chamada, chamadaAluno, calendarioEvento, planoAula, aulaRegistrada, acompanhamento, relatorioGerado, sorteios, sorteioParticipacoes, sorteioResultados, sorteioConfiguracoes, sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade, sorteioInsertSchema, sorteioParticipacaoInsertSchema, sorteioResultadoInsertSchema, sorteioConfiguracaoInsertSchema, usersRelations, paisRelations, maesRelations, alunoResponsaveis, responsaveisRelations, alunoResponsaveisRelations, alunoRelations, turmaRelations, alunoTurmaRelations, chamadaRelations, chamadaAlunoRelations, insertUserSchema, insertCouncilRequestSchema, postPaymentRegisterSchema, insertDeveloperSchema, insertPaiSchema, insertMaeSchema, insertResponsavelSchema, insertAlunoSchema, insertTurmaSchema, insertAlunoTurmaSchema, insertSistemaTelaSchema, insertSistemaAlteracaoSchema, insertSistemaErroSchema, insertSistemaComentarioSchema, insertSistemaDeployLogSchema, insertSistemaAtividadeSchema, insertChamadaSchema2, insertChamadaAlunoSchema2, insertCalendarioEventoSchema, insertPlanoAulaSchema, insertAulaRegistradaSchema, insertAcompanhamentoSchema, insertRelatorioGeradoSchema, verificationSchema, userCausas, insertAlunoResponsavelSchema, checkins, gritosHistorico, niveis, insertCheckinsSchema, insertGritosHistoricoSchema, insertNiveisSchema, beneficios, beneficioImagens, insertBeneficiosSchema, insertBeneficioImagensSchema, beneficioLances, insertBeneficioLancesSchema, validarLanceSchema, beneficioLancesRelations, beneficioGanhadores, insertBeneficioGanhadoresSchema, beneficioGanhadoresRelations, missoesSemanais, missaoEnvios, missoesConcluidas, missaoTransacoes, missoesSemanaisRelations, missoesConcluidasRelations, missaoEnviosRelations, missaoTransacoesRelations, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, insertMissaoEnviosSchema, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasSlidesRelations, insertHistoriasInspiradorasSchema, insertHistoriasSlidesSchema, historiasInteracoes, historiasInteracoesRelations, historiasInspiradorasRelations, insertHistoriasInteracoesSchema, premios, leiloes, lances, premiosRelations, leiloesRelations, lancesRelations, insertPremiosSchema, insertLeiloesSchema, insertLancesSchema, referrals, referralsRelations, insertReferralsSchema, donorFiltersSchema, donorIdSchema, cotasEmpresas, insertCotaEmpresaSchema, ingressos, insertIngressoSchema, pagbankOauthTokens, insertPagBankOAuthTokenSchema, activityEvents, userInterests, insertActivityEventSchema, insertUserInterestSchema, ActivityEventType, EntityType, verificationCodes, insertVerificationCodeSchema, activityStatus, activitySituation, periodOfDay, sessionStatus, controlModeEnum, attendanceStatusEnum, projects, pecActivities, activityInstances, staffAssignments, enrollments, instanceEnrollments, sessions, attendance2, photos, physicalAssessments, insertProjectSchema, insertActivitySchema, insertActivityInstanceSchema, insertStaffAssignmentSchema, insertEnrollmentSchema, insertSessionSchema, insertAttendanceSchema, insertPhotoSchema, insertPhysicalAssessmentSchema, educadores, educadorPrograma, alunoPrograma, insertEducadorSchema, insertEducadorProgramaSchema, insertAlunoProgramaSchema, gvScopeEnum, gvProfileTypeEnum, gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues, gvTargetAllocations, gvUserAccessControl, gvMonthlyData, gvExcelMetadata, gvSectorsRelations, gvProjectsRelations, gvMgmtIndicatorsRelations, gvIndicatorAssignmentsRelations, gvIndicatorTargetsRelations, gvIndicatorValuesRelations, gvTargetAllocationsRelations, gvUserAccessControlRelations, insertGVSectorSchema, insertGVProjectSchema, insertGVMgmtIndicatorSchema, insertGVIndicatorAssignmentSchema, insertGVIndicatorTargetSchema, insertGVIndicatorValueSchema, insertGVTargetAllocationSchema, insertGVUserAccessControlSchema, gritoEvents, gritoWebhookSubscriptions, gritoWebhookDeliveries, gritoAutomations, gritoEventsRelations, gritoWebhookSubscriptionsRelations, gritoWebhookDeliveriesRelations, statusParticipanteEnum, statusCursoEnum, tipoParceiroenum, participantesInclusao, programasInclusao, turmasInclusao, participantesTurmas, inclusaoEvasoes, pecEvasoes, presencasInclusao, chamadaManualLogs, presencaManualSenhas, chamadaTabletLogs, parceirosEmpresa, vagasEmprego, candidaturasVagas, acompanhamentoInclusao, relatoriosInclusao, configuracoesInclusao, programTypeEnum, monitorParticipantes, atividadesMonitor, monitorGrupos, monitorGrupoAlunos, participantesInclusaoRelations, monitorParticipantesRelations, atividadesMonitorRelations, programasInclusaoRelations, turmasInclusaoRelations, participantesTurmasRelations, parceirosEmpresaRelations, vagasEmpregoRelations, insertParticipanteInclusaoSchema, insertProgramaInclusaoSchema, insertTurmaInclusaoSchema, insertParceiroEmpresaSchema, insertVagaEmpregoSchema, insertAcompanhamentoInclusaoSchema, insertRelatorioInclusaoSchema, insertConfiguracaoInclusaoSchema, insertPresencaInclusaoSchema, insertMonitorParticipanteSchema, updateMonitorParticipanteSchema, insertAtividadeMonitorSchema, insertMonitorGrupoSchema, registrosAtividades, insertRegistroAtividadeSchema, categoriaPatrocinioEnum, tipoPatrocinadorEnum, statusPatrocinioEnum, patrocinadores, insertPatrocinadorSchema, indicadoresGlobais, insertIndicadorGlobalSchema, colaboradorVinculoEnum, colaboradorSetorEnum, colaboradores, insertColaboradorSchema, statusFamiliaEnum, prioridadeCasoEnum, statusCasoEnum, tipoAtendimentoEnum, psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos, insertPsicoFamiliaSchema, insertPsicoCasoSchema, insertPsicoAtendimentoSchema, insertPsicoPlanoSchema, updatePsicoFamiliaSchema, updatePsicoCasoSchema, psicoIdSchema, psicoInclusaoVinculo, psicoPecVinculo, indicadoresPsicoAtencaoSocial, indicadoresPsicoMetodoGrito, cursosTecnologia, cursosBeleza, cursosArtesanato, cursosEmpreendedorismo, cursosAdministrativo, cursosSocioemocional, cursosEducacional, cursosOperacional, cursosGastronomia, appSecrets, insertPsicoInclusaoVinculoSchema, insertPsicoPecVinculoSchema, insertIndicadoresPsicoAtencaoSocialSchema, insertIndicadoresPsicoMetodoGritoSchema, insertCursoTecnologiaSchema, insertCursoBelezaSchema, insertCursoArtesanatoSchema, insertCursoEmpreendedorismoSchema, insertCursoAdministrativoSchema, insertCursoSocioemocionalSchema, conselhoDadosRealizados, insertConselhoDadosRealizadosSchema, conselhoDadosRealizadosAnual, insertConselhoDadosRealizadosAnualSchema, conselhoMetasMensais, insertConselhoMetasMensaisSchema, coordenadores, insertCoordenadorSchema, monitores, insertMonitorSchema, professores, insertProfessorSchema, professorTurmas, marketingUsers, insertMarketingUserSchema, negociosSociaisDados, insertNegociosSociaisDadosSchema, pecDados, insertPecDadosSchema, inclusaoProdutivaDados, insertInclusaoProdutivaDadosSchema, platformEnum, deviceTokens, pushNotifications, insertDeviceTokenSchema, insertPushNotificationSchema, inAppNotifications, inAppNotificationDismissals, insertInAppNotificationSchema, insertInAppNotificationDismissalSchema, documentosParticipante, insertDocumentoParticipanteSchema, monitorPerfis, professorLogins, registrosConfidenciais, psicoRegistrosConfidenciais, psicoRegistros, psicoAtendidosComunidade, inclusaoGeracaoDeRenda, inclusaoGeracaoRendaEvidencias, cadastroGeracaoRendaSchema, aulas, presencasAula, demandasEspontaneas, instagramMetrics, metasIndicadores, eventosGrito, insertEventoGritoSchema, usuariosPortal, ingressosPortal, insertIngressoPortalSchema, favela3dParticipantes, favela3dRelacionamentos, favela3dRegistros, eventPaymentOrders, insertEventPaymentOrderSchema, mapeamentosTerritorioTable, insertMapeamentoTerritorioSchema, aulasExcecoesInclusao, insertAulaExcecaoInclusaoSchema, aulasExcecoesPec, insertAulaExcecaoPecSchema;
+var roleEnum, cpfSchema, gvIndicators, gvWorkstreams, gvPrograms, insertGVIndicatorSchema, insertGVWorkstreamSchema, insertGVProgramSchema, impactData, insertImpactDataSchema, dadosDemograficos, insertDadosDemograficosSchema, ROUTE_PERMISSIONS, users, councilRequests, conselheiros, insertConselheiroSchema, developers, doadores, historicoDoacao, typeformResponses, doadoresRelations, historicoRelations, donorSubscriptions, billingEvents, donorSubscriptionsRelations, billingEventsRelations, insertDonorSubscriptionSchema, insertBillingEventSchema, doadoresExternos, insertDoadorExternoSchema, indicacoes, indicacaoPontosLedger, stripeEvents, indicacoesRelations, indicacaoPontosLedgerRelations, insertIndicacaoSchema, insertIndicacaoPontosSchema, marketingCampaigns, marketingLinks, mktClicks, marketingCampaignsRelations, marketingLinksRelations, mktClicksRelations, insertMarketingCampaignSchema, insertMarketingLinkSchema, insertMktClickSchema, pais, maes, responsaveis, aluno, turma, alunoTurma, chamada, chamadaAluno, calendarioEvento, planoAula, aulaRegistrada, acompanhamento, relatorioGerado, sorteios, sorteioParticipacoes, sorteioResultados, sorteioConfiguracoes, sistemaTelas, sistemaAlteracoes, sistemaErros, sistemaComentarios, sistemaDeployLog, sistemaAtividade, sorteioInsertSchema, sorteioParticipacaoInsertSchema, sorteioResultadoInsertSchema, sorteioConfiguracaoInsertSchema, usersRelations, paisRelations, maesRelations, alunoResponsaveis, responsaveisRelations, alunoResponsaveisRelations, alunoRelations, turmaRelations, alunoTurmaRelations, chamadaRelations, chamadaAlunoRelations, insertUserSchema, insertCouncilRequestSchema, postPaymentRegisterSchema, insertDeveloperSchema, insertPaiSchema, insertMaeSchema, insertResponsavelSchema, insertAlunoSchema, insertTurmaSchema, insertAlunoTurmaSchema, insertSistemaTelaSchema, insertSistemaAlteracaoSchema, insertSistemaErroSchema, insertSistemaComentarioSchema, insertSistemaDeployLogSchema, insertSistemaAtividadeSchema, insertChamadaSchema2, insertChamadaAlunoSchema2, insertCalendarioEventoSchema, insertPlanoAulaSchema, insertAulaRegistradaSchema, insertAcompanhamentoSchema, insertRelatorioGeradoSchema, verificationSchema, userCausas, insertAlunoResponsavelSchema, checkins, gritosHistorico, niveis, insertCheckinsSchema, insertGritosHistoricoSchema, insertNiveisSchema, beneficios, beneficioImagens, insertBeneficiosSchema, insertBeneficioImagensSchema, beneficioLances, insertBeneficioLancesSchema, validarLanceSchema, beneficioLancesRelations, beneficioGanhadores, insertBeneficioGanhadoresSchema, beneficioGanhadoresRelations, missoesSemanais, missaoEnvios, missoesConcluidas, missaoTransacoes, missoesSemanaisRelations, missoesConcluidasRelations, missaoEnviosRelations, missaoTransacoesRelations, insertMissoesSemanaisSchema, insertMissoesConcluidasSchema, insertMissaoEnviosSchema, insertMissaoTransacoesSchema, historiasInspiradoras, historiasSlides, historiasSlidesRelations, insertHistoriasInspiradorasSchema, insertHistoriasSlidesSchema, historiasInteracoes, historiasInteracoesRelations, historiasInspiradorasRelations, insertHistoriasInteracoesSchema, premios, leiloes, lances, premiosRelations, leiloesRelations, lancesRelations, insertPremiosSchema, insertLeiloesSchema, insertLancesSchema, referrals, referralsRelations, insertReferralsSchema, donorFiltersSchema, donorIdSchema, cotasEmpresas, insertCotaEmpresaSchema, ingressos, insertIngressoSchema, pagbankOauthTokens, insertPagBankOAuthTokenSchema, activityEvents, userInterests, insertActivityEventSchema, insertUserInterestSchema, ActivityEventType, EntityType, verificationCodes, insertVerificationCodeSchema, activityStatus, activitySituation, periodOfDay, sessionStatus, controlModeEnum, attendanceStatusEnum, projects, pecActivities, activityInstances, staffAssignments, enrollments, instanceEnrollments, sessions, attendance2, photos, physicalAssessments, insertProjectSchema, insertActivitySchema, insertActivityInstanceSchema, insertStaffAssignmentSchema, insertEnrollmentSchema, insertSessionSchema, insertAttendanceSchema, insertPhotoSchema, insertPhysicalAssessmentSchema, educadores, educadorPrograma, alunoPrograma, insertEducadorSchema, insertEducadorProgramaSchema, insertAlunoProgramaSchema, gvScopeEnum, gvProfileTypeEnum, gvSectors, gvProjects, gvMgmtIndicators, gvIndicatorAssignments, gvIndicatorTargets, gvIndicatorValues, gvTargetAllocations, gvUserAccessControl, gvMonthlyData, gvExcelMetadata, gvSectorsRelations, gvProjectsRelations, gvMgmtIndicatorsRelations, gvIndicatorAssignmentsRelations, gvIndicatorTargetsRelations, gvIndicatorValuesRelations, gvTargetAllocationsRelations, gvUserAccessControlRelations, insertGVSectorSchema, insertGVProjectSchema, insertGVMgmtIndicatorSchema, insertGVIndicatorAssignmentSchema, insertGVIndicatorTargetSchema, insertGVIndicatorValueSchema, insertGVTargetAllocationSchema, insertGVUserAccessControlSchema, gritoEvents, gritoWebhookSubscriptions, gritoWebhookDeliveries, gritoAutomations, gritoEventsRelations, gritoWebhookSubscriptionsRelations, gritoWebhookDeliveriesRelations, statusParticipanteEnum, statusCursoEnum, tipoParceiroenum, participantesInclusao, programasInclusao, turmasInclusao, participantesTurmas, inclusaoEvasoes, pecEvasoes, presencasInclusao, chamadaManualLogs, presencaManualSenhas, chamadaTabletLogs, parceirosEmpresa, vagasEmprego, candidaturasVagas, acompanhamentoInclusao, relatoriosInclusao, configuracoesInclusao, programTypeEnum, monitorParticipantes, atividadesMonitor, monitorGrupos, monitorGrupoAlunos, participantesInclusaoRelations, monitorParticipantesRelations, atividadesMonitorRelations, programasInclusaoRelations, turmasInclusaoRelations, participantesTurmasRelations, parceirosEmpresaRelations, vagasEmpregoRelations, insertParticipanteInclusaoSchema, insertProgramaInclusaoSchema, insertTurmaInclusaoSchema, insertParceiroEmpresaSchema, insertVagaEmpregoSchema, insertAcompanhamentoInclusaoSchema, insertRelatorioInclusaoSchema, insertConfiguracaoInclusaoSchema, insertPresencaInclusaoSchema, insertMonitorParticipanteSchema, updateMonitorParticipanteSchema, insertAtividadeMonitorSchema, insertMonitorGrupoSchema, registrosAtividades, insertRegistroAtividadeSchema, categoriaPatrocinioEnum, tipoPatrocinadorEnum, statusPatrocinioEnum, patrocinadores, insertPatrocinadorSchema, indicadoresGlobais, insertIndicadorGlobalSchema, colaboradorVinculoEnum, colaboradorSetorEnum, colaboradores, insertColaboradorSchema, statusFamiliaEnum, prioridadeCasoEnum, statusCasoEnum, tipoAtendimentoEnum, psicoFamilias, psicoCasos, psicoAtendimentos, psicoPlanos, insertPsicoFamiliaSchema, insertPsicoCasoSchema, insertPsicoAtendimentoSchema, insertPsicoPlanoSchema, updatePsicoFamiliaSchema, updatePsicoCasoSchema, psicoIdSchema, psicoInclusaoVinculo, psicoPecVinculo, indicadoresPsicoAtencaoSocial, indicadoresPsicoMetodoGrito, cursosTecnologia, cursosBeleza, cursosArtesanato, cursosEmpreendedorismo, cursosAdministrativo, cursosSocioemocional, cursosEducacional, cursosOperacional, cursosGastronomia, appSecrets, insertPsicoInclusaoVinculoSchema, insertPsicoPecVinculoSchema, insertIndicadoresPsicoAtencaoSocialSchema, insertIndicadoresPsicoMetodoGritoSchema, insertCursoTecnologiaSchema, insertCursoBelezaSchema, insertCursoArtesanatoSchema, insertCursoEmpreendedorismoSchema, insertCursoAdministrativoSchema, insertCursoSocioemocionalSchema, conselhoDadosRealizados, insertConselhoDadosRealizadosSchema, conselhoDadosRealizadosAnual, insertConselhoDadosRealizadosAnualSchema, conselhoMetasMensais, insertConselhoMetasMensaisSchema, coordenadores, insertCoordenadorSchema, monitores, insertMonitorSchema, professores, insertProfessorSchema, professorTurmas, marketingUsers, insertMarketingUserSchema, negociosSociaisDados, insertNegociosSociaisDadosSchema, pecDados, insertPecDadosSchema, inclusaoProdutivaDados, insertInclusaoProdutivaDadosSchema, platformEnum, deviceTokens, pushNotifications, insertDeviceTokenSchema, insertPushNotificationSchema, inAppNotifications, inAppNotificationDismissals, insertInAppNotificationSchema, insertInAppNotificationDismissalSchema, documentosParticipante, insertDocumentoParticipanteSchema, monitorPerfis, professorLogins, registrosConfidenciais, psicoRegistrosConfidenciais, psicoRegistros, psicoAtendidosComunidade, inclusaoGeracaoDeRenda, inclusaoGeracaoRendaEvidencias, cadastroGeracaoRendaSchema, aulas, presencasAula, demandasEspontaneas, instagramMetrics, metasIndicadores, eventosGrito, insertEventoGritoSchema, usuariosPortal, ingressosPortal, insertIngressoPortalSchema, favela3dParticipantes, favela3dRelacionamentos, favela3dRegistros, eventPaymentOrders, insertEventPaymentOrderSchema, mapeamentosTerritorioTable, insertMapeamentoTerritorioSchema, aulasExcecoesInclusao, insertAulaExcecaoInclusaoSchema, aulasExcecoesPec, insertAulaExcecaoPecSchema, psicoAcolhimentoStatusEnum, psicoAcolhimentos, insertPsicoAcolhimentoSchema, atendidosGrito, atendidosGritoPrograma, insertAtendidoGritoSchema, insertAtendidoGritoProgramaSchema, atendidosGritoObservacoes, insertAtendidoGritoObservacaoSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2683,7 +2692,8 @@ var init_schema = __esm({
     instanceEnrollments = pgTable("instance_enrollments", {
       id: serial("id").primaryKey(),
       activity_instance_id: integer("activity_instance_id").references(() => activityInstances.id).notNull(),
-      student_cpf: text("student_cpf").references(() => aluno.cpf).notNull(),
+      // CPF do atendido (mestre). FK legada para aluno.cpf removida — aponta a atendidos_grito via migração.
+      student_cpf: text("student_cpf").notNull(),
       enrollment_date: date("enrollment_date").defaultNow(),
       active: boolean("active").default(true),
       evadido: boolean("evadido").default(false),
@@ -3218,7 +3228,8 @@ var init_schema = __esm({
       "em_andamento",
       "concluido",
       "evadido",
-      "suspenso"
+      "suspenso",
+      "inativo"
     ]);
     statusCursoEnum = pgEnum("status_curso_enum", [
       "planejado",
@@ -3419,7 +3430,9 @@ var init_schema = __esm({
     });
     participantesTurmas = pgTable("participantes_turmas", {
       id: serial("id").primaryKey(),
-      participanteId: integer("participante_id").notNull().references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      participanteId: integer("participante_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Vínculo canônico pós-unificação (sem exigir espelho em participantes_inclusao). */
+      atendidoCpf: text("atendido_cpf"),
       turmaId: integer("turma_id").notNull().references(() => turmasInclusao.id, { onDelete: "cascade" }),
       dataInscricao: timestamp("data_inscricao").defaultNow(),
       dataIngresso: date("data_ingresso"),
@@ -3433,7 +3446,10 @@ var init_schema = __esm({
     inclusaoEvasoes = pgTable("inclusao_evasoes", {
       id: serial("id").primaryKey(),
       participanteTurmaId: integer("participante_turma_id").references(() => participantesTurmas.id, { onDelete: "set null" }),
-      participanteId: integer("participante_id").notNull().references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Legado — opcional após unificação (vínculo canônico = atendido_cpf). */
+      participanteId: integer("participante_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Vínculo canônico pós-unificação. */
+      atendidoCpf: text("atendido_cpf"),
       turmaId: integer("turma_id").notNull().references(() => turmasInclusao.id, { onDelete: "cascade" }),
       dataDesligamento: date("data_desligamento").notNull(),
       registradoEm: timestamp("registrado_em").defaultNow().notNull(),
@@ -3450,7 +3466,10 @@ var init_schema = __esm({
     });
     presencasInclusao = pgTable("presencas_inclusao", {
       id: serial("id").primaryKey(),
-      participanteId: integer("participante_id").notNull().references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Legado — opcional após unificação (vínculo canônico = atendido_cpf). */
+      participanteId: integer("participante_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      /** Vínculo canônico pós-unificação. */
+      atendidoCpf: text("atendido_cpf"),
       turmaId: integer("turma_id").references(() => turmasInclusao.id, { onDelete: "cascade" }),
       data: date("data").notNull(),
       presente: boolean("presente").notNull().default(false),
@@ -3632,6 +3651,8 @@ var init_schema = __esm({
       inclusaoParticipanteId: integer("inclusao_participante_id").references(() => participantesInclusao.id),
       // FK para PEC (nullable)
       pecAlunoCpf: text("pec_aluno_cpf").references(() => aluno.cpf),
+      // Cadastro unificado (Fase 4) — nullable até backfill / sync
+      atendidoCpf: text("atendido_cpf"),
       // Campos de acompanhamento
       acompanhamentoStatus: text("acompanhamento_status").default("ativo"),
       observacoesPrivadas: text("observacoes_privadas"),
@@ -3778,7 +3799,7 @@ var init_schema = __esm({
     insertConfiguracaoInclusaoSchema = createInsertSchema(configuracoesInclusao);
     insertPresencaInclusaoSchema = createInsertSchema(presencasInclusao).omit({ id: true, createdAt: true, updatedAt: true });
     insertMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, createdAt: true, updatedAt: true });
-    updateMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, monitorUserId: true, inclusaoParticipanteId: true, pecAlunoCpf: true, createdAt: true, updatedAt: true }).partial();
+    updateMonitorParticipanteSchema = createInsertSchema(monitorParticipantes).omit({ id: true, monitorUserId: true, inclusaoParticipanteId: true, pecAlunoCpf: true, atendidoCpf: true, createdAt: true, updatedAt: true }).partial();
     insertAtividadeMonitorSchema = createInsertSchema(atividadesMonitor).omit({ id: true, createdAt: true, updatedAt: true });
     insertMonitorGrupoSchema = createInsertSchema(monitorGrupos).omit({ id: true, createdAt: true, updatedAt: true });
     registrosAtividades = pgTable("registros_atividades", {
@@ -4573,6 +4594,8 @@ var init_schema = __esm({
       alunoCpf: text("aluno_cpf"),
       // Inclusão
       participanteInclusaoId: integer("participante_inclusao_id").references(() => participantesInclusao.id, { onDelete: "cascade" }),
+      // Cadastro unificado (Fase 4)
+      atendidoCpf: text("atendido_cpf"),
       uploadedBy: integer("uploaded_by").references(() => users.id),
       createdAt: timestamp("created_at").defaultNow()
     });
@@ -4873,7 +4896,7 @@ var init_schema = __esm({
       eventoId: integer("evento_id").references(() => eventosGrito.id),
       codigo: text("codigo").notNull(),
       status: text("status").default("disponivel"),
-      // disponivel | resgatado | usado | cancelado
+      // disponivel | reservado | resgatado | usado | cancelado
       // Titular — quem resgatou
       usuarioPortalId: integer("usuario_portal_id").references(() => usuariosPortal.id),
       titularNome: text("titular_nome"),
@@ -4886,6 +4909,22 @@ var init_schema = __esm({
       beneficiarioCpf: text("beneficiario_cpf"),
       beneficiarioEmail: text("beneficiario_email"),
       beneficiarioTelefone: text("beneficiario_telefone"),
+      beneficiarioNascimento: date("beneficiario_nascimento"),
+      beneficiarioGenero: text("beneficiario_genero"),
+      beneficiarioLogradouro: text("beneficiario_logradouro"),
+      beneficiarioNumero: text("beneficiario_numero"),
+      beneficiarioBairro: text("beneficiario_bairro"),
+      beneficiarioCidade: text("beneficiario_cidade"),
+      beneficiarioEstado: text("beneficiario_estado"),
+      beneficiarioCep: text("beneficiario_cep"),
+      // Reserva / pagamento
+      orderRef: text("order_ref"),
+      reservedUntil: timestamp("reserved_until"),
+      metodoPagamento: text("metodo_pagamento"),
+      gateway: text("gateway"),
+      paymentId: text("payment_id"),
+      valorPago: integer("valor_pago"),
+      parcelas: integer("parcelas"),
       // Controle
       resgatadoEm: timestamp("resgatado_em"),
       checkinEm: timestamp("checkin_em"),
@@ -4977,7 +5016,7 @@ var init_schema = __esm({
       data: date("data").notNull(),
       status: text("status").default("ativo"),
       categoria: text("categoria"),
-      // gerando_lideranca, assembleia, grupo_mulheres (para atendimento_coletivo)
+      // gerando_lideranca, assembleia, grupo_mulheres, triangulo (para atendimento_coletivo)
       participantesIds: integer("participantes_ids").array(),
       // IDs para atendimento coletivo
       createdAt: timestamp("created_at").defaultNow(),
@@ -4994,6 +5033,7 @@ var init_schema = __esm({
       valorTotal: integer("valor_total").notNull(),
       parcelas: integer("parcelas").default(1),
       status: text("status").notNull().default("created"),
+      // created | reserved | pending | processing | paid | fulfilling | fulfilled | expired | error
       cieloPaymentId: text("cielo_payment_id"),
       cieloStatus: integer("cielo_status"),
       titularNome: text("titular_nome").notNull(),
@@ -5004,6 +5044,8 @@ var init_schema = __esm({
       pixQrCodeString: text("pix_qr_code_string"),
       errorMessage: text("error_message"),
       returnCode: text("return_code"),
+      reservedUntil: timestamp("reserved_until"),
+      fulfilledEm: timestamp("fulfilled_em"),
       criadoEm: timestamp("criado_em").defaultNow().notNull(),
       atualizadoEm: timestamp("atualizado_em").defaultNow().notNull()
     });
@@ -5039,6 +5081,107 @@ var init_schema = __esm({
       createdAt: timestamp("created_at").defaultNow()
     });
     insertAulaExcecaoPecSchema = createInsertSchema(aulasExcecoesPec).omit({ id: true, createdAt: true });
+    psicoAcolhimentoStatusEnum = [
+      "agendado",
+      "realizado",
+      "faltou",
+      "cancelado",
+      "reagendado"
+    ];
+    psicoAcolhimentos = pgTable("psico_acolhimentos", {
+      id: serial("id").primaryKey(),
+      alunoCpf: varchar("aluno_cpf", { length: 11 }).notNull(),
+      alunoNome: varchar("aluno_nome", { length: 200 }).notNull(),
+      data: date("data").notNull(),
+      horaInicio: varchar("hora_inicio", { length: 8 }).notNull(),
+      horaFim: varchar("hora_fim", { length: 8 }),
+      local: text("local"),
+      profissionalUserId: integer("profissional_user_id").references(() => users.id),
+      profissionalNome: text("profissional_nome"),
+      status: varchar("status", { length: 30 }).notNull().default("agendado"),
+      observacaoInterna: text("observacao_interna"),
+      registroId: integer("registro_id"),
+      registroTipo: varchar("registro_tipo", { length: 40 }),
+      /** Id compartilhado quando o agendamento veio de uma série recorrente */
+      serieId: varchar("serie_id", { length: 64 }),
+      criadoPorUserId: integer("criado_por_user_id").notNull(),
+      criadoPorRole: varchar("criado_por_role", { length: 50 }),
+      createdAt: timestamp("created_at").defaultNow(),
+      updatedAt: timestamp("updated_at").defaultNow()
+    });
+    insertPsicoAcolhimentoSchema = createInsertSchema(psicoAcolhimentos).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    atendidosGrito = pgTable("atendidos_grito", {
+      cpf: text("cpf").primaryKey(),
+      cpfProvisorio: boolean("cpf_provisorio").notNull().default(false),
+      nomeCompleto: text("nome_completo").notNull(),
+      dataNascimento: date("data_nascimento"),
+      genero: text("genero"),
+      escolaridade: text("escolaridade"),
+      instituicaoEnsino: text("instituicao_ensino"),
+      telefone: text("telefone"),
+      email: text("email"),
+      whatsapp: text("whatsapp"),
+      bolsaFamilia: text("bolsa_familia"),
+      fotoPerfil: text("foto_perfil"),
+      numeroMatricula: text("numero_matricula").unique(),
+      status: text("status").notNull().default("ativo"),
+      cep: text("cep"),
+      logradouro: text("logradouro"),
+      numero: text("numero"),
+      complemento: text("complemento"),
+      bairro: text("bairro"),
+      cidade: text("cidade"),
+      estado: text("estado"),
+      dadosComplementares: jsonb("dados_complementares"),
+      fonteUltimaAtualizacao: text("fonte_ultima_atualizacao"),
+      legadoAtualizadoEm: timestamp("legado_atualizado_em"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    atendidosGritoPrograma = pgTable(
+      "atendidos_grito_programa",
+      {
+        id: serial("id").primaryKey(),
+        cpf: text("cpf").notNull().references(() => atendidosGrito.cpf, { onDelete: "cascade" }),
+        programa: text("programa").notNull(),
+        status: text("status").notNull().default("ativo"),
+        legadoTipo: text("legado_tipo"),
+        legadoId: text("legado_id"),
+        dataIngresso: timestamp("data_ingresso"),
+        dataEgresso: timestamp("data_egresso"),
+        createdAt: timestamp("created_at").defaultNow().notNull(),
+        updatedAt: timestamp("updated_at").defaultNow().notNull()
+      },
+      (t) => ({
+        uniqCpfPrograma: unique().on(t.cpf, t.programa)
+      })
+    );
+    insertAtendidoGritoSchema = createInsertSchema(atendidosGrito).omit({
+      createdAt: true,
+      updatedAt: true
+    });
+    insertAtendidoGritoProgramaSchema = createInsertSchema(atendidosGritoPrograma).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    atendidosGritoObservacoes = pgTable("atendidos_grito_observacoes", {
+      id: serial("id").primaryKey(),
+      cpf: text("cpf").notNull(),
+      autorNome: text("autor_nome").notNull(),
+      autorSetor: text("autor_setor").notNull(),
+      autorUserId: integer("autor_user_id"),
+      texto: text("texto").notNull(),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    insertAtendidoGritoObservacaoSchema = createInsertSchema(atendidosGritoObservacoes).omit({
+      id: true,
+      createdAt: true
+    });
   }
 });
 
@@ -5409,6 +5552,12 @@ async function runAutoMigrations() {
       );
     `);
     await pool.query(`
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS origem TEXT;
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS canal TEXT DEFAULT 'push';
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS disparado_por_user_id INTEGER REFERENCES users(id);
+      ALTER TABLE push_logs ADD COLUMN IF NOT EXISTS skipped_reason TEXT;
+    `);
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_inclusao_evasoes_ativa
         ON inclusao_evasoes (participante_id, turma_id)
         WHERE revertido_em IS NULL;
@@ -5469,6 +5618,281 @@ async function runAutoMigrations() {
             AND ev.revertido_em IS NULL
         );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito_observacoes (
+        id SERIAL PRIMARY KEY,
+        cpf TEXT NOT NULL,
+        autor_nome TEXT NOT NULL,
+        autor_setor TEXT NOT NULL,
+        autor_user_id INTEGER,
+        texto TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_obs_cpf
+        ON atendidos_grito_observacoes (cpf);
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito (
+        cpf TEXT PRIMARY KEY,
+        cpf_provisorio BOOLEAN NOT NULL DEFAULT FALSE,
+        nome_completo TEXT NOT NULL,
+        data_nascimento DATE,
+        genero TEXT,
+        escolaridade TEXT,
+        instituicao_ensino TEXT,
+        telefone TEXT,
+        email TEXT,
+        whatsapp TEXT,
+        bolsa_familia TEXT,
+        foto_perfil TEXT,
+        numero_matricula TEXT UNIQUE,
+        status TEXT NOT NULL DEFAULT 'ativo',
+        cep TEXT,
+        logradouro TEXT,
+        numero TEXT,
+        complemento TEXT,
+        bairro TEXT,
+        cidade TEXT,
+        estado TEXT,
+        dados_complementares JSONB,
+        fonte_ultima_atualizacao TEXT,
+        legado_atualizado_em TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atendidos_grito_programa (
+        id SERIAL PRIMARY KEY,
+        cpf TEXT NOT NULL REFERENCES atendidos_grito(cpf) ON DELETE CASCADE,
+        programa TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ativo',
+        legado_tipo TEXT,
+        legado_id TEXT,
+        data_ingresso TIMESTAMP,
+        data_egresso TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE (cpf, programa)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_programa_cpf
+        ON atendidos_grito_programa (cpf);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_atendidos_grito_status
+        ON atendidos_grito (status);
+    `);
+    await pool.query(`
+      ALTER TABLE monitor_participantes
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE documentos_participante
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_monitor_participantes_atendido_cpf
+        ON monitor_participantes (atendido_cpf)
+        WHERE atendido_cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_documentos_participante_atendido_cpf
+        ON documentos_participante (atendido_cpf)
+        WHERE atendido_cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      UPDATE monitor_participantes mp
+      SET atendido_cpf = ag.cpf
+      FROM atendidos_grito ag
+      WHERE mp.atendido_cpf IS NULL
+        AND mp.pec_aluno_cpf IS NOT NULL
+        AND REGEXP_REPLACE(mp.pec_aluno_cpf, '[^0-9]', '', 'g') = ag.cpf;
+    `);
+    await pool.query(`
+      UPDATE monitor_participantes mp
+      SET atendido_cpf = ag.cpf
+      FROM participantes_inclusao pi
+      JOIN atendidos_grito ag
+        ON ag.cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      WHERE mp.atendido_cpf IS NULL
+        AND mp.inclusao_participante_id = pi.id;
+    `);
+    await pool.query(`
+      UPDATE documentos_participante dp
+      SET atendido_cpf = ag.cpf
+      FROM atendidos_grito ag
+      WHERE dp.atendido_cpf IS NULL
+        AND dp.aluno_cpf IS NOT NULL
+        AND REGEXP_REPLACE(dp.aluno_cpf, '[^0-9]', '', 'g') = ag.cpf;
+    `);
+    await pool.query(`
+      UPDATE documentos_participante dp
+      SET atendido_cpf = ag.cpf
+      FROM participantes_inclusao pi
+      JOIN atendidos_grito ag
+        ON ag.cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      WHERE dp.atendido_cpf IS NULL
+        AND dp.participante_inclusao_id = pi.id;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'monitor_participantes_atendido_cpf_fkey'
+        ) THEN
+          ALTER TABLE monitor_participantes
+            ADD CONSTRAINT monitor_participantes_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'documentos_participante_atendido_cpf_fkey'
+        ) THEN
+          ALTER TABLE documentos_participante
+            ADD CONSTRAINT documentos_participante_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM instance_enrollments ie
+          LEFT JOIN atendidos_grito ag ON ag.cpf = ie.student_cpf
+          WHERE ag.cpf IS NULL
+          LIMIT 1
+        ) THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'instance_enrollments_student_cpf_atendido_fkey'
+          ) THEN
+            ALTER TABLE instance_enrollments
+              ADD CONSTRAINT instance_enrollments_student_cpf_atendido_fkey
+              FOREIGN KEY (student_cpf) REFERENCES atendidos_grito(cpf)
+              ON DELETE RESTRICT;
+          END IF;
+
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'instance_enrollments_student_cpf_fkey'
+          ) THEN
+            ALTER TABLE instance_enrollments
+              DROP CONSTRAINT instance_enrollments_student_cpf_fkey;
+          END IF;
+        ELSE
+          RAISE WARNING 'FK de instance_enrollments mantida no legado: execute o backfill de atendidos_grito antes do corte';
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      ALTER TABLE participantes_turmas
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE inclusao_evasoes
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE presencas_inclusao
+        ADD COLUMN IF NOT EXISTS atendido_cpf TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE participantes_turmas
+        ALTER COLUMN participante_id DROP NOT NULL;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        BEGIN
+          ALTER TABLE inclusao_evasoes ALTER COLUMN participante_id DROP NOT NULL;
+        EXCEPTION WHEN others THEN NULL;
+        END;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        BEGIN
+          ALTER TABLE presencas_inclusao ALTER COLUMN participante_id DROP NOT NULL;
+        EXCEPTION WHEN others THEN NULL;
+        END;
+      END $$;
+    `);
+    await pool.query(`
+      UPDATE participantes_turmas pt
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE pt.participante_id = pi.id
+        AND pt.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      UPDATE inclusao_evasoes ie
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE ie.participante_id = pi.id
+        AND ie.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      UPDATE presencas_inclusao pr
+      SET atendido_cpf = REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+      FROM participantes_inclusao pi
+      WHERE pr.participante_id = pi.id
+        AND pr.atendido_cpf IS NULL
+        AND pi.cpf IS NOT NULL;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM participantes_turmas
+          WHERE atendido_cpf IS NOT NULL
+          GROUP BY atendido_cpf, turma_id
+          HAVING COUNT(*) > 1
+          LIMIT 1
+        ) THEN
+          CREATE UNIQUE INDEX IF NOT EXISTS uniq_participantes_turmas_atendido_turma
+            ON participantes_turmas (atendido_cpf, turma_id)
+            WHERE atendido_cpf IS NOT NULL;
+        ELSE
+          RAISE WARNING '\xCDndice \xFAnico de participantes_turmas adiado: h\xE1 v\xEDnculos duplicados por CPF/turma';
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'participantes_turmas_atendido_cpf_fkey'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM participantes_turmas pt
+          LEFT JOIN atendidos_grito ag ON ag.cpf = pt.atendido_cpf
+          WHERE pt.atendido_cpf IS NOT NULL AND ag.cpf IS NULL
+          LIMIT 1
+        ) THEN
+          ALTER TABLE participantes_turmas
+            ADD CONSTRAINT participantes_turmas_atendido_cpf_fkey
+            FOREIGN KEY (atendido_cpf) REFERENCES atendidos_grito(cpf)
+            ON DELETE RESTRICT;
+        END IF;
+      END $$;
+    `);
+    await pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'participantes_turmas_id_or_cpf'
+        ) THEN
+          ALTER TABLE participantes_turmas
+            ADD CONSTRAINT participantes_turmas_id_or_cpf
+            CHECK (participante_id IS NOT NULL OR atendido_cpf IS NOT NULL);
+        END IF;
+      END $$;
+    `);
     console.log("\u2705 Migra\xE7\xF5es autom\xE1ticas conclu\xEDdas");
     const { rows: enumRows } = await pool.query(`
       SELECT e.enumlabel FROM pg_enum e
@@ -5480,6 +5904,15 @@ async function runAutoMigrations() {
       if (!coordSetores.has(value)) {
         await pool.query(`ALTER TYPE coord_setor ADD VALUE '${value}'`);
       }
+    }
+    const { rows: partStatusRows } = await pool.query(`
+      SELECT e.enumlabel FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = 'status_participante_enum'
+    `);
+    const partStatuses = new Set(partStatusRows.map((r) => r.enumlabel));
+    if (!partStatuses.has("inativo")) {
+      await pool.query(`ALTER TYPE status_participante_enum ADD VALUE 'inativo'`);
     }
     await pool.query(`
       UPDATE coordenadores
@@ -5520,6 +5953,20 @@ async function runAutoMigrations() {
       WHERE NOT EXISTS (
         SELECT 1 FROM coordenadores c WHERE lower(c.email) = lower(v.email)
       );
+    `);
+    await pool.query(`
+      UPDATE users
+      SET
+        conselho_status = NULL,
+        conselho_approved_by = NULL,
+        conselho_approved_at = NULL
+      WHERE conselho_status IS NOT NULL
+        AND COALESCE(role, '') NOT IN ('conselho', 'conselheiro')
+        AND (
+          tipo = 'doador'
+          OR role = 'doador'
+          OR subscription_status = 'active'
+        );
     `);
   } catch (error) {
     console.error(
@@ -5586,6 +6033,1005 @@ var init_db = __esm({
   }
 });
 
+// shared/cpf.ts
+function normalizeCpfDigits2(raw) {
+  return String(raw ?? "").replace(/\D/g, "");
+}
+function isCpfProvisorio(raw) {
+  const digits = normalizeCpfDigits2(raw);
+  return digits.length === 11 && digits.startsWith("00000000");
+}
+var init_cpf = __esm({
+  "shared/cpf.ts"() {
+    "use strict";
+  }
+});
+
+// server/services/atendidosGritoSync.ts
+function mapStatus(raw) {
+  const s = String(raw || "").toLowerCase().trim();
+  if ([
+    "inativo",
+    "inativa",
+    "cancelado",
+    "cancelada",
+    "evadido",
+    "concluido",
+    "conclu\xEDda",
+    "concluida",
+    "suspenso",
+    "desistente",
+    "formado"
+  ].includes(s)) {
+    return "inativo";
+  }
+  return "ativo";
+}
+function resolveDataEgresso(programaStatus, explicit) {
+  if (programaStatus !== "inativo") return null;
+  if (explicit) return new Date(explicit);
+  return /* @__PURE__ */ new Date();
+}
+function toDateOnly(val) {
+  if (!val) return null;
+  const s = String(val).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+function pickString(...vals) {
+  for (const v of vals) {
+    const s = v == null ? "" : String(v).trim();
+    if (s) return s;
+  }
+  return null;
+}
+function buildBeneficiosSociais(bolsaFamilia, extras) {
+  return {
+    bolsa_familia: mapSimNaoLegado(bolsaFamilia) || pickString(bolsaFamilia),
+    pe_de_meia: mapSimNaoLegado(extras?.pe_de_meia) || pickString(extras?.pe_de_meia),
+    gas_do_povo: mapSimNaoLegado(extras?.gas_do_povo) || pickString(extras?.gas_do_povo)
+  };
+}
+function mapSimNaoLegado(val) {
+  const s = String(val ?? "").trim().toLowerCase();
+  if (["sim", "s", "true"].includes(s)) return "sim";
+  if (["nao", "n\xE3o", "n", "false"].includes(s)) return "nao";
+  return null;
+}
+async function getAtendidoGritoByCpf(cpf) {
+  const digits = normalizeCpfDigits2(cpf);
+  if (digits.length !== 11) return null;
+  const { rows } = await pool.query(`SELECT * FROM atendidos_grito WHERE cpf = $1 LIMIT 1`, [digits]);
+  return rows[0] || null;
+}
+async function resolveAtendidoCpfIfExists(cpfRaw) {
+  const digits = normalizeCpfDigits2(cpfRaw);
+  if (digits.length !== 11) return null;
+  const { rows } = await pool.query(
+    `SELECT cpf FROM atendidos_grito WHERE cpf = $1 LIMIT 1`,
+    [digits]
+  );
+  return rows[0]?.cpf || null;
+}
+async function migrateAtendidoGritoCpf(oldCpfRaw, newCpfRaw) {
+  const oldCpf = normalizeCpfDigits2(oldCpfRaw);
+  const newCpf = normalizeCpfDigits2(newCpfRaw);
+  if (oldCpf === newCpf || oldCpf.length !== 11 || newCpf.length !== 11) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: oldRows } = await client.query(
+      `SELECT cpf FROM atendidos_grito WHERE cpf = $1 LIMIT 1`,
+      [oldCpf]
+    );
+    if (oldRows.length === 0) {
+      await client.query("COMMIT");
+      return;
+    }
+    const { rows: newRows } = await client.query(
+      `SELECT cpf FROM atendidos_grito WHERE cpf = $1 LIMIT 1`,
+      [newCpf]
+    );
+    if (newRows.length === 0) {
+      await client.query(
+        `UPDATE atendidos_grito SET numero_matricula = NULL WHERE cpf = $1`,
+        [oldCpf]
+      );
+      await client.query(
+        `INSERT INTO atendidos_grito (
+          cpf, cpf_provisorio, nome_completo, data_nascimento, genero, escolaridade,
+          instituicao_ensino, telefone, email, whatsapp, bolsa_familia, foto_perfil,
+          numero_matricula, status, cep, logradouro, numero, complemento, bairro, cidade, estado,
+          dados_complementares, fonte_ultima_atualizacao, legado_atualizado_em, created_at, updated_at
+        )
+        SELECT
+          $2, $3, nome_completo, data_nascimento, genero, escolaridade,
+          instituicao_ensino, telefone, email, whatsapp, bolsa_familia, foto_perfil,
+          numero_matricula, status, cep, logradouro, numero, complemento, bairro, cidade, estado,
+          dados_complementares, fonte_ultima_atualizacao, legado_atualizado_em, created_at, NOW()
+        FROM atendidos_grito WHERE cpf = $1`,
+        [oldCpf, newCpf, isCpfProvisorio(newCpf)]
+      );
+      await client.query(`UPDATE atendidos_grito_observacoes SET cpf = $2 WHERE cpf = $1`, [
+        oldCpf,
+        newCpf
+      ]);
+      await client.query(`UPDATE atendidos_grito_programa SET cpf = $2 WHERE cpf = $1`, [
+        oldCpf,
+        newCpf
+      ]);
+      await client.query(
+        `UPDATE monitor_participantes SET atendido_cpf = $2 WHERE atendido_cpf = $1`,
+        [oldCpf, newCpf]
+      );
+      await client.query(
+        `UPDATE documentos_participante SET atendido_cpf = $2 WHERE atendido_cpf = $1`,
+        [oldCpf, newCpf]
+      );
+      await client.query(`DELETE FROM atendidos_grito WHERE cpf = $1`, [oldCpf]);
+    } else {
+      await client.query(
+        `UPDATE atendidos_grito_programa SET cpf = $2
+         WHERE cpf = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM atendidos_grito_programa p
+             WHERE p.cpf = $2 AND p.programa = atendidos_grito_programa.programa
+           )`,
+        [oldCpf, newCpf]
+      );
+      await client.query(`DELETE FROM atendidos_grito_programa WHERE cpf = $1`, [oldCpf]);
+      await client.query(`UPDATE atendidos_grito_observacoes SET cpf = $2 WHERE cpf = $1`, [
+        oldCpf,
+        newCpf
+      ]);
+      await client.query(
+        `UPDATE monitor_participantes SET atendido_cpf = $2 WHERE atendido_cpf = $1`,
+        [oldCpf, newCpf]
+      );
+      await client.query(
+        `UPDATE documentos_participante SET atendido_cpf = $2 WHERE atendido_cpf = $1`,
+        [oldCpf, newCpf]
+      );
+      await client.query(`DELETE FROM atendidos_grito WHERE cpf = $1`, [oldCpf]);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+async function getAtendidoGritoMatricula(cpf) {
+  const digits = normalizeCpfDigits2(cpf);
+  if (digits.length !== 11) return null;
+  const { rows } = await pool.query(
+    `SELECT numero_matricula FROM atendidos_grito WHERE cpf = $1 LIMIT 1`,
+    [digits]
+  );
+  return rows[0]?.numero_matricula || null;
+}
+async function resolveMatriculaGlobal(cpf, offered) {
+  const cpfDigits = normalizeCpfDigits2(cpf);
+  const existing = await getAtendidoGritoMatricula(cpfDigits);
+  if (existing) return existing;
+  if (offered && String(offered).trim()) {
+    const off = String(offered).trim();
+    const { rows: conflict } = await pool.query(
+      `SELECT cpf FROM atendidos_grito WHERE numero_matricula = $1 AND cpf <> $2 LIMIT 1`,
+      [off, cpfDigits]
+    );
+    if (conflict.length === 0) return off;
+  }
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { rows } = await pool.query(
+      `SELECT nextval('matricula_global_seq')::text AS next_num`
+    );
+    const candidate = parseInt(rows[0]?.next_num || "1", 10).toString().padStart(4, "0");
+    const { rows: taken } = await pool.query(
+      `SELECT 1 FROM atendidos_grito WHERE numero_matricula = $1 LIMIT 1`,
+      [candidate]
+    );
+    if (taken.length === 0) return candidate;
+  }
+  throw new Error("N\xE3o foi poss\xEDvel gerar matr\xEDcula global \xFAnica");
+}
+async function getNextCpfProvisorio() {
+  const { rows } = await pool.query(`
+    SELECT cpf FROM atendidos_grito WHERE cpf LIKE '00000000%'
+    UNION ALL
+    SELECT cpf FROM aluno WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') LIKE '00000000%'
+    UNION ALL
+    SELECT cpf FROM participantes_inclusao WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') LIKE '00000000%'
+    UNION ALL
+    SELECT cpf FROM psico_atendidos_comunidade WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') LIKE '00000000%'
+  `);
+  let maxNum = 0;
+  for (const row of rows) {
+    const digits2 = normalizeCpfDigits2(row.cpf);
+    if (digits2.length === 11 && digits2.startsWith("00000000")) {
+      const n = parseInt(digits2.slice(9), 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  const next = maxNum + 1;
+  const digits = `000000000${String(next).padStart(2, "0")}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+async function upsertAtendidoGrito(data) {
+  await pool.query(
+    `INSERT INTO atendidos_grito (
+      cpf, cpf_provisorio, nome_completo, data_nascimento, genero, escolaridade,
+      instituicao_ensino, telefone, email, whatsapp, bolsa_familia, foto_perfil,
+      numero_matricula, status, cep, logradouro, numero, complemento, bairro, cidade, estado,
+      dados_complementares, fonte_ultima_atualizacao, legado_atualizado_em, updated_at
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),NOW()
+    )
+    ON CONFLICT (cpf) DO UPDATE SET
+      cpf_provisorio = EXCLUDED.cpf_provisorio,
+      nome_completo = EXCLUDED.nome_completo,
+      data_nascimento = COALESCE(EXCLUDED.data_nascimento, atendidos_grito.data_nascimento),
+      genero = COALESCE(EXCLUDED.genero, atendidos_grito.genero),
+      escolaridade = COALESCE(EXCLUDED.escolaridade, atendidos_grito.escolaridade),
+      instituicao_ensino = COALESCE(EXCLUDED.instituicao_ensino, atendidos_grito.instituicao_ensino),
+      telefone = COALESCE(EXCLUDED.telefone, atendidos_grito.telefone),
+      email = COALESCE(EXCLUDED.email, atendidos_grito.email),
+      whatsapp = COALESCE(EXCLUDED.whatsapp, atendidos_grito.whatsapp),
+      bolsa_familia = COALESCE(EXCLUDED.bolsa_familia, atendidos_grito.bolsa_familia),
+      foto_perfil = COALESCE(EXCLUDED.foto_perfil, atendidos_grito.foto_perfil),
+      numero_matricula = COALESCE(EXCLUDED.numero_matricula, atendidos_grito.numero_matricula),
+      status = EXCLUDED.status,
+      cep = COALESCE(EXCLUDED.cep, atendidos_grito.cep),
+      logradouro = COALESCE(EXCLUDED.logradouro, atendidos_grito.logradouro),
+      numero = COALESCE(EXCLUDED.numero, atendidos_grito.numero),
+      complemento = COALESCE(EXCLUDED.complemento, atendidos_grito.complemento),
+      bairro = COALESCE(EXCLUDED.bairro, atendidos_grito.bairro),
+      cidade = COALESCE(EXCLUDED.cidade, atendidos_grito.cidade),
+      estado = COALESCE(EXCLUDED.estado, atendidos_grito.estado),
+      dados_complementares = EXCLUDED.dados_complementares,
+      fonte_ultima_atualizacao = EXCLUDED.fonte_ultima_atualizacao,
+      legado_atualizado_em = NOW(),
+      updated_at = NOW()`,
+    [
+      data.cpf,
+      isCpfProvisorio(data.cpf),
+      data.nomeCompleto,
+      data.dataNascimento,
+      data.genero,
+      data.escolaridade,
+      data.instituicaoEnsino,
+      data.telefone,
+      data.email,
+      data.whatsapp,
+      data.bolsaFamilia,
+      data.fotoPerfil,
+      data.numeroMatricula,
+      data.statusGlobal,
+      data.cep,
+      data.logradouro,
+      data.numero,
+      data.complemento,
+      data.bairro,
+      data.cidade,
+      data.estado,
+      JSON.stringify(data.dadosComplementares),
+      data.fonte
+    ]
+  );
+}
+async function upsertPrograma(data) {
+  const programaStatus = mapStatus(data.status);
+  const dataEgresso = resolveDataEgresso(programaStatus, data.dataEgresso);
+  await pool.query(
+    `INSERT INTO atendidos_grito_programa (
+      cpf, programa, status, legado_tipo, legado_id, data_ingresso, data_egresso, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+    ON CONFLICT (cpf, programa) DO UPDATE SET
+      status = EXCLUDED.status,
+      legado_tipo = EXCLUDED.legado_tipo,
+      legado_id = EXCLUDED.legado_id,
+      data_ingresso = COALESCE(EXCLUDED.data_ingresso, atendidos_grito_programa.data_ingresso),
+      data_egresso = CASE
+        WHEN EXCLUDED.status = 'inativo' THEN COALESCE(EXCLUDED.data_egresso, atendidos_grito_programa.data_egresso, NOW())
+        ELSE NULL
+      END,
+      updated_at = NOW()`,
+    [
+      data.cpf,
+      data.programa,
+      programaStatus,
+      data.legadoTipo,
+      data.legadoId,
+      data.dataIngresso ? new Date(data.dataIngresso) : null,
+      dataEgresso
+    ]
+  );
+}
+async function syncFromPecAluno(alunoRecord, extras) {
+  const cpf = normalizeCpfDigits2(alunoRecord.cpf);
+  if (cpf.length !== 11) return;
+  const programaStatus = mapStatus(alunoRecord.situacao_atendimento);
+  const { rows: outrosProgramas } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM atendidos_grito_programa
+       WHERE cpf = $1 AND programa <> 'pec' AND status = 'ativo'
+     ) AS ativo`,
+    [cpf]
+  );
+  const statusGlobal = programaStatus === "ativo" || outrosProgramas[0]?.ativo ? "ativo" : "inativo";
+  await upsertAtendidoGrito({
+    cpf,
+    nomeCompleto: alunoRecord.nome_completo,
+    dataNascimento: toDateOnly(alunoRecord.data_nascimento),
+    genero: pickString(alunoRecord.genero),
+    escolaridade: pickString(alunoRecord.escolaridade, alunoRecord.serie),
+    instituicaoEnsino: pickString(alunoRecord.instituicao_ensino),
+    telefone: pickString(alunoRecord.telefone),
+    email: pickString(alunoRecord.email),
+    whatsapp: pickString(alunoRecord.whatsapp),
+    bolsaFamilia: pickString(alunoRecord.bolsa_familia),
+    fotoPerfil: pickString(alunoRecord.foto_perfil),
+    numeroMatricula: pickString(alunoRecord.numero_matricula),
+    statusGlobal,
+    cep: pickString(alunoRecord.cep),
+    logradouro: pickString(alunoRecord.logradouro),
+    numero: pickString(alunoRecord.numero),
+    complemento: pickString(alunoRecord.complemento),
+    bairro: pickString(alunoRecord.bairro),
+    cidade: pickString(alunoRecord.cidade),
+    estado: pickString(alunoRecord.estado),
+    fonte: "pec",
+    dadosComplementares: {
+      legado: "aluno",
+      snapshot: alunoRecord,
+      beneficios_sociais: buildBeneficiosSociais(alunoRecord.bolsa_familia, extras)
+    }
+  });
+  await upsertPrograma({
+    cpf,
+    programa: "pec",
+    status: programaStatus,
+    legadoTipo: "aluno",
+    legadoId: cpf,
+    dataIngresso: alunoRecord.data_entrada || alunoRecord.createdAt,
+    dataEgresso: programaStatus === "inativo" ? alunoRecord.data_inativacao || /* @__PURE__ */ new Date() : null
+  });
+}
+async function syncFromInclusaoParticipante(participante, extras) {
+  const cpf = normalizeCpfDigits2(participante.cpf);
+  if (cpf.length !== 11) return;
+  const programaStatus = mapStatus(participante.status);
+  const { rows: outrosProgramas } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM atendidos_grito_programa
+       WHERE cpf = $1 AND programa <> 'inclusao' AND status = 'ativo'
+     ) AS ativo`,
+    [cpf]
+  );
+  const statusGlobal = programaStatus === "ativo" || outrosProgramas[0]?.ativo ? "ativo" : "inativo";
+  await upsertAtendidoGrito({
+    cpf,
+    nomeCompleto: participante.nome,
+    dataNascimento: toDateOnly(participante.dataNascimento),
+    genero: pickString(participante.genero),
+    escolaridade: pickString(participante.escolaridade, participante.serie),
+    instituicaoEnsino: pickString(participante.instituicaoEnsino),
+    telefone: pickString(participante.telefone),
+    email: pickString(participante.email),
+    whatsapp: participante.telefoneWhatsapp ? pickString(participante.telefone) : pickString(participante.telefone),
+    bolsaFamilia: pickString(participante.bolsaFamilia),
+    fotoPerfil: pickString(participante.fotoUrl),
+    numeroMatricula: pickString(participante.codigoMatricula),
+    statusGlobal,
+    cep: pickString(participante.cep),
+    logradouro: pickString(participante.logradouro),
+    numero: pickString(participante.numero),
+    complemento: pickString(participante.complemento),
+    bairro: pickString(participante.bairro),
+    cidade: pickString(participante.cidade),
+    estado: pickString(participante.estado),
+    fonte: "inclusao",
+    dadosComplementares: {
+      legado: "participantes_inclusao",
+      snapshot: participante,
+      beneficios_sociais: buildBeneficiosSociais(participante.bolsaFamilia, extras)
+    }
+  });
+  await upsertPrograma({
+    cpf,
+    programa: "inclusao",
+    status: programaStatus,
+    legadoTipo: "participantes_inclusao",
+    legadoId: String(participante.id),
+    dataIngresso: participante.dataIngresso || participante.dataEntrada || participante.createdAt,
+    dataEgresso: programaStatus === "inativo" ? participante.dataEgresso || /* @__PURE__ */ new Date() : null
+  });
+}
+async function syncFromPsicoComunidade(record, extras) {
+  const cpf = normalizeCpfDigits2(record.cpf);
+  if (cpf.length !== 11) return;
+  const programaStatus = "ativo";
+  const { rows: outrosProgramas } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM atendidos_grito_programa
+       WHERE cpf = $1 AND programa <> 'psico_comunidade' AND status = 'ativo'
+     ) AS ativo`,
+    [cpf]
+  );
+  const statusGlobal = programaStatus === "ativo" || outrosProgramas[0]?.ativo ? "ativo" : "inativo";
+  const matricula = await resolveMatriculaGlobal(cpf, null);
+  await upsertAtendidoGrito({
+    cpf,
+    nomeCompleto: pickString(record.nome) || "Sem nome",
+    dataNascimento: toDateOnly(record.data_nascimento),
+    genero: pickString(record.sexo),
+    escolaridade: null,
+    instituicaoEnsino: null,
+    telefone: pickString(record.telefone),
+    email: pickString(record.email),
+    whatsapp: pickString(record.telefone),
+    bolsaFamilia: mapSimNaoLegado(record.tem_bolsa_familia),
+    fotoPerfil: pickString(record.foto_url),
+    numeroMatricula: matricula,
+    statusGlobal,
+    cep: pickString(record.cep),
+    logradouro: pickString(record.endereco, record.logradouro),
+    numero: pickString(record.numero),
+    complemento: pickString(record.complemento),
+    bairro: pickString(record.bairro),
+    cidade: pickString(record.cidade),
+    estado: pickString(record.estado),
+    fonte: "psico_comunidade",
+    dadosComplementares: {
+      legado: "psico_atendidos_comunidade",
+      snapshot: record,
+      igf: {
+        numero_pessoas: record.numero_pessoas ?? null,
+        criancas: record.criancas ?? null,
+        adolescentes: record.adolescentes ?? null,
+        adultos: record.adultos ?? null,
+        idosos: record.idosos ?? null
+      },
+      beneficios_sociais: buildBeneficiosSociais(record.tem_bolsa_familia, extras)
+    }
+  });
+  await upsertPrograma({
+    cpf,
+    programa: "psico_comunidade",
+    status: programaStatus,
+    legadoTipo: "psico_atendidos_comunidade",
+    legadoId: String(record.id),
+    dataIngresso: record.created_at instanceof Date || typeof record.created_at === "string" ? record.created_at : /* @__PURE__ */ new Date(),
+    dataEgresso: null
+  });
+}
+async function syncLegadoStatusToAtendidoGrito(data) {
+  const cpf = normalizeCpfDigits2(data.cpf);
+  if (cpf.length !== 11) return;
+  const programaStatus = mapStatus(data.legadoStatus);
+  await upsertPrograma({
+    cpf,
+    programa: data.programa,
+    status: programaStatus,
+    legadoTipo: data.legadoTipo,
+    legadoId: data.legadoId,
+    dataEgresso: data.dataEgresso
+  });
+  const { rows } = await pool.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM atendidos_grito_programa
+       WHERE cpf = $1 AND status = 'ativo'
+     ) AS any_ativo`,
+    [cpf]
+  );
+  const statusGlobal = rows[0]?.any_ativo ? "ativo" : "inativo";
+  await pool.query(
+    `UPDATE atendidos_grito SET status = $2, updated_at = NOW() WHERE cpf = $1`,
+    [cpf, statusGlobal]
+  );
+}
+async function syncAtendidoGritoSafe(fn, context) {
+  try {
+    await fn();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[atendidos-grito] sync falhou (${context}):`, message);
+  }
+}
+function mapMasterToPsicoComunidadeRow(ag, programaId) {
+  const dcRaw = ag.dados_complementares ?? ag.dadosComplementares;
+  const dc = typeof dcRaw === "string" ? (() => {
+    try {
+      return JSON.parse(dcRaw);
+    } catch {
+      return {};
+    }
+  })() : dcRaw || {};
+  const snap = dc.snapshot || {};
+  const igf = dc.igf || {};
+  const bolsa = pickString(ag.bolsa_familia, ag.bolsaFamilia);
+  return {
+    id: programaId,
+    nome: ag.nome_completo || ag.nomeCompleto || snap.nome || "",
+    cpf: ag.cpf,
+    data_nascimento: ag.data_nascimento || ag.dataNascimento || null,
+    sexo: ag.genero || snap.sexo || null,
+    raca: snap.raca || null,
+    telefone: ag.telefone || null,
+    email: ag.email || null,
+    cep: ag.cep || null,
+    endereco: ag.logradouro || snap.endereco || null,
+    numero: ag.numero || null,
+    complemento: ag.complemento || null,
+    bairro: ag.bairro || null,
+    bairro_outro: snap.bairro_outro || null,
+    cidade: ag.cidade || null,
+    estado: ag.estado || null,
+    foto_url: ag.foto_perfil || ag.fotoPerfil || null,
+    tem_cad_unico: snap.tem_cad_unico || null,
+    tem_bolsa_familia: bolsa === "sim" ? "Sim" : bolsa === "nao" ? "N\xE3o" : snap.tem_bolsa_familia || null,
+    tem_bpc: snap.tem_bpc || null,
+    numero_pessoas: igf.numero_pessoas ?? null,
+    criancas: igf.criancas ?? null,
+    adolescentes: igf.adolescentes ?? null,
+    adultos: igf.adultos ?? null,
+    idosos: igf.idosos ?? null,
+    demandas: snap.demandas || null,
+    observacoes: snap.observacoes || null,
+    criado_por_user_id: snap.criado_por_user_id || null,
+    created_at: ag.created_at || null,
+    updated_at: ag.updated_at || null,
+    _fonte: "atendidos_grito"
+  };
+}
+async function upsertPsicoComunidadeMasterOnly(body, existingProgramaId) {
+  const cpf = normalizeCpfDigits2(body.cpf);
+  if (cpf.length !== 11) {
+    throw new Error("CPF com 11 d\xEDgitos \xE9 obrigat\xF3rio no modo sem escrita legada");
+  }
+  if (!String(body.nome || "").trim()) {
+    throw new Error("Nome \xE9 obrigat\xF3rio");
+  }
+  let programaId = existingProgramaId || null;
+  if (!programaId) {
+    const { rows } = await pool.query(
+      `SELECT id FROM atendidos_grito_programa
+       WHERE cpf = $1 AND programa = 'psico_comunidade'
+       LIMIT 1`,
+      [cpf]
+    );
+    programaId = rows[0]?.id ?? null;
+  }
+  const record = {
+    id: programaId || 0,
+    nome: body.nome,
+    cpf,
+    data_nascimento: body.data_nascimento,
+    sexo: body.sexo,
+    raca: body.raca,
+    telefone: body.telefone,
+    email: body.email,
+    cep: body.cep,
+    endereco: body.endereco,
+    numero: body.numero,
+    complemento: body.complemento,
+    bairro: body.bairro,
+    bairro_outro: body.bairro_outro,
+    cidade: body.cidade,
+    estado: body.estado,
+    numero_pessoas: body.numero_pessoas,
+    criancas: body.criancas,
+    adolescentes: body.adolescentes,
+    adultos: body.adultos,
+    idosos: body.idosos,
+    tem_cad_unico: body.tem_cad_unico,
+    tem_bolsa_familia: body.tem_bolsa_familia,
+    tem_bpc: body.tem_bpc,
+    demandas: body.demandas,
+    observacoes: body.observacoes,
+    criado_por_user_id: body.criado_por_user_id,
+    foto_url: body.foto_url
+  };
+  await syncFromPsicoComunidade(record, {
+    pe_de_meia: body.pe_de_meia,
+    gas_do_povo: body.gas_do_povo
+  });
+  const { rows: progRows } = await pool.query(
+    `SELECT id FROM atendidos_grito_programa
+     WHERE cpf = $1 AND programa = 'psico_comunidade'
+     LIMIT 1`,
+    [cpf]
+  );
+  const finalProgramaId = progRows[0]?.id;
+  if (!finalProgramaId) {
+    throw new Error("Falha ao criar v\xEDnculo psico_comunidade no mestre");
+  }
+  await pool.query(
+    `UPDATE atendidos_grito_programa
+     SET legado_tipo = 'atendidos_grito_programa', legado_id = $2, updated_at = NOW()
+     WHERE id = $1`,
+    [finalProgramaId, String(finalProgramaId)]
+  );
+  if (!programaId || programaId !== finalProgramaId) {
+    await syncFromPsicoComunidade(
+      { ...record, id: finalProgramaId },
+      { pe_de_meia: body.pe_de_meia, gas_do_povo: body.gas_do_povo }
+    );
+  }
+  const ag = await getAtendidoGritoByCpf(cpf);
+  if (!ag) throw new Error("Registro mestre n\xE3o encontrado ap\xF3s upsert");
+  return mapMasterToPsicoComunidadeRow(ag, finalProgramaId);
+}
+async function listPsicoComunidadeFromMaster() {
+  const { rows } = await pool.query(
+    `SELECT ag.*, p.id AS programa_id
+     FROM atendidos_grito_programa p
+     JOIN atendidos_grito ag ON ag.cpf = p.cpf
+     WHERE p.programa = 'psico_comunidade' AND p.status = 'ativo'
+     ORDER BY ag.nome_completo ASC`
+  );
+  return rows.map((r) => {
+    const { programa_id, ...ag } = r;
+    return mapMasterToPsicoComunidadeRow(ag, Number(programa_id));
+  });
+}
+async function getPsicoComunidadeFromMasterByProgramaId(programaId) {
+  const { rows } = await pool.query(
+    `SELECT ag.*, p.id AS programa_id, p.status AS programa_status
+     FROM atendidos_grito_programa p
+     JOIN atendidos_grito ag ON ag.cpf = p.cpf
+     WHERE p.id = $1 AND p.programa = 'psico_comunidade'
+     LIMIT 1`,
+    [programaId]
+  );
+  if (!rows[0]) return null;
+  const { programa_id, programa_status, ...ag } = rows[0];
+  if (programa_status === "inativo") return null;
+  return mapMasterToPsicoComunidadeRow(ag, Number(programa_id));
+}
+async function upsertCadastroUnificadoMasterOnly(input) {
+  const cpf = normalizeCpfDigits2(input.cpf);
+  if (cpf.length !== 11) {
+    throw new Error("CPF inv\xE1lido: deve conter exatamente 11 d\xEDgitos num\xE9ricos.");
+  }
+  if (!String(input.nomeCompleto || "").trim()) {
+    throw new Error("Nome completo \xE9 obrigat\xF3rio.");
+  }
+  const numeroMatricula = await resolveMatriculaGlobal(cpf, input.numeroMatricula);
+  await upsertAtendidoGrito({
+    cpf,
+    nomeCompleto: String(input.nomeCompleto).trim(),
+    dataNascimento: toDateOnly(input.dataNascimento),
+    genero: pickString(input.genero),
+    escolaridade: pickString(input.escolaridade),
+    instituicaoEnsino: pickString(input.instituicaoEnsino),
+    telefone: pickString(input.telefone),
+    email: pickString(input.email),
+    whatsapp: pickString(input.whatsapp),
+    bolsaFamilia: pickString(input.bolsaFamilia),
+    fotoPerfil: pickString(input.fotoPerfil),
+    numeroMatricula,
+    statusGlobal: mapStatus(input.status || "ativo"),
+    cep: pickString(input.cep),
+    logradouro: pickString(input.logradouro),
+    numero: pickString(input.numero),
+    complemento: pickString(input.complemento),
+    bairro: pickString(input.bairro),
+    cidade: pickString(input.cidade),
+    estado: pickString(input.estado),
+    fonte: input.fonte,
+    dadosComplementares: {
+      ...input.dadosComplementares || {},
+      beneficios_sociais: buildBeneficiosSociais(input.bolsaFamilia, input.beneficiosExtras)
+    }
+  });
+  const ag = await getAtendidoGritoByCpf(cpf);
+  if (!ag) throw new Error("Falha ao gravar atendidos_grito");
+  return ag;
+}
+async function ensureProgramaVinculo(cpfRaw, programa) {
+  const cpf = normalizeCpfDigits2(cpfRaw);
+  if (cpf.length !== 11) {
+    throw new Error("CPF inv\xE1lido: deve conter exatamente 11 d\xEDgitos num\xE9ricos.");
+  }
+  const master = await getAtendidoGritoByCpf(cpf);
+  if (!master) {
+    throw new Error("Pessoa n\xE3o encontrada no cadastro unificado (atendidos_grito).");
+  }
+  await upsertPrograma({
+    cpf,
+    programa,
+    status: "ativo",
+    legadoTipo: "atendidos_grito",
+    legadoId: cpf,
+    dataIngresso: /* @__PURE__ */ new Date(),
+    dataEgresso: null
+  });
+  await pool.query(
+    `UPDATE atendidos_grito SET status = 'ativo', updated_at = NOW() WHERE cpf = $1`,
+    [cpf]
+  );
+  return cpf;
+}
+function mapMasterToAlunoShape(ag) {
+  return {
+    cpf: ag.cpf,
+    nome_completo: ag.nome_completo,
+    foto_perfil: ag.foto_perfil,
+    data_nascimento: ag.data_nascimento,
+    genero: ag.genero,
+    numero_matricula: ag.numero_matricula,
+    situacao_atendimento: ag.status || "ativo",
+    escolaridade: ag.escolaridade,
+    instituicao_ensino: ag.instituicao_ensino,
+    telefone: ag.telefone,
+    email: ag.email,
+    whatsapp: ag.whatsapp,
+    bolsa_familia: ag.bolsa_familia,
+    cep: ag.cep,
+    logradouro: ag.logradouro,
+    numero: ag.numero,
+    complemento: ag.complemento,
+    bairro: ag.bairro,
+    cidade: ag.cidade,
+    estado: ag.estado,
+    area: "pec",
+    createdAt: ag.created_at,
+    updatedAt: ag.updated_at
+  };
+}
+function mapMasterToParticipanteShape(ag) {
+  return {
+    id: null,
+    nome: ag.nome_completo,
+    cpf: ag.cpf,
+    email: ag.email,
+    telefone: ag.telefone || ag.whatsapp || null,
+    genero: ag.genero || "nao_informado",
+    dataNascimento: ag.data_nascimento,
+    escolaridade: ag.escolaridade,
+    codigoMatricula: ag.numero_matricula,
+    fotoUrl: ag.foto_perfil,
+    status: ag.status || "ativo",
+    cep: ag.cep,
+    logradouro: ag.logradouro,
+    numero: ag.numero,
+    complemento: ag.complemento,
+    bairro: ag.bairro,
+    cidade: ag.cidade,
+    estado: ag.estado,
+    bolsaFamilia: ag.bolsa_familia,
+    createdAt: ag.created_at,
+    updatedAt: ag.updated_at,
+    turmas: []
+  };
+}
+async function listPecAlunosFromMaster(opts) {
+  const status = opts?.status ?? "ativos";
+  const programa = opts?.programa ?? "grito";
+  const params = [];
+  const where = ["(pp.cpf IS NOT NULL OR pi.cpf IS NOT NULL)"];
+  if (programa === "pec") {
+    where.push("pp.cpf IS NOT NULL");
+  } else if (programa === "inclusao") {
+    where.push("pi.cpf IS NOT NULL");
+  }
+  if (status === "ativos") {
+    where.push(`LOWER(COALESCE(ag.status, 'ativo')) <> 'inativo'`);
+  } else if (status === "inativos") {
+    where.push(`LOWER(COALESCE(ag.status, 'ativo')) = 'inativo'`);
+  }
+  const { rows } = await pool.query(
+    `SELECT
+       ag.cpf,
+       ag.nome_completo,
+       ag.foto_perfil,
+       ag.data_nascimento,
+       ag.telefone,
+       ag.created_at,
+       COALESCE(pp.status, pi.status, ag.status, 'ativo') AS situacao_atendimento,
+       (pp.cpf IS NOT NULL) AS tem_pec,
+       (pi.cpf IS NOT NULL) AS tem_inclusao
+     FROM atendidos_grito ag
+     LEFT JOIN atendidos_grito_programa pp
+       ON pp.cpf = ag.cpf AND pp.programa = 'pec'
+     LEFT JOIN atendidos_grito_programa pi
+       ON pi.cpf = ag.cpf AND pi.programa = 'inclusao'
+     WHERE ${where.join(" AND ")}
+     ORDER BY ag.nome_completo ASC`,
+    params
+  );
+  return rows.map((r) => {
+    const programas = [];
+    if (r.tem_pec) programas.push("pec");
+    if (r.tem_inclusao) programas.push("inclusao");
+    return {
+      cpf: r.cpf,
+      nome_completo: r.nome_completo,
+      foto_perfil: r.foto_perfil,
+      data_nascimento: r.data_nascimento,
+      telefone: r.telefone,
+      situacao_atendimento: mapStatus(r.situacao_atendimento),
+      area: "pec",
+      createdAt: r.created_at,
+      programas,
+      temPec: !!r.tem_pec,
+      temInclusao: !!r.tem_inclusao
+    };
+  });
+}
+async function listInclusaoParticipantesFromMaster(opts) {
+  const status = opts?.status ?? "ativos";
+  const programa = opts?.programa ?? "grito";
+  const where = ["(pp.cpf IS NOT NULL OR pi_prog.cpf IS NOT NULL)"];
+  if (programa === "pec") where.push("pp.cpf IS NOT NULL");
+  if (programa === "inclusao") where.push("pi_prog.cpf IS NOT NULL");
+  if (status === "ativos") {
+    where.push(`LOWER(COALESCE(ag.status, 'ativo')) <> 'inativo'`);
+  } else if (status === "inativos") {
+    where.push(`LOWER(COALESCE(ag.status, 'ativo')) = 'inativo'`);
+  }
+  const { rows } = await pool.query(
+    `SELECT
+       ag.cpf,
+       ag.nome_completo,
+       ag.foto_perfil,
+       ag.data_nascimento,
+       ag.telefone,
+       ag.email,
+       ag.genero,
+       ag.created_at,
+       ag.updated_at,
+       COALESCE(pi_prog.status, pp.status, ag.status, 'ativo') AS programa_status,
+       pi_prog.legado_id AS programa_legado_id,
+       pi_prog.data_ingresso AS programa_data_ingresso,
+       pi_prog.data_egresso AS programa_data_egresso,
+       (pp.cpf IS NOT NULL) AS tem_pec,
+       (pi_prog.cpf IS NOT NULL) AS tem_inclusao,
+       pi.id AS participante_id,
+       pi.status AS participante_status,
+       pi.foto_url AS participante_foto_url
+     FROM atendidos_grito ag
+     LEFT JOIN atendidos_grito_programa pp
+       ON pp.cpf = ag.cpf AND pp.programa = 'pec'
+     LEFT JOIN atendidos_grito_programa pi_prog
+       ON pi_prog.cpf = ag.cpf AND pi_prog.programa = 'inclusao'
+     LEFT JOIN participantes_inclusao pi
+       ON pi.cpf = ag.cpf
+     WHERE ${where.join(" AND ")}
+     ORDER BY ag.nome_completo ASC`
+  );
+  const turmasByCpf = /* @__PURE__ */ new Map();
+  const cpfs = rows.map((r) => String(r.cpf || "")).filter(Boolean);
+  if (cpfs.length > 0) {
+    const { rows: turmaRows } = await pool.query(
+      `SELECT
+         pt.atendido_cpf AS cpf,
+         t.id,
+         t.nome,
+         t.status,
+         t.programa_id,
+         t.data_inicio,
+         t.data_fim,
+         t.created_at,
+         t.updated_at
+       FROM participantes_turmas pt
+       JOIN turmas_inclusao t ON t.id = pt.turma_id
+       WHERE pt.atendido_cpf = ANY($1::text[])
+       UNION ALL
+       SELECT
+         pi.cpf AS cpf,
+         t.id,
+         t.nome,
+         t.status,
+         t.programa_id,
+         t.data_inicio,
+         t.data_fim,
+         t.created_at,
+         t.updated_at
+       FROM participantes_turmas pt
+       JOIN turmas_inclusao t ON t.id = pt.turma_id
+       JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+       WHERE pt.atendido_cpf IS NULL
+         AND pt.participante_id IS NOT NULL
+         AND pi.cpf = ANY($1::text[])`,
+      [cpfs]
+    );
+    for (const tr of turmaRows) {
+      const cpfKey = String(tr.cpf || "").replace(/\D/g, "");
+      if (!cpfKey) continue;
+      if (!turmasByCpf.has(cpfKey)) turmasByCpf.set(cpfKey, []);
+      const list = turmasByCpf.get(cpfKey);
+      if (list.some((x) => x.id === tr.id)) continue;
+      list.push({
+        id: tr.id,
+        nome: tr.nome,
+        status: tr.status,
+        programaId: tr.programa_id,
+        dataInicio: tr.data_inicio,
+        dataFim: tr.data_fim,
+        createdAt: tr.created_at,
+        updatedAt: tr.updated_at
+      });
+    }
+  }
+  return rows.map((r) => {
+    const legadoFromPrograma = r.programa_legado_id ? Number(String(r.programa_legado_id).replace(/\D/g, "")) : NaN;
+    const id = r.participante_id != null ? Number(r.participante_id) : Number.isFinite(legadoFromPrograma) && legadoFromPrograma > 0 ? legadoFromPrograma : null;
+    const statusMapped = mapStatus(
+      r.participante_status || r.programa_status || "ativo"
+    );
+    const cpfKey = String(r.cpf || "").replace(/\D/g, "");
+    const programas = [];
+    if (r.tem_pec) programas.push("pec");
+    if (r.tem_inclusao) programas.push("inclusao");
+    return {
+      id,
+      nome: r.nome_completo,
+      cpf: r.cpf,
+      email: r.email,
+      telefone: r.telefone,
+      genero: r.genero,
+      dataNascimento: r.data_nascimento,
+      status: statusMapped,
+      dataIngresso: r.programa_data_ingresso || null,
+      dataEgresso: r.programa_data_egresso || null,
+      fotoUrl: r.participante_foto_url || r.foto_perfil || null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      turmas: turmasByCpf.get(cpfKey) || [],
+      programas,
+      temPec: !!r.tem_pec,
+      temInclusao: !!r.tem_inclusao
+    };
+  });
+}
+var init_atendidosGritoSync = __esm({
+  "server/services/atendidosGritoSync.ts"() {
+    "use strict";
+    init_cpf();
+    init_db();
+  }
+});
+
+// server/services/atendidosGritoFlags.ts
+function parseBoolEnv(raw, defaultValue) {
+  if (raw == null || String(raw).trim() === "") return defaultValue;
+  const v = String(raw).trim().toLowerCase();
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  return defaultValue;
+}
+function isLegacyWriteEnabled(programa) {
+  const global2 = parseBoolEnv(process.env.ATENDIDOS_GRITO_LEGACY_WRITE, false);
+  if (!programa) return global2;
+  const specific = process.env[PROGRAM_ENV[programa]];
+  if (specific != null && String(specific).trim() !== "") {
+    return parseBoolEnv(specific, global2);
+  }
+  return global2;
+}
+function getAtendidosGritoWriteFlags() {
+  return {
+    legacyWriteGlobal: isLegacyWriteEnabled(),
+    legacyWritePec: isLegacyWriteEnabled("pec"),
+    legacyWriteInclusao: isLegacyWriteEnabled("inclusao"),
+    legacyWritePsico: isLegacyWriteEnabled("psico_comunidade"),
+    note: "Default false. Cadastro PEC/Inclus\xE3o grava s\xF3 em atendidos_grito; matr\xEDcula cria v\xEDnculo de turma + programa (sem espelho legado)."
+  };
+}
+var PROGRAM_ENV;
+var init_atendidosGritoFlags = __esm({
+  "server/services/atendidosGritoFlags.ts"() {
+    "use strict";
+    PROGRAM_ENV = {
+      pec: "ATENDIDOS_GRITO_LEGACY_WRITE_PEC",
+      inclusao: "ATENDIDOS_GRITO_LEGACY_WRITE_INCLUSAO",
+      psico_comunidade: "ATENDIDOS_GRITO_LEGACY_WRITE_PSICO"
+    };
+  }
+});
+
 // server/utils/httpError.ts
 var HttpError;
 var init_httpError = __esm({
@@ -5615,12 +7061,31 @@ function normalizarTelefone(telefone) {
   }
   return normalizado;
 }
+function extractBeneficiosSociaisExtras(data) {
+  const pe = data.pe_de_meia ?? data.peDeMeia;
+  const gas = data.gas_do_povo ?? data.gasDoPovo;
+  return {
+    pe_de_meia: pe != null ? String(pe) : void 0,
+    gas_do_povo: gas != null ? String(gas) : void 0
+  };
+}
+function stripBeneficiosExtrasFields(data) {
+  const copy = { ...data };
+  delete copy.pe_de_meia;
+  delete copy.gas_do_povo;
+  delete copy.peDeMeia;
+  delete copy.gasDoPovo;
+  return copy;
+}
 var DatabaseStorage, storage;
 var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
     init_schema();
     init_db();
+    init_cpf();
+    init_atendidosGritoSync();
+    init_atendidosGritoFlags();
     init_httpError();
     DatabaseStorage = class {
       // ===== HELPER: VISUALIZAÇÃO DO PRÓXIMO NÚMERO DE MATRÍCULA (SEM CONSUMIR) =====
@@ -5856,6 +7321,13 @@ var init_storage = __esm({
         }
         const [user2] = await db.update(users).set(updateData).where(eq(users.telefone, telefone)).returning();
         return user2;
+      }
+      async clearConselhoStatus(userId2) {
+        await db.update(users).set({
+          conselhoStatus: null,
+          conselhoApprovedBy: null,
+          conselhoApprovedAt: null
+        }).where(eq(users.id, userId2));
       }
       async updateUserStripeInfo(id, stripeCustomerId2, stripeSubscriptionId, subscriptionStatus) {
         const updateData = {};
@@ -6133,9 +7605,45 @@ var init_storage = __esm({
         await db.update(alunoResponsaveis).set({ e_principal: true }).where(and(eq(alunoResponsaveis.aluno_cpf, alunoCpf), eq(alunoResponsaveis.responsavel_id, responsavelId)));
       }
       async createAluno(studentData) {
-        const numeroMatricula = studentData.numero_matricula || await this.getProximoNumeroMatricula();
+        const cpfCanonico = normalizeCpfDigits2(studentData.cpf);
+        if (cpfCanonico.length !== 11) {
+          throw new Error("CPF inv\xE1lido: deve conter exatamente 11 d\xEDgitos num\xE9ricos.");
+        }
+        const beneficiosExtras = extractBeneficiosSociaisExtras(studentData);
+        if (!isLegacyWriteEnabled("pec")) {
+          const ag = await upsertCadastroUnificadoMasterOnly({
+            cpf: cpfCanonico,
+            nomeCompleto: studentData.nome_completo,
+            dataNascimento: studentData.data_nascimento,
+            genero: studentData.genero,
+            escolaridade: studentData.escolaridade || studentData.serie,
+            instituicaoEnsino: studentData.instituicao_ensino,
+            telefone: studentData.telefone,
+            email: studentData.email,
+            whatsapp: studentData.whatsapp,
+            bolsaFamilia: studentData.bolsa_familia,
+            fotoPerfil: studentData.foto_perfil,
+            numeroMatricula: studentData.numero_matricula,
+            status: studentData.situacao_atendimento || "ativo",
+            cep: studentData.cep,
+            logradouro: studentData.logradouro,
+            numero: studentData.numero,
+            complemento: studentData.complemento,
+            bairro: studentData.bairro,
+            cidade: studentData.cidade,
+            estado: studentData.estado,
+            fonte: "pec",
+            dadosComplementares: { fonte_cadastro: "pec_form" },
+            beneficiosExtras
+          });
+          return mapMasterToAlunoShape(ag);
+        }
+        const numeroMatricula = await resolveMatriculaGlobal(
+          cpfCanonico,
+          studentData.numero_matricula
+        );
         const alunoData = {
-          cpf: studentData.cpf,
+          cpf: cpfCanonico,
           nome_completo: studentData.nome_completo,
           foto_perfil: studentData.foto_perfil,
           data_nascimento: studentData.data_nascimento,
@@ -6186,6 +7694,7 @@ var init_storage = __esm({
           outros_beneficios: studentData.outros_beneficios,
           // Escolar
           serie: studentData.serie,
+          escolaridade: studentData.escolaridade || studentData.serie,
           situacao_escolar: studentData.situacao_escolar,
           turno_escolar: studentData.turno_escolar,
           instituicao_ensino: studentData.instituicao_ensino,
@@ -6230,6 +7739,10 @@ var init_storage = __esm({
           situacao_atendimento: studentData?.situacao_atendimento ?? "ativo"
         };
         const [alunoRecord] = await db.insert(aluno).values(alunoData).returning();
+        await syncAtendidoGritoSafe(
+          () => syncFromPecAluno(alunoRecord, beneficiosExtras),
+          `createAluno:${cpfCanonico}`
+        );
         return alunoRecord;
       }
       async getAlunosByProfessor(professorId) {
@@ -6246,23 +7759,150 @@ var init_storage = __esm({
         return aluno2 ?? null;
       }
       async getAluno(cpf) {
-        const cleanCpf = String(cpf).replace(/\D/g, "");
-        const [alunoRecord] = await db.select().from(aluno).where(eq(aluno.cpf, cpf));
-        if (alunoRecord) return alunoRecord;
-        if (cleanCpf !== cpf) {
-          const [byClean] = await db.select().from(aluno).where(eq(aluno.cpf, cleanCpf));
-          if (byClean) return byClean;
-        }
-        const [byReplace] = await db.select().from(aluno).where(sql2`REPLACE(REPLACE(REPLACE(${aluno.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`);
-        return byReplace || void 0;
+        const cleanCpf = normalizeCpfDigits2(cpf);
+        if (!cleanCpf) return void 0;
+        const [byClean] = await db.select().from(aluno).where(eq(aluno.cpf, cleanCpf));
+        if (byClean) return byClean;
+        const [byReplace] = await db.select().from(aluno).where(
+          sql2`REPLACE(REPLACE(REPLACE(${aluno.cpf}, '.', ''), '-', ''), '/', '') = ${cleanCpf}`
+        );
+        if (byReplace) return byReplace;
+        const master = await getAtendidoGritoByCpf(cleanCpf);
+        if (!master) return void 0;
+        return mapMasterToAlunoShape(master);
       }
       async updateAluno(cpf, data) {
-        const { cpf: _removeCpf, ...dataWithoutCpf } = data;
-        const [alunoRecord] = await db.update(aluno).set({ ...dataWithoutCpf, updatedAt: /* @__PURE__ */ new Date() }).where(eq(aluno.cpf, cpf)).returning();
+        const existing = await this.getAluno(cpf);
+        if (!existing) {
+          throw new Error("Aluno n\xE3o encontrado");
+        }
+        const beneficiosExtras = extractBeneficiosSociaisExtras(data);
+        const dataStripped = stripBeneficiosExtrasFields(data);
+        const newCpf = normalizeCpfDigits2(dataStripped.cpf);
+        const oldCpf = normalizeCpfDigits2(existing.cpf);
+        const { cpf: _removeCpf, ...dataWithoutCpf } = dataStripped;
+        const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, oldCpf)).limit(1);
+        if (!legadoRow) {
+          const merged = { ...existing, ...dataWithoutCpf };
+          const targetCpf = newCpf.length === 11 ? newCpf : oldCpf;
+          if (targetCpf !== oldCpf) {
+            await migrateAtendidoGritoCpf(oldCpf, targetCpf);
+          }
+          const ag = await upsertCadastroUnificadoMasterOnly({
+            cpf: targetCpf,
+            nomeCompleto: merged.nome_completo,
+            dataNascimento: merged.data_nascimento,
+            genero: merged.genero,
+            escolaridade: merged.escolaridade || merged.serie,
+            instituicaoEnsino: merged.instituicao_ensino,
+            telefone: merged.telefone,
+            email: merged.email,
+            whatsapp: merged.whatsapp,
+            bolsaFamilia: merged.bolsa_familia,
+            fotoPerfil: merged.foto_perfil,
+            numeroMatricula: merged.numero_matricula,
+            status: merged.situacao_atendimento || "ativo",
+            cep: merged.cep,
+            logradouro: merged.logradouro,
+            numero: merged.numero,
+            complemento: merged.complemento,
+            bairro: merged.bairro,
+            cidade: merged.cidade,
+            estado: merged.estado,
+            fonte: "pec",
+            dadosComplementares: { fonte_cadastro: "pec_update_master" },
+            beneficiosExtras
+          });
+          return mapMasterToAlunoShape(ag);
+        }
+        if (newCpf && newCpf.length === 11 && newCpf !== oldCpf) {
+          const conflict = await this.getAluno(newCpf);
+          if (conflict) {
+            throw new Error("J\xE1 existe um aluno cadastrado com este CPF");
+          }
+          const alunoRecord2 = await this.migrateAlunoCpf(oldCpf, newCpf, dataWithoutCpf);
+          await syncAtendidoGritoSafe(async () => {
+            await migrateAtendidoGritoCpf(oldCpf, newCpf);
+            await syncFromPecAluno(alunoRecord2, beneficiosExtras);
+          }, `updateAluno:cpf-change:${oldCpf}->${newCpf}`);
+          return alunoRecord2;
+        }
+        const [alunoRecord] = await db.update(aluno).set({ ...dataWithoutCpf, updatedAt: /* @__PURE__ */ new Date() }).where(eq(aluno.cpf, existing.cpf)).returning();
+        await syncAtendidoGritoSafe(
+          () => syncFromPecAluno(alunoRecord, beneficiosExtras),
+          `updateAluno:${existing.cpf}`
+        );
+        return alunoRecord;
+      }
+      async inativarAluno(cpf) {
+        const clean = normalizeCpfDigits2(cpf);
+        const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, clean)).limit(1);
+        if (!legadoRow) {
+          await pool.query(
+            `UPDATE atendidos_grito SET status = 'inativo', updated_at = NOW() WHERE cpf = $1`,
+            [clean]
+          );
+          const ag = await getAtendidoGritoByCpf(clean);
+          if (!ag) throw new Error("Aluno n\xE3o encontrado");
+          return mapMasterToAlunoShape(ag);
+        }
+        const hoje = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+        return this.updateAluno(cpf, {
+          situacao_atendimento: "inativo",
+          data_inativacao: hoje
+        });
+      }
+      async reativarAluno(cpf) {
+        const clean = normalizeCpfDigits2(cpf);
+        const [legadoRow] = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq(aluno.cpf, clean)).limit(1);
+        if (!legadoRow) {
+          await pool.query(
+            `UPDATE atendidos_grito SET status = 'ativo', updated_at = NOW() WHERE cpf = $1`,
+            [clean]
+          );
+          const ag = await getAtendidoGritoByCpf(clean);
+          if (!ag) throw new Error("Aluno n\xE3o encontrado");
+          return mapMasterToAlunoShape(ag);
+        }
+        return this.updateAluno(cpf, {
+          situacao_atendimento: "ativo",
+          data_inativacao: null
+        });
+      }
+      async migrateAlunoCpf(oldCpf, newCpf, patch) {
+        const existing = await this.getAluno(oldCpf);
+        if (!existing) {
+          throw new Error("Aluno n\xE3o encontrado");
+        }
+        const { cpf: _oldCpf, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = existing;
+        const [alunoRecord] = await db.insert(aluno).values({ ...rest, ...patch, cpf: newCpf }).returning();
+        const fkUpdates = [
+          sql2`UPDATE aluno_turma SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE chamada_aluno SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE aluno_responsaveis SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE documentos_aluno SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE observacoes_aluno SET student_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(student_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE aluno_programa SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE pec_encaminhamentos SET pec_aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(pec_aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE monitor_participantes SET pec_aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(pec_aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE monitor_participantes SET atendido_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(COALESCE(atendido_cpf, ''), '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE documentos_participante SET aluno_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(aluno_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE documentos_participante SET atendido_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(COALESCE(atendido_cpf, ''), '.', ''), '-', ''), '/', '') = ${oldCpf}`,
+          sql2`UPDATE monitor_grupo_alunos SET participante_cpf = ${newCpf} WHERE REPLACE(REPLACE(REPLACE(participante_cpf, '.', ''), '-', ''), '/', '') = ${oldCpf}`
+        ];
+        for (const stmt of fkUpdates) {
+          try {
+            await db.execute(stmt);
+          } catch {
+          }
+        }
+        await db.delete(aluno).where(eq(aluno.cpf, oldCpf));
         return alunoRecord;
       }
       async deleteAluno(cpf) {
-        await db.delete(aluno).where(eq(aluno.cpf, cpf));
+        const existing = await this.getAluno(cpf);
+        if (!existing) return;
+        await db.delete(aluno).where(eq(aluno.cpf, existing.cpf));
       }
       async searchAlunos(query) {
         try {
@@ -6985,17 +8625,18 @@ var init_storage = __esm({
       }
       // ===== MÓDULO 9: DESENVOLVEDORES E CONSOLIDAÇÃO =====
       async getAllAlunos(opts) {
-        const area = opts?.area;
-        const status = opts?.status ?? "ativos";
-        const whereClauses = [];
-        if (area) whereClauses.push(eq(aluno.area, area));
-        if (status === "ativos") {
-          whereClauses.push(or(isNull(aluno.situacao_atendimento), eq(aluno.situacao_atendimento, "ativo")));
-        } else if (status === "inativos") {
-          whereClauses.push(eq(aluno.situacao_atendimento, "inativo"));
-        }
-        const rows = await db.select().from(aluno).where(whereClauses.length ? and(...whereClauses) : void 0);
-        return rows;
+        void opts?.area;
+        return listPecAlunosFromMaster({
+          status: opts?.status ?? "ativos",
+          programa: opts?.programa ?? "grito"
+        });
+      }
+      /**
+       * Matrícula PEC: valida mestre e cria vínculo de programa pec.
+       * NÃO cria linha em `aluno`.
+       */
+      async ensurePecAlunoFromMaster(cpfRaw) {
+        return ensureProgramaVinculo(cpfRaw, "pec");
       }
       // ===== MÉTODOS DE SORTEIO =====
       // Sorteios
@@ -9866,25 +11507,18 @@ var init_storage = __esm({
         console.log(`\u2705 [TURMAS] Turma ${id} deletada (cursos filhos tamb\xE9m foram removidos via CASCADE)`);
       }
       // ===== MÓDULO INCLUSÃO PRODUTIVA - PARTICIPANTES =====
-      async getAllParticipantes() {
-        const result = await db.select({
-          participante: participantesInclusao,
-          turma: turmasInclusao
-        }).from(participantesInclusao).leftJoin(participantesTurmas, eq(participantesInclusao.id, participantesTurmas.participanteId)).leftJoin(turmasInclusao, eq(participantesTurmas.turmaId, turmasInclusao.id)).orderBy(asc(participantesInclusao.nome));
-        const participantesMap = /* @__PURE__ */ new Map();
-        for (const row of result) {
-          const participanteId = row.participante.id;
-          if (!participantesMap.has(participanteId)) {
-            participantesMap.set(participanteId, {
-              ...row.participante,
-              turmas: []
-            });
-          }
-          if (row.turma) {
-            participantesMap.get(participanteId).turmas.push(row.turma);
-          }
-        }
-        return Array.from(participantesMap.values());
+      async getAllParticipantes(opts) {
+        return listInclusaoParticipantesFromMaster({
+          status: opts?.status ?? "ativos",
+          programa: opts?.programa ?? "grito"
+        });
+      }
+      /**
+       * Matrícula Inclusão: valida mestre e cria vínculo de programa inclusao.
+       * NÃO cria linha em `participantes_inclusao`. Retorna CPF.
+       */
+      async ensureInclusaoParticipanteFromMaster(cpfRaw) {
+        return ensureProgramaVinculo(cpfRaw, "inclusao");
       }
       async getParticipanteById(id) {
         const result = await db.select({
@@ -9899,10 +11533,60 @@ var init_storage = __esm({
         return participante;
       }
       async getParticipanteByCpf(cpf) {
+        const clean = normalizeCpfDigits2(cpf);
         const [participante] = await db.select().from(participantesInclusao).where(eq(participantesInclusao.cpf, cpf));
-        return participante;
+        if (participante) return participante;
+        if (clean.length === 11) {
+          const [byDigits] = await db.select().from(participantesInclusao).where(
+            sql2`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${clean}`
+          ).limit(1);
+          if (byDigits) return byDigits;
+          const master = await getAtendidoGritoByCpf(clean);
+          if (master) return mapMasterToParticipanteShape(master);
+        }
+        return void 0;
       }
       async createParticipante(data, turmaIds) {
+        const beneficiosExtras = extractBeneficiosSociaisExtras(data);
+        const cpfCanonico = normalizeCpfDigits2(data.cpf);
+        if (!isLegacyWriteEnabled("inclusao")) {
+          if (cpfCanonico.length !== 11) {
+            throw new Error("CPF inv\xE1lido: deve conter exatamente 11 d\xEDgitos num\xE9ricos.");
+          }
+          const ag = await upsertCadastroUnificadoMasterOnly({
+            cpf: cpfCanonico,
+            nomeCompleto: data.nome,
+            dataNascimento: data.dataNascimento,
+            genero: data.genero,
+            escolaridade: data.escolaridade || data.serie,
+            instituicaoEnsino: data.instituicaoEnsino,
+            telefone: data.telefone,
+            email: data.email,
+            whatsapp: data.telefone,
+            bolsaFamilia: data.bolsaFamilia,
+            fotoPerfil: data.fotoUrl,
+            numeroMatricula: data.codigoMatricula,
+            status: data.status || "ativo",
+            cep: data.cep,
+            logradouro: data.logradouro,
+            numero: data.numero,
+            complemento: data.complemento,
+            bairro: data.bairro,
+            cidade: data.cidade,
+            estado: data.estado,
+            fonte: "inclusao",
+            dadosComplementares: { fonte_cadastro: "inclusao_form" },
+            beneficiosExtras
+          });
+          if (turmaIds && turmaIds.length > 0) {
+            for (const turmaId of turmaIds) {
+              await this.addAtendidoCpfToTurmaInclusao(cpfCanonico, turmaId);
+            }
+          }
+          return mapMasterToParticipanteShape(ag);
+        }
+        if (!isLegacyWriteEnabled("inclusao")) {
+        }
         const jsonbFields = [
           "documentosPossui",
           "telefonesAdicionais",
@@ -9936,8 +11620,13 @@ var init_storage = __esm({
           "restricaoAlimentar",
           "possuiConvenioMedico"
         ];
-        const processedData = { ...data };
-        if (!processedData.codigoMatricula) {
+        const processedData = stripBeneficiosExtrasFields({ ...data });
+        if (!processedData.codigoMatricula && processedData.cpf) {
+          processedData.codigoMatricula = await resolveMatriculaGlobal(
+            normalizeCpfDigits2(processedData.cpf),
+            processedData.codigoMatricula
+          );
+        } else if (!processedData.codigoMatricula) {
           processedData.codigoMatricula = await this.getProximoNumeroMatricula();
         }
         if (processedData.dataNascimento) {
@@ -9986,9 +11675,26 @@ var init_storage = __esm({
           }
           console.log(`\u2705 [PARTICIPANTES] Participante ${participante.id} vinculado a ${turmaIds.length} turma(s)`);
         }
+        await syncAtendidoGritoSafe(
+          () => syncFromInclusaoParticipante(participante, beneficiosExtras),
+          `createParticipante:${participante.id}`
+        );
         return participante;
       }
       async updateParticipante(id, data) {
+        const existing = await this.getParticipanteById(id);
+        if (!existing) {
+          throw new Error("Participante n\xE3o encontrado");
+        }
+        const oldCpf = normalizeCpfDigits2(existing.cpf);
+        const newCpf = normalizeCpfDigits2(data.cpf);
+        const cpfChanged = newCpf.length === 11 && oldCpf.length === 11 && newCpf !== oldCpf;
+        if (cpfChanged) {
+          const conflict = await this.getParticipanteByCpf(newCpf);
+          if (conflict && conflict.id !== id) {
+            throw new Error("J\xE1 existe um participante cadastrado com este CPF");
+          }
+        }
         const jsonbFields = [
           "documentosPossui",
           "telefonesAdicionais",
@@ -10022,7 +11728,8 @@ var init_storage = __esm({
           "restricaoAlimentar",
           "possuiConvenioMedico"
         ];
-        const processedData = { ...data };
+        const beneficiosExtras = extractBeneficiosSociaisExtras(data);
+        const processedData = stripBeneficiosExtrasFields({ ...data });
         if (processedData.dataNascimento) {
           const nascimento = new Date(processedData.dataNascimento);
           const hoje = /* @__PURE__ */ new Date();
@@ -10058,14 +11765,186 @@ var init_storage = __esm({
         }
         const [participante] = await db.update(participantesInclusao).set({ ...processedData, updatedAt: /* @__PURE__ */ new Date() }).where(eq(participantesInclusao.id, id)).returning();
         console.log(`\u2705 [PARTICIPANTES] Participante ${id} atualizado`);
+        await syncAtendidoGritoSafe(async () => {
+          if (cpfChanged) {
+            await migrateAtendidoGritoCpf(oldCpf, newCpf);
+          }
+          await syncFromInclusaoParticipante(participante, beneficiosExtras);
+        }, `updateParticipante:${id}`);
         return participante;
+      }
+      async inativarParticipante(id) {
+        const existing = await this.getParticipanteById(id);
+        if (!existing) {
+          throw new Error("Participante n\xE3o encontrado");
+        }
+        if (existing.id == null && existing.cpf) {
+          return this.inativarParticipanteByCpf(String(existing.cpf));
+        }
+        return this.updateParticipante(id, {
+          status: "inativo",
+          dataEgresso: /* @__PURE__ */ new Date()
+        });
+      }
+      async reativarParticipante(id) {
+        const existing = await this.getParticipanteById(id);
+        if (!existing) {
+          throw new Error("Participante n\xE3o encontrado");
+        }
+        if (existing.id == null && existing.cpf) {
+          return this.reativarParticipanteByCpf(String(existing.cpf));
+        }
+        return this.updateParticipante(id, {
+          status: "ativo",
+          dataEgresso: null
+        });
+      }
+      async updateParticipanteByCpf(cpfRaw, data) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        const existing = await this.getParticipanteByCpf(cpf);
+        if (!existing) throw new Error("Participante n\xE3o encontrado");
+        if (existing.id != null && Number.isFinite(Number(existing.id))) {
+          return this.updateParticipante(Number(existing.id), data);
+        }
+        const beneficiosExtras = extractBeneficiosSociaisExtras(data);
+        const merged = { ...existing, ...data };
+        const newCpf = normalizeCpfDigits2(merged.cpf) || cpf;
+        if (newCpf !== cpf) {
+          await migrateAtendidoGritoCpf(cpf, newCpf);
+        }
+        const ag = await upsertCadastroUnificadoMasterOnly({
+          cpf: newCpf,
+          nomeCompleto: merged.nome,
+          dataNascimento: merged.dataNascimento,
+          genero: merged.genero,
+          escolaridade: merged.escolaridade || merged.serie,
+          instituicaoEnsino: merged.instituicaoEnsino,
+          telefone: merged.telefone,
+          email: merged.email,
+          whatsapp: merged.telefone,
+          bolsaFamilia: merged.bolsaFamilia,
+          fotoPerfil: merged.fotoUrl,
+          numeroMatricula: merged.codigoMatricula,
+          status: merged.status || "ativo",
+          cep: merged.cep,
+          logradouro: merged.logradouro,
+          numero: merged.numero,
+          complemento: merged.complemento,
+          bairro: merged.bairro,
+          cidade: merged.cidade,
+          estado: merged.estado,
+          fonte: "inclusao",
+          dadosComplementares: { fonte_cadastro: "inclusao_update_master" },
+          beneficiosExtras
+        });
+        return mapMasterToParticipanteShape(ag);
+      }
+      async inativarParticipanteByCpf(cpfRaw) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        const existing = await this.getParticipanteByCpf(cpf);
+        if (!existing) throw new Error("Participante n\xE3o encontrado");
+        if (existing.id != null && Number.isFinite(Number(existing.id))) {
+          return this.inativarParticipante(Number(existing.id));
+        }
+        await pool.query(
+          `UPDATE atendidos_grito SET status = 'inativo', updated_at = NOW() WHERE cpf = $1`,
+          [cpf]
+        );
+        await pool.query(
+          `UPDATE atendidos_grito_programa SET status = 'inativo', data_egresso = NOW(), updated_at = NOW()
+       WHERE cpf = $1 AND programa = 'inclusao'`,
+          [cpf]
+        ).catch(() => {
+        });
+        const ag = await getAtendidoGritoByCpf(cpf);
+        return mapMasterToParticipanteShape(ag);
+      }
+      async reativarParticipanteByCpf(cpfRaw) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        const existing = await this.getParticipanteByCpf(cpf);
+        if (!existing) throw new Error("Participante n\xE3o encontrado");
+        if (existing.id != null && Number.isFinite(Number(existing.id))) {
+          return this.reativarParticipante(Number(existing.id));
+        }
+        await pool.query(
+          `UPDATE atendidos_grito SET status = 'ativo', updated_at = NOW() WHERE cpf = $1`,
+          [cpf]
+        );
+        await pool.query(
+          `UPDATE atendidos_grito_programa SET status = 'ativo', data_egresso = NULL, updated_at = NOW()
+       WHERE cpf = $1 AND programa = 'inclusao'`,
+          [cpf]
+        ).catch(() => {
+        });
+        const ag = await getAtendidoGritoByCpf(cpf);
+        return mapMasterToParticipanteShape(ag);
       }
       async deleteParticipante(id) {
         await db.delete(participantesInclusao).where(eq(participantesInclusao.id, id));
         console.log(`\u2705 [PARTICIPANTES] Participante ${id} deletado (relacionamentos com turmas tamb\xE9m foram removidos)`);
       }
       // Relacionamentos Participante-Turma
+      /**
+       * Matricula por CPF no mestre (sem criar participantes_inclusao).
+       * Se existir legado com o mesmo CPF, preenche participante_id só para dual-read.
+       */
+      async addAtendidoCpfToTurmaInclusao(cpfRaw, turmaId, dataIngresso) {
+        const cpf = await this.ensureInclusaoParticipanteFromMaster(cpfRaw);
+        const ingresso = dataIngresso || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+        const legado = await db.select({ id: participantesInclusao.id }).from(participantesInclusao).where(
+          sql2`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpf}`
+        ).limit(1);
+        const legadoId = legado[0]?.id ?? null;
+        const existing = await db.execute(sql2`
+      SELECT id, participante_id, atendido_cpf, status
+      FROM participantes_turmas
+      WHERE turma_id = ${turmaId}
+        AND (
+          atendido_cpf = ${cpf}
+          OR (${legadoId}::int IS NOT NULL AND participante_id = ${legadoId})
+        )
+      LIMIT 1
+    `);
+        const row = existing.rows?.[0];
+        if (row) {
+          await db.execute(sql2`
+        UPDATE inclusao_evasoes
+        SET revertido_em = NOW()
+        WHERE turma_id = ${turmaId}
+          AND revertido_em IS NULL
+          AND (
+            atendido_cpf = ${cpf}
+            OR (${legadoId}::int IS NOT NULL AND participante_id = ${legadoId})
+          )
+      `);
+          const [relacao2] = await db.update(participantesTurmas).set({
+            status: "ativo",
+            motivoDesligamento: null,
+            dataDesligamento: null,
+            dataIngresso: ingresso,
+            atendidoCpf: cpf,
+            ...legadoId != null ? { participanteId: legadoId } : {}
+          }).where(eq(participantesTurmas.id, Number(row.id))).returning();
+          console.log(`\u2705 [PARTICIPANTES-TURMAS] CPF ${cpf} reativado na turma ${turmaId}`);
+          return relacao2;
+        }
+        const [relacao] = await db.insert(participantesTurmas).values({
+          turmaId,
+          atendidoCpf: cpf,
+          participanteId: legadoId,
+          dataInscricao: /* @__PURE__ */ new Date(),
+          status: "ativo",
+          dataIngresso: ingresso
+        }).returning();
+        console.log(`\u2705 [PARTICIPANTES-TURMAS] CPF ${cpf} vinculado \xE0 turma ${turmaId} (sem criar legado)`);
+        return relacao;
+      }
       async addParticipanteToTurma(participanteId, turmaId, dataIngresso) {
+        const part = await this.getParticipanteById(participanteId);
+        const cpf = part?.cpf ? normalizeCpfDigits2(part.cpf) : "";
+        if (cpf.length === 11) {
+          return this.addAtendidoCpfToTurmaInclusao(cpf, turmaId, dataIngresso);
+        }
         const ingresso = dataIngresso || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
         const existing = await db.select().from(participantesTurmas).where(and(
           eq(participantesTurmas.participanteId, participanteId),
@@ -10096,12 +11975,60 @@ var init_storage = __esm({
         console.log(`\u2705 [PARTICIPANTES-TURMAS] Participante ${participanteId} vinculado \xE0 turma ${turmaId}`);
         return relacao;
       }
+      async findParticipanteTurmaVinculo(turmaId, opts) {
+        const cpf = opts.cpf ? normalizeCpfDigits2(opts.cpf) : "";
+        if (cpf.length === 11) {
+          const byCpf = await db.select().from(participantesTurmas).where(
+            and(
+              eq(participantesTurmas.turmaId, turmaId),
+              eq(participantesTurmas.atendidoCpf, cpf)
+            )
+          ).limit(1);
+          if (byCpf[0]) return byCpf[0];
+          const byLegadoCpf = await pool.query(
+            `SELECT pt.*
+         FROM participantes_turmas pt
+         JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+         WHERE pt.turma_id = $1
+           AND REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g') = $2
+         LIMIT 1`,
+            [turmaId, cpf]
+          );
+          if (byLegadoCpf.rows[0]) {
+            const row = byLegadoCpf.rows[0];
+            return {
+              id: row.id,
+              participanteId: row.participante_id,
+              atendidoCpf: row.atendido_cpf,
+              turmaId: row.turma_id,
+              dataInscricao: row.data_inscricao,
+              dataIngresso: row.data_ingresso,
+              status: row.status,
+              motivoDesligamento: row.motivo_desligamento,
+              dataDesligamento: row.data_desligamento,
+              createdAt: row.created_at
+            };
+          }
+        }
+        if (opts.participanteId != null && Number.isFinite(Number(opts.participanteId))) {
+          const byId = await db.select().from(participantesTurmas).where(
+            and(
+              eq(participantesTurmas.participanteId, Number(opts.participanteId)),
+              eq(participantesTurmas.turmaId, turmaId)
+            )
+          ).limit(1);
+          if (byId[0]) return byId[0];
+        }
+        return null;
+      }
       async registerInclusaoEvasao(participanteId, turmaId, dataDesligamento) {
-        const vinculo = await db.select().from(participantesTurmas).where(and(
-          eq(participantesTurmas.participanteId, participanteId),
-          eq(participantesTurmas.turmaId, turmaId)
-        )).limit(1);
-        if (vinculo.length === 0) return null;
+        const part = await this.getParticipanteById(participanteId);
+        const cpf = part?.cpf ? normalizeCpfDigits2(part.cpf) : "";
+        if (cpf.length === 11) {
+          return this.registerInclusaoEvasaoByCpf(cpf, turmaId, dataDesligamento);
+        }
+        const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { participanteId });
+        if (!vinculo) return null;
         const ativa = await db.select().from(inclusaoEvasoes).where(and(
           eq(inclusaoEvasoes.participanteId, participanteId),
           eq(inclusaoEvasoes.turmaId, turmaId),
@@ -10111,16 +12038,50 @@ var init_storage = __esm({
           throw new Error("Participante j\xE1 possui evas\xE3o ativa nesta turma.");
         }
         await db.insert(inclusaoEvasoes).values({
-          participanteTurmaId: vinculo[0].id,
+          participanteTurmaId: vinculo.id,
           participanteId,
+          atendidoCpf: vinculo.atendidoCpf || null,
           turmaId,
           dataDesligamento
         });
-        const [relacao] = await db.update(participantesTurmas).set({ status: "evadido", motivoDesligamento: null, dataDesligamento: null }).where(eq(participantesTurmas.id, vinculo[0].id)).returning();
+        const [relacao] = await db.update(participantesTurmas).set({ status: "evadido", motivoDesligamento: null, dataDesligamento: null }).where(eq(participantesTurmas.id, vinculo.id)).returning();
         console.log(`\u2705 [EVAS\xC3O INCLUS\xC3O] Participante ${participanteId} evadido na turma ${turmaId} \u2014 ${dataDesligamento}`);
         return relacao;
       }
+      async registerInclusaoEvasaoByCpf(cpfRaw, turmaId, dataDesligamento) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        if (cpf.length !== 11) return null;
+        const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+        if (!vinculo) return null;
+        const ativaCond = vinculo.participanteId != null ? or(
+          eq(inclusaoEvasoes.atendidoCpf, cpf),
+          eq(inclusaoEvasoes.participanteId, vinculo.participanteId)
+        ) : eq(inclusaoEvasoes.atendidoCpf, cpf);
+        const ativa = await db.select().from(inclusaoEvasoes).where(and(
+          ativaCond,
+          eq(inclusaoEvasoes.turmaId, turmaId),
+          isNull(inclusaoEvasoes.revertidoEm)
+        )).limit(1);
+        if (ativa.length > 0) {
+          throw new Error("Participante j\xE1 possui evas\xE3o ativa nesta turma.");
+        }
+        await db.insert(inclusaoEvasoes).values({
+          participanteTurmaId: vinculo.id,
+          participanteId: vinculo.participanteId ?? null,
+          atendidoCpf: cpf,
+          turmaId,
+          dataDesligamento
+        });
+        const [relacao] = await db.update(participantesTurmas).set({ status: "evadido", motivoDesligamento: null, dataDesligamento: null }).where(eq(participantesTurmas.id, vinculo.id)).returning();
+        console.log(`\u2705 [EVAS\xC3O INCLUS\xC3O] CPF ${cpf} evadido na turma ${turmaId} \u2014 ${dataDesligamento}`);
+        return relacao;
+      }
       async revertInclusaoEvasao(participanteId, turmaId) {
+        const part = await this.getParticipanteById(participanteId);
+        const cpf = part?.cpf ? normalizeCpfDigits2(part.cpf) : "";
+        if (cpf.length === 11) {
+          return this.revertInclusaoEvasaoByCpf(cpf, turmaId);
+        }
         const ativa = await db.select().from(inclusaoEvasoes).where(and(
           eq(inclusaoEvasoes.participanteId, participanteId),
           eq(inclusaoEvasoes.turmaId, turmaId),
@@ -10135,12 +12096,45 @@ var init_storage = __esm({
         console.log(`\u2705 [EVAS\xC3O INCLUS\xC3O] Evas\xE3o revertida \u2014 participante ${participanteId}, turma ${turmaId}`);
         return relacao;
       }
+      async revertInclusaoEvasaoByCpf(cpfRaw, turmaId) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        if (cpf.length !== 11) return null;
+        const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+        const ativa = await db.select().from(inclusaoEvasoes).where(and(
+          eq(inclusaoEvasoes.turmaId, turmaId),
+          isNull(inclusaoEvasoes.revertidoEm),
+          or(
+            eq(inclusaoEvasoes.atendidoCpf, cpf),
+            vinculo?.participanteId != null ? eq(inclusaoEvasoes.participanteId, vinculo.participanteId) : sql2`false`
+          )
+        )).limit(1);
+        if (ativa.length === 0) return null;
+        await db.update(inclusaoEvasoes).set({ revertidoEm: /* @__PURE__ */ new Date() }).where(eq(inclusaoEvasoes.id, ativa[0].id));
+        if (!vinculo) return null;
+        const [relacao] = await db.update(participantesTurmas).set({ status: "ativo", motivoDesligamento: null, dataDesligamento: null }).where(eq(participantesTurmas.id, vinculo.id)).returning();
+        console.log(`\u2705 [EVAS\xC3O INCLUS\xC3O] Evas\xE3o revertida \u2014 CPF ${cpf}, turma ${turmaId}`);
+        return relacao;
+      }
       async removeParticipanteFromTurma(participanteId, turmaId) {
+        const part = await this.getParticipanteById(participanteId);
+        const cpf = part?.cpf ? normalizeCpfDigits2(part.cpf) : "";
+        if (cpf.length === 11) {
+          await this.removeParticipanteFromTurmaByCpf(cpf, turmaId);
+          return;
+        }
         await db.delete(participantesTurmas).where(and(
           eq(participantesTurmas.participanteId, participanteId),
           eq(participantesTurmas.turmaId, turmaId)
         ));
         console.log(`\u2705 [PARTICIPANTES-TURMAS] Participante ${participanteId} removido da turma ${turmaId}`);
+      }
+      async removeParticipanteFromTurmaByCpf(cpfRaw, turmaId, _motivo) {
+        const cpf = normalizeCpfDigits2(cpfRaw);
+        if (cpf.length !== 11) return;
+        const vinculo = await this.findParticipanteTurmaVinculo(turmaId, { cpf });
+        if (!vinculo) return;
+        await db.delete(participantesTurmas).where(eq(participantesTurmas.id, vinculo.id));
+        console.log(`\u2705 [PARTICIPANTES-TURMAS] CPF ${cpf} removido da turma ${turmaId}`);
       }
       async getTurmasByParticipante(participanteId) {
         const result = await db.select({ turma: turmasInclusao }).from(participantesTurmas).innerJoin(turmasInclusao, eq(participantesTurmas.turmaId, turmasInclusao.id)).where(eq(participantesTurmas.participanteId, participanteId));
@@ -10946,7 +12940,7 @@ async function hasAreaConsentOnServer(userId2, consentArea, policyBundleId = get
 }
 async function resolveUsersIdForStaffTable(table, entityId) {
   const staff = await pool.query(
-    `SELECT email, telefone, nome FROM ${table} WHERE id = $1 LIMIT 1`,
+    `SELECT email, nome FROM ${table} WHERE id = $1 LIMIT 1`,
     [entityId]
   );
   const row = staff.rows[0];
@@ -10954,22 +12948,6 @@ async function resolveUsersIdForStaffTable(table, entityId) {
   if (row.email) {
     const byEmail = await lookupUserIdByEmail(row.email);
     if (byEmail) return byEmail;
-  }
-  if (row.telefone?.trim()) {
-    try {
-      const { consolidateUser: consolidateUser2 } = await Promise.resolve().then(() => (init_userConsolidation(), userConsolidation_exports));
-      const tipo = table === "professores" ? "professor" : table === "monitores" ? "professor" : "admin";
-      const consolidated = await consolidateUser2({
-        nome: row.nome,
-        telefone: row.telefone,
-        email: row.email || void 0,
-        tipo,
-        fonte: "educacao"
-      });
-      return consolidated.id;
-    } catch {
-      return null;
-    }
   }
   return null;
 }
@@ -11418,7 +13396,7 @@ function notifySyncFailure(logContext, errorMessage, httpStatus) {
     httpStatus: httpStatus ?? null
   });
 }
-function mapStatus(status) {
+function mapStatus2(status) {
   if (!status) return "inadimplente";
   if (status === "paid" || status === "active") return "ativo";
   if (status === "canceled" || status === "cancelled") return "cancelado";
@@ -11441,7 +13419,7 @@ function formatData(date2) {
 }
 function inferSyncIntent(doador) {
   if (doador.syncIntent) return doador.syncIntent;
-  const status = mapStatus(doador.status);
+  const status = mapStatus2(doador.status);
   if (status === "cancelado") return "subscription_status";
   return "billing";
 }
@@ -11515,7 +13493,7 @@ async function enviarDoadorParaDinamize(doador) {
     email: doador.email || "",
     nome: doador.nome || "",
     telefone: formatTelefone(doador.telefone),
-    status_doador: mapStatus(doador.status),
+    status_doador: mapStatus2(doador.status),
     plano: doador.plano || "",
     valor_doacao: Number(doador.valor) || 0,
     origem: "clube_do_grito",
@@ -11676,7 +13654,10 @@ __export(gcsService_exports, {
   gcsClient: () => gcsClient,
   getSignedUrl: () => getSignedUrl,
   isGCSAvailable: () => isGCSAvailable,
+  localFileExists: () => localFileExists,
+  localPreviewUrl: () => localPreviewUrl,
   normalizeObjectKey: () => normalizeObjectKey,
+  resolveLocalUploadPath: () => resolveLocalUploadPath,
   streamObjectToResponse: () => streamObjectToResponse,
   streamSignedObjectToResponse: () => streamSignedObjectToResponse,
   uploadToGCS: () => uploadToGCS
@@ -11685,6 +13666,68 @@ import { Storage } from "@google-cloud/storage";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { Readable } from "node:stream";
+function normalizePrivateKey(raw) {
+  let key2 = raw.trim();
+  if (key2.startsWith('"') && key2.endsWith('"') || key2.startsWith("'") && key2.endsWith("'")) {
+    key2 = key2.slice(1, -1);
+  }
+  return key2.replace(/\\n/g, "\n").trim();
+}
+function tryInitFromEnvParts() {
+  const clientEmail = process.env.GCS_CLIENT_EMAIL?.trim();
+  const privateKeyRaw = process.env.GCS_PRIVATE_KEY;
+  const projectId = process.env.GCS_PROJECT_ID?.trim() || "infra-optics-454414-g5";
+  if (!clientEmail || !privateKeyRaw) return null;
+  const privateKey = normalizePrivateKey(privateKeyRaw);
+  if (!privateKey.includes("BEGIN PRIVATE KEY") || !privateKey.includes("END PRIVATE KEY")) {
+    console.warn(
+      "\u26A0\uFE0F GCS_PRIVATE_KEY presente, mas parece incompleta/inv\xE1lida (sem PEM completo)"
+    );
+    return null;
+  }
+  if (privateKey.length < 400) {
+    console.warn(
+      `\u26A0\uFE0F GCS_PRIVATE_KEY parece truncada (len=${privateKey.length}) \u2014 GCS desabilitado`
+    );
+    return null;
+  }
+  return new Storage({
+    credentials: {
+      client_email: clientEmail,
+      private_key: privateKey
+    },
+    projectId
+  });
+}
+function mimeToExt(mimeType) {
+  const map = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp"
+  };
+  return map[mimeType] || ".jpg";
+}
+function ensureFileNameHasExt(fileName, mimeType) {
+  if (path.extname(fileName)) return fileName;
+  return `${fileName}${mimeToExt(mimeType)}`;
+}
+function resolveLocalUploadPath(keyOrUrl) {
+  const key2 = normalizeObjectKey(keyOrUrl);
+  if (!key2 || !key2.startsWith("uploads/")) return null;
+  const abs = path.resolve(process.cwd(), key2);
+  const rootWithSep = LOCAL_UPLOAD_ROOT + path.sep;
+  if (!abs.startsWith(rootWithSep) && abs !== LOCAL_UPLOAD_ROOT) return null;
+  return abs;
+}
+function localFileExists(keyOrUrl) {
+  const abs = resolveLocalUploadPath(keyOrUrl);
+  return !!(abs && fs.existsSync(abs));
+}
+function localPreviewUrl(objectKey) {
+  const key2 = normalizeObjectKey(objectKey).replace(/^\/+/, "");
+  return `/${key2}`;
+}
 function normalizeObjectKey(input) {
   if (!input) return "";
   let s = input.split("?")[0].trim();
@@ -11693,27 +13736,60 @@ function normalizeObjectKey(input) {
     s = s.replace(new RegExp(`^${BUCKET_NAME}/`), "");
     return s.replace(/^\/+/, "");
   }
-  const dotHost = new RegExp(`^https?://${BUCKET_NAME}\\.storage\\.googleapis\\.com/`, "i");
+  const dotHost = new RegExp(
+    `^https?://${BUCKET_NAME}\\.storage\\.googleapis\\.com/`,
+    "i"
+  );
   if (dotHost.test(s)) {
     return s.replace(dotHost, "").replace(/^\/+/, "");
   }
-  const genericHost = new RegExp(`^https?://storage\\.googleapis\\.com/${BUCKET_NAME}/`, "i");
+  const genericHost = new RegExp(
+    `^https?://storage\\.googleapis\\.com/${BUCKET_NAME}/`,
+    "i"
+  );
   if (genericHost.test(s)) {
     return s.replace(genericHost, "").replace(/^\/+/, "");
   }
   s = s.replace(new RegExp(`^${BUCKET_NAME}/`), "");
   return s.replace(/^\/+/, "");
 }
-async function uploadToGCS(fileBuffer, fileName, mimeType) {
-  if (!bucket) throw new Error("GCS n\xE3o dispon\xEDvel");
-  const destination = `${UPLOAD_PREFIX}/${fileName}`.replace(/^\/+/, "");
-  const file = bucket.file(destination);
-  await file.save(fileBuffer, { resumable: false, metadata: { contentType: mimeType } });
+async function saveLocally(fileBuffer, fileName, mimeType) {
+  const safeName = ensureFileNameHasExt(fileName, mimeType);
+  const destination = `${UPLOAD_PREFIX}/${safeName}`.replace(/^\/+/, "");
+  const abs = path.resolve(process.cwd(), destination);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, fileBuffer);
+  console.warn(`\u26A0\uFE0F [GCS] Fallback local salvo em: ${destination}`);
   return destination;
 }
+async function uploadToGCS(fileBuffer, fileName, mimeType) {
+  const safeName = ensureFileNameHasExt(fileName, mimeType);
+  const destination = `${UPLOAD_PREFIX}/${safeName}`.replace(/^\/+/, "");
+  if (!bucket) {
+    return saveLocally(fileBuffer, safeName, mimeType);
+  }
+  try {
+    const file = bucket.file(destination);
+    await file.save(fileBuffer, {
+      resumable: false,
+      metadata: { contentType: mimeType }
+    });
+    return destination;
+  } catch (err) {
+    console.error("\u274C [GCS] uploadToGCS falhou, usando fallback local:", err);
+    return saveLocally(fileBuffer, safeName, mimeType);
+  }
+}
 async function getSignedUrl(filePath, expiresInMinutes = 60) {
-  if (!bucket) throw new Error("GCS n\xE3o dispon\xEDvel");
   const cleanPath = normalizeObjectKey(filePath);
+  if (!bucket || localFileExists(cleanPath)) {
+    if (localFileExists(cleanPath)) {
+      return localPreviewUrl(cleanPath);
+    }
+    if (!bucket) {
+      throw new Error("GCS n\xE3o dispon\xEDvel e arquivo local n\xE3o encontrado");
+    }
+  }
   const file = bucket.file(cleanPath);
   const [url] = await file.getSignedUrl({
     version: "v4",
@@ -11723,8 +13799,9 @@ async function getSignedUrl(filePath, expiresInMinutes = 60) {
   return url;
 }
 async function fileExists(filePath) {
-  if (!bucket) return false;
   const cleanPath = normalizeObjectKey(filePath);
+  if (localFileExists(cleanPath)) return true;
+  if (!bucket) return false;
   const file = bucket.file(cleanPath);
   const [exists] = await file.exists();
   return exists;
@@ -11733,24 +13810,58 @@ function extractFilePathFromUrl(url) {
   return normalizeObjectKey(url);
 }
 async function deleteObject(objectPath) {
+  const cleanPath = normalizeObjectKey(objectPath);
+  const localAbs = resolveLocalUploadPath(cleanPath);
+  if (localAbs && fs.existsSync(localAbs)) {
+    try {
+      fs.unlinkSync(localAbs);
+      console.log("\u{1F5D1}\uFE0F [LOCAL] Objeto removido:", cleanPath);
+    } catch (err) {
+      console.warn("\u26A0\uFE0F [LOCAL] Falha ao remover objeto:", objectPath, err);
+    }
+  }
   if (!bucket) return;
   try {
-    const cleanPath = normalizeObjectKey(objectPath);
     await bucket.file(cleanPath).delete({ ignoreNotFound: true });
     console.log("\u{1F5D1}\uFE0F [GCS] Objeto removido:", cleanPath);
   } catch (err) {
     console.warn("\u26A0\uFE0F [GCS] Falha ao remover objeto:", objectPath, err);
   }
 }
+function streamLocalFile(absPath, res) {
+  const ext = path.extname(absPath).toLowerCase();
+  const contentType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  fs.createReadStream(absPath).pipe(res);
+}
+function coerceImageContentType(contentType, objectKey) {
+  const ct = String(contentType || "").split(";")[0].trim().toLowerCase();
+  if (ct.startsWith("image/")) return ct;
+  const ext = path.extname(objectKey).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/jpeg";
+}
 async function streamObjectToResponse(keyOrUrl, res) {
+  const objectKey = normalizeObjectKey(keyOrUrl);
+  const localAbs = resolveLocalUploadPath(objectKey);
+  if (localAbs && fs.existsSync(localAbs)) {
+    streamLocalFile(localAbs, res);
+    return;
+  }
   if (!bucket) {
     res.status(503).send("Servi\xE7o de storage n\xE3o dispon\xEDvel");
     return;
   }
-  const objectKey = normalizeObjectKey(keyOrUrl);
   const file = bucket.file(objectKey);
   const [meta] = await file.getMetadata().catch(() => [{ contentType: "image/jpeg" }]);
-  res.setHeader("Content-Type", meta?.contentType || "image/jpeg");
+  res.setHeader(
+    "Content-Type",
+    coerceImageContentType(meta?.contentType, objectKey)
+  );
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   file.createReadStream().on("error", (err) => {
@@ -11760,21 +13871,36 @@ async function streamObjectToResponse(keyOrUrl, res) {
   }).pipe(res);
 }
 async function streamSignedObjectToResponse(keyOrUrl, res, ttlSeconds = 300) {
+  const key2 = normalizeObjectKey(keyOrUrl);
+  const localAbs = resolveLocalUploadPath(key2);
+  if (localAbs && fs.existsSync(localAbs)) {
+    streamLocalFile(localAbs, res);
+    return;
+  }
   if (!bucket) {
     res.status(503).send("Servi\xE7o de storage n\xE3o dispon\xEDvel");
     return;
   }
-  const key2 = normalizeObjectKey(keyOrUrl);
   const signed = await getSignedUrl(key2, Math.ceil(ttlSeconds / 60));
+  if (signed.startsWith("/")) {
+    return res.redirect(302, signed);
+  }
   const upstream = await fetch(signed, { redirect: "follow" });
   if (!upstream.ok) {
-    console.error("Signed fetch fail:", upstream.status, await upstream.text().catch(() => ""));
+    console.error(
+      "Signed fetch fail:",
+      upstream.status,
+      await upstream.text().catch(() => "")
+    );
     res.status(502).send("Falha ao obter imagem do storage");
     return;
   }
   const ct = upstream.headers.get("content-type") || "image/jpeg";
   res.setHeader("Content-Type", ct);
-  res.setHeader("Cache-Control", `public, max-age=${ttlSeconds}, s-maxage=${ttlSeconds}`);
+  res.setHeader(
+    "Cache-Control",
+    `public, max-age=${ttlSeconds}, s-maxage=${ttlSeconds}`
+  );
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   const body = upstream.body;
   if (body && typeof Readable.fromWeb === "function" && body.getReader) {
@@ -11784,7 +13910,7 @@ async function streamSignedObjectToResponse(keyOrUrl, res, ttlSeconds = 300) {
     res.end(buf);
   }
 }
-var gcsClientInstance, credentialsBase64, credentialsPath, gcsAvailable, isGCSAvailable, gcsClient, BUCKET_NAME, bucket, UPLOAD_PREFIX;
+var gcsClientInstance, credentialsBase64, credentialsPath, gcsAvailable, isGCSAvailable, gcsClient, BUCKET_NAME, bucket, UPLOAD_PREFIX, LOCAL_UPLOAD_ROOT;
 var init_gcsService = __esm({
   "server/gcsService.ts"() {
     "use strict";
@@ -11794,7 +13920,9 @@ var init_gcsService = __esm({
     gcsAvailable = false;
     if (credentialsBase64) {
       try {
-        const credentials = JSON.parse(Buffer.from(credentialsBase64, "base64").toString("utf-8"));
+        const credentials = JSON.parse(
+          Buffer.from(credentialsBase64, "base64").toString("utf-8")
+        );
         gcsClientInstance = new Storage({
           credentials,
           projectId: credentials.project_id || "infra-optics-454414-g5"
@@ -11812,25 +13940,35 @@ var init_gcsService = __esm({
       gcsAvailable = true;
       console.log("\u2705 GCS inicializado via arquivo de credenciais");
     } else {
-      console.warn("\u26A0\uFE0F Credenciais GCS n\xE3o encontradas - funcionalidades de storage desabilitadas");
-      gcsClientInstance = null;
+      const fromParts = tryInitFromEnvParts();
+      if (fromParts) {
+        gcsClientInstance = fromParts;
+        gcsAvailable = true;
+        console.log("\u2705 GCS inicializado via GCS_CLIENT_EMAIL + GCS_PRIVATE_KEY");
+      } else {
+        console.warn(
+          "\u26A0\uFE0F Credenciais GCS n\xE3o encontradas/validas - uploads usar\xE3o storage local"
+        );
+        gcsClientInstance = null;
+      }
     }
     isGCSAvailable = gcsAvailable;
     gcsClient = gcsClientInstance;
     BUCKET_NAME = process.env.GCS_BUCKET_NAME || "clubedogrito";
     bucket = gcsClient ? gcsClient.bucket(BUCKET_NAME) : null;
     UPLOAD_PREFIX = "uploads/beneficios";
+    LOCAL_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
   }
 });
 
 // server/lib/crypto.ts
-import crypto3 from "crypto";
+import crypto4 from "crypto";
 function seal(plain) {
   if (!key || key.length !== 32) {
     throw new Error("\u274C PAYMENT_ENCRYPTION_KEY n\xE3o configurada ou inv\xE1lida. Configure essa vari\xE1vel de ambiente.");
   }
-  const iv = crypto3.randomBytes(12);
-  const cipher = crypto3.createCipheriv("aes-256-gcm", key, iv);
+  const iv = crypto4.randomBytes(12);
+  const cipher = crypto4.createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([
     cipher.update(plain, "utf8"),
     cipher.final()
@@ -11846,7 +13984,7 @@ function open(b64) {
   const iv = buffer.subarray(0, 12);
   const tag = buffer.subarray(12, 28);
   const encrypted = buffer.subarray(28);
-  const decipher = crypto3.createDecipheriv("aes-256-gcm", key, iv);
+  const decipher = crypto4.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([
     decipher.update(encrypted),
@@ -12760,14 +14898,77 @@ var init_devMode2 = __esm({
 // server/services/donorSnapshot.ts
 var donorSnapshot_exports = {};
 __export(donorSnapshot_exports, {
-  captureMonthlyDonorSnapshot: () => captureMonthlyDonorSnapshot
+  captureCurrentMonthDonorSnapshot: () => captureCurrentMonthDonorSnapshot,
+  captureMonthlyDonorSnapshot: () => captureMonthlyDonorSnapshot,
+  capturePreviousMonthDonorSnapshot: () => capturePreviousMonthDonorSnapshot
 });
 import Stripe3 from "stripe";
+async function fetchDedupedSubs() {
+  if (!stripe2) throw new Error("Stripe n\xE3o configurado");
+  const [actives, trialing, pastDue, canceled] = await Promise.all([
+    stripe2.subscriptions.list({ status: "active", limit: 100 }).autoPagingToArray({ limit: 9999 }),
+    stripe2.subscriptions.list({ status: "trialing", limit: 100 }).autoPagingToArray({ limit: 9999 }),
+    stripe2.subscriptions.list({ status: "past_due", limit: 100 }).autoPagingToArray({ limit: 9999 }),
+    stripe2.subscriptions.list({ status: "canceled", limit: 100 }).autoPagingToArray({ limit: 9999 })
+  ]);
+  const byCustomer = /* @__PURE__ */ new Map();
+  for (const sub of [...actives, ...trialing, ...pastDue, ...canceled]) {
+    const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+    if (!customerId) continue;
+    const existing = byCustomer.get(customerId);
+    if (!existing || sub.created > existing.created) {
+      byCustomer.set(customerId, {
+        status: sub.status,
+        canceled_at: sub.canceled_at,
+        created: sub.created,
+        trial_end: sub.trial_end
+      });
+    }
+  }
+  return byCustomer;
+}
+function ativosFimDeMes(byCustomer, endOfMonth) {
+  let ativos = 0;
+  let trialing = 0;
+  for (const sub of byCustomer.values()) {
+    if (sub.created > endOfMonth) continue;
+    if (sub.canceled_at !== null && sub.canceled_at <= endOfMonth) continue;
+    if (sub.status === "past_due") {
+      ativos++;
+      continue;
+    }
+    if (sub.trial_end !== null && sub.trial_end > endOfMonth) trialing++;
+    else ativos++;
+  }
+  return { ativos, trialing };
+}
+function ativosAoVivo(byCustomer) {
+  let ativos = 0;
+  let trialing = 0;
+  for (const sub of byCustomer.values()) {
+    if (sub.status === "active" || sub.status === "past_due") ativos++;
+    else if (sub.status === "trialing") trialing++;
+  }
+  return { ativos, trialing };
+}
+function evadidosNoMes(byCustomer, localUserIds, excludedIds, excludedUntil, startOfMonth, endOfMonth) {
+  let evadidos = 0;
+  for (const [cid, sub] of byCustomer) {
+    const canceledAt = sub.canceled_at;
+    if (sub.status !== "canceled" || !canceledAt) continue;
+    if (!localUserIds.has(cid)) continue;
+    const isExcluded = excludedIds.has(cid) || excludedUntil.has(cid) && canceledAt <= excludedUntil.get(cid);
+    if (isExcluded) continue;
+    if (canceledAt >= startOfMonth && canceledAt <= endOfMonth) evadidos++;
+  }
+  return evadidos;
+}
 async function captureMonthlyDonorSnapshot(ano, mes) {
   if (!stripe2) throw new Error("Stripe n\xE3o configurado");
   const now = /* @__PURE__ */ new Date();
   const targetAno = ano ?? now.getFullYear();
   const targetMes = mes ?? now.getMonth() + 1;
+  const isMesVigente = targetAno === now.getFullYear() && targetMes === now.getMonth() + 1;
   const startOfMonth = Math.floor(new Date(targetAno, targetMes - 1, 1).getTime() / 1e3);
   const endOfMonth = Math.floor(new Date(targetAno, targetMes, 0, 23, 59, 59).getTime() / 1e3);
   const { rows: localUsers } = await pool.query(
@@ -12784,47 +14985,28 @@ async function captureMonthlyDonorSnapshot(ano, mes) {
   const excludedUntil = new Map(
     excluidos.filter((e) => e.excluir_cancelamento_ate).map((e) => [e.stripe_customer_id, Math.floor(new Date(e.excluir_cancelamento_ate).getTime() / 1e3)])
   );
-  const [activesData, trialingData, pastDueData, canceledData] = await Promise.all([
-    stripe2.subscriptions.list({ status: "active", limit: 100, created: { lte: endOfMonth } }).autoPagingToArray({ limit: 9999 }),
-    stripe2.subscriptions.list({ status: "trialing", limit: 100, created: { lte: endOfMonth } }).autoPagingToArray({ limit: 9999 }),
-    stripe2.subscriptions.list({ status: "past_due", limit: 100, created: { lte: endOfMonth } }).autoPagingToArray({ limit: 9999 }),
-    stripe2.subscriptions.list({ status: "canceled", limit: 100, created: { lte: endOfMonth } }).autoPagingToArray({ limit: 9999 })
-  ]);
-  const allSubs = [...activesData, ...trialingData, ...pastDueData, ...canceledData];
-  const byCustomer = /* @__PURE__ */ new Map();
-  for (const sub of allSubs) {
-    const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
-    if (!customerId) continue;
-    const existing = byCustomer.get(customerId);
-    if (!existing || sub.created > existing.created) {
-      byCustomer.set(customerId, sub);
-    }
-  }
-  let ativos = 0, trialing = 0, evadidos = 0;
-  for (const [cid, sub] of byCustomer) {
-    const canceledAt = sub.canceled_at;
-    const trialEnd = sub.trial_end;
-    const canceledByEndOfMonth = canceledAt !== null && canceledAt <= endOfMonth;
-    if (canceledByEndOfMonth) {
-      const canceledThisMonth = canceledAt >= startOfMonth;
-      const isLocal = localUserIds.has(cid);
-      const isExcluded = excludedIds.has(cid) || excludedUntil.has(cid) && canceledAt <= excludedUntil.get(cid);
-      if (canceledThisMonth && isLocal && !isExcluded) {
-        evadidos++;
-      }
-    } else {
-      if (sub.status === "past_due") continue;
-      if (trialEnd !== null && trialEnd > endOfMonth) trialing++;
-      else ativos++;
-    }
-  }
+  const byCustomer = await fetchDedupedSubs();
+  const stock = isMesVigente ? ativosAoVivo(byCustomer) : ativosFimDeMes(byCustomer, endOfMonth);
+  const ativos = stock.ativos;
+  const trialing = stock.trialing;
+  const evadidos = evadidosNoMes(byCustomer, localUserIds, excludedIds, excludedUntil, startOfMonth, endOfMonth);
   await pool.query(
     `INSERT INTO doadores_historico_mensal (ano, mes, ativos, trialing, evadidos)
      VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (ano, mes) DO UPDATE SET ativos=$3, trialing=$4, evadidos=$5, updated_at=NOW()`,
+     ON CONFLICT (ano, mes) DO UPDATE SET
+       ativos = $3, trialing = $4, evadidos = $5, updated_at = NOW()`,
     [targetAno, targetMes, ativos, trialing, evadidos]
   );
   return { ativos, trialing, evadidos };
+}
+async function captureCurrentMonthDonorSnapshot() {
+  const now = /* @__PURE__ */ new Date();
+  return captureMonthlyDonorSnapshot(now.getFullYear(), now.getMonth() + 1);
+}
+async function capturePreviousMonthDonorSnapshot() {
+  const prev = /* @__PURE__ */ new Date();
+  prev.setMonth(prev.getMonth() - 1);
+  return captureMonthlyDonorSnapshot(prev.getFullYear(), prev.getMonth() + 1);
 }
 var stripe2;
 var init_donorSnapshot = __esm({
@@ -12943,7 +15125,7 @@ var init_stripeSync = __esm({
     "use strict";
     init_db();
     init_schema();
-    stripe3 = new Stripe4(process.env.STRIPE_SECRET_KEY);
+    stripe3 = new Stripe4(process.env.STRIPE_SECRET_KEY || "sk_test_local_dev_placeholder");
   }
 });
 
@@ -13060,6 +15242,19 @@ async function runInstagramSyncNowForDebug(period = "morning") {
     instagramStatus.running = false;
   }
 }
+async function refreshDonorHistoricoVigente(label) {
+  try {
+    const { captureCurrentMonthDonorSnapshot: captureCurrentMonthDonorSnapshot2, capturePreviousMonthDonorSnapshot: capturePreviousMonthDonorSnapshot2 } = await Promise.resolve().then(() => (init_donorSnapshot(), donorSnapshot_exports));
+    const r = await captureCurrentMonthDonorSnapshot2();
+    console.log(`\u2705 [CRON] Snapshot doadores m\xEAs vigente (${label}): ativos=${r.ativos} trialing=${r.trialing} evadidos=${r.evadidos}`);
+    if ((/* @__PURE__ */ new Date()).getDate() === 1) {
+      const prev = await capturePreviousMonthDonorSnapshot2();
+      console.log(`\u2705 [CRON] Snapshot doadores m\xEAs anterior fechado: ativos=${prev.ativos} trialing=${prev.trialing} evadidos=${prev.evadidos}`);
+    }
+  } catch (e) {
+    console.error(`\u274C [CRON] Erro no snapshot de doadores (${label}):`, e.message);
+  }
+}
 function initCronJobs() {
   console.log("\u23F0 [CRON] Inicializando tarefas agendadas...");
   cron2.schedule("0 */5 * * *", async () => {
@@ -13072,6 +15267,7 @@ function initCronJobs() {
         existentes: resultado.existentes,
         erros: resultado.erros
       });
+      await refreshDonorHistoricoVigente("p\xF3s-sync Stripe");
     } catch (error) {
       console.error("\u274C [CRON] Erro na sincroniza\xE7\xE3o autom\xE1tica:", error.message);
     }
@@ -13080,15 +15276,8 @@ function initCronJobs() {
   cron2.schedule("0 8 * * *", () => runInstagramSyncNowForDebug("morning"), tz);
   cron2.schedule("0 14 * * *", () => runInstagramSyncNowForDebug("morning"), tz);
   cron2.schedule("0 20 * * *", () => runInstagramSyncNowForDebug("evening"), tz);
-  cron2.schedule("0 6 1 * *", async () => {
-    console.log("\u{1F4CA} [CRON] Capturando snapshot mensal de doadores...");
-    try {
-      const { captureMonthlyDonorSnapshot: captureMonthlyDonorSnapshot2 } = await Promise.resolve().then(() => (init_donorSnapshot(), donorSnapshot_exports));
-      await captureMonthlyDonorSnapshot2();
-      console.log("\u2705 [CRON] Snapshot de doadores conclu\xEDdo");
-    } catch (e) {
-      console.error("\u274C [CRON] Erro no snapshot de doadores:", e.message);
-    }
+  cron2.schedule("0 6 * * *", () => refreshDonorHistoricoVigente("di\xE1rio 6h"), {
+    timezone: "America/Sao_Paulo"
   });
   cron2.schedule("0 4 * * *", async () => {
     console.log("\u{1F504} [CRON] Iniciando reconcilia\xE7\xE3o de doadores pendentes...");
@@ -13100,20 +15289,21 @@ function initCronJobs() {
     }
   });
   console.log("\u2705 [CRON] Tarefas agendadas:");
-  console.log("   - Sincroniza\xE7\xE3o Stripe: a cada 5 horas");
+  console.log("   - Sincroniza\xE7\xE3o Stripe: a cada 5 horas (+ snapshot doadores m\xEAs vigente)");
   console.log("   - Sincroniza\xE7\xE3o Instagram: 08h, 14h e 20h (America/Sao_Paulo)");
-  console.log("   - Snapshot doadores: todo dia 1 \xE0s 6h");
+  console.log("   - Snapshot doadores: todo dia \xE0s 6h (dia 1 fecha m\xEAs anterior)");
   console.log("   - Reconcilia\xE7\xE3o doadores pendentes: todo dia \xE0s 4h");
   const runStartupSync = process.env.RUN_STARTUP_SYNC === "true" || process.env.NODE_ENV !== "development" && process.env.SKIP_STARTUP_SYNC !== "true";
   if (!runStartupSync) {
     console.log("\u23ED\uFE0F [CRON] Sincroniza\xE7\xF5es iniciais ignoradas (ambiente development). Use RUN_STARTUP_SYNC=true para for\xE7ar.");
   } else {
     console.log("\u{1F504} [CRON] Executando sincroniza\xE7\xF5es iniciais ao iniciar...");
-    syncStripeIngressos().then((resultado) => {
+    syncStripeIngressos().then(async (resultado) => {
       console.log("\u2705 [CRON] Sincroniza\xE7\xE3o Stripe inicial conclu\xEDda:", {
         novos: resultado.novos,
         existentes: resultado.existentes
       });
+      await refreshDonorHistoricoVigente("startup");
     }).catch((error) => {
       console.error("\u274C [CRON] Erro na sincroniza\xE7\xE3o Stripe inicial:", error.message);
     });
@@ -13546,7 +15736,13 @@ init_db();
 init_schema();
 import Stripe2 from "stripe";
 import { eq as eq2 } from "drizzle-orm";
-var stripe = new Stripe2(process.env.STRIPE_SECRET_KEY, {
+var stripeSecret = process.env.STRIPE_SECRET_KEY?.trim();
+if (!stripeSecret) {
+  console.warn(
+    "\u26A0\uFE0F STRIPE_SECRET_KEY ausente \u2014 Stripe inicia em modo stub (ok para UI local sem pagamentos)."
+  );
+}
+var stripe = new Stripe2(stripeSecret || "sk_test_local_dev_placeholder", {
   apiVersion: "2025-08-27.basil"
 });
 async function findBestActiveSubscription(stripe5, customerId) {
@@ -13773,6 +15969,557 @@ async function attachPaymentMethodSafely(paymentMethodId, customerId) {
   } catch (error) {
     console.error(`\u274C [ATTACH_PM] Erro ao anexar payment method:`, error);
     throw error;
+  }
+}
+
+// server/psicoAcolhimentoNotifications.ts
+var RULE_SEEDS = [
+  // ── Aluno
+  {
+    nome: "Acolhimento agendado \u2014 aluno",
+    gatilho: "acolhimento_agendado",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Acolhimento agendado",
+    mensagem: "Ol\xE1 {{nome}}! Voc\xEA tem acolhimento em {{data}} \xE0s {{horario}} \xB7 {{local}}.",
+    url: "/aluno",
+    cooldown_minutos: 0
+  },
+  {
+    nome: "S\xE9rie de acolhimentos \u2014 aluno",
+    gatilho: "acolhimento_serie_criada",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Acolhimentos agendados",
+    mensagem: "Ol\xE1 {{nome}}! Foram agendados {{total}} acolhimentos (a partir de {{data}} \xE0s {{horario}}).",
+    url: "/aluno",
+    cooldown_minutos: 0
+  },
+  {
+    nome: "Acolhimento cancelado \u2014 aluno",
+    gatilho: "acolhimento_cancelado",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Acolhimento cancelado",
+    mensagem: "Seu acolhimento de {{data}} \xE0s {{horario}} foi cancelado. Em d\xFAvida, fale com a equipe psicossocial.",
+    url: "/aluno",
+    cooldown_minutos: 0
+  },
+  {
+    nome: "Falta no acolhimento \u2014 aluno",
+    gatilho: "acolhimento_faltou",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Sobre o acolhimento",
+    mensagem: "Registramos aus\xEAncia no acolhimento de {{data}}. Se precisar de apoio, fale com a equipe psicossocial.",
+    url: "/aluno",
+    cooldown_minutos: 60
+  },
+  {
+    nome: "Lembrete D-1 acolhimento \u2014 aluno",
+    gatilho: "acolhimento_lembrete_d1",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Acolhimento amanh\xE3",
+    mensagem: "Amanh\xE3: acolhimento \xE0s {{horario}} \xB7 {{local}}.",
+    url: "/aluno",
+    cooldown_minutos: 720
+  },
+  {
+    nome: "Lembrete 2h acolhimento \u2014 aluno",
+    gatilho: "acolhimento_lembrete_2h",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Acolhimento em breve",
+    mensagem: "Hoje \xE0s {{horario}}: seu acolhimento \xB7 {{local}}.",
+    url: "/aluno",
+    cooldown_minutos: 180
+  },
+  {
+    nome: "Frequ\xEAncia baixa acolhimento \u2014 aluno",
+    gatilho: "acolhimento_frequencia_baixa",
+    destino_tela: "aluno",
+    destino_roles: ["aluno"],
+    titulo: "Frequ\xEAncia nos acolhimentos",
+    mensagem: "Sua presen\xE7a nos acolhimentos est\xE1 em {{percentual}}%. Queremos te apoiar \u2014 fale com a equipe se precisar.",
+    url: "/aluno",
+    cooldown_minutos: 10080
+  },
+  // ── Staff
+  {
+    nome: "Novo acolhimento \u2014 staff",
+    gatilho: "acolhimento_novo_staff",
+    destino_tela: "coordenador",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Novo acolhimento agendado",
+    mensagem: "{{aluno}} \xB7 {{data}} \xE0s {{horario}} \xB7 {{local}} (por {{criado_por}}).",
+    url: "/coordenador/psicossocial",
+    cooldown_minutos: 0
+  },
+  {
+    nome: "Acolhimento cancelado \u2014 staff",
+    gatilho: "acolhimento_cancelado_staff",
+    destino_tela: "coordenador",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Acolhimento cancelado",
+    mensagem: "{{aluno}} \xB7 {{data}} \xE0s {{horario}} foi cancelado.",
+    url: "/coordenador/psicossocial",
+    cooldown_minutos: 0
+  },
+  {
+    nome: "Resumo do dia \u2014 acolhimentos",
+    gatilho: "acolhimento_resumo_dia",
+    destino_tela: "monitor",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Acolhimentos hoje",
+    mensagem: "Hoje: {{total}} acolhimento(s) \xB7 pr\xF3ximo \xE0s {{proximo}}.",
+    url: "/monitor",
+    cooldown_minutos: 720
+  },
+  {
+    nome: "Acolhimento em 15 min \u2014 staff",
+    gatilho: "acolhimento_em_15min",
+    destino_tela: "monitor",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Acolhimento em 15 minutos",
+    mensagem: "{{aluno}} \xB7 \xE0s {{horario}} \xB7 {{local}}.",
+    url: "/monitor",
+    cooldown_minutos: 60
+  },
+  {
+    nome: "Muitas faltas \u2014 acolhimento",
+    gatilho: "acolhimento_muitas_faltas",
+    destino_tela: "coordenador",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Aten\xE7\xE3o: faltas em acolhimentos",
+    mensagem: "{{aluno}} acumulou {{faltas}} falta(s) nos acolhimentos.",
+    url: "/coordenador/psicossocial",
+    cooldown_minutos: 10080
+  },
+  {
+    nome: "Frequ\xEAncia baixa \u2014 staff",
+    gatilho: "acolhimento_frequencia_baixa_staff",
+    destino_tela: "coordenador",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Frequ\xEAncia baixa nos acolhimentos",
+    mensagem: "{{aluno}} com {{percentual}}% de presen\xE7a nos acolhimentos.",
+    url: "/coordenador/psicossocial",
+    cooldown_minutos: 10080
+  },
+  {
+    nome: "Acolhimento sem status",
+    gatilho: "acolhimento_sem_status",
+    destino_tela: "monitor",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Acolhimento sem status",
+    mensagem: "Ontem: {{aluno}} \xB7 {{horario}} ainda sem marcar (realizado/faltou).",
+    url: "/monitor",
+    cooldown_minutos: 720
+  },
+  {
+    nome: "Aluno sem pr\xF3ximo acolhimento",
+    gatilho: "acolhimento_sem_proximo",
+    destino_tela: "coordenador",
+    destino_roles: ["coordenador_psico", "monitor_psico", "tecnica_psico"],
+    titulo: "Sem pr\xF3ximo acolhimento",
+    mensagem: "{{aluno}} teve acolhimentos recentes, mas est\xE1 sem pr\xF3ximo agendado.",
+    url: "/coordenador/psicossocial",
+    cooldown_minutos: 10080
+  }
+];
+async function ensureAcolhimentoPushRules(pool2) {
+  for (const r of RULE_SEEDS) {
+    try {
+      const exists = await pool2.query(
+        `SELECT id FROM push_rules WHERE gatilho = $1 LIMIT 1`,
+        [r.gatilho]
+      );
+      if (exists.rows.length > 0) {
+        const clearUrl = [
+          "acolhimento_novo_staff",
+          "acolhimento_cancelado_staff",
+          "acolhimento_resumo_dia",
+          "acolhimento_em_15min",
+          "acolhimento_muitas_faltas",
+          "acolhimento_frequencia_baixa_staff",
+          "acolhimento_sem_status",
+          "acolhimento_sem_proximo"
+        ].includes(r.gatilho);
+        await pool2.query(
+          `UPDATE push_rules
+           SET destino_roles = $1,
+               url = CASE WHEN $3 THEN NULL ELSE COALESCE(url, $4) END,
+               updated_at = NOW()
+           WHERE gatilho = $2`,
+          [r.destino_roles, r.gatilho, clearUrl, r.url || null]
+        );
+        continue;
+      }
+      await pool2.query(
+        `INSERT INTO push_rules (
+           nome, gatilho, destino_tela, destino_roles, titulo, mensagem, url,
+           prioridade, tipo, cooldown_minutos, modulo_alvo, send_push, send_email, send_whatsapp, ativo
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'normal','automatico',$8,'psico',true,false,false,true)`,
+        [
+          r.nome,
+          r.gatilho,
+          r.destino_tela,
+          r.destino_roles,
+          r.titulo,
+          r.mensagem,
+          r.url,
+          r.cooldown_minutos
+        ]
+      );
+      console.log(`[PSICO-ACOLHIMENTO-PUSH] Regra criada: ${r.gatilho}`);
+    } catch (e) {
+      console.warn(`[PSICO-ACOLHIMENTO-PUSH] Seed ${r.gatilho}:`, e?.message || e);
+    }
+  }
+}
+function fmtDataBr(data) {
+  const s = String(data || "").split("T")[0];
+  const [y, m, d] = s.split("-");
+  if (!y || !m || !d) return s;
+  return `${d}/${m}/${y}`;
+}
+function fmtHora(h) {
+  if (!h) return "";
+  return String(h).slice(0, 5);
+}
+function onlyDigits(v) {
+  return (v || "").replace(/\D/g, "");
+}
+async function jaDisparou(pool2, gatilho, dedupeKey, janelaHoras) {
+  const r = await pool2.query(
+    `SELECT 1 FROM push_logs
+     WHERE gatilho = $1 AND payload->>'dedupe_key' = $2
+       AND disparado_em > NOW() - ($3 || ' hours')::interval
+     LIMIT 1`,
+    [gatilho, dedupeKey, String(janelaHoras)]
+  );
+  return r.rows.length > 0;
+}
+async function calcFreqAluno(pool2, cpf) {
+  const r = await pool2.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'realizado')::int AS compareceu,
+       COUNT(*) FILTER (WHERE status = 'faltou')::int AS faltas
+     FROM psico_acolhimentos
+     WHERE aluno_cpf = $1 AND status IN ('realizado', 'faltou')`,
+    [cpf]
+  );
+  const compareceu = Number(r.rows[0]?.compareceu || 0);
+  const faltas = Number(r.rows[0]?.faltas || 0);
+  const total = compareceu + faltas;
+  const percentual = total > 0 ? Math.round(compareceu / total * 100) : 100;
+  return { compareceu, faltas, total, percentual };
+}
+async function notifyPsicoStaffBroadcast(fr, gatilho, vars, excludeUserId) {
+  await fr(
+    gatilho,
+    vars,
+    excludeUserId ? String(excludeUserId) : void 0,
+    void 0,
+    void 0,
+    { vertente: "psico" }
+  );
+}
+async function notifyAcolhimentoCriado(opts) {
+  const cpf = onlyDigits(opts.alunoCpf);
+  if (cpf.length !== 11) return;
+  const varsBase = {
+    nome: opts.alunoNome || "",
+    aluno: opts.alunoNome || "",
+    data: fmtDataBr(opts.data),
+    horario: fmtHora(opts.horaInicio),
+    local: opts.local || "",
+    total: String(opts.total),
+    criado_por: opts.criadoPorNome || "equipe",
+    dedupe_key: `acolhimento_criado:${cpf}:${opts.data}:${fmtHora(opts.horaInicio)}:${opts.total}`
+  };
+  if (opts.recorrente && opts.total > 1) {
+    await opts.fr("acolhimento_serie_criada", varsBase, void 0, void 0, cpf);
+  } else {
+    await opts.fr("acolhimento_agendado", varsBase, void 0, void 0, cpf);
+  }
+  await notifyPsicoStaffBroadcast(
+    opts.fr,
+    "acolhimento_novo_staff",
+    varsBase,
+    opts.criadoPorUserId
+  );
+}
+async function notifyAcolhimentoStatusChange(opts) {
+  const cpf = onlyDigits(opts.row.alunoCpf);
+  if (cpf.length !== 11) return;
+  const dataBr = fmtDataBr(String(opts.row.data));
+  const horario = fmtHora(opts.row.horaInicio);
+  const vars = {
+    nome: opts.row.alunoNome || "",
+    aluno: opts.row.alunoNome || "",
+    data: dataBr,
+    horario,
+    local: opts.row.local || "",
+    dedupe_key: `acolhimento_status:${opts.row.id}:${opts.row.status}`
+  };
+  if (opts.row.status === "cancelado") {
+    await opts.fr("acolhimento_cancelado", vars, void 0, void 0, cpf);
+    await notifyPsicoStaffBroadcast(
+      opts.fr,
+      "acolhimento_cancelado_staff",
+      vars,
+      opts.actorUserId
+    );
+    return;
+  }
+  if (opts.row.status === "faltou") {
+    await opts.fr("acolhimento_faltou", vars, void 0, void 0, cpf);
+    const freq = await calcFreqAluno(opts.pool, cpf);
+    if (freq.faltas >= 3) {
+      const faltasVars = {
+        ...vars,
+        faltas: String(freq.faltas),
+        dedupe_key: `acolhimento_muitas_faltas:${cpf}:${freq.faltas}`
+      };
+      if (!await jaDisparou(opts.pool, "acolhimento_muitas_faltas", faltasVars.dedupe_key, 168)) {
+        if (opts.row.profissionalUserId) {
+          await opts.fr("acolhimento_muitas_faltas", faltasVars, void 0, Number(opts.row.profissionalUserId));
+        }
+        await notifyPsicoStaffBroadcast(opts.fr, "acolhimento_muitas_faltas", faltasVars, opts.actorUserId);
+      }
+    }
+    if (freq.total >= 2 && freq.percentual < 85) {
+      await maybeNotifyFreqBaixa(opts.pool, opts.fr, cpf, opts.row.alunoNome, freq.percentual, opts.row.profissionalUserId);
+    }
+    return;
+  }
+  if (opts.row.status === "realizado") {
+    const freq = await calcFreqAluno(opts.pool, cpf);
+    if (freq.total >= 2 && freq.percentual < 85) {
+      await maybeNotifyFreqBaixa(opts.pool, opts.fr, cpf, opts.row.alunoNome, freq.percentual, opts.row.profissionalUserId);
+    }
+  }
+}
+async function maybeNotifyFreqBaixa(pool2, fr, cpf, alunoNome, percentual, profissionalUserId) {
+  const dedupe = `acolhimento_freq_baixa:${cpf}:${percentual}`;
+  if (await jaDisparou(pool2, "acolhimento_frequencia_baixa", dedupe, 168)) return;
+  const vars = {
+    nome: alunoNome || "",
+    aluno: alunoNome || "",
+    percentual: String(percentual),
+    dedupe_key: dedupe
+  };
+  await fr("acolhimento_frequencia_baixa", vars, void 0, void 0, cpf);
+  if (profissionalUserId) {
+    await fr("acolhimento_frequencia_baixa_staff", vars, void 0, Number(profissionalUserId));
+  }
+  await notifyPsicoStaffBroadcast(fr, "acolhimento_frequencia_baixa_staff", vars);
+}
+function brtParts(now = /* @__PURE__ */ new Date()) {
+  const brt = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const y = brt.getFullYear();
+  const m = String(brt.getMonth() + 1).padStart(2, "0");
+  const d = String(brt.getDate()).padStart(2, "0");
+  const hh = brt.getHours();
+  const mm = brt.getMinutes();
+  return {
+    date: `${y}-${m}-${d}`,
+    totalMin: hh * 60 + mm,
+    brt
+  };
+}
+function toTime(m) {
+  const norm = (m % 1440 + 1440) % 1440;
+  return `${String(Math.floor(norm / 60)).padStart(2, "0")}:${String(norm % 60).padStart(2, "0")}`;
+}
+function addDays(isoDate, days) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  dt.setDate(dt.getDate() + days);
+  return [
+    dt.getFullYear(),
+    String(dt.getMonth() + 1).padStart(2, "0"),
+    String(dt.getDate()).padStart(2, "0")
+  ].join("-");
+}
+async function runAcolhimentoRemindersCron(pool2, fr) {
+  const { date: hoje, totalMin } = brtParts();
+  const proxMin = toTime(totalMin + 105);
+  const proxMax = toTime(totalMin + 135);
+  const em15Min = toTime(totalMin + 10);
+  const em15Max = toTime(totalMin + 20);
+  const r2h = await pool2.query(
+    `SELECT id, aluno_cpf, aluno_nome, data, hora_inicio, local
+     FROM psico_acolhimentos
+     WHERE data = $1::date
+       AND status IN ('agendado', 'reagendado')
+       AND LEFT(hora_inicio, 5) >= $2
+       AND LEFT(hora_inicio, 5) <= $3`,
+    [hoje, proxMin, proxMax]
+  );
+  for (const row of r2h.rows) {
+    const cpf = onlyDigits(row.aluno_cpf);
+    if (cpf.length !== 11) continue;
+    const horario = fmtHora(row.hora_inicio);
+    const dedupeKey = `acolhimento_lembrete_2h:${row.id}:${hoje}:${horario}`;
+    if (await jaDisparou(pool2, "acolhimento_lembrete_2h", dedupeKey, 4)) continue;
+    await fr(
+      "acolhimento_lembrete_2h",
+      {
+        nome: row.aluno_nome || "",
+        data: fmtDataBr(String(row.data)),
+        horario,
+        local: row.local || "",
+        dedupe_key: dedupeKey
+      },
+      void 0,
+      void 0,
+      cpf
+    );
+  }
+  const r15 = await pool2.query(
+    `SELECT id, aluno_cpf, aluno_nome, data, hora_inicio, local, profissional_user_id
+     FROM psico_acolhimentos
+     WHERE data = $1::date
+       AND status IN ('agendado', 'reagendado')
+       AND LEFT(hora_inicio, 5) >= $2
+       AND LEFT(hora_inicio, 5) <= $3`,
+    [hoje, em15Min, em15Max]
+  );
+  for (const row of r15.rows) {
+    const horario = fmtHora(row.hora_inicio);
+    const dedupeKey = `acolhimento_em_15min:${row.id}:${hoje}:${horario}`;
+    if (await jaDisparou(pool2, "acolhimento_em_15min", dedupeKey, 4)) continue;
+    const vars = {
+      aluno: row.aluno_nome || "",
+      data: fmtDataBr(String(row.data)),
+      horario,
+      local: row.local || "",
+      dedupe_key: dedupeKey
+    };
+    if (row.profissional_user_id) {
+      await fr("acolhimento_em_15min", vars, void 0, Number(row.profissional_user_id));
+    } else {
+      await notifyPsicoStaffBroadcast(fr, "acolhimento_em_15min", vars);
+    }
+  }
+}
+async function runAcolhimentoDailyMorningCron(pool2, fr) {
+  const { date: hoje } = brtParts();
+  const amanha = addDays(hoje, 1);
+  const d1 = await pool2.query(
+    `SELECT id, aluno_cpf, aluno_nome, data, hora_inicio, local
+     FROM psico_acolhimentos
+     WHERE data = $1::date AND status IN ('agendado', 'reagendado')`,
+    [amanha]
+  );
+  for (const row of d1.rows) {
+    const cpf = onlyDigits(row.aluno_cpf);
+    if (cpf.length !== 11) continue;
+    const horario = fmtHora(row.hora_inicio);
+    const dedupeKey = `acolhimento_lembrete_d1:${row.id}:${amanha}`;
+    if (await jaDisparou(pool2, "acolhimento_lembrete_d1", dedupeKey, 30)) continue;
+    await fr(
+      "acolhimento_lembrete_d1",
+      {
+        nome: row.aluno_nome || "",
+        data: fmtDataBr(String(row.data)),
+        horario,
+        local: row.local || "",
+        dedupe_key: dedupeKey
+      },
+      void 0,
+      void 0,
+      cpf
+    );
+  }
+  const hojeRows = await pool2.query(
+    `SELECT profissional_user_id, COUNT(*)::int AS total,
+            MIN(LEFT(hora_inicio, 5)) AS proximo
+     FROM psico_acolhimentos
+     WHERE data = $1::date AND status IN ('agendado', 'reagendado')
+     GROUP BY profissional_user_id`,
+    [hoje]
+  );
+  for (const row of hojeRows.rows) {
+    const total = Number(row.total || 0);
+    if (total <= 0) continue;
+    const uid = row.profissional_user_id ? Number(row.profissional_user_id) : null;
+    const dedupeKey = `acolhimento_resumo_dia:${uid || "all"}:${hoje}`;
+    if (await jaDisparou(pool2, "acolhimento_resumo_dia", dedupeKey, 20)) continue;
+    const vars = {
+      total: String(total),
+      proximo: row.proximo || "",
+      data: fmtDataBr(hoje),
+      dedupe_key: dedupeKey
+    };
+    if (uid) {
+      await fr("acolhimento_resumo_dia", vars, void 0, uid);
+    } else {
+      await notifyPsicoStaffBroadcast(fr, "acolhimento_resumo_dia", vars);
+    }
+  }
+}
+async function runAcolhimentoDailyFollowupCron(pool2, fr) {
+  const { date: hoje } = brtParts();
+  const ontem = addDays(hoje, -1);
+  const pendentes = await pool2.query(
+    `SELECT id, aluno_cpf, aluno_nome, data, hora_inicio, local, profissional_user_id
+     FROM psico_acolhimentos
+     WHERE data = $1::date AND status IN ('agendado', 'reagendado')`,
+    [ontem]
+  );
+  for (const row of pendentes.rows) {
+    const horario = fmtHora(row.hora_inicio);
+    const dedupeKey = `acolhimento_sem_status:${row.id}:${ontem}`;
+    if (await jaDisparou(pool2, "acolhimento_sem_status", dedupeKey, 30)) continue;
+    const vars = {
+      aluno: row.aluno_nome || "",
+      data: fmtDataBr(String(row.data)),
+      horario,
+      local: row.local || "",
+      dedupe_key: dedupeKey
+    };
+    if (row.profissional_user_id) {
+      await fr("acolhimento_sem_status", vars, void 0, Number(row.profissional_user_id));
+    } else {
+      await notifyPsicoStaffBroadcast(fr, "acolhimento_sem_status", vars);
+    }
+  }
+  const semProx = await pool2.query(
+    `WITH recentes AS (
+       SELECT DISTINCT ON (aluno_cpf) aluno_cpf, aluno_nome, profissional_user_id
+       FROM psico_acolhimentos
+       WHERE status IN ('realizado', 'faltou')
+         AND data >= ($1::date - INTERVAL '30 days')
+       ORDER BY aluno_cpf, data DESC
+     ),
+     futuros AS (
+       SELECT DISTINCT aluno_cpf
+       FROM psico_acolhimentos
+       WHERE status IN ('agendado', 'reagendado')
+         AND data >= $1::date
+     )
+     SELECT r.aluno_cpf, r.aluno_nome, r.profissional_user_id
+     FROM recentes r
+     LEFT JOIN futuros f ON f.aluno_cpf = r.aluno_cpf
+     WHERE f.aluno_cpf IS NULL`,
+    [hoje]
+  );
+  for (const row of semProx.rows) {
+    const cpf = onlyDigits(row.aluno_cpf);
+    if (cpf.length !== 11) continue;
+    const dedupeKey = `acolhimento_sem_proximo:${cpf}:${hoje.slice(0, 7)}`;
+    if (await jaDisparou(pool2, "acolhimento_sem_proximo", dedupeKey, 720)) continue;
+    const vars = {
+      aluno: row.aluno_nome || "",
+      dedupe_key: dedupeKey
+    };
+    if (row.profissional_user_id) {
+      await fr("acolhimento_sem_proximo", vars, void 0, Number(row.profissional_user_id));
+    }
+    await notifyPsicoStaffBroadcast(fr, "acolhimento_sem_proximo", vars);
   }
 }
 
@@ -14089,72 +16836,233 @@ function parseWebhookJsonBody(req) {
   return req.body;
 }
 
-// server/routes/payments.ts
+// server/middleware/portalSession.ts
+function getPortalSession(req) {
+  return req.session ?? {};
+}
+function getMutablePortalSession(req) {
+  if (!req.session) {
+    throw new Error("Sess\xE3o indispon\xEDvel");
+  }
+  return req.session;
+}
+
+// server/middleware/portalAuth.ts
+async function saveExpressSession(req) {
+  const sess = getPortalSession(req);
+  if (sess?.save) {
+    await new Promise(
+      (resolve3, reject) => sess.save((err) => err ? reject(err) : resolve3())
+    );
+  }
+}
+async function regenerateExpressSession(req) {
+  const sess = req.session;
+  if (!sess?.regenerate) return;
+  await new Promise(
+    (resolve3, reject) => sess.regenerate((err) => err ? reject(err) : resolve3())
+  );
+}
+function clearCrossActorSessionFields(sess) {
+  delete sess.user;
+  delete sess.userId;
+  delete sess.userPapel;
+  delete sess.userEmail;
+  delete sess.userName;
+  delete sess.isCoordinator;
+  delete sess.coordenador;
+  delete sess.coordenadorId;
+  delete sess.coordenadorEmail;
+  delete sess.coordenadorNome;
+  delete sess.coordenadorSetor;
+  delete sess.portalUserId;
+  delete sess.alunoCpf;
+  delete sess.alunoTipo;
+  delete sess.alunoNome;
+  delete sess.scannerUserId;
+  delete sess.scannerNome;
+  delete sess.scannerUsername;
+  delete sess.tabletChamadaUserId;
+  delete sess.tabletChamadaNome;
+  delete sess.tabletChamadaUsername;
+  delete sess.tabletChamadaVertente;
+  delete sess.actorType;
+  delete sess.actorId;
+  delete sess.developerId;
+  delete sess.devSession;
+  delete sess.isDeveloper;
+  delete sess.telefone;
+  delete sess.nome;
+}
+function requireAlunoPortalAuth(req, res, next) {
+  const sess = getPortalSession(req);
+  const cpf = String(sess?.alunoCpf || "").replace(/\D/g, "");
+  if (!cpf || sess?.actorType !== "aluno_portal") {
+    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
+    return;
+  }
+  const queryCpf = String(req.query.cpf || "").replace(/\D/g, "");
+  const bodyCpf = String(req.body?.cpf || "").replace(/\D/g, "");
+  if (queryCpf && queryCpf !== cpf || bodyCpf && bodyCpf !== cpf) {
+    res.status(403).json({ error: "Acesso negado" });
+    return;
+  }
+  req.alunoCpf = cpf;
+  next();
+}
+function requireScannerAuth(req, res, next) {
+  const sess = getPortalSession(req);
+  const scannerUserId = sess?.scannerUserId;
+  if (!scannerUserId || sess?.actorType !== "scanner") {
+    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
+    return;
+  }
+  req.scannerUserId = Number(scannerUserId);
+  next();
+}
+function requireTabletChamadaAuth(req, res, next) {
+  const sess = getPortalSession(req);
+  const tabletChamadaUserId = sess?.tabletChamadaUserId;
+  const vertente = sess?.tabletChamadaVertente;
+  if (!tabletChamadaUserId || sess?.actorType !== "tablet_chamada" || !vertente) {
+    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
+    return;
+  }
+  if (vertente !== "pec" && vertente !== "inclusao") {
+    res.status(403).json({ error: "Sess\xE3o inv\xE1lida" });
+    return;
+  }
+  req.tabletChamadaUserId = Number(tabletChamadaUserId);
+  req.tabletChamadaVertente = vertente;
+  next();
+}
+async function establishAlunoPortalSession(req, data) {
+  const sess = getMutablePortalSession(req);
+  clearCrossActorSessionFields(sess);
+  const cpfLimpo = data.cpf.replace(/\D/g, "");
+  sess.alunoCpf = cpfLimpo;
+  sess.alunoTipo = data.tipo;
+  sess.alunoNome = data.nome;
+  sess.actorType = "aluno_portal";
+  sess.userPapel = "aluno_portal";
+  sess.userId = data.studentId ?? (Number.parseInt(cpfLimpo.slice(-9), 10) || 1);
+  sess.actorId = sess.userId;
+  await saveExpressSession(req);
+}
+async function establishScannerSession(req, usuario) {
+  const sess = getMutablePortalSession(req);
+  clearCrossActorSessionFields(sess);
+  sess.scannerUserId = usuario.id;
+  sess.scannerNome = usuario.nome;
+  sess.scannerUsername = usuario.username;
+  sess.actorType = "scanner";
+  sess.userPapel = "scanner";
+  sess.userId = usuario.id;
+  sess.userName = usuario.nome;
+  sess.actorId = usuario.id;
+  await saveExpressSession(req);
+}
+async function establishTabletChamadaSession(req, usuario) {
+  const sess = getMutablePortalSession(req);
+  clearCrossActorSessionFields(sess);
+  sess.tabletChamadaUserId = usuario.id;
+  sess.tabletChamadaNome = usuario.nome;
+  sess.tabletChamadaUsername = usuario.username;
+  sess.tabletChamadaVertente = usuario.vertente;
+  sess.actorType = "tablet_chamada";
+  sess.userPapel = "tablet_chamada";
+  sess.userId = usuario.id;
+  sess.userName = usuario.nome;
+  sess.actorId = usuario.id;
+  await saveExpressSession(req);
+}
+async function establishEventosPortalSession(req, usuario) {
+  await regenerateExpressSession(req);
+  const sess = getMutablePortalSession(req);
+  clearCrossActorSessionFields(sess);
+  sess.portalUserId = usuario.id;
+  sess.actorType = "eventos_portal";
+  await saveExpressSession(req);
+}
+function requireEventosPortalAuth(req, res, next) {
+  const sess = getPortalSession(req);
+  const portalUserId = sess?.portalUserId;
+  if (!portalUserId || sess?.actorType !== "eventos_portal") {
+    res.status(401).json({ error: "N\xE3o autenticado" });
+    return;
+  }
+  req.portalUserId = Number(portalUserId);
+  next();
+}
+function getPortalUserIdFromRequest(req) {
+  const sess = getPortalSession(req);
+  if (!sess?.portalUserId || sess.actorType !== "eventos_portal") return null;
+  return Number(sess.portalUserId) || null;
+}
+async function destroyExpressSession(req, res) {
+  await new Promise((resolve3, reject) => {
+    if (!req.session?.destroy) {
+      resolve3();
+      return;
+    }
+    req.session.destroy((err) => err ? reject(err) : resolve3());
+  });
+  res.clearCookie("og.sid");
+}
+
+// server/routes/paymentHelpers.ts
+var PIX_RESERVATION_MINUTES = 30;
+var CARD_RESERVATION_MINUTES = 15;
+var EXPIRATION_GRACE_MS = 2 * 60 * 1e3;
 function sanitize(str) {
   return typeof str === "string" ? str.trim() : "";
 }
 function generateOrderRef(eventoId) {
   return `EVT${eventoId}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
-async function assignTickets(eventoId, quantidade2, orderRef, paymentId, metodo, titular, usuarioPortalId, valorUnit, parcelas) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const { rows } = await client.query(
-      `SELECT id, codigo FROM ingressos_portal WHERE evento_id=$1 AND status='disponivel' LIMIT $2 FOR UPDATE SKIP LOCKED`,
-      [eventoId, quantidade2]
-    );
-    if (rows.length < quantidade2) {
-      throw new Error(`Ingressos insuficientes: dispon\xEDveis ${rows.length}, solicitados ${quantidade2}`);
-    }
-    const cpfRaw = titular.cpf.replace(/\D/g, "");
-    const { rows: jaTemIngresso } = await client.query(
-      `SELECT id FROM ingressos_portal
-       WHERE evento_id=$1 AND status != 'cancelado' AND para_terceiro = false
-       AND titular_cpf = ANY($2::text[])`,
-      [eventoId, [cpfRaw, titular.cpf]]
-    );
-    const titularJaTem = jaTemIngresso.length > 0;
-    const idParaMim = [];
-    const idsParaTerceiro = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (!titularJaTem && i === 0) idParaMim.push(rows[i].id);
-      else idsParaTerceiro.push(rows[i].id);
-    }
-    const baseParams = [usuarioPortalId, titular.nome, cpfRaw, titular.email, titular.telefone, metodo, paymentId, valorUnit, parcelas];
-    if (idParaMim.length > 0) {
-      await client.query(
-        `UPDATE ingressos_portal SET
-           status='resgatado', usuario_portal_id=$1,
-           titular_nome=$2, titular_cpf=$3, titular_email=$4, titular_telefone=$5,
-           para_terceiro=false,
-           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
-           payment_id=$7, valor_pago=$8, parcelas=$9
-         WHERE id = ANY($10::int[])`,
-        [...baseParams, idParaMim]
-      );
-    }
-    if (idsParaTerceiro.length > 0) {
-      await client.query(
-        `UPDATE ingressos_portal SET
-           status='resgatado', usuario_portal_id=$1,
-           titular_nome=$2, titular_cpf=$3, titular_email=$4, titular_telefone=$5,
-           para_terceiro=true,
-           beneficiario_nome=null, beneficiario_cpf=null, beneficiario_email=null, beneficiario_telefone=null,
-           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
-           payment_id=$7, valor_pago=$8, parcelas=$9
-         WHERE id = ANY($10::int[])`,
-        [...baseParams, idsParaTerceiro]
-      );
-    }
-    await client.query("COMMIT");
-    return rows.map((r) => ({ id: r.id, codigo: r.codigo }));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+function parseQuantidade(raw) {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return null;
+  return n;
+}
+function decideExpiredOrderAction(input) {
+  const status = String(input.orderStatus || "");
+  if (["fulfilled", "paid"].includes(status) && input.cieloPaymentId && input.cieloStatus === "paid") {
+    return { action: "fulfill", paymentId: String(input.cieloPaymentId) };
   }
+  if (status === "fulfilled") {
+    return { action: "wait" };
+  }
+  const reservedUntil = input.reservedUntil == null ? null : Number(input.reservedUntil);
+  if (reservedUntil == null || Number.isNaN(reservedUntil) || reservedUntil > input.now) {
+    return { action: "wait" };
+  }
+  if (input.cieloStatus === "paid" && input.cieloPaymentId) {
+    return { action: "fulfill", paymentId: String(input.cieloPaymentId) };
+  }
+  if (input.cieloStatus && ["denied", "canceled", "expired", "error"].includes(input.cieloStatus)) {
+    return { action: "release", status: input.cieloStatus };
+  }
+  const grace = input.graceMs ?? EXPIRATION_GRACE_MS;
+  if (input.now < reservedUntil + grace) {
+    return { action: "keep_pending" };
+  }
+  return { action: "release", status: "expired" };
+}
+function assertOrderOwnedByPortalUser(orderUserId, sessionUserId) {
+  return Number(orderUserId) === Number(sessionUserId);
+}
+
+// server/routes/payments.ts
+async function releaseReservation(orderRef) {
+  await pool.query(
+    `UPDATE ingressos_portal SET
+       status='disponivel', order_ref=NULL, reserved_until=NULL,
+       usuario_portal_id=NULL, titular_nome=NULL, titular_cpf=NULL,
+       titular_email=NULL, titular_telefone=NULL
+     WHERE order_ref=$1 AND status='reservado'`,
+    [orderRef]
+  );
 }
 async function updateOrderStatus(orderRef, patch) {
   await pool.query(
@@ -14164,8 +17072,9 @@ async function updateOrderStatus(orderRef, patch) {
        error_message=COALESCE($5, error_message),
        pix_qr_code_base64=COALESCE($6, pix_qr_code_base64),
        pix_qr_code_string=COALESCE($7, pix_qr_code_string),
+       reserved_until=COALESCE($8, reserved_until),
        atualizado_em=NOW()
-     WHERE order_ref=$8`,
+     WHERE order_ref=$9`,
     [
       patch.status,
       patch.cieloPaymentId ?? null,
@@ -14174,76 +17083,391 @@ async function updateOrderStatus(orderRef, patch) {
       patch.errorMessage ?? null,
       patch.pixQrCodeBase64 ?? null,
       patch.pixQrCodeString ?? null,
+      patch.reservedUntil ?? null,
       orderRef
     ]
   );
 }
+async function fulfillReservedTickets(orderRef, paymentId, metodo, valorUnit, parcelas) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: [order] } = await client.query(
+      `SELECT * FROM event_payment_orders WHERE order_ref=$1 FOR UPDATE`,
+      [orderRef]
+    );
+    if (!order) throw new Error("Pedido n\xE3o encontrado");
+    if (order.status === "fulfilled") {
+      const { rows } = await client.query(
+        `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+        [orderRef]
+      );
+      await client.query("COMMIT");
+      return rows.map((r) => ({ id: r.id, codigo: r.codigo }));
+    }
+    const { rows: claimed } = await client.query(
+      `UPDATE event_payment_orders SET status='fulfilling', atualizado_em=NOW()
+       WHERE order_ref=$1 AND status IN ('reserved','pending','processing','paid','fulfilling')
+       RETURNING *`,
+      [orderRef]
+    );
+    if (claimed.length === 0) {
+      throw new Error(`Pedido em estado inv\xE1lido para fulfillment: ${order.status}`);
+    }
+    const { rows: reserved } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal
+       WHERE order_ref=$1 AND status='reservado'
+       ORDER BY id ASC
+       FOR UPDATE`,
+      [orderRef]
+    );
+    if (reserved.length < order.quantidade) {
+      throw new Error(
+        `Reserva incompleta: ${reserved.length}/${order.quantidade} para ${orderRef}`
+      );
+    }
+    const cpfRaw = String(order.titular_cpf || "").replace(/\D/g, "");
+    const { rows: jaTemIngresso } = await client.query(
+      `SELECT id FROM ingressos_portal
+       WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+         AND para_terceiro = false
+         AND (
+           usuario_portal_id=$2
+           OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','')=$3
+         )
+         AND order_ref IS DISTINCT FROM $4
+       LIMIT 1`,
+      [order.evento_id, order.usuario_portal_id, cpfRaw, orderRef]
+    );
+    const titularJaTem = jaTemIngresso.length > 0;
+    const idParaMim = [];
+    const idsParaTerceiro = [];
+    for (let i = 0; i < reserved.length; i++) {
+      if (!titularJaTem && i === 0) idParaMim.push(reserved[i].id);
+      else idsParaTerceiro.push(reserved[i].id);
+    }
+    const baseParams = [
+      order.usuario_portal_id,
+      order.titular_nome,
+      cpfRaw,
+      order.titular_email,
+      order.titular_telefone,
+      metodo,
+      paymentId,
+      valorUnit,
+      parcelas
+    ];
+    if (idParaMim.length > 0) {
+      await client.query(
+        `UPDATE ingressos_portal SET
+           status='resgatado',
+           para_terceiro=false,
+           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
+           payment_id=$7, valor_pago=$8, parcelas=$9,
+           reserved_until=NULL
+         WHERE id = ANY($10::int[]) AND status='reservado'`,
+        [...baseParams, idParaMim]
+      );
+    }
+    if (idsParaTerceiro.length > 0) {
+      await client.query(
+        `UPDATE ingressos_portal SET
+           status='resgatado',
+           para_terceiro=true,
+           beneficiario_nome=null, beneficiario_cpf=null, beneficiario_email=null, beneficiario_telefone=null,
+           resgatado_em=NOW(), metodo_pagamento=$6, gateway='cielo_ecommerce',
+           payment_id=$7, valor_pago=$8, parcelas=$9,
+           reserved_until=NULL
+         WHERE id = ANY($10::int[]) AND status='reservado'`,
+        [...baseParams, idsParaTerceiro]
+      );
+    }
+    await client.query(
+      `UPDATE event_payment_orders SET
+         status='fulfilled', fulfilled_em=NOW(), atualizado_em=NOW()
+       WHERE order_ref=$1`,
+      [orderRef]
+    );
+    await client.query("COMMIT");
+    return reserved.map((r) => ({ id: r.id, codigo: r.codigo }));
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+async function reconcileExpiredOrders(eventoId) {
+  const params = [];
+  let where = `
+    status IN ('created','reserved','pending','processing','paid')
+    AND reserved_until IS NOT NULL
+    AND reserved_until < NOW()
+  `;
+  if (eventoId) {
+    params.push(eventoId);
+    where += ` AND evento_id=$${params.length}`;
+  }
+  const { rows: candidates } = await pool.query(
+    `SELECT order_ref FROM event_payment_orders WHERE ${where} ORDER BY reserved_until ASC LIMIT 50`,
+    params
+  );
+  for (const row of candidates) {
+    await reconcileOneExpiredOrder(row.order_ref);
+  }
+}
+async function reconcileOneExpiredOrder(orderRef) {
+  const client = await pool.connect();
+  let order;
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT * FROM event_payment_orders WHERE order_ref=$1 FOR UPDATE`,
+      [orderRef]
+    );
+    order = rows[0];
+    if (!order) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+    }
+    throw e;
+  } finally {
+    client.release();
+  }
+  if (!order) return;
+  if (order.status === "fulfilled") return;
+  let cieloStatus = null;
+  let cieloPaymentId = order.cielo_payment_id || null;
+  let cieloStatusCode;
+  if (cieloPaymentId) {
+    try {
+      const cieloResult = await queryPaymentStatus(cieloPaymentId);
+      cieloStatus = cieloResult.status;
+      cieloStatusCode = cieloResult.cieloStatus;
+    } catch (err) {
+      console.warn(`[PAYMENTS] Reconcile: falha Cielo Ref:${orderRef}: ${err.message}`);
+    }
+  }
+  const decision = decideExpiredOrderAction({
+    now: Date.now(),
+    reservedUntil: order.reserved_until ? new Date(order.reserved_until).getTime() : null,
+    orderStatus: order.status,
+    cieloStatus,
+    cieloPaymentId
+  });
+  if (decision.action === "wait" || decision.action === "keep_pending") {
+    if (cieloStatus && cieloStatusCode != null && cieloStatus !== order.status) {
+      await updateOrderStatus(orderRef, { status: cieloStatus, cieloStatus: cieloStatusCode });
+    }
+    return;
+  }
+  if (decision.action === "fulfill") {
+    await updateOrderStatus(orderRef, {
+      status: "paid",
+      cieloStatus: cieloStatusCode
+    });
+    const precoUnit = Math.round(order.valor_total / Math.max(1, order.quantidade));
+    try {
+      await fulfillReservedTickets(
+        orderRef,
+        decision.paymentId,
+        order.metodo_pagamento === "cartao" ? "cartao" : "pix",
+        precoUnit,
+        order.parcelas || 1
+      );
+    } catch (err) {
+      console.error(`[PAYMENTS] Reconcile fulfill falhou Ref:${orderRef}: ${err.message}`);
+    }
+    return;
+  }
+  await releaseReservation(orderRef);
+  await updateOrderStatus(orderRef, {
+    status: decision.status,
+    cieloStatus: cieloStatusCode,
+    errorMessage: decision.status === "expired" ? "Reserva expirada ap\xF3s reconcilia\xE7\xE3o" : void 0
+  });
+}
+async function reserveTickets(eventoId, quantidade2, orderRef, usuarioPortalId, titular, minutes) {
+  await reconcileExpiredOrders(eventoId);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal
+       WHERE evento_id=$1 AND status='disponivel'
+       ORDER BY id ASC
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED`,
+      [eventoId, quantidade2]
+    );
+    if (rows.length < quantidade2) {
+      throw new Error(`Ingressos insuficientes: dispon\xEDveis ${rows.length}, solicitados ${quantidade2}`);
+    }
+    const cpfRaw = titular.cpf.replace(/\D/g, "");
+    const ids = rows.map((r) => r.id);
+    await client.query(
+      `UPDATE ingressos_portal SET
+         status='reservado',
+         order_ref=$1,
+         reserved_until=NOW() + ($2::text || ' minutes')::interval,
+         usuario_portal_id=$3,
+         titular_nome=$4,
+         titular_cpf=$5,
+         titular_email=$6,
+         titular_telefone=$7
+       WHERE id = ANY($8::int[]) AND status='disponivel'`,
+      [orderRef, String(minutes), usuarioPortalId, titular.nome, cpfRaw, titular.email, titular.telefone, ids]
+    );
+    const { rows: locked } = await client.query(
+      `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status='reservado'`,
+      [orderRef]
+    );
+    if (locked.length < quantidade2) {
+      throw new Error("Falha ao reservar ingressos");
+    }
+    await client.query("COMMIT");
+    return locked.map((r) => ({ id: r.id, codigo: r.codigo }));
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+async function loadPortalTitular(usuarioPortalId) {
+  const { rows: [usuario] } = await pool.query(
+    `SELECT id, nome, cpf, email FROM usuarios_portal WHERE id=$1`,
+    [usuarioPortalId]
+  );
+  return usuario || null;
+}
 async function ensurePaymentOrdersTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS event_payment_orders (
-      id               SERIAL PRIMARY KEY,
-      evento_id        INTEGER REFERENCES eventos_grito(id),
-      usuario_portal_id INTEGER,
-      order_ref        TEXT NOT NULL UNIQUE,
-      idempotency_key  TEXT UNIQUE,
-      metodo_pagamento TEXT NOT NULL,
-      quantidade       INTEGER NOT NULL DEFAULT 1,
-      valor_total      INTEGER NOT NULL,
-      parcelas         INTEGER DEFAULT 1,
-      status           TEXT NOT NULL DEFAULT 'created',
-      cielo_payment_id TEXT,
-      cielo_status     INTEGER,
-      titular_nome     TEXT NOT NULL,
-      titular_cpf      TEXT NOT NULL,
-      titular_email    TEXT NOT NULL,
-      titular_telefone TEXT NOT NULL,
-      pix_qr_code_base64 TEXT,
-      pix_qr_code_string TEXT,
-      error_message    TEXT,
-      return_code      TEXT,
-      criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      atualizado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_evento ON event_payment_orders(evento_id)`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_cielo_payment ON event_payment_orders(cielo_payment_id)`);
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS event_payment_orders (
+        id               SERIAL PRIMARY KEY,
+        evento_id        INTEGER REFERENCES eventos_grito(id),
+        usuario_portal_id INTEGER,
+        order_ref        TEXT NOT NULL UNIQUE,
+        idempotency_key  TEXT UNIQUE,
+        metodo_pagamento TEXT NOT NULL,
+        quantidade       INTEGER NOT NULL DEFAULT 1,
+        valor_total      INTEGER NOT NULL,
+        parcelas         INTEGER DEFAULT 1,
+        status           TEXT NOT NULL DEFAULT 'created',
+        cielo_payment_id TEXT,
+        cielo_status     INTEGER,
+        titular_nome     TEXT NOT NULL,
+        titular_cpf      TEXT NOT NULL,
+        titular_email    TEXT NOT NULL,
+        titular_telefone TEXT NOT NULL,
+        pix_qr_code_base64 TEXT,
+        pix_qr_code_string TEXT,
+        error_message    TEXT,
+        return_code      TEXT,
+        reserved_until   TIMESTAMPTZ,
+        fulfilled_em     TIMESTAMPTZ,
+        criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        atualizado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`ALTER TABLE event_payment_orders ADD COLUMN IF NOT EXISTS reserved_until TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE event_payment_orders ADD COLUMN IF NOT EXISTS fulfilled_em TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS order_ref TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS reserved_until TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS metodo_pagamento TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS gateway TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS payment_id TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS valor_pago INTEGER`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS parcelas INTEGER`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_nascimento DATE`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_genero TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_logradouro TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_numero TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_bairro TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_cidade TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_estado TEXT`);
+    await pool.query(`ALTER TABLE ingressos_portal ADD COLUMN IF NOT EXISTS beneficiario_cep TEXT`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_evento ON event_payment_orders(evento_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_cielo_payment ON event_payment_orders(cielo_payment_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_epo_reserved_until ON event_payment_orders(reserved_until)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ingressos_portal_order_ref ON ingressos_portal(order_ref)`);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ingressos_portal_reservado_expira
+      ON ingressos_portal(status, reserved_until)
+      WHERE status = 'reservado'
+    `);
+    const { rows: orderCols } = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'event_payment_orders'
+        AND column_name IN ('reserved_until', 'fulfilled_em', 'order_ref', 'status')
+    `);
+    const orderNames = new Set(orderCols.map((r) => r.column_name));
+    for (const col of ["reserved_until", "fulfilled_em", "order_ref", "status"]) {
+      if (!orderNames.has(col)) {
+        throw new Error(`Schema event_payment_orders incompleto: falta coluna ${col}`);
+      }
+    }
+    const { rows: ticketCols } = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'ingressos_portal'
+        AND column_name IN ('order_ref', 'reserved_until', 'status')
+    `);
+    const ticketNames = new Set(ticketCols.map((r) => r.column_name));
+    for (const col of ["order_ref", "reserved_until", "status"]) {
+      if (!ticketNames.has(col)) {
+        throw new Error(`Schema ingressos_portal incompleto: falta coluna ${col}`);
+      }
+    }
+    console.log("\u2705 [PAYMENTS] Schema de reservas/pedidos validado");
+  } catch (err) {
+    console.error("FATAL [PAYMENTS]: falha ao preparar schema de reservas:", err?.message || err);
+    throw err;
+  }
 }
 function registerPaymentRoutes(app2) {
-  app2.post("/api/payments/pix", async (req, res) => {
-    const sess = req.session;
-    const usuarioPortalId = sess?.portalUserId ?? null;
+  app2.post("/api/payments/pix", requireEventosPortalAuth, async (req, res) => {
+    const usuarioPortalId = req.portalUserId;
     try {
-      const eventoId = parseInt(sanitize(req.body.eventoId));
-      const quantidade2 = Math.max(1, Math.min(10, parseInt(req.body.quantidade) || 1));
+      const eventoId = parseInt(sanitize(req.body.eventoId), 10);
+      const quantidade2 = parseQuantidade(req.body.quantidade);
       const idempotencyKey = sanitize(req.body.idempotencyKey);
+      const telefone = sanitize(req.body.telefone);
+      if (!eventoId || !quantidade2) {
+        return res.status(400).json({ error: "Dados obrigat\xF3rios ausentes ou quantidade inv\xE1lida" });
+      }
+      if (telefone.replace(/\D/g, "").length < 10) {
+        return res.status(400).json({ error: "Telefone inv\xE1lido" });
+      }
+      const usuario = await loadPortalTitular(usuarioPortalId);
+      if (!usuario) return res.status(401).json({ error: "Usu\xE1rio n\xE3o encontrado" });
       const titular = {
-        nome: sanitize(req.body.nome),
-        cpf: sanitize(req.body.cpf),
-        email: sanitize(req.body.email),
-        telefone: sanitize(req.body.telefone)
+        nome: usuario.nome,
+        cpf: String(usuario.cpf || "").replace(/\D/g, ""),
+        email: usuario.email,
+        telefone
       };
-      if (!eventoId || !titular.nome || !titular.cpf || !titular.email || !titular.telefone) {
-        return res.status(400).json({ error: "Dados obrigat\xF3rios ausentes" });
-      }
-      if (titular.cpf.replace(/\D/g, "").length !== 11) {
-        return res.status(400).json({ error: "CPF inv\xE1lido" });
-      }
-      if (!titular.email.includes("@")) {
-        return res.status(400).json({ error: "E-mail inv\xE1lido" });
+      if (titular.cpf.length !== 11 || !titular.email?.includes("@")) {
+        return res.status(400).json({ error: "Cadastro incompleto: CPF e e-mail obrigat\xF3rios" });
       }
       if (idempotencyKey) {
         const { rows: existing } = await pool.query(
-          `SELECT order_ref, status, cielo_payment_id, pix_qr_code_base64, pix_qr_code_string
+          `SELECT order_ref, status, cielo_payment_id, pix_qr_code_base64, pix_qr_code_string, reserved_until
            FROM event_payment_orders WHERE idempotency_key=$1`,
           [idempotencyKey]
         );
         if (existing.length > 0) {
           const ord = existing[0];
-          console.log(`[PAYMENTS] PIX - idempot\xEAncia hit: ${ord.order_ref} status:${ord.status}`);
-          if (ord.status === "paid") {
-            return res.json({ sucesso: true, metodoPagamento: "pix", orderRef: ord.order_ref, status: "paid", jaProcessado: true });
+          if (ord.status === "fulfilled" || ord.status === "paid") {
+            return res.json({ sucesso: true, metodoPagamento: "pix", orderRef: ord.order_ref, status: ord.status, jaProcessado: true });
           }
-          if (["pending", "created"].includes(ord.status)) {
+          if (["reserved", "pending", "created"].includes(ord.status)) {
             return res.json({
               sucesso: true,
               metodoPagamento: "pix",
@@ -14252,11 +17476,13 @@ function registerPaymentRoutes(app2) {
               qrCodeBase64: ord.pix_qr_code_base64,
               qrCodeString: ord.pix_qr_code_string,
               status: ord.status,
+              reservedUntil: ord.reserved_until,
               sandbox: isSandbox()
             });
           }
         }
       }
+      await reconcileExpiredOrders(eventoId);
       const { rows: [evento] } = await pool.query(
         `SELECT id, titulo, preco, gratuito, status, capacidade FROM eventos_grito WHERE id=$1`,
         [eventoId]
@@ -14265,17 +17491,18 @@ function registerPaymentRoutes(app2) {
       if (evento.gratuito || parseInt(evento.preco) === 0) {
         return res.status(400).json({ error: "Use o endpoint de resgate para eventos gratuitos" });
       }
-      if (evento.status === "encerrado") {
-        return res.status(400).json({ error: "Inscri\xE7\xF5es encerradas para este evento" });
+      if (evento.status !== "disponivel") {
+        return res.status(400).json({ error: "Evento n\xE3o dispon\xEDvel para compra" });
       }
       const precoUnit = parseInt(evento.preco);
       const valorTotal = precoUnit * quantidade2;
       const orderRef = generateOrderRef(eventoId);
+      const reservedUntil = new Date(Date.now() + PIX_RESERVATION_MINUTES * 60 * 1e3);
       await pool.query(
         `INSERT INTO event_payment_orders
            (evento_id, usuario_portal_id, order_ref, idempotency_key, metodo_pagamento,
-            quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone)
-         VALUES ($1,$2,$3,$4,'pix',$5,$6,1,'created',$7,$8,$9,$10)`,
+            quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone, reserved_until)
+         VALUES ($1,$2,$3,$4,'pix',$5,$6,1,'created',$7,$8,$9,$10,$11)`,
         [
           eventoId,
           usuarioPortalId,
@@ -14284,25 +17511,42 @@ function registerPaymentRoutes(app2) {
           quantidade2,
           valorTotal,
           titular.nome,
-          titular.cpf.replace(/\D/g, ""),
+          titular.cpf,
           titular.email,
-          titular.telefone
+          titular.telefone,
+          reservedUntil
         ]
       );
+      try {
+        await reserveTickets(eventoId, quantidade2, orderRef, usuarioPortalId, titular, PIX_RESERVATION_MINUTES);
+        await updateOrderStatus(orderRef, { status: "reserved", reservedUntil });
+      } catch (err) {
+        await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
+        return res.status(409).json({ error: err.message || "Ingressos insuficientes" });
+      }
       let result;
       try {
         result = await createPixPayment({ orderRef, idempotencyKey, valorTotal, titular });
       } catch (err) {
+        await releaseReservation(orderRef);
         await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
         return res.status(502).json(safeErrorPayload(err, "Erro ao processar PIX"));
       }
       await updateOrderStatus(orderRef, {
-        status: result.status,
+        status: result.status === "paid" ? "paid" : "pending",
         cieloPaymentId: result.paymentId,
         cieloStatus: result.cieloStatus,
         pixQrCodeBase64: result.qrCodeBase64,
-        pixQrCodeString: result.qrCodeString
+        pixQrCodeString: result.qrCodeString,
+        reservedUntil
       });
+      if (result.status === "paid") {
+        try {
+          await fulfillReservedTickets(orderRef, result.paymentId, "pix", precoUnit, 1);
+        } catch (err) {
+          console.error(`[PAYMENTS] PIX pago imediato sem fulfill Ref:${orderRef}: ${err.message}`);
+        }
+      }
       return res.json({
         sucesso: true,
         metodoPagamento: "pix",
@@ -14310,8 +17554,9 @@ function registerPaymentRoutes(app2) {
         paymentId: result.paymentId,
         qrCodeBase64: result.qrCodeBase64 ?? null,
         qrCodeString: result.qrCodeString ?? null,
-        status: result.status,
+        status: result.status === "paid" ? "paid" : "pending",
         valorTotal,
+        reservedUntil,
         sandbox: isSandbox()
       });
     } catch (e) {
@@ -14319,32 +17564,37 @@ function registerPaymentRoutes(app2) {
       return res.status(500).json({ error: "Erro interno ao processar PIX" });
     }
   });
-  app2.post("/api/payments/card", async (req, res) => {
-    const sess = req.session;
-    const usuarioPortalId = sess?.portalUserId ?? null;
+  app2.post("/api/payments/card", requireEventosPortalAuth, async (req, res) => {
+    const usuarioPortalId = req.portalUserId;
     try {
-      const eventoId = parseInt(sanitize(req.body.eventoId));
-      const quantidade2 = Math.max(1, Math.min(10, parseInt(req.body.quantidade) || 1));
-      const parcelas = Math.max(1, Math.min(10, parseInt(req.body.parcelas) || 1));
+      const eventoId = parseInt(sanitize(req.body.eventoId), 10);
+      const quantidade2 = parseQuantidade(req.body.quantidade);
+      const parcelas = Math.max(1, Math.min(10, parseInt(String(req.body.parcelas || "1"), 10) || 1));
       const idempotencyKey = sanitize(req.body.idempotencyKey);
-      const titular = {
-        nome: sanitize(req.body.nome),
-        cpf: sanitize(req.body.cpf),
-        email: sanitize(req.body.email),
-        telefone: sanitize(req.body.telefone)
-      };
+      const telefone = sanitize(req.body.telefone);
       const cartaoNumero = sanitize(req.body.cardNumber).replace(/\D/g, "");
       const cartaoTitular = sanitize(req.body.cardName);
       const cartaoValidade = sanitize(req.body.cardExpiry);
       const cartaoCvv = sanitize(req.body.cardCvv);
-      if (!eventoId || !titular.nome || !titular.cpf || !titular.email || !titular.telefone) {
-        return res.status(400).json({ error: "Dados do comprador incompletos" });
+      if (!eventoId || !quantidade2) {
+        return res.status(400).json({ error: "Dados do comprador incompletos ou quantidade inv\xE1lida" });
       }
       if (!cartaoNumero || cartaoNumero.length < 13 || !cartaoTitular || !cartaoValidade || !cartaoCvv) {
         return res.status(400).json({ error: "Dados do cart\xE3o incompletos" });
       }
-      if (titular.cpf.replace(/\D/g, "").length !== 11) {
-        return res.status(400).json({ error: "CPF inv\xE1lido" });
+      if (telefone.replace(/\D/g, "").length < 10) {
+        return res.status(400).json({ error: "Telefone inv\xE1lido" });
+      }
+      const usuario = await loadPortalTitular(usuarioPortalId);
+      if (!usuario) return res.status(401).json({ error: "Usu\xE1rio n\xE3o encontrado" });
+      const titular = {
+        nome: usuario.nome,
+        cpf: String(usuario.cpf || "").replace(/\D/g, ""),
+        email: usuario.email,
+        telefone
+      };
+      if (titular.cpf.length !== 11) {
+        return res.status(400).json({ error: "CPF inv\xE1lido no cadastro" });
       }
       if (idempotencyKey) {
         const { rows: existing } = await pool.query(
@@ -14353,8 +17603,8 @@ function registerPaymentRoutes(app2) {
         );
         if (existing.length > 0) {
           const ord = existing[0];
-          if (ord.status === "paid") {
-            return res.json({ sucesso: true, metodoPagamento: "cartao", orderRef: ord.order_ref, status: "paid", jaProcessado: true });
+          if (ord.status === "fulfilled" || ord.status === "paid") {
+            return res.json({ sucesso: true, metodoPagamento: "cartao", orderRef: ord.order_ref, status: ord.status, jaProcessado: true });
           }
           if (ord.metodo_pagamento === "cartao") {
             return res.status(409).json({
@@ -14373,6 +17623,7 @@ function registerPaymentRoutes(app2) {
           });
         }
       }
+      await reconcileExpiredOrders(eventoId);
       const { rows: [evento] } = await pool.query(
         `SELECT id, titulo, preco, gratuito, status FROM eventos_grito WHERE id=$1`,
         [eventoId]
@@ -14381,16 +17632,20 @@ function registerPaymentRoutes(app2) {
       if (evento.gratuito || parseInt(evento.preco) === 0) {
         return res.status(400).json({ error: "Evento gratuito n\xE3o requer pagamento" });
       }
+      if (evento.status !== "disponivel") {
+        return res.status(400).json({ error: "Evento n\xE3o dispon\xEDvel para compra" });
+      }
       const precoUnit = parseInt(evento.preco);
       const valorTotal = precoUnit * quantidade2;
       const orderRef = generateOrderRef(eventoId);
       const bandeira = detectBrand(cartaoNumero);
+      const reservedUntil = new Date(Date.now() + CARD_RESERVATION_MINUTES * 60 * 1e3);
       try {
         await pool.query(
           `INSERT INTO event_payment_orders
              (evento_id, usuario_portal_id, order_ref, idempotency_key, metodo_pagamento,
-              quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone)
-           VALUES ($1,$2,$3,$4,'cartao',$5,$6,$7,'processing',$8,$9,$10,$11)`,
+              quantidade, valor_total, parcelas, status, titular_nome, titular_cpf, titular_email, titular_telefone, reserved_until)
+           VALUES ($1,$2,$3,$4,'cartao',$5,$6,$7,'created',$8,$9,$10,$11,$12)`,
           [
             eventoId,
             usuarioPortalId,
@@ -14400,9 +17655,10 @@ function registerPaymentRoutes(app2) {
             valorTotal,
             parcelas,
             titular.nome,
-            titular.cpf.replace(/\D/g, ""),
+            titular.cpf,
             titular.email,
-            titular.telefone
+            titular.telefone,
+            reservedUntil
           ]
         );
       } catch (insertErr) {
@@ -14414,6 +17670,14 @@ function registerPaymentRoutes(app2) {
         }
         throw insertErr;
       }
+      try {
+        await reserveTickets(eventoId, quantidade2, orderRef, usuarioPortalId, titular, CARD_RESERVATION_MINUTES);
+        await updateOrderStatus(orderRef, { status: "reserved", reservedUntil });
+      } catch (err) {
+        await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
+        return res.status(409).json({ error: err.message || "Ingressos insuficientes" });
+      }
+      await updateOrderStatus(orderRef, { status: "processing" });
       let result;
       try {
         result = await createCardPayment({
@@ -14425,8 +17689,9 @@ function registerPaymentRoutes(app2) {
           cartao: { numero: cartaoNumero, titular: cartaoTitular, validade: cartaoValidade, cvv: cartaoCvv, bandeira }
         });
       } catch (err) {
+        await releaseReservation(orderRef);
         await updateOrderStatus(orderRef, { status: "error", errorMessage: err.message });
-        return res.status(502).json(safeErrorPayload(err, "Erro ao processar PIX"));
+        return res.status(502).json(safeErrorPayload(err, "Erro ao processar cart\xE3o"));
       }
       await updateOrderStatus(orderRef, {
         status: result.status,
@@ -14436,6 +17701,7 @@ function registerPaymentRoutes(app2) {
         errorMessage: result.status !== "paid" ? result.returnMessage : void 0
       });
       if (result.status !== "paid") {
+        await releaseReservation(orderRef);
         if (isGatewayConfigurationError(result.returnCode, result.returnMessage)) {
           return res.status(502).json({
             error: "Falha de configura\xE7\xE3o na Cielo (credenciais/ambiente). Verifique CIELO_ENV, CIELO_MERCHANT_ID e CIELO_MERCHANT_KEY.",
@@ -14448,29 +17714,24 @@ function registerPaymentRoutes(app2) {
       }
       let ingressos2;
       try {
-        ingressos2 = await assignTickets(
-          eventoId,
-          quantidade2,
+        ingressos2 = await fulfillReservedTickets(
           orderRef,
           result.paymentId,
           "cartao",
-          titular,
-          usuarioPortalId,
           precoUnit,
           parcelas
         );
       } catch (err) {
         console.error(`[PAYMENTS] Pagamento aprovado mas falha ao atribuir ingressos: ${err.message} Ref:${orderRef}`);
-        await updateOrderStatus(orderRef, { errorMessage: `Ingressos: ${err.message}` });
+        await updateOrderStatus(orderRef, { status: "paid", errorMessage: `Ingressos: ${err.message}` });
         return res.status(500).json({ error: "Pagamento aprovado mas houve erro ao gerar ingressos. Entre em contato." });
       }
-      await updateOrderStatus(orderRef, { status: "paid" });
       return res.json({
         sucesso: true,
         metodoPagamento: "cartao",
         orderRef,
         paymentId: result.paymentId,
-        status: "paid",
+        status: "fulfilled",
         ingressos: ingressos2,
         parcelas,
         valorTotal
@@ -14480,15 +17741,54 @@ function registerPaymentRoutes(app2) {
       return res.status(500).json({ error: "Erro interno ao processar pagamento" });
     }
   });
-  app2.get("/api/payments/:orderRef/status", async (req, res) => {
+  app2.get("/api/payments/:orderRef/status", requireEventosPortalAuth, async (req, res) => {
     try {
       const { orderRef } = req.params;
+      const usuarioPortalId = req.portalUserId;
       const { rows: [order] } = await pool.query(
         `SELECT * FROM event_payment_orders WHERE order_ref=$1`,
         [orderRef]
       );
       if (!order) return res.status(404).json({ error: "Pedido n\xE3o encontrado" });
-      if (order.metodo_pagamento === "pix" && order.cielo_payment_id && order.status !== "paid") {
+      if (!assertOrderOwnedByPortalUser(order.usuario_portal_id, usuarioPortalId)) {
+        return res.status(403).json({ error: "Pedido n\xE3o pertence a este usu\xE1rio" });
+      }
+      if (order.status === "fulfilled") {
+        const { rows: ingressos2 } = await pool.query(
+          `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+          [orderRef]
+        );
+        return res.json({
+          orderRef,
+          status: "fulfilled",
+          pago: true,
+          ingressos: ingressos2,
+          reservedUntil: order.reserved_until
+        });
+      }
+      if (order.reserved_until && new Date(order.reserved_until).getTime() < Date.now() && ["created", "reserved", "pending", "processing", "paid"].includes(order.status)) {
+        await reconcileOneExpiredOrder(orderRef);
+        const { rows: [fresh] } = await pool.query(
+          `SELECT * FROM event_payment_orders WHERE order_ref=$1`,
+          [orderRef]
+        );
+        if (fresh?.status === "fulfilled") {
+          const { rows: ingressos2 } = await pool.query(
+            `SELECT id, codigo FROM ingressos_portal WHERE order_ref=$1 AND status IN ('resgatado','usado')`,
+            [orderRef]
+          );
+          return res.json({ orderRef, status: "fulfilled", pago: true, ingressos: ingressos2 });
+        }
+        if (fresh?.status === "expired" || fresh?.status === "denied" || fresh?.status === "canceled" || fresh?.status === "error") {
+          return res.json({
+            orderRef,
+            status: fresh.status,
+            pago: false,
+            erro: fresh.status === "expired" ? "Reserva expirada" : "Pagamento n\xE3o conclu\xEDdo"
+          });
+        }
+      }
+      if (order.metodo_pagamento === "pix" && order.cielo_payment_id && !["fulfilled", "expired", "error"].includes(order.status)) {
         let cieloResult;
         try {
           cieloResult = await queryPaymentStatus(order.cielo_payment_id);
@@ -14497,70 +17797,78 @@ function registerPaymentRoutes(app2) {
             orderRef,
             status: order.status,
             pago: false,
-            erro: toClientError(err, "Erro ao consultar pagamento")
+            erro: toClientError(err, "Erro ao consultar pagamento"),
+            reservedUntil: order.reserved_until
           });
         }
-        if (cieloResult.status === "paid" && order.status !== "paid") {
+        if (cieloResult.status === "paid") {
           await updateOrderStatus(orderRef, {
             status: "paid",
             cieloStatus: cieloResult.cieloStatus
           });
-          const eventoId = order.evento_id;
           const precoUnit = Math.round(order.valor_total / order.quantidade);
-          const titular = {
-            nome: order.titular_nome,
-            cpf: order.titular_cpf,
-            email: order.titular_email,
-            telefone: order.titular_telefone
-          };
           let ingressos2 = [];
           try {
-            ingressos2 = await assignTickets(
-              eventoId,
-              order.quantidade,
+            ingressos2 = await fulfillReservedTickets(
               orderRef,
               order.cielo_payment_id,
               "pix",
-              titular,
-              order.usuario_portal_id,
               precoUnit,
               1
             );
           } catch (err) {
             console.error(`[PAYMENTS] PIX confirmado mas falha ao atribuir ingressos: ${err.message} Ref:${orderRef}`);
+            return res.json({ orderRef, status: "paid", pago: true, erro: "Pagamento confirmado; ingressos em processamento", ingressos: [] });
           }
-          return res.json({ orderRef, status: "paid", pago: true, ingressos: ingressos2 });
+          return res.json({ orderRef, status: "fulfilled", pago: true, ingressos: ingressos2 });
+        }
+        if (["denied", "canceled", "expired", "error"].includes(cieloResult.status)) {
+          await releaseReservation(orderRef);
+          await updateOrderStatus(orderRef, { status: cieloResult.status, cieloStatus: cieloResult.cieloStatus });
+          return res.json({ orderRef, status: cieloResult.status, pago: false, erro: "Pagamento n\xE3o conclu\xEDdo" });
         }
         if (cieloResult.status !== order.status) {
           await updateOrderStatus(orderRef, { status: cieloResult.status, cieloStatus: cieloResult.cieloStatus });
         }
-        return res.json({ orderRef, status: cieloResult.status, pago: cieloResult.status === "paid" });
+        return res.json({
+          orderRef,
+          status: cieloResult.status,
+          pago: false,
+          reservedUntil: order.reserved_until
+        });
       }
       return res.json({
         orderRef,
         status: order.status,
-        pago: order.status === "paid",
+        pago: order.status === "paid" || order.status === "fulfilled",
         metodoPagamento: order.metodo_pagamento,
-        valorTotal: order.valor_total
+        valorTotal: order.valor_total,
+        reservedUntil: order.reserved_until
       });
     } catch (e) {
       console.error("[PAYMENTS] Erro status:", e.message);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
-  app2.get("/api/payments/pix/:orderRef/qrcode", async (req, res) => {
+  app2.get("/api/payments/pix/:orderRef/qrcode", requireEventosPortalAuth, async (req, res) => {
     try {
       const { orderRef } = req.params;
+      const usuarioPortalId = req.portalUserId;
       const { rows: [order] } = await pool.query(
-        `SELECT pix_qr_code_base64, pix_qr_code_string, status, valor_total FROM event_payment_orders WHERE order_ref=$1`,
+        `SELECT pix_qr_code_base64, pix_qr_code_string, status, valor_total, usuario_portal_id, reserved_until
+         FROM event_payment_orders WHERE order_ref=$1`,
         [orderRef]
       );
       if (!order) return res.status(404).json({ error: "Pedido n\xE3o encontrado" });
+      if (!assertOrderOwnedByPortalUser(order.usuario_portal_id, usuarioPortalId)) {
+        return res.status(403).json({ error: "Pedido n\xE3o pertence a este usu\xE1rio" });
+      }
       return res.json({
         qrCodeBase64: order.pix_qr_code_base64,
         qrCodeString: order.pix_qr_code_string,
         status: order.status,
-        valorTotal: order.valor_total
+        valorTotal: order.valor_total,
+        reservedUntil: order.reserved_until
       });
     } catch (e) {
       return res.status(500).json({ error: "Erro interno" });
@@ -14586,7 +17894,7 @@ function registerPaymentRoutes(app2) {
         if (!order) {
           return res.status(200).json({ ok: true });
         }
-        if (order.status === "paid") {
+        if (order.status === "fulfilled") {
           return res.status(200).json({ ok: true, msg: "J\xE1 processado" });
         }
         let cieloResult;
@@ -14596,35 +17904,35 @@ function registerPaymentRoutes(app2) {
           console.error(`[PAYMENTS] Webhook - falha ao consultar Cielo: ${err.message}`);
           return res.status(200).json({ ok: false });
         }
-        await updateOrderStatus(order.order_ref, {
-          status: cieloResult.status,
-          cieloStatus: cieloResult.cieloStatus
-        });
         if (cieloResult.status === "paid") {
+          await updateOrderStatus(order.order_ref, {
+            status: "paid",
+            cieloStatus: cieloResult.cieloStatus
+          });
           const precoUnit = Math.round(order.valor_total / order.quantidade);
-          const titular = {
-            nome: order.titular_nome,
-            cpf: order.titular_cpf,
-            email: order.titular_email,
-            telefone: order.titular_telefone
-          };
           try {
-            await assignTickets(
-              order.evento_id,
-              order.quantidade,
+            await fulfillReservedTickets(
               order.order_ref,
               paymentId,
               order.metodo_pagamento,
-              titular,
-              order.usuario_portal_id,
               precoUnit,
               order.parcelas
             );
-            await updateOrderStatus(order.order_ref, { status: "paid" });
             console.log(`[PAYMENTS] Webhook: ingressos atribu\xEDdos Ref:${order.order_ref}`);
           } catch (err) {
             console.error(`[PAYMENTS] Webhook: falha ingressos Ref:${order.order_ref}: ${err.message}`);
           }
+        } else if (["denied", "canceled", "expired", "error"].includes(cieloResult.status)) {
+          await releaseReservation(order.order_ref);
+          await updateOrderStatus(order.order_ref, {
+            status: cieloResult.status,
+            cieloStatus: cieloResult.cieloStatus
+          });
+        } else {
+          await updateOrderStatus(order.order_ref, {
+            status: cieloResult.status,
+            cieloStatus: cieloResult.cieloStatus
+          });
         }
         return res.status(200).json({ ok: true });
       } catch (e) {
@@ -15123,6 +18431,1253 @@ function registerDinamizeObservabilityRoutes(app2, deps) {
   );
 }
 
+// server/routes/atendidosGrito.ts
+init_cpf();
+
+// server/services/atendidosGritoHistorico.ts
+init_cpf();
+async function safeQuery(pool2, sql6, params = []) {
+  try {
+    const result = await pool2.query(sql6, params);
+    return result.rows;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[atendidos-grito] Query ignorada:", message);
+    return [];
+  }
+}
+function mapPecStatus(row) {
+  if (row.evadido === true) return "evadido";
+  const status = String(row.status || "").toLowerCase();
+  if (status === "concluido" || status === "conclu\xEDda") return "formado";
+  if (status === "reprovado") return "reprovado";
+  return "cursando";
+}
+function mapInclusaoStatus(row) {
+  const status = String(row.pt_status || row.status || "").toLowerCase();
+  if (status === "evadido") return "evadido";
+  if (status === "reprovado") return "reprovado";
+  if (["concluido", "concluida", "formado", "finalizado"].includes(status)) return "formado";
+  return "cursando";
+}
+async function calcFrequenciaPec(pool2, turmaId, cpf) {
+  const enrollRes = await pool2.query(
+    `SELECT enrollment_date::date as enrollment_date
+     FROM instance_enrollments
+     WHERE activity_instance_id = $1
+       AND REGEXP_REPLACE(student_cpf, '[^0-9]', '', 'g') = $2
+     ORDER BY enrollment_date ASC NULLS FIRST
+     LIMIT 1`,
+    [turmaId, cpf]
+  );
+  const enrollmentDate = enrollRes.rows[0]?.enrollment_date || null;
+  const rows = await pool2.query(
+    `SELECT
+       (SELECT (att->>'presente')::boolean
+        FROM jsonb_array_elements(s.attendance) AS att
+        WHERE REGEXP_REPLACE(att->>'alunoCpf', '[^0-9]', '', 'g') = $2
+        LIMIT 1) as presente
+     FROM sessions s
+     WHERE s.activity_instance_id = $1
+       AND s.attendance IS NOT NULL
+       AND ($3::date IS NULL OR s.date::date >= $3::date)`,
+    [turmaId, cpf, enrollmentDate]
+  );
+  const total = rows.rows.length;
+  const presencas = rows.rows.filter((r) => r.presente === true).length;
+  return {
+    totalAulas: total,
+    presencas,
+    ausencias: total - presencas,
+    percentual: total > 0 ? Math.round(presencas / total * 100) : 0
+  };
+}
+async function calcFrequenciaInclusao(pool2, turmaId, participanteId) {
+  const rows = await pool2.query(
+    `SELECT presente
+     FROM presencas_inclusao
+     WHERE turma_id = $1 AND participante_id = $2`,
+    [turmaId, participanteId]
+  );
+  const total = rows.rows.length;
+  const presencas = rows.rows.filter((r) => r.presente === true).length;
+  return {
+    totalAulas: total,
+    presencas,
+    ausencias: total - presencas,
+    percentual: total > 0 ? Math.round(presencas / total * 100) : 0
+  };
+}
+async function resolveNomeByCpf(pool2, cpf) {
+  const rows = await safeQuery(
+    pool2,
+    `SELECT COALESCE(
+       (SELECT nome_completo FROM atendidos_grito WHERE cpf = $1 LIMIT 1),
+       (SELECT nome_completo FROM aluno WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1 LIMIT 1),
+       (SELECT nome FROM participantes_inclusao WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1 LIMIT 1),
+       (SELECT nome FROM psico_atendidos_comunidade WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1 LIMIT 1)
+     ) AS nome`,
+    [cpf]
+  );
+  return rows[0]?.nome?.trim() || null;
+}
+async function fetchParticipanteInclusaoId(pool2, cpf) {
+  const rows = await safeQuery(
+    pool2,
+    `SELECT id FROM participantes_inclusao
+     WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1
+     ORDER BY id DESC LIMIT 1`,
+    [cpf]
+  );
+  return rows[0]?.id ?? null;
+}
+async function fetchPsicoResumo(pool2, cpf, psicoFullAccess) {
+  const summaryRows = await safeQuery(
+    pool2,
+    `WITH datas AS (
+       SELECT pa.data_atendimento::date AS data_ref
+       FROM psico_atendimentos pa
+       JOIN psico_inclusao_vinculo piv ON piv.id = pa.psico_inclusao_vinculo_id
+       JOIN participantes_inclusao pi ON pi.id = piv.participante_inclusao_id
+       WHERE REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pa.data_atendimento::date
+       FROM psico_atendimentos pa
+       JOIN psico_pec_vinculo ppv ON ppv.id = pa.psico_pec_vinculo_id
+       JOIN enrollments en ON en.id = ppv.enrollment_id
+       JOIN users u ON u.id = en.person_id
+       WHERE REGEXP_REPLACE(COALESCE(u.cpf, ''), '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pa.data_atendimento::date
+       FROM psico_atendimentos pa
+       JOIN psico_pec_vinculo ppv ON ppv.id = pa.psico_pec_vinculo_id
+       JOIN enrollments en ON en.id = ppv.enrollment_id
+       JOIN instance_enrollments ie ON ie.activity_instance_id = en.activity_instance_id
+       WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pr.data::date FROM psico_registros pr
+       WHERE REGEXP_REPLACE(COALESCE(pr.participante_cpf, ''), '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT prc.data::date FROM psico_registros_confidenciais prc
+       WHERE REGEXP_REPLACE(COALESCE(prc.participante_cpf, ''), '[^0-9]', '', 'g') = $1
+     )
+     SELECT
+       (SELECT MAX(data_ref)::text FROM datas) AS ultimo,
+       (
+         EXISTS (SELECT 1 FROM datas)
+         OR EXISTS (
+           SELECT 1 FROM psico_atendidos_comunidade pac
+           WHERE REGEXP_REPLACE(COALESCE(pac.cpf, ''), '[^0-9]', '', 'g') = $1
+         )
+       ) AS acompanhado`,
+    [cpf]
+  );
+  const base = {
+    acompanhado: summaryRows[0]?.acompanhado === true,
+    ultimoAtendimento: summaryRows[0]?.ultimo || null
+  };
+  if (!psicoFullAccess) return base;
+  const atendimentos = await safeQuery(
+    pool2,
+    `SELECT id, data::text, tipo, resumo, fonte FROM (
+       SELECT pa.id, pa.data_atendimento AS data, pa.tipo::text AS tipo, pa.resumo, 'atendimento'::text AS fonte
+       FROM psico_atendimentos pa
+       JOIN psico_inclusao_vinculo piv ON piv.id = pa.psico_inclusao_vinculo_id
+       JOIN participantes_inclusao pi ON pi.id = piv.participante_inclusao_id
+       WHERE REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pa.id, pa.data_atendimento, pa.tipo::text, pa.resumo, 'atendimento'
+       FROM psico_atendimentos pa
+       JOIN psico_pec_vinculo ppv ON ppv.id = pa.psico_pec_vinculo_id
+       JOIN enrollments en ON en.id = ppv.enrollment_id
+       JOIN users u ON u.id = en.person_id
+       WHERE REGEXP_REPLACE(COALESCE(u.cpf, ''), '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pa.id, pa.data_atendimento, pa.tipo::text, pa.resumo, 'atendimento'
+       FROM psico_atendimentos pa
+       JOIN psico_pec_vinculo ppv ON ppv.id = pa.psico_pec_vinculo_id
+       JOIN enrollments en ON en.id = ppv.enrollment_id
+       JOIN instance_enrollments ie ON ie.activity_instance_id = en.activity_instance_id
+       WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT pr.id, pr.data, pr.tipo, LEFT(pr.conteudo, 200), 'registro'
+       FROM psico_registros pr
+       WHERE REGEXP_REPLACE(COALESCE(pr.participante_cpf, ''), '[^0-9]', '', 'g') = $1
+       UNION ALL
+       SELECT prc.id, prc.data, prc.tipo, LEFT(prc.conteudo, 200), 'registro_confidencial'
+       FROM psico_registros_confidenciais prc
+       WHERE REGEXP_REPLACE(COALESCE(prc.participante_cpf, ''), '[^0-9]', '', 'g') = $1
+     ) sub
+     ORDER BY data DESC, id DESC`,
+    [cpf]
+  );
+  return { ...base, atendimentos };
+}
+function buildTimeline(turmasPec, turmasInclusao2, psico, observacoes) {
+  const events = [];
+  for (const t of turmasPec) {
+    if (t.dataMatricula) {
+      events.push({
+        id: `pec-mat-${t.turmaId}`,
+        data: t.dataMatricula,
+        tipo: "matricula",
+        setor: "PEC",
+        titulo: `Matr\xEDcula: ${t.nome}`
+      });
+    }
+    if (t.status === "evadido" && t.dataDesligamento) {
+      events.push({
+        id: `pec-eva-${t.turmaId}`,
+        data: t.dataDesligamento,
+        tipo: "evasao",
+        setor: "PEC",
+        titulo: `Evas\xE3o: ${t.nome}`,
+        descricao: t.motivoEvasao
+      });
+    }
+    if (t.status === "formado" && t.dataFim) {
+      events.push({
+        id: `pec-form-${t.turmaId}`,
+        data: t.dataFim,
+        tipo: "conclusao",
+        setor: "PEC",
+        titulo: `Formado: ${t.nome}`
+      });
+    }
+    if (t.status === "reprovado" && t.dataFim) {
+      events.push({
+        id: `pec-rep-${t.turmaId}`,
+        data: t.dataFim,
+        tipo: "reprovacao",
+        setor: "PEC",
+        titulo: `Reprovado: ${t.nome}`
+      });
+    }
+  }
+  for (const t of turmasInclusao2) {
+    if (t.dataMatricula) {
+      events.push({
+        id: `inc-mat-${t.turmaId}`,
+        data: t.dataMatricula,
+        tipo: "matricula",
+        setor: "Inclus\xE3o",
+        titulo: `Matr\xEDcula: ${t.nome}`
+      });
+    }
+    if (t.status === "evadido" && t.dataDesligamento) {
+      events.push({
+        id: `inc-eva-${t.turmaId}`,
+        data: t.dataDesligamento,
+        tipo: "evasao",
+        setor: "Inclus\xE3o",
+        titulo: `Evas\xE3o: ${t.nome}`,
+        descricao: t.motivoEvasao
+      });
+    }
+    if (t.status === "formado" && t.dataFim) {
+      events.push({
+        id: `inc-form-${t.turmaId}`,
+        data: t.dataFim,
+        tipo: "conclusao",
+        setor: "Inclus\xE3o",
+        titulo: `Formado: ${t.nome}`
+      });
+    }
+    if (t.status === "reprovado" && t.dataFim) {
+      events.push({
+        id: `inc-rep-${t.turmaId}`,
+        data: t.dataFim,
+        tipo: "reprovacao",
+        setor: "Inclus\xE3o",
+        titulo: `Reprovado: ${t.nome}`
+      });
+    }
+  }
+  if (psico.ultimoAtendimento) {
+    events.push({
+      id: "psico-ultimo",
+      data: psico.ultimoAtendimento,
+      tipo: "psico",
+      setor: "Psicossocial",
+      titulo: psico.acompanhado ? "\xDAltimo atendimento psicossocial" : "Registro psicossocial"
+    });
+  }
+  for (const obs of observacoes) {
+    events.push({
+      id: `obs-${obs.id}`,
+      data: obs.createdAt.slice(0, 10),
+      tipo: "observacao",
+      setor: obs.autorSetor,
+      titulo: `Observa\xE7\xE3o \u2014 ${obs.autorNome}`,
+      descricao: obs.texto
+    });
+  }
+  return events.sort((a, b) => b.data.localeCompare(a.data));
+}
+async function fetchHistoricoByCpf(pool2, rawCpf, options) {
+  const cpf = normalizeCpfDigits2(rawCpf);
+  if (cpf.length !== 11) return null;
+  const [nome, participanteId, observacoes] = await Promise.all([
+    resolveNomeByCpf(pool2, cpf),
+    fetchParticipanteInclusaoId(pool2, cpf),
+    fetchObservacoesByCpf(pool2, cpf)
+  ]);
+  const pecRows = await safeQuery(
+    pool2,
+    `SELECT
+       ai.id AS turma_id,
+       ai.title AS nome,
+       ie.enrollment_date::text AS data_matricula,
+       ai.occurrence_start::text AS data_inicio,
+       ai.occurrence_end::text AS data_fim,
+       ie.evadido,
+       ie.status,
+       ie.motivo_evasao,
+       ie.data_evasao::text AS data_evasao
+     FROM instance_enrollments ie
+     JOIN activity_instances ai ON ai.id = ie.activity_instance_id
+     WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
+     ORDER BY ie.enrollment_date DESC NULLS LAST`,
+    [cpf]
+  );
+  const turmasPec = [];
+  for (const row of pecRows) {
+    const turmaId = Number(row.turma_id);
+    const frequencia = await calcFrequenciaPec(pool2, turmaId, cpf);
+    turmasPec.push({
+      turmaId,
+      nome: String(row.nome || "Turma PEC"),
+      setor: "pec",
+      status: mapPecStatus(row),
+      dataMatricula: row.data_matricula || null,
+      dataInicio: row.data_inicio || null,
+      dataFim: row.data_fim || null,
+      dataDesligamento: row.data_evasao || null,
+      motivoEvasao: row.motivo_evasao || null,
+      frequencia
+    });
+  }
+  const inclRows = await safeQuery(
+    pool2,
+    `SELECT
+       ti.id AS turma_id,
+       CONCAT(pi_prog.nome, CASE WHEN ti.nome IS NOT NULL AND ti.nome <> '' THEN ' \u2014 ' || ti.nome ELSE '' END) AS nome,
+       pt.data_inscricao::text AS data_matricula,
+       ti.data_inicio::text AS data_inicio,
+       ti.data_fim::text AS data_fim,
+       pt.status AS pt_status,
+       pt.motivo_desligamento,
+       pt.data_desligamento::text AS data_desligamento,
+       p.id AS participante_id
+     FROM participantes_inclusao p
+     JOIN participantes_turmas pt ON pt.participante_id = p.id
+     JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+     JOIN programas_inclusao pi_prog ON pi_prog.id = ti.programa_id
+     WHERE REGEXP_REPLACE(p.cpf, '[^0-9]', '', 'g') = $1
+     ORDER BY pt.data_inscricao DESC NULLS LAST`,
+    [cpf]
+  );
+  const turmasInclusao2 = [];
+  for (const row of inclRows) {
+    const turmaId = Number(row.turma_id);
+    const partId = Number(row.participante_id);
+    const frequencia = await calcFrequenciaInclusao(pool2, turmaId, partId);
+    turmasInclusao2.push({
+      turmaId,
+      nome: String(row.nome || "Turma Inclus\xE3o"),
+      setor: "inclusao",
+      status: mapInclusaoStatus(row),
+      dataMatricula: row.data_matricula || null,
+      dataInicio: row.data_inicio || null,
+      dataFim: row.data_fim || null,
+      dataDesligamento: row.data_desligamento || null,
+      motivoEvasao: row.motivo_desligamento || null,
+      frequencia,
+      participanteId: partId
+    });
+  }
+  const psico = await fetchPsicoResumo(pool2, cpf, options.psicoFullAccess);
+  return {
+    cpf,
+    nome,
+    psico,
+    turmas: { pec: turmasPec, inclusao: turmasInclusao2 },
+    observacoes,
+    timeline: buildTimeline(turmasPec, turmasInclusao2, psico, observacoes)
+  };
+}
+async function fetchObservacoesByCpf(pool2, rawCpf) {
+  const cpf = normalizeCpfDigits2(rawCpf);
+  if (cpf.length !== 11) return [];
+  const rows = await safeQuery(
+    pool2,
+    `SELECT id, cpf, autor_nome, autor_setor, autor_user_id, texto, created_at::text
+     FROM atendidos_grito_observacoes
+     WHERE cpf = $1
+     ORDER BY created_at DESC`,
+    [cpf]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    cpf: r.cpf,
+    autorNome: r.autor_nome,
+    autorSetor: r.autor_setor,
+    autorUserId: r.autor_user_id,
+    texto: r.texto,
+    createdAt: r.created_at
+  }));
+}
+function resolveAutorSetor(role) {
+  const r = role.toLowerCase();
+  if (r.includes("psico")) return "Psicossocial";
+  if (r.includes("inclusao")) return "Inclus\xE3o Produtiva";
+  if (r.includes("pec")) return "PEC";
+  if (r === "professor" || r === "monitor") return "PEC";
+  if (r.startsWith("coordenador")) return "Coordena\xE7\xE3o";
+  return role || "Geral";
+}
+async function createObservacao(pool2, data) {
+  const cpf = normalizeCpfDigits2(data.cpf);
+  const texto = data.texto.trim();
+  if (cpf.length !== 11) throw new Error("CPF inv\xE1lido");
+  if (!texto) throw new Error("Texto obrigat\xF3rio");
+  const rows = await pool2.query(
+    `INSERT INTO atendidos_grito_observacoes (cpf, autor_nome, autor_setor, autor_user_id, texto)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, cpf, autor_nome, autor_setor, autor_user_id, texto, created_at::text`,
+    [cpf, data.autorNome, data.autorSetor, data.autorUserId, texto]
+  );
+  const r = rows.rows[0];
+  return {
+    id: r.id,
+    cpf: r.cpf,
+    autorNome: r.autor_nome,
+    autorSetor: r.autor_setor,
+    autorUserId: r.autor_user_id,
+    texto: r.texto,
+    createdAt: r.created_at
+  };
+}
+async function deleteObservacao(pool2, id, authorUserId) {
+  if (!authorUserId) return false;
+  const result = await pool2.query(
+    `DELETE FROM atendidos_grito_observacoes
+     WHERE id = $1 AND autor_user_id = $2`,
+    [id, authorUserId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+// server/services/atendidosGritoBackfill.ts
+init_cpf();
+function mapStatusGlobal(raw) {
+  const s = String(raw || "").toLowerCase().trim();
+  if (["inativo", "inativa", "cancelado", "cancelada"].includes(s)) return "inativo";
+  return "ativo";
+}
+function mapProgramaStatus(raw) {
+  return mapStatusGlobal(raw);
+}
+function toDateOnly2(val) {
+  if (!val) return null;
+  const s = String(val).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+function toDate(val) {
+  if (!val) return null;
+  const d = new Date(String(val));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function pickString2(...vals) {
+  for (const v of vals) {
+    const s = v == null ? "" : String(v).trim();
+    if (s) return s;
+  }
+  return null;
+}
+async function loadPecSources(pool2) {
+  const { rows } = await pool2.query(`
+    SELECT *
+    FROM aluno
+    WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') ~ '^[0-9]{11}$'
+  `);
+  return rows.map((r) => {
+    const cpf = normalizeCpfDigits2(r.cpf);
+    const updatedAt = toDate(r.updated_at) || toDate(r.created_at) || /* @__PURE__ */ new Date(0);
+    const { cpf: _c, nome_completo, updated_at, created_at, ...rest } = r;
+    return {
+      fonte: "pec",
+      cpf,
+      updatedAt,
+      nomeCompleto: pickString2(nome_completo) || "Sem nome",
+      dataNascimento: toDateOnly2(r.data_nascimento),
+      genero: pickString2(r.genero),
+      escolaridade: pickString2(r.escolaridade),
+      instituicaoEnsino: pickString2(r.instituicao_ensino),
+      telefone: pickString2(r.telefone),
+      email: pickString2(r.email),
+      whatsapp: pickString2(r.whatsapp),
+      bolsaFamilia: pickString2(r.bolsa_familia),
+      fotoPerfil: pickString2(r.foto_perfil),
+      numeroMatricula: pickString2(r.numero_matricula),
+      statusGlobal: mapStatusGlobal(r.situacao_atendimento),
+      programaStatus: mapProgramaStatus(r.situacao_atendimento),
+      cep: pickString2(r.cep),
+      logradouro: pickString2(r.logradouro),
+      numero: pickString2(r.numero),
+      complemento: pickString2(r.complemento),
+      bairro: pickString2(r.bairro),
+      cidade: pickString2(r.cidade),
+      estado: pickString2(r.estado),
+      legadoTipo: "aluno",
+      legadoId: cpf,
+      dataIngresso: toDate(r.data_entrada) || toDate(r.created_at),
+      dataEgresso: toDate(r.data_inativacao),
+      dadosComplementares: rest
+    };
+  });
+}
+async function loadInclusaoSources(pool2) {
+  const { rows } = await pool2.query(`SELECT * FROM participantes_inclusao`);
+  let semCpf = 0;
+  const valid = [];
+  for (const r of rows) {
+    const cpf = normalizeCpfDigits2(r.cpf);
+    if (cpf.length !== 11) {
+      semCpf++;
+      continue;
+    }
+    const updatedAt = toDate(r.updated_at) || toDate(r.created_at) || /* @__PURE__ */ new Date(0);
+    const {
+      id,
+      cpf: _c,
+      nome,
+      updated_at,
+      created_at,
+      ...rest
+    } = r;
+    valid.push({
+      fonte: "inclusao",
+      cpf,
+      updatedAt,
+      nomeCompleto: pickString2(nome) || "Sem nome",
+      dataNascimento: toDateOnly2(r.data_nascimento),
+      genero: pickString2(r.genero),
+      escolaridade: pickString2(r.escolaridade),
+      instituicaoEnsino: pickString2(r.instituicao_ensino),
+      telefone: pickString2(r.telefone),
+      email: pickString2(r.email),
+      whatsapp: r.telefone_whatsapp ? pickString2(r.telefone) : pickString2(r.telefone),
+      bolsaFamilia: pickString2(r.bolsa_familia),
+      fotoPerfil: pickString2(r.foto_url),
+      numeroMatricula: pickString2(r.codigo_matricula),
+      statusGlobal: mapStatusGlobal(r.status),
+      programaStatus: mapProgramaStatus(r.status),
+      cep: pickString2(r.cep),
+      logradouro: pickString2(r.logradouro),
+      numero: pickString2(r.numero),
+      complemento: pickString2(r.complemento),
+      bairro: pickString2(r.bairro),
+      cidade: pickString2(r.cidade),
+      estado: pickString2(r.estado),
+      legadoTipo: "participantes_inclusao",
+      legadoId: String(id),
+      dataIngresso: toDate(r.data_ingresso) || toDate(r.data_entrada) || toDate(r.created_at),
+      dataEgresso: toDate(r.data_egresso),
+      dadosComplementares: rest
+    });
+  }
+  return { valid, semCpf };
+}
+async function loadPsicoComunidadeSources(pool2) {
+  const { rows } = await pool2.query(`SELECT * FROM psico_atendidos_comunidade`);
+  let semCpf = 0;
+  const valid = [];
+  for (const r of rows) {
+    const cpf = normalizeCpfDigits2(r.cpf);
+    if (cpf.length !== 11) {
+      semCpf++;
+      continue;
+    }
+    const updatedAt = toDate(r.updated_at) || toDate(r.created_at) || /* @__PURE__ */ new Date(0);
+    const { id, cpf: _c, nome, updated_at, created_at, ...rest } = r;
+    valid.push({
+      fonte: "psico_comunidade",
+      cpf,
+      updatedAt,
+      nomeCompleto: pickString2(nome) || "Sem nome",
+      dataNascimento: toDateOnly2(r.data_nascimento),
+      genero: null,
+      escolaridade: null,
+      instituicaoEnsino: null,
+      telefone: pickString2(r.telefone),
+      email: null,
+      whatsapp: null,
+      bolsaFamilia: null,
+      fotoPerfil: null,
+      numeroMatricula: null,
+      statusGlobal: "ativo",
+      programaStatus: "ativo",
+      cep: null,
+      logradouro: pickString2(r.endereco),
+      numero: null,
+      complemento: null,
+      bairro: null,
+      cidade: null,
+      estado: null,
+      legadoTipo: "psico_atendidos_comunidade",
+      legadoId: String(id),
+      dataIngresso: toDate(r.created_at),
+      dataEgresso: null,
+      dadosComplementares: rest
+    });
+  }
+  return { valid, semCpf };
+}
+function groupByCpf(sources) {
+  const map = /* @__PURE__ */ new Map();
+  for (const s of sources) {
+    const list = map.get(s.cpf) || [];
+    list.push(s);
+    map.set(s.cpf, list);
+  }
+  return map;
+}
+async function runAtendidosGritoBackfill(pool2, options = {}) {
+  const dryRun = options.dryRun !== false;
+  const [pecSources, inclusaoLoad, psicoLoad] = await Promise.all([
+    loadPecSources(pool2),
+    loadInclusaoSources(pool2),
+    loadPsicoComunidadeSources(pool2)
+  ]);
+  const allSources = [...pecSources, ...inclusaoLoad.valid, ...psicoLoad.valid];
+  const byCpf = groupByCpf(allSources);
+  const amostraConflitosNome = [];
+  const amostraConflitosMatricula = [];
+  let conflitosNome = 0;
+  let conflitosMatricula = 0;
+  let cpfsComMultiplasFontes = 0;
+  let inseridos = 0;
+  let programasInseridos = 0;
+  const client = dryRun ? null : await pool2.connect();
+  try {
+    if (client) await client.query("BEGIN");
+    for (const [cpf, sources] of byCpf.entries()) {
+      const fontesSet = new Set(sources.map((s) => s.fonte));
+      if (fontesSet.size > 1) cpfsComMultiplasFontes++;
+      const nomes = [...new Set(sources.map((s) => s.nomeCompleto.trim().toLowerCase()))];
+      if (nomes.length > 1) {
+        conflitosNome++;
+        if (amostraConflitosNome.length < 10) {
+          amostraConflitosNome.push({ cpf, nomes: sources.map((s) => s.nomeCompleto) });
+        }
+      }
+      const matriculas = [
+        ...new Set(sources.map((s) => s.numeroMatricula).filter(Boolean))
+      ];
+      if (matriculas.length > 1) {
+        conflitosMatricula++;
+        if (amostraConflitosMatricula.length < 10) {
+          amostraConflitosMatricula.push({ cpf, matriculas });
+        }
+      }
+      const winner = [...sources].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+      const numeroMatricula = winner.numeroMatricula || sources.map((s) => s.numeroMatricula).find(Boolean) || null;
+      const statusGlobal = sources.some((s) => s.statusGlobal === "ativo") ? "ativo" : winner.statusGlobal;
+      let matriculaFinal = numeroMatricula;
+      if (!dryRun && client && matriculaFinal) {
+        const matriculaCheck = await client.query(
+          `SELECT cpf FROM atendidos_grito
+           WHERE numero_matricula = $1 AND cpf <> $2
+           LIMIT 1`,
+          [matriculaFinal, cpf]
+        );
+        if (matriculaCheck.rows.length > 0) {
+          matriculaFinal = null;
+        }
+      }
+      if (!dryRun && client) {
+        await client.query(
+          `INSERT INTO atendidos_grito (
+            cpf, cpf_provisorio, nome_completo, data_nascimento, genero, escolaridade,
+            instituicao_ensino, telefone, email, whatsapp, bolsa_familia, foto_perfil,
+            numero_matricula, status, cep, logradouro, numero, complemento, bairro, cidade, estado,
+            dados_complementares, fonte_ultima_atualizacao, legado_atualizado_em, updated_at
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW()
+          )
+          ON CONFLICT (cpf) DO UPDATE SET
+            cpf_provisorio = EXCLUDED.cpf_provisorio,
+            nome_completo = EXCLUDED.nome_completo,
+            data_nascimento = EXCLUDED.data_nascimento,
+            genero = EXCLUDED.genero,
+            escolaridade = EXCLUDED.escolaridade,
+            instituicao_ensino = EXCLUDED.instituicao_ensino,
+            telefone = EXCLUDED.telefone,
+            email = EXCLUDED.email,
+            whatsapp = EXCLUDED.whatsapp,
+            bolsa_familia = EXCLUDED.bolsa_familia,
+            foto_perfil = EXCLUDED.foto_perfil,
+            numero_matricula = EXCLUDED.numero_matricula,
+            status = EXCLUDED.status,
+            cep = EXCLUDED.cep,
+            logradouro = EXCLUDED.logradouro,
+            numero = EXCLUDED.numero,
+            complemento = EXCLUDED.complemento,
+            bairro = EXCLUDED.bairro,
+            cidade = EXCLUDED.cidade,
+            estado = EXCLUDED.estado,
+            dados_complementares = EXCLUDED.dados_complementares,
+            fonte_ultima_atualizacao = EXCLUDED.fonte_ultima_atualizacao,
+            legado_atualizado_em = EXCLUDED.legado_atualizado_em,
+            updated_at = NOW()`,
+          [
+            cpf,
+            isCpfProvisorio(cpf),
+            winner.nomeCompleto,
+            winner.dataNascimento,
+            winner.genero,
+            winner.escolaridade,
+            winner.instituicaoEnsino,
+            winner.telefone,
+            winner.email,
+            winner.whatsapp,
+            winner.bolsaFamilia,
+            winner.fotoPerfil,
+            matriculaFinal,
+            statusGlobal,
+            winner.cep,
+            winner.logradouro,
+            winner.numero,
+            winner.complemento,
+            winner.bairro,
+            winner.cidade,
+            winner.estado,
+            JSON.stringify({
+              vencedor: winner.fonte,
+              fontes: [...fontesSet],
+              legado: sources.map((s) => ({
+                fonte: s.fonte,
+                legadoTipo: s.legadoTipo,
+                legadoId: s.legadoId,
+                updatedAt: s.updatedAt.toISOString()
+              })),
+              snapshotVencedor: winner.dadosComplementares
+            }),
+            winner.fonte,
+            winner.updatedAt
+          ]
+        );
+        inseridos++;
+      } else {
+        inseridos++;
+      }
+      for (const src of [...new Map(sources.map((s) => [s.fonte, s])).values()].sort(
+        (a, b) => a.fonte.localeCompare(b.fonte)
+      )) {
+        if (!dryRun && client) {
+          await client.query(
+            `INSERT INTO atendidos_grito_programa (
+              cpf, programa, status, legado_tipo, legado_id, data_ingresso, data_egresso, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+            ON CONFLICT (cpf, programa) DO UPDATE SET
+              status = EXCLUDED.status,
+              legado_tipo = EXCLUDED.legado_tipo,
+              legado_id = EXCLUDED.legado_id,
+              data_ingresso = COALESCE(EXCLUDED.data_ingresso, atendidos_grito_programa.data_ingresso),
+              data_egresso = COALESCE(EXCLUDED.data_egresso, atendidos_grito_programa.data_egresso),
+              updated_at = NOW()`,
+            [
+              cpf,
+              src.fonte,
+              src.programaStatus,
+              src.legadoTipo,
+              src.legadoId,
+              src.dataIngresso,
+              src.dataEgresso
+            ]
+          );
+        }
+        programasInseridos++;
+      }
+    }
+    if (client) await client.query("COMMIT");
+  } catch (error) {
+    if (client) await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client?.release();
+  }
+  return {
+    dryRun,
+    fontes: {
+      pec: pecSources.length,
+      inclusao: inclusaoLoad.valid.length,
+      psicoComunidade: psicoLoad.valid.length
+    },
+    cpfsUnicos: byCpf.size,
+    cpfsComMultiplasFontes,
+    conflitosNome,
+    conflitosMatricula,
+    semCpfValido: {
+      inclusao: inclusaoLoad.semCpf,
+      psicoComunidade: psicoLoad.semCpf
+    },
+    inseridos,
+    programasInseridos,
+    amostraConflitosNome,
+    amostraConflitosMatricula
+  };
+}
+async function queryAtendidosGritoStats(pool2) {
+  const { rows } = await pool2.query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM atendidos_grito) AS total_atendidos,
+      (SELECT COUNT(*)::int FROM atendidos_grito WHERE status = 'ativo') AS ativos,
+      (SELECT COUNT(*)::int FROM atendidos_grito WHERE cpf_provisorio = TRUE) AS cpf_provisorio,
+      (SELECT COUNT(*)::int FROM atendidos_grito_programa) AS total_programas,
+      (SELECT COUNT(*)::int FROM atendidos_grito_programa WHERE programa = 'pec') AS programas_pec,
+      (SELECT COUNT(*)::int FROM atendidos_grito_programa WHERE programa = 'inclusao') AS programas_inclusao,
+      (SELECT COUNT(*)::int FROM atendidos_grito_programa WHERE programa = 'psico_comunidade') AS programas_psico
+  `);
+  return rows[0];
+}
+
+// server/routes/atendidosGrito.ts
+init_atendidosGritoSync();
+init_atendidosGritoFlags();
+var ATENDIDOS_GRITO_STAFF_ROLES = [
+  "coordenador",
+  "coordenador_pec",
+  "coordenador_inclusao",
+  "coordenador_psico",
+  "monitor",
+  "monitor_pec",
+  "monitor_inclusao",
+  "monitor_psico",
+  "professor",
+  "professor_pec",
+  "professor_inclusao",
+  "tecnica_psico",
+  "admin",
+  "leo",
+  "dev",
+  "super_admin"
+];
+var ATENDIDOS_GRITO_ADMIN_ROLES = ["admin", "leo", "dev", "super_admin", "dev-admin"];
+function resolveAutorUserId(req) {
+  const user2 = req.user;
+  const raw = user2?.id;
+  if (typeof raw === "number" && raw > 0) return raw;
+  if (typeof raw === "string" && /^\d+$/.test(raw)) return parseInt(raw, 10);
+  return null;
+}
+function resolveAutorNome(req) {
+  const user2 = req.user;
+  const nome = user2?.nome || user2?.userName || user2?.name || "";
+  return String(nome).trim() || "Usu\xE1rio";
+}
+function registerAtendidosGritoRoutes(app2, deps) {
+  const { pool: pool2, requireAuth: requireAuth2, requireAnyRole: requireAnyRole2 } = deps;
+  const staffGuard = requireAnyRole2(ATENDIDOS_GRITO_STAFF_ROLES);
+  app2.get(
+    "/api/atendidos-grito/historico",
+    requireAuth2,
+    staffGuard,
+    async (req, res) => {
+      try {
+        const cpf = normalizeCpfDigits2(req.query.cpf);
+        if (cpf.length !== 11) {
+          return res.status(400).json({ error: "CPF inv\xE1lido" });
+        }
+        const role = getUserRoleFromRequest(req.user);
+        const historico = await fetchHistoricoByCpf(pool2, cpf, {
+          psicoFullAccess: hasPsicoFullProfileAccess(role)
+        });
+        if (!historico) {
+          return res.status(400).json({ error: "CPF inv\xE1lido" });
+        }
+        return res.json(historico);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erro interno";
+        console.error("GET /api/atendidos-grito/historico:", error);
+        return res.status(500).json({ error: message });
+      }
+    }
+  );
+  app2.get(
+    "/api/atendidos-grito/observacoes",
+    requireAuth2,
+    staffGuard,
+    async (req, res) => {
+      try {
+        const cpf = normalizeCpfDigits2(req.query.cpf);
+        if (cpf.length !== 11) {
+          return res.status(400).json({ error: "CPF inv\xE1lido" });
+        }
+        const observacoes = await fetchObservacoesByCpf(pool2, cpf);
+        return res.json({ observacoes });
+      } catch (error) {
+        console.error("GET /api/atendidos-grito/observacoes:", error);
+        return res.status(500).json({ error: "Erro interno" });
+      }
+    }
+  );
+  app2.post(
+    "/api/atendidos-grito/observacoes",
+    requireAuth2,
+    staffGuard,
+    async (req, res) => {
+      try {
+        const cpf = normalizeCpfDigits2(req.body?.cpf);
+        const texto = String(req.body?.texto || "").trim();
+        if (cpf.length !== 11) {
+          return res.status(400).json({ error: "CPF inv\xE1lido" });
+        }
+        if (!texto) {
+          return res.status(400).json({ error: "Texto obrigat\xF3rio" });
+        }
+        const role = getUserRoleFromRequest(req.user);
+        const observacao = await createObservacao(pool2, {
+          cpf,
+          texto,
+          autorNome: resolveAutorNome(req),
+          autorSetor: resolveAutorSetor(role),
+          autorUserId: resolveAutorUserId(req)
+        });
+        return res.status(201).json(observacao);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erro interno";
+        console.error("POST /api/atendidos-grito/observacoes:", error);
+        return res.status(500).json({ error: message });
+      }
+    }
+  );
+  app2.delete(
+    "/api/atendidos-grito/observacoes/:id",
+    requireAuth2,
+    staffGuard,
+    async (req, res) => {
+      try {
+        const id = parseInt(String(req.params.id), 10);
+        if (!id) {
+          return res.status(400).json({ error: "ID inv\xE1lido" });
+        }
+        const authorUserId = resolveAutorUserId(req);
+        const deleted = await deleteObservacao(pool2, id, authorUserId);
+        if (!deleted) {
+          return res.status(403).json({
+            error: "S\xF3 \xE9 poss\xEDvel apagar observa\xE7\xF5es criadas por voc\xEA"
+          });
+        }
+        return res.json({ success: true });
+      } catch (error) {
+        console.error("DELETE /api/atendidos-grito/observacoes/:id:", error);
+        return res.status(500).json({ error: "Erro interno" });
+      }
+    }
+  );
+  const adminGuard = requireAnyRole2(ATENDIDOS_GRITO_ADMIN_ROLES);
+  app2.get(
+    "/api/atendidos-grito/next-cpf-provisorio",
+    requireAuth2,
+    staffGuard,
+    async (_req, res) => {
+      try {
+        const cpf = await getNextCpfProvisorio();
+        return res.json({ cpf });
+      } catch (error) {
+        console.error("GET /api/atendidos-grito/next-cpf-provisorio:", error);
+        return res.status(500).json({ error: "Erro ao gerar CPF provis\xF3rio" });
+      }
+    }
+  );
+  app2.get(
+    "/api/atendidos-grito/cadastro",
+    requireAuth2,
+    staffGuard,
+    async (req, res) => {
+      try {
+        const cpf = normalizeCpfDigits2(req.query.cpf);
+        if (cpf.length !== 11) {
+          return res.status(400).json({ error: "CPF inv\xE1lido" });
+        }
+        const cadastro = await getAtendidoGritoByCpf(cpf);
+        if (!cadastro) {
+          return res.status(404).json({ error: "Cadastro n\xE3o encontrado" });
+        }
+        return res.json(cadastro);
+      } catch (error) {
+        console.error("GET /api/atendidos-grito/cadastro:", error);
+        return res.status(500).json({ error: "Erro ao buscar cadastro" });
+      }
+    }
+  );
+  app2.get(
+    "/api/atendidos-grito/stats",
+    requireAuth2,
+    adminGuard,
+    async (_req, res) => {
+      try {
+        const stats = await queryAtendidosGritoStats(pool2);
+        return res.json({
+          stats,
+          writeFlags: getAtendidosGritoWriteFlags(),
+          generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      } catch (error) {
+        console.error("GET /api/atendidos-grito/stats:", error);
+        return res.status(500).json({ error: "Erro ao carregar estat\xEDsticas" });
+      }
+    }
+  );
+  app2.get(
+    "/api/atendidos-grito/write-flags",
+    requireAuth2,
+    staffGuard,
+    async (_req, res) => {
+      return res.json(getAtendidosGritoWriteFlags());
+    }
+  );
+  app2.get(
+    "/api/atendidos-grito/backfill/preview",
+    requireAuth2,
+    adminGuard,
+    async (_req, res) => {
+      try {
+        const preview = await runAtendidosGritoBackfill(pool2, { dryRun: true });
+        return res.json(preview);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erro interno";
+        console.error("GET /api/atendidos-grito/backfill/preview:", error);
+        return res.status(500).json({ error: message });
+      }
+    }
+  );
+  app2.post(
+    "/api/atendidos-grito/backfill",
+    requireAuth2,
+    adminGuard,
+    async (req, res) => {
+      try {
+        const execute = req.body?.execute === true || req.query.execute === "true";
+        if (!execute) {
+          return res.status(400).json({
+            error: "Envie execute=true para rodar o backfill (opera\xE7\xE3o de escrita)"
+          });
+        }
+        const result = await runAtendidosGritoBackfill(pool2, { dryRun: false });
+        const stats = await queryAtendidosGritoStats(pool2);
+        return res.json({ result, stats });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Erro interno";
+        console.error("POST /api/atendidos-grito/backfill:", error);
+        return res.status(500).json({ error: message });
+      }
+    }
+  );
+}
+
+// server/routes.ts
+init_atendidosGritoSync();
+init_atendidosGritoFlags();
+
+// server/middleware/gestaoVistaViewAuth.ts
+import bcrypt from "bcryptjs";
+import crypto3 from "crypto";
+
+// server/middleware/rateLimit.ts
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+function ipFallback(req) {
+  return ipKeyGenerator(req.ip ?? "");
+}
+var sendCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas. Tente novamente mais tarde." },
+  keyGenerator: (req) => {
+    const phone = String(req.body?.telefone ?? "").replace(/\D/g, "");
+    return phone ? `sms:${phone}` : `sms-ip:${ipFallback(req)}`;
+  }
+});
+var verifyCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas de verifica\xE7\xE3o" },
+  keyGenerator: (req) => {
+    const phone = String(req.body?.telefone ?? "").replace(/\D/g, "");
+    return phone ? `verify:${phone}` : `verify-ip:${ipFallback(req)}`;
+  }
+});
+var passwordLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas de login" },
+  keyGenerator: (req) => {
+    const email = String(req.body?.email ?? "").toLowerCase().trim();
+    const username = String(req.body?.username ?? "").toLowerCase().trim();
+    const usuario = String(req.body?.usuario ?? "").toLowerCase().trim();
+    const id = email || username || usuario;
+    return id ? `pwd:${id}` : `pwd-ip:${ipFallback(req)}`;
+  }
+});
+var senhaManualAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas. Aguarde alguns minutos." },
+  keyGenerator: (req) => {
+    const sess = req.session;
+    const tabletId = sess?.tabletChamadaUserId;
+    const userId2 = req.user?.id ?? sess?.userId;
+    if (tabletId) return `senha-manual:tablet:${tabletId}`;
+    if (userId2) return `senha-manual:user:${userId2}`;
+    return `senha-manual-ip:${ipFallback(req)}`;
+  }
+});
+
+// server/middleware/gestaoVistaViewAuth.ts
+var GESTAO_VISTA_VIEW_UNLOCK_MS = 24 * 60 * 60 * 1e3;
+var STAFF_BYPASS_ROLES = /* @__PURE__ */ new Set([
+  "super_admin",
+  "leo",
+  "desenvolvedor",
+  "dev",
+  "dev-admin",
+  "conselho",
+  "conselheiro",
+  "admin"
+]);
+var UNLOCK_PUBLIC_PATHS = /* @__PURE__ */ new Set([
+  "/api/gestao-vista/unlock",
+  "/api/gestao-vista/unlock/status"
+]);
+var PROTECTED_PREFIXES = ["/api/gestao-vista", "/api/gestao-vista-data"];
+function normalizePath(url) {
+  return url.split("?")[0];
+}
+function getStaffRole(req) {
+  const sess = req.session;
+  const user2 = sess?.user ?? {};
+  const papel = user2.papel ?? sess?.papel ?? sess?.userPapel ?? null;
+  return papel ? String(papel).toLowerCase() : null;
+}
+function hasGestaoVistaViewAccess(req) {
+  const role = getStaffRole(req);
+  if (role && STAFF_BYPASS_ROLES.has(role)) return true;
+  const sess = req.session;
+  const unlockedAt = sess?.gestaoVistaViewUnlockedAt;
+  if (typeof unlockedAt !== "number") return false;
+  return Date.now() - unlockedAt < GESTAO_VISTA_VIEW_UNLOCK_MS;
+}
+function isPasswordConfigured() {
+  return Boolean(
+    process.env.GESTAO_VISTA_VIEW_PASSWORD?.trim() || process.env.GESTAO_VISTA_VIEW_PASSWORD_HASH?.trim()
+  );
+}
+function stripEnvQuotes(value) {
+  const v = value.trim();
+  if (v.startsWith("'") && v.endsWith("'") || v.startsWith('"') && v.endsWith('"')) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+function isValidBcryptHash(value) {
+  return /^\$2[aby]\$\d{2}\$.{53}$/.test(value);
+}
+async function verifyViewPassword(senha) {
+  let hash = process.env.GESTAO_VISTA_VIEW_PASSWORD_HASH?.trim();
+  let plain = process.env.GESTAO_VISTA_VIEW_PASSWORD?.trim();
+  if (!hash && !plain) return false;
+  if (hash) {
+    hash = stripEnvQuotes(hash);
+    if (isValidBcryptHash(hash)) {
+      return bcrypt.compare(senha, hash);
+    }
+    console.warn(
+      "[GESTAO-VISTA] GESTAO_VISTA_VIEW_PASSWORD_HASH inv\xE1lido/corrompido \u2014 usando senha em texto se dispon\xEDvel."
+    );
+  }
+  if (!plain) return false;
+  plain = stripEnvQuotes(plain);
+  const a = Buffer.from(senha);
+  const b = Buffer.from(plain);
+  if (a.length !== b.length) return false;
+  return crypto3.timingSafeEqual(a, b);
+}
+function isGestaoVistaDataPath(path5) {
+  return PROTECTED_PREFIXES.some((p) => path5 === p || path5.startsWith(`${p}/`));
+}
+function isDashboardScopedRequest(req) {
+  return String(req.headers["x-gv-dashboard"] ?? "") === "1";
+}
+function gestaoVistaViewAuthMiddleware(req, res, next) {
+  const path5 = normalizePath(req.originalUrl);
+  if (!isGestaoVistaDataPath(path5)) return next();
+  if (UNLOCK_PUBLIC_PATHS.has(path5)) return next();
+  if (req.method !== "GET") return next();
+  if (!isDashboardScopedRequest(req)) return next();
+  if (hasGestaoVistaViewAccess(req)) return next();
+  return res.status(401).json({
+    error: "Acesso restrito. Informe a senha de visualiza\xE7\xE3o.",
+    code: "GESTAO_VISTA_LOCKED"
+  });
+}
+function registerGestaoVistaViewRoutes(app2) {
+  app2.get("/api/gestao-vista/unlock/status", (req, res) => {
+    const unlocked = hasGestaoVistaViewAccess(req);
+    const sess = req.session;
+    const unlockedAt = sess?.gestaoVistaViewUnlockedAt;
+    const expiresAt = typeof unlockedAt === "number" ? unlockedAt + GESTAO_VISTA_VIEW_UNLOCK_MS : null;
+    res.json({
+      unlocked,
+      expiresAt: unlocked && expiresAt ? expiresAt : null,
+      configured: isPasswordConfigured()
+    });
+  });
+  app2.post(
+    "/api/gestao-vista/unlock",
+    senhaManualAttemptLimiter,
+    async (req, res) => {
+      try {
+        const senha = String(req.body?.senha ?? "").trim();
+        if (!senha) {
+          return res.status(400).json({ error: "Senha obrigat\xF3ria" });
+        }
+        if (!isPasswordConfigured()) {
+          return res.status(503).json({
+            error: "Senha de visualiza\xE7\xE3o n\xE3o configurada no servidor."
+          });
+        }
+        const ok = await verifyViewPassword(senha);
+        if (!ok) {
+          return res.status(401).json({ error: "Senha incorreta" });
+        }
+        const sess = req.session;
+        sess.gestaoVistaViewUnlockedAt = Date.now();
+        await new Promise((resolve3, reject) => {
+          req.session.save((err) => err ? reject(err) : resolve3());
+        });
+        return res.json({
+          ok: true,
+          expiresAt: Date.now() + GESTAO_VISTA_VIEW_UNLOCK_MS
+        });
+      } catch (err) {
+        console.error("[GESTAO-VISTA] unlock error:", err);
+        return res.status(500).json({ error: "Erro ao desbloquear" });
+      }
+    }
+  );
+  app2.use(gestaoVistaViewAuthMiddleware);
+}
+
 // server/routes.ts
 init_dinamizeObservability();
 init_privacyConsentUser();
@@ -15300,13 +19855,14 @@ async function ensureUserConsentsTable(pool2) {
 }
 
 // server/meusDados.ts
+init_cpf();
 var SENSITIVE_ALUNO_KEYS = /* @__PURE__ */ new Set([
   "senha",
   "password",
   "password_hash",
   "passwordhash"
 ]);
-async function safeQuery(pool2, sql6, params = []) {
+async function safeQuery2(pool2, sql6, params = []) {
   try {
     const result = await pool2.query(sql6, params);
     return result.rows;
@@ -15315,9 +19871,6 @@ async function safeQuery(pool2, sql6, params = []) {
     console.warn("[meus-dados] Query ignorada:", message);
     return [];
   }
-}
-function normalizeCpfDigits(raw) {
-  return String(raw ?? "").replace(/\D/g, "");
 }
 function isAlunoMeusDadosActor(actorType, papel) {
   const a = (actorType || "").toLowerCase();
@@ -15528,12 +20081,12 @@ function parsePecAttendanceStatus(attendance3, cpf) {
 }
 async function fetchAlunoFichaByCpf(pool2, cpf) {
   const [pecRows, inclRows] = await Promise.all([
-    safeQuery(
+    safeQuery2(
       pool2,
       `SELECT * FROM aluno WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1 LIMIT 1`,
       [cpf]
     ),
-    safeQuery(
+    safeQuery2(
       pool2,
       `SELECT * FROM participantes_inclusao
         WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = $1
@@ -15549,7 +20102,7 @@ async function fetchAlunoFichaByCpf(pool2, cpf) {
 }
 async function fetchAlunoCursosByCpf(pool2, cpf) {
   const cursos2 = [];
-  const pecEnroll = await safeQuery(
+  const pecEnroll = await safeQuery2(
     pool2,
     `SELECT ai.id, ai.title as nome, ai.period_label as turno,
             ai.start_time, ai.end_time, ai.occurrence_start, ai.occurrence_end,
@@ -15580,7 +20133,7 @@ async function fetchAlunoCursosByCpf(pool2, cpf) {
       dataMatricula: r.enrollment_date
     });
   }
-  const inclPart = await safeQuery(
+  const inclPart = await safeQuery2(
     pool2,
     `SELECT ti.id, pi.nome as programa, ti.nome as turma,
             ti.horario_entrada, ti.horario_saida, ti.dias_semana,
@@ -15614,7 +20167,7 @@ async function fetchAlunoCursosByCpf(pool2, cpf) {
 }
 async function fetchAlunoFrequenciaByCpf(pool2, cpf, limit) {
   const resultado = [];
-  const pecSessions = await safeQuery(
+  const pecSessions = await safeQuery2(
     pool2,
     `SELECT s.date, s.title, ai.title as turma, s.attendance
        FROM instance_enrollments ie
@@ -15636,7 +20189,7 @@ async function fetchAlunoFrequenciaByCpf(pool2, cpf, limit) {
       status: status === "presente" ? "presente" : "falta"
     });
   }
-  const inclPresencas = await safeQuery(
+  const inclPresencas = await safeQuery2(
     pool2,
     `SELECT pres.data, pres.presente, pres.conta_como_presenca,
             ti.nome as turma_nome, prog.nome as programa_nome
@@ -15657,7 +20210,7 @@ async function fetchAlunoFrequenciaByCpf(pool2, cpf, limit) {
       status: ePresente ? "presente" : "falta"
     });
   }
-  const inclAula = await safeQuery(
+  const inclAula = await safeQuery2(
     pool2,
     `SELECT pa.status, a.data, a.nome as aula_nome,
             ti.nome as turma_nome, prog.nome as programa_nome
@@ -15685,7 +20238,7 @@ async function fetchAlunoFrequenciaByCpf(pool2, cpf, limit) {
   return resultado.slice(0, limit);
 }
 async function fetchAlunoResponsaveisByCpf(pool2, cpf) {
-  return safeQuery(
+  return safeQuery2(
     pool2,
     `SELECT r.id, r.cpf, r.nome_completo, r.grau_parentesco, r.profissao, r.telefone,
             ar.e_principal, ar.created_at as vinculo_desde
@@ -15699,7 +20252,7 @@ async function fetchAlunoResponsaveisByCpf(pool2, cpf) {
 async function fetchStaffFicha(pool2, kind, staffId, usersId, email) {
   const table = kind === "coordenador" ? "coordenadores" : kind === "professor" ? "professores" : "monitores";
   if (staffId) {
-    const byId = await safeQuery(
+    const byId = await safeQuery2(
       pool2,
       `SELECT * FROM ${table} WHERE id = $1 LIMIT 1`,
       [staffId]
@@ -15707,7 +20260,7 @@ async function fetchStaffFicha(pool2, kind, staffId, usersId, email) {
     if (byId[0]) return stripSensitiveFields(byId[0]);
   }
   if (email) {
-    const byEmail = await safeQuery(
+    const byEmail = await safeQuery2(
       pool2,
       `SELECT * FROM ${table} WHERE lower(trim(email)) = lower(trim($1)) LIMIT 1`,
       [email]
@@ -15715,7 +20268,7 @@ async function fetchStaffFicha(pool2, kind, staffId, usersId, email) {
     if (byEmail[0]) return stripSensitiveFields(byEmail[0]);
   }
   if (usersId) {
-    const byUser = await safeQuery(
+    const byUser = await safeQuery2(
       pool2,
       `SELECT t.* FROM ${table} t
         JOIN users u ON lower(trim(u.email)) = lower(trim(t.email))
@@ -15731,7 +20284,7 @@ var PATROCINADOR_FICHA_SELECT = `id, nome, ano, tipo, categoria, valor_patrocini
             created_at, updated_at`;
 async function fetchPatrocinadorForMeusDados(pool2, email, nome, usersId) {
   if (email?.trim()) {
-    const byEmail = await safeQuery(
+    const byEmail = await safeQuery2(
       pool2,
       `SELECT ${PATROCINADOR_FICHA_SELECT}
          FROM patrocinadores
@@ -15742,7 +20295,7 @@ async function fetchPatrocinadorForMeusDados(pool2, email, nome, usersId) {
     if (byEmail[0]) return byEmail[0];
   }
   if (usersId != null) {
-    const byUser = await safeQuery(
+    const byUser = await safeQuery2(
       pool2,
       `SELECT p.id, p.nome, p.ano, p.tipo, p.categoria, p.valor_patrocinio, p.status,
               p.projetos_ativos, p.contratos_ativos, p.data_inicio, p.data_fim, p.observacoes, p.email,
@@ -15756,7 +20309,7 @@ async function fetchPatrocinadorForMeusDados(pool2, email, nome, usersId) {
     if (byUser[0]) return byUser[0];
   }
   if (nome?.trim()) {
-    const byNome = await safeQuery(
+    const byNome = await safeQuery2(
       pool2,
       `SELECT ${PATROCINADOR_FICHA_SELECT}
          FROM patrocinadores
@@ -15878,20 +20431,20 @@ async function buildMeusDadosPayload(pool2, context, options) {
   const includeDonations = shouldIncludeDonationData(profile);
   const userQueryParams = userId2 != null ? [userId2] : [];
   const [usuarioRows, doadoresRows, historicoRows, legalRows, privacyRows, solicitacoesRows] = await Promise.all([
-    userId2 != null ? safeQuery(
+    userId2 != null ? safeQuery2(
       pool2,
       `SELECT id, nome, email, telefone, cpf, plano, subscription_status, stripe_customer_id,
                     stripe_subscription_id, termos_uso_aceito_em, termos_uso_versao, created_at, updated_at
                FROM users WHERE id = $1`,
       userQueryParams
     ) : Promise.resolve([]),
-    includeDonations && userId2 != null ? safeQuery(
+    includeDonations && userId2 != null ? safeQuery2(
       pool2,
       `SELECT id, plano, valor, periodicidade, status, ativo, data_doacao_inicial, ultima_doacao, created_at
                FROM doadores WHERE user_id = $1 ORDER BY created_at DESC`,
       userQueryParams
     ) : Promise.resolve([]),
-    includeDonations && userId2 != null ? safeQuery(
+    includeDonations && userId2 != null ? safeQuery2(
       pool2,
       `SELECT hd.id, hd.valor, hd.plano, hd.status, hd.processed_at, hd.created_at
                FROM historico_doacao hd
@@ -15901,20 +20454,20 @@ async function buildMeusDadosPayload(pool2, context, options) {
               LIMIT $2`,
       [userId2, limitHistorico]
     ) : Promise.resolve([]),
-    userId2 != null ? safeQuery(
+    userId2 != null ? safeQuery2(
       pool2,
       `SELECT document_type, document_version, accepted_at::text AS accepted_at
                FROM user_legal_acceptances WHERE user_id = $1 ORDER BY accepted_at DESC`,
       userQueryParams
     ) : Promise.resolve([]),
-    userId2 != null ? safeQuery(
+    userId2 != null ? safeQuery2(
       pool2,
       `SELECT consent_area, consent_version, privacy_policy_version, cookie_policy_version, terms_version,
                     analytics, functional, marketing, image_use, communications, source, updated_at::text AS updated_at
                FROM privacy_consents WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2`,
       [userId2, limitConsent]
     ) : Promise.resolve([]),
-    userId2 != null ? safeQuery(
+    userId2 != null ? safeQuery2(
       pool2,
       `SELECT id, request_type, status, description, response, requested_at::text AS requested_at,
                     completed_at::text AS completed_at
@@ -16122,13 +20675,14 @@ async function enrichHistoricoGroupsWithEligible(pool2, groups) {
 // server/routes.ts
 init_privacyConsentLgpd();
 init_lgpdPolicyVersions();
+init_cpf();
 init_gcsService();
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 import { execSync } from "node:child_process";
-import * as crypto4 from "crypto";
+import * as crypto5 from "crypto";
 import sharp from "sharp";
-import bcrypt from "bcryptjs";
+import bcrypt2 from "bcryptjs";
 
 // server/services/gestaoVistaData.ts
 var gestaoVistaData_exports = {};
@@ -16136,7 +20690,9 @@ __export(gestaoVistaData_exports, {
   METAS_INCLUSAO_RENDA_DEFAULTS: () => METAS_INCLUSAO_RENDA_DEFAULTS,
   ajustarMeta: () => ajustarMeta,
   buildMesFilter: () => buildMesFilter,
+  buildPecEndDateRef: () => buildPecEndDateRef,
   calcularMediaMensal: () => calcularMediaMensal,
+  countCriancasAtendidasPEC: () => countCriancasAtendidasPEC,
   dadosMensais2025: () => dadosMensais2025,
   getAlunosEmFormacao2026: () => getAlunosEmFormacao2026,
   getAlunosFormadosInclusao2026: () => getAlunosFormadosInclusao2026,
@@ -16145,6 +20701,7 @@ __export(gestaoVistaData_exports, {
   getAtendimentosInclusao2026: () => getAtendimentosInclusao2026,
   getAtendimentosPsico2026: () => getAtendimentosPsico2026,
   getAvaliacaoAprendizagem2026: () => getAvaliacaoAprendizagem2026,
+  getAvaliacaoAprendizagemPEC: () => getAvaliacaoAprendizagemPEC,
   getCasasMapeadas: () => getCasasMapeadas,
   getConselhoKpis: () => getConselhoKpis,
   getCriancasAtendidasPEC2026: () => getCriancasAtendidasPEC2026,
@@ -16159,6 +20716,7 @@ __export(gestaoVistaData_exports, {
   getNpsCombinado2026: () => getNpsCombinado2026,
   getNpsPEC2026: () => getNpsPEC2026,
   getPesquisaSatisfacao2026: () => getPesquisaSatisfacao2026,
+  getTaxaEvasaoInclusaoPct: () => getTaxaEvasaoInclusaoPct,
   getUltimoMesComDados: () => getUltimoMesComDados,
   getValorMensalOuUltimo: () => getValorMensalOuUltimo,
   getValorSomadoOuMensal: () => getValorSomadoOuMensal,
@@ -16325,68 +20883,99 @@ function buildDateRange(mes, ano = 2026) {
     `${nextYear}-${String(nextMes).padStart(2, "0")}-01`
   ];
 }
-async function getCriancasAtendidasPEC2026(mes = null) {
+function buildPecEndDateRef(mes, ano = (/* @__PURE__ */ new Date()).getFullYear()) {
+  const now = /* @__PURE__ */ new Date();
+  let mesFim;
+  if (mes === null) {
+    mesFim = ano === now.getFullYear() ? now.getMonth() + 1 : 12;
+  } else if (Array.isArray(mes)) {
+    mesFim = mes[1];
+  } else {
+    mesFim = Math.floor(Number(mes));
+  }
+  const d = new Date(ano, mesFim, 0);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+async function countCriancasAtendidasPEC(mes = null, ano = (/* @__PURE__ */ new Date()).getFullYear(), opts) {
   try {
-    let whereExtra = "";
-    const params = [2026];
-    if (mes === null) {
-      const result2 = await pool.query(
-        `SELECT COUNT(DISTINCT student_cpf) as total
-         FROM instance_enrollments
-         WHERE evadido = false`
-      );
-      const total2 = parseInt(result2.rows[0]?.total || "0");
-      console.log(`[GV 2026] Crian\xE7as atendidas PEC 2026 (ativos, mes=null): ${total2}`);
-      return total2;
-    } else if (Array.isArray(mes)) {
-      const endMonth = mes[1];
-      const nextMonth = endMonth === 12 ? 1 : endMonth + 1;
-      const nextYear = endMonth === 12 ? 2027 : 2026;
-      const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
-      params.push(endDate);
-      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
-    } else {
-      const mesNum = Math.floor(Number(mes));
-      const nextMes = mesNum === 12 ? 1 : mesNum + 1;
-      const nextAno = mesNum === 12 ? 2027 : 2026;
-      const endDate = `${nextAno}-${String(nextMes).padStart(2, "0")}-01`;
-      params.push(endDate);
-      whereExtra = `AND enrollment_date < $2 AND (evadido = false OR data_evasao >= $2)`;
-    }
+    const endDateStr = buildPecEndDateRef(mes, ano);
+    const turmaIds = opts?.turmaIds?.filter((id) => id > 0) ?? [];
+    const turmaFilter = turmaIds.length > 0 ? `AND ie.activity_instance_id = ANY($2::int[])` : "";
+    const params = [endDateStr];
+    if (turmaIds.length > 0) params.push(turmaIds);
     const result = await pool.query(
-      `SELECT COUNT(DISTINCT student_cpf) as total
-       FROM instance_enrollments
-       WHERE EXTRACT(YEAR FROM enrollment_date) = $1 ${whereExtra}`,
+      `SELECT COUNT(DISTINCT cpf_norm) AS total
+       FROM (
+         SELECT
+           REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') AS cpf_norm,
+           LEAST(
+             COALESCE(ie.enrollment_date, '9999-12-31'::date),
+             COALESCE(a.data_entrada, a.created_at::date, ie.enrollment_date)
+           ) AS data_inicio
+         FROM instance_enrollments ie
+         JOIN activity_instances ai ON ai.id = ie.activity_instance_id
+         JOIN pec_activities pa ON pa.id = ai.activity_id
+         JOIN projects p ON p.id = pa.project_id
+         LEFT JOIN aluno a ON a.cpf = ie.student_cpf
+         WHERE p.name IS NOT NULL
+           ${turmaFilter}
+           AND (
+             COALESCE(ie.evadido, false) = false
+             OR (
+               ie.data_evasao IS NOT NULL
+               AND date_trunc('month', ie.data_evasao::date)
+                 >= date_trunc('month', $1::date)
+             )
+           )
+       ) x
+       WHERE data_inicio <= $1::date`,
       params
     );
-    const total = parseInt(result.rows[0]?.total || "0");
-    console.log(`[GV 2026] Crian\xE7as atendidas PEC 2026 (ativos, mes=${JSON.stringify(mes)}): ${total}`);
+    const total = parseInt(result.rows[0]?.total || "0", 10);
+    console.log(
+      `[GV ${ano}] Crian\xE7as atendidas PEC (data_in\xEDcio, fim=${endDateStr}, mes=${JSON.stringify(mes)}): ${total}`
+    );
     return total;
   } catch (error) {
-    console.error("[GV 2026] Erro ao buscar crian\xE7as PEC:", error);
+    console.error(`[GV ${ano}] Erro ao buscar crian\xE7as PEC:`, error);
     return 0;
   }
 }
+async function getCriancasAtendidasPEC2026(mes = null) {
+  return countCriancasAtendidasPEC(mes, 2026);
+}
 async function getAtendimentosInclusao2026(mes = null, ano = (/* @__PURE__ */ new Date()).getFullYear()) {
   try {
-    const presencaFilter = `AND EXTRACT(YEAR FROM pi2.data) = ${ano} ${buildMesFilter(mes, "pi2.data")}`;
-    const geracaoFilter = `AND EXTRACT(YEAR FROM gr.criado_em) = ${ano} ${buildMesFilter(mes, "gr.criado_em")}`;
+    const dataVinculo = `COALESCE(pt.data_ingresso::timestamp, ti.data_inicio::timestamp, pt.created_at, ti.created_at)`;
+    const cpfVinculo = `REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')`;
+    let turmaWhere = `length(${cpfVinculo}) = 11`;
+    let geracaoWhere = `gr.cpf IS NOT NULL AND gr.cpf <> '' AND length(REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g')) = 11`;
+    if (mes === null) {
+      geracaoWhere += ` AND EXTRACT(YEAR FROM gr.criado_em) = ${ano}`;
+    } else {
+      turmaWhere += ` AND EXTRACT(YEAR FROM ${dataVinculo}) = ${ano} ${buildMesFilter(mes, dataVinculo)}`;
+      geracaoWhere += ` AND EXTRACT(YEAR FROM gr.criado_em) = ${ano} ${buildMesFilter(mes, "gr.criado_em")}`;
+    }
     const result = await pool.query(`
       SELECT COUNT(DISTINCT cpf) as total FROM (
-        SELECT pi.cpf
-        FROM participantes_inclusao pi
-        WHERE EXISTS (
-          SELECT 1 FROM presencas_inclusao pi2
-          WHERE pi2.participante_id = pi.id ${presencaFilter}
-        )
+        SELECT ${cpfVinculo} AS cpf
+        FROM participantes_turmas pt
+        LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN turmas_inclusao ti ON ti.id = pt.turma_id
+        WHERE ${turmaWhere}
+
         UNION
-        SELECT gr.cpf
+
+        SELECT REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g') AS cpf
         FROM inclusao_geracao_de_renda gr
-        WHERE gr.cpf IS NOT NULL AND gr.cpf <> '' ${geracaoFilter}
+        WHERE ${geracaoWhere}
       ) combined
     `);
     const total = Number(result.rows[0]?.total || 0);
-    console.log(`[GV ${ano}] Atendidos Inclus\xE3o mes=${JSON.stringify(mes)}: ${total}`);
+    console.log(`[GV ${ano}] Atendidos Inclus\xE3o (turma+renda, mes=${JSON.stringify(mes)}): ${total}`);
     return total;
   } catch (error) {
     console.error(`[GV ${ano}] Erro ao buscar atendidos inclus\xE3o:`, error);
@@ -16518,11 +21107,13 @@ async function getAlunosEmFormacao2026(mes = null, ano = 2026) {
     const today = /* @__PURE__ */ new Date();
     const refDate = lastDayDate > today ? today.toISOString().split("T")[0] : lastDayDate.toISOString().split("T")[0];
     const result = await pool.query(`
-      SELECT COUNT(DISTINCT pt.participante_id) as total
+      SELECT COUNT(DISTINCT REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) as total
       FROM participantes_turmas pt
       JOIN turmas_inclusao ti ON pt.turma_id = ti.id
+      LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
       WHERE ti.data_inicio <= $1
         AND (ti.data_fim IS NULL OR ti.data_fim >= $1)
+        AND length(REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) = 11
     `, [refDate]);
     console.log(`[GV ${ano}] Pessoas em Forma\xE7\xE3o Inclus\xE3o (snapshot em ${refDate}):`, result.rows[0]?.total);
     return parseInt(result.rows[0]?.total || "0");
@@ -16657,6 +21248,40 @@ async function getEvasao2026(mes = null) {
   } catch (error) {
     console.error("[GV 2026] Erro ao buscar evas\xE3o:", error);
     return 0;
+  }
+}
+async function getTaxaEvasaoInclusaoPct(mes = null, ano = 2026) {
+  try {
+    const endDate = buildPecEndDateRef(mes, ano);
+    const mesFilter = buildMesFilter(mes, "ev.data_desligamento");
+    const [evRes, totRes] = await Promise.all([
+      pool.query(
+        `
+        SELECT COUNT(DISTINCT ev.participante_id)::int AS cnt
+        FROM inclusao_evasoes ev
+        WHERE ev.revertido_em IS NULL
+          AND EXTRACT(YEAR FROM ev.data_desligamento) = $1
+          ${mesFilter}
+        `,
+        [ano]
+      ),
+      pool.query(
+        `
+        SELECT COUNT(DISTINCT pt.participante_id)::int AS cnt
+        FROM participantes_turmas pt
+        WHERE COALESCE(pt.data_inscricao, pt.created_at)::date <= $1::date
+        `,
+        [endDate]
+      )
+    ]);
+    const evasoes = Number(evRes.rows[0]?.cnt || 0);
+    const matriculas = Number(totRes.rows[0]?.cnt || 0);
+    const pct = matriculas > 0 ? Math.round(evasoes / matriculas * 100) : 0;
+    console.log(`[GV ${ano}] Taxa evas\xE3o Inclus\xE3o: ${evasoes}/${matriculas} = ${pct}% (fim=${endDate}, mes=${JSON.stringify(mes)})`);
+    return { pct, evasoes, matriculas };
+  } catch (error) {
+    console.error(`[GV ${ano}] Erro ao calcular taxa de evas\xE3o Inclus\xE3o:`, error);
+    return { pct: 0, evasoes: 0, matriculas: 0 };
   }
 }
 async function getFamiliasPsicossocial2026(mes = null, ano = 2026) {
@@ -16823,7 +21448,7 @@ async function calcNpsMediaMensalFromScores(programas, mes, ano = 2026) {
     mesClause = ` AND mes BETWEEN $${params.length - 1} AND $${params.length}`;
   }
   const res = await pool.query(
-    `SELECT mes, ROUND(AVG(nps_score))::int AS score
+    `SELECT mes, ROUND(AVG(nps_score)::numeric, 1) AS score
      FROM nps_scores_mensais
      WHERE programa IN (${placeholders}) AND ano = $${programas.length + 1}
      ${mesClause}
@@ -16834,7 +21459,7 @@ async function calcNpsMediaMensalFromScores(programas, mes, ano = 2026) {
   if (!res.rows.length) return null;
   if (isNpsMesUnico(mes)) return Number(res.rows[0].score);
   const scores = res.rows.map((r) => Number(r.score));
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10;
 }
 async function calcNpsMediaMensalFromRespostas(programas, mes, ano = 2026) {
   const placeholders = programas.map((_, i) => `$${i + 1}`).join(", ");
@@ -16888,8 +21513,41 @@ async function calcNpsByPrograma(programas, mes, ano = 2026) {
 async function getPesquisaSatisfacao2026(mes = null) {
   return calcNpsByPrograma(["inclusao"], mes);
 }
-async function getNpsPEC2026(mes = null) {
-  return calcNpsByPrograma(["pec"], mes);
+async function getNpsPEC2026(mes = null, ano = 2026) {
+  return calcNpsByPrograma(["pec"], mes, ano);
+}
+async function calcAvaliacaoAprendizagemPecFromScores(mes, ano = 2026) {
+  const params = [ano];
+  let mesClause = " AND mes IS NOT NULL";
+  if (isNpsMesUnico(mes)) {
+    params.push(Math.floor(Number(mes)));
+    mesClause = ` AND mes = $${params.length}`;
+  } else if (Array.isArray(mes)) {
+    params.push(mes[0], mes[1]);
+    mesClause = ` AND mes BETWEEN $${params.length - 1} AND $${params.length}`;
+  }
+  const res = await pool.query(
+    `SELECT mes, ROUND(AVG(score)::numeric, 1) AS score
+     FROM pec_avaliacao_aprendizagem_mensais
+     WHERE ano = $1
+     ${mesClause}
+     GROUP BY mes
+     ORDER BY mes`,
+    params
+  );
+  if (!res.rows.length) return null;
+  if (isNpsMesUnico(mes)) return Number(res.rows[0].score);
+  const scores = res.rows.map((r) => Number(r.score));
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10;
+}
+async function getAvaliacaoAprendizagemPEC(mes = null, ano = 2026) {
+  try {
+    const v = await calcAvaliacaoAprendizagemPecFromScores(mes, ano);
+    return v ?? 0;
+  } catch (e) {
+    console.error("Erro getAvaliacaoAprendizagemPEC:", e);
+    return 0;
+  }
 }
 async function getNpsCombinado2026(mes = null) {
   return calcNpsByPrograma(["inclusao", "pec"], mes);
@@ -17109,63 +21767,6 @@ async function buscarChamadasAuditoria(filtros) {
   };
 }
 
-// server/middleware/rateLimit.ts
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-function ipFallback(req) {
-  return ipKeyGenerator(req.ip ?? "");
-}
-var sendCodeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1e3,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Muitas tentativas. Tente novamente mais tarde." },
-  keyGenerator: (req) => {
-    const phone = String(req.body?.telefone ?? "").replace(/\D/g, "");
-    return phone ? `sms:${phone}` : `sms-ip:${ipFallback(req)}`;
-  }
-});
-var verifyCodeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1e3,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Muitas tentativas de verifica\xE7\xE3o" },
-  keyGenerator: (req) => {
-    const phone = String(req.body?.telefone ?? "").replace(/\D/g, "");
-    return phone ? `verify:${phone}` : `verify-ip:${ipFallback(req)}`;
-  }
-});
-var passwordLoginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1e3,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Muitas tentativas de login" },
-  keyGenerator: (req) => {
-    const email = String(req.body?.email ?? "").toLowerCase().trim();
-    const username = String(req.body?.username ?? "").toLowerCase().trim();
-    const usuario = String(req.body?.usuario ?? "").toLowerCase().trim();
-    const id = email || username || usuario;
-    return id ? `pwd:${id}` : `pwd-ip:${ipFallback(req)}`;
-  }
-});
-var senhaManualAttemptLimiter = rateLimit({
-  windowMs: 15 * 60 * 1e3,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Muitas tentativas. Aguarde alguns minutos." },
-  keyGenerator: (req) => {
-    const sess = req.session;
-    const tabletId = sess?.tabletChamadaUserId;
-    const userId2 = req.user?.id ?? sess?.userId;
-    if (tabletId) return `senha-manual:tablet:${tabletId}`;
-    if (userId2) return `senha-manual:user:${userId2}`;
-    return `senha-manual-ip:${ipFallback(req)}`;
-  }
-});
-
 // server/routes.ts
 init_dinamize();
 init_schema();
@@ -17174,6 +21775,27 @@ init_db();
 // server/pushFcm.ts
 import { getApps, initializeApp, cert, applicationDefault } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
+
+// shared/pushFcmData.ts
+var PUSH_FCM_DATA_KEYS = {
+  title: "cdg_title",
+  body: "cdg_body",
+  url: "cdg_url"
+};
+function buildPushFcmDataFields(title, body, clickUrl) {
+  const data = {
+    [PUSH_FCM_DATA_KEYS.title]: title,
+    [PUSH_FCM_DATA_KEYS.body]: body,
+    // legado — alguns SW antigos ainda leem title/body/url
+    title,
+    body
+  };
+  if (clickUrl) {
+    data[PUSH_FCM_DATA_KEYS.url] = clickUrl;
+    data.url = clickUrl;
+  }
+  return data;
+}
 
 // server/pushClickUrls.ts
 var PUSH_GATILHOS_SEM_CLIQUE = /* @__PURE__ */ new Set(["senha_alterada", "manual"]);
@@ -17208,6 +21830,14 @@ var PUSH_URL_BY_GATILHO = {
   aula_aluno_proxima: "/aluno",
   turma_aluno_alterada: "/aluno",
   aluno_primeiro_acesso: "/aluno",
+  acolhimento_agendado: "/aluno?tab=acolhimentos",
+  acolhimento_serie_criada: "/aluno?tab=acolhimentos",
+  acolhimento_cancelado: "/aluno?tab=acolhimentos",
+  acolhimento_faltou: "/aluno?tab=acolhimentos",
+  acolhimento_lembrete_d1: "/aluno?tab=acolhimentos",
+  acolhimento_lembrete_2h: "/aluno?tab=acolhimentos",
+  acolhimento_frequencia_baixa: "/aluno?tab=acolhimentos",
+  // Staff: resolvido por papel em resolvePushClickPath (não usar URL fixa)
   lance_recebido: "/meus-lances",
   lance_superado: "/meus-lances",
   lance_vencedor: "/meus-lances",
@@ -17215,8 +21845,8 @@ var PUSH_URL_BY_GATILHO = {
   leilao_encerrado: "/beneficios",
   leilao_encerrando: "/beneficios",
   novo_beneficio: "/beneficios",
-  missao_concluida: "/missoes",
-  nova_missao: "/missoes",
+  missao_concluida: "/missoes-semanais",
+  nova_missao: "/missoes-semanais",
   conquista_liberada: "/tdoador",
   gritos_creditados: "/tdoador",
   gritos_utilizados: "/tdoador",
@@ -17278,11 +21908,18 @@ var INDICADOR_ROLES_BY_MODULO = {
   psico: ["coordenador_psico", "coordenador_psicossocial", "super_admin", "dev", "desenvolvedor", "leo"],
   admin: ["super_admin", "dev", "desenvolvedor", "leo"]
 };
-function normalizePath(path5) {
+function normalizePath2(path5) {
   const t = path5.trim();
   if (!t) return "/";
   if (/^https?:\/\//i.test(t)) return t;
   return t.startsWith("/") ? t : `/${t}`;
+}
+var PUSH_PATH_ALIASES = {
+  "/missoes": "/missoes-semanais"
+};
+function applyPushPathAlias(path5) {
+  if (!path5) return path5;
+  return PUSH_PATH_ALIASES[path5] ?? path5;
 }
 function resolveMonitorVertenteUrl(vertente) {
   const v = (vertente || "").toLowerCase();
@@ -17309,7 +21946,7 @@ function resolveMetaBatidaClickUrl(userType, vertente, modulo) {
   }
   if (role.includes("professor")) {
     if (mod === "inclusao" || v.includes("inclus") || role.includes("inclusao")) return "/professor/inclusao";
-    if (mod === "psico" || v.includes("psico") || role.includes("psico")) return "/professor/psico";
+    if (mod === "psico" || v.includes("psico") || role.includes("psico")) return "/professor";
     return "/professor/pec";
   }
   if (role.includes("coordenador")) {
@@ -17389,10 +22026,46 @@ function resolveIndicadorDestinoRoles(modulo) {
   const mod = (modulo || "").toLowerCase();
   return INDICADOR_ROLES_BY_MODULO[mod];
 }
+function resolveAcolhimentoStaffClickUrl(userType, gatilho) {
+  const role = (userType || "").toLowerCase();
+  const filtroPendentes = gatilho === "acolhimento_sem_status" ? "&filtro=pendentes" : "";
+  if (role.includes("monitor")) {
+    return `/monitor/psico?tab=acolhimentos${filtroPendentes}`;
+  }
+  if (role.includes("tecnica")) {
+    return `/tecnica/psicossocial?tab=acolhimentos${filtroPendentes}`;
+  }
+  return `/coordenador/psicossocial?tab=acolhimentos${filtroPendentes}`;
+}
+var ACOLHIMENTO_ALUNO_GATILHOS = /* @__PURE__ */ new Set([
+  "acolhimento_agendado",
+  "acolhimento_serie_criada",
+  "acolhimento_cancelado",
+  "acolhimento_faltou",
+  "acolhimento_lembrete_d1",
+  "acolhimento_lembrete_2h",
+  "acolhimento_frequencia_baixa"
+]);
+var ACOLHIMENTO_STAFF_GATILHOS = /* @__PURE__ */ new Set([
+  "acolhimento_novo_staff",
+  "acolhimento_cancelado_staff",
+  "acolhimento_resumo_dia",
+  "acolhimento_em_15min",
+  "acolhimento_muitas_faltas",
+  "acolhimento_frequencia_baixa_staff",
+  "acolhimento_sem_status",
+  "acolhimento_sem_proximo"
+]);
 function resolvePushClickPath(rule, ctx) {
   const gatilho = (ctx?.gatilho || rule.gatilho || "").trim();
   if (gatilho && PUSH_GATILHOS_SEM_CLIQUE.has(gatilho)) {
     return void 0;
+  }
+  if (ACOLHIMENTO_ALUNO_GATILHOS.has(gatilho)) {
+    return "/aluno?tab=acolhimentos";
+  }
+  if (ACOLHIMENTO_STAFF_GATILHOS.has(gatilho)) {
+    return resolveAcolhimentoStaffClickUrl(ctx?.userType, gatilho);
   }
   if (gatilho === "historia_sucesso_publicada" || gatilho === "historia_sucesso_atualizada") {
     return resolveHistoriaClickUrl(ctx?.userType);
@@ -17416,9 +22089,9 @@ function resolvePushClickPath(rule, ctx) {
     return "/dev/marketing";
   }
   const explicit = rule.url?.trim();
-  if (explicit) return normalizePath(explicit);
+  if (explicit) return applyPushPathAlias(normalizePath2(explicit));
   if (gatilho && PUSH_URL_BY_GATILHO[gatilho]) {
-    return normalizePath(PUSH_URL_BY_GATILHO[gatilho]);
+    return applyPushPathAlias(normalizePath2(PUSH_URL_BY_GATILHO[gatilho]));
   }
   const byRoles = resolvePushUrlByRoles(rule.destino_roles);
   if (byRoles) return byRoles;
@@ -17445,10 +22118,23 @@ function toAbsolutePushUrl(pathOrUrl, baseUrl) {
   const raw = (pathOrUrl || "").trim();
   if (!raw) return void 0;
   if (/^https?:\/\//i.test(raw)) return raw;
-  const path5 = normalizePath(raw);
+  const path5 = normalizePath2(raw);
   const base = (baseUrl ?? getAppPublicBaseUrl()).replace(/\/$/, "");
   if (base) return `${base}${path5}`;
   return path5;
+}
+function toRelativePushPath(pathOrUrl) {
+  const raw = (pathOrUrl || "").trim();
+  if (!raw) return void 0;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      return applyPushPathAlias(parsed.pathname + parsed.search + parsed.hash) ?? void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  return applyPushPathAlias(normalizePath2(raw));
 }
 function resolvePushClickUrl(rule, baseUrl, ctx) {
   const path5 = resolvePushClickPath(rule, ctx);
@@ -17456,25 +22142,14 @@ function resolvePushClickUrl(rule, baseUrl, ctx) {
   return toAbsolutePushUrl(path5, baseUrl);
 }
 function buildFcmWebPushParts(params) {
-  const clickUrl = params.clickUrl?.trim() || void 0;
-  const data = {
-    title: params.title,
-    body: params.body
-  };
-  if (clickUrl) data.url = clickUrl;
+  const clickUrl = toRelativePushPath(params.clickUrl);
+  const data = buildPushFcmDataFields(params.title, params.body, clickUrl);
   return {
+    data,
     webpush: {
-      notification: {
-        title: params.title,
-        body: params.body,
-        icon: params.iconUrl,
-        badge: params.badgeUrl,
-        vibrate: [200, 100, 200],
-        ...clickUrl ? { data: { url: clickUrl } } : {}
-      },
-      ...clickUrl ? { fcmOptions: { link: clickUrl } } : {}
-    },
-    data
+      headers: { Urgency: "high" },
+      data
+    }
   };
 }
 function buildFcmTokenMessage(params) {
@@ -17590,7 +22265,14 @@ var ALUNO_PUSH_TARGET_GATILHOS = /* @__PURE__ */ new Set([
   "presenca_confirmada_aluno",
   "falta_registrada_aluno",
   "aula_aluno_proxima",
-  "turma_aluno_alterada"
+  "turma_aluno_alterada",
+  "acolhimento_agendado",
+  "acolhimento_serie_criada",
+  "acolhimento_cancelado",
+  "acolhimento_faltou",
+  "acolhimento_lembrete_d1",
+  "acolhimento_lembrete_2h",
+  "acolhimento_frequencia_baixa"
 ]);
 var DOADOR_BROADCAST_GATILHOS = /* @__PURE__ */ new Set([
   "nova_missao",
@@ -17745,7 +22427,10 @@ var PUSH_VAR_ALIASES = {
   descricao: ["erro", "mensagem", "erro_resumido"],
   erro_resumido: ["erro", "descricao", "mensagem"],
   servico: ["integracao"],
-  integracao: ["servico"]
+  integracao: ["servico"],
+  nome_catraca: ["unidade", "catraca"],
+  unidade: ["nome_catraca", "catraca"],
+  catraca: ["nome_catraca", "unidade"]
 };
 function expandPushVars(vars) {
   const expanded = { ...vars };
@@ -18118,6 +22803,96 @@ async function runMetaBatidaCron(pool2, fire) {
   if (disparos > 0) {
     console.log(`\u2705 [PUSH-CRON] meta_batida: ${disparos} disparo(s)`);
   }
+}
+
+// server/pushCatracaOffline.ts
+var CATRACA_OFFLINE_MENSAGEM = "A catraca {{nome_catraca}} est\xE1 offline h\xE1 {{tempo_offline}} (\xFAltimo registro: {{ultima}}).";
+async function ensureCatracaOfflinePushRule(pool2) {
+  const r = await pool2.query(
+    `UPDATE push_rules SET mensagem = $1
+     WHERE gatilho = 'catraca_offline' AND mensagem IS DISTINCT FROM $1
+     RETURNING id`,
+    [CATRACA_OFFLINE_MENSAGEM]
+  );
+  if ((r.rowCount ?? 0) > 0) {
+    console.log(
+      `\u2705 [Push] Regra catraca_offline atualizada (ids: ${r.rows.map((x) => x.id).join(", ")})`
+    );
+  }
+}
+var CATRACAS_MONITORADAS = [
+  { id: "INSTITUTO_O_GRITO", nome: "Instituto O Grito (Inclus\xE3o)" },
+  { id: "CASA_SONHAR", nome: "Casa Sonhar (PEC)" }
+];
+function formatTempoOffline(ms) {
+  const minutosOffline = Math.max(1, Math.floor(ms / 6e4));
+  const horasOffline = Math.floor(ms / 36e5);
+  if (horasOffline >= 48) {
+    const dias = Math.floor(horasOffline / 24);
+    return `${dias} dia${dias !== 1 ? "s" : ""}`;
+  }
+  if (horasOffline >= 1) {
+    return `${horasOffline} hora${horasOffline !== 1 ? "s" : ""}`;
+  }
+  return `${minutosOffline} minuto${minutosOffline !== 1 ? "s" : ""}`;
+}
+async function fetchUltimoEventoCatraca(pool2, unidadeId) {
+  const { rows } = await pool2.query(
+    `SELECT MAX(created_at) AS ultima_evento
+     FROM webhook_catraca_log
+     WHERE CASE
+       WHEN $1 = 'INSTITUTO_O_GRITO' THEN
+         UPPER(TRIM(COALESCE(unidade, ''))) IN ('', 'INSTITUTO_O_GRITO')
+       ELSE
+         UPPER(TRIM(COALESCE(unidade, ''))) = $1
+     END`,
+    [unidadeId]
+  );
+  const ultima = rows[0]?.ultima_evento;
+  if (!ultima) return null;
+  const t = new Date(ultima).getTime();
+  return t > 0 ? new Date(ultima) : null;
+}
+var COOLDOWN_MINUTOS = 4320;
+async function runPushCatracaOfflineCron(pool2, fire, options) {
+  const horasMin = options?.horasMinimasOffline ?? 24;
+  let disparos = 0;
+  for (const catraca of CATRACAS_MONITORADAS) {
+    const ultima = await fetchUltimoEventoCatraca(pool2, catraca.id);
+    if (!ultima) continue;
+    const msOffline = Date.now() - ultima.getTime();
+    const horasOffline = Math.floor(msOffline / 36e5);
+    if (horasOffline < horasMin) continue;
+    const dedupeKey = `catraca_offline:${catraca.id}`;
+    const ja = await pool2.query(
+      `SELECT 1 FROM push_logs
+       WHERE gatilho = 'catraca_offline' AND status = 'success'
+         AND payload->>'dedupe_key' = $1
+         AND disparado_em > NOW() - ($2::int * INTERVAL '1 minute')
+       LIMIT 1`,
+      [dedupeKey, COOLDOWN_MINUTOS]
+    );
+    if (ja.rows.length > 0) continue;
+    const minutosOffline = Math.max(1, Math.floor(msOffline / 6e4));
+    const tempoOffline = formatTempoOffline(msOffline);
+    console.log(
+      `\u{1F534} [PUSH-CRON] catraca_offline: ${catraca.nome} offline h\xE1 ${tempoOffline}`
+    );
+    await fire("catraca_offline", {
+      nome_catraca: catraca.nome,
+      unidade_catraca_id: catraca.id,
+      dedupe_key: dedupeKey,
+      minutos: String(minutosOffline),
+      horas: String(horasOffline),
+      tempo_offline: tempoOffline,
+      ultima: ultima.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+    });
+    disparos++;
+  }
+  if (disparos > 0) {
+    console.log(`\u2705 [PUSH-CRON] catraca_offline: ${disparos} disparo(s)`);
+  }
+  return disparos;
 }
 
 // server/pushLogging.ts
@@ -18498,9 +23273,9 @@ var CursoRowSchema = z2.object({
   descricao: optStr,
   turmasCodigos: optStr
 });
-var onlyDigits = (v) => v.replace(/\D/g, "");
+var onlyDigits2 = (v) => v.replace(/\D/g, "");
 function isValidCPF(input) {
-  const cpf = onlyDigits(String(input ?? ""));
+  const cpf = onlyDigits2(String(input ?? ""));
   if (cpf.length !== 11) return false;
   if (/^(\d)\1{10}$/.test(cpf)) return false;
   const calcDigit = (base, factor) => {
@@ -18519,7 +23294,7 @@ var reqCpfFromAny = z2.preprocess(
   (v) => {
     const val = emptyToUndef(v);
     if (val === void 0) return void 0;
-    const digits = onlyDigits(String(val).trim());
+    const digits = onlyDigits2(String(val).trim());
     return digits ? digits : void 0;
   },
   z2.string({ required_error: "CPF obrigat\xF3rio" }).length(11, "CPF inv\xE1lido").refine((cpf) => isValidCPF(cpf), "CPF inv\xE1lido")
@@ -18774,7 +23549,7 @@ function validateRows(rows, schema, sheetName) {
   });
 }
 function yieldEventLoop() {
-  return new Promise((resolve2) => setImmediate(resolve2));
+  return new Promise((resolve3) => setImmediate(resolve3));
 }
 async function buildInclusaoPreviewFromExcelAsync(buffer) {
   const memBefore = process.memoryUsage();
@@ -19231,137 +24006,39 @@ var isDevRequest = (req) => {
   return !!req.isDeveloper;
 };
 
-// server/middleware/portalAuth.ts
-async function saveExpressSession(req) {
-  const sess = req.session;
-  if (sess?.save) {
-    await new Promise(
-      (resolve2, reject) => sess.save((err) => err ? reject(err) : resolve2())
-    );
+// server/middleware/eventosAdminPolicy.ts
+var EVENTOS_ADMIN_ROLES = /* @__PURE__ */ new Set([
+  "admin",
+  "super_admin",
+  "coordenador",
+  "dev",
+  "desenvolvedor",
+  "marketing"
+]);
+var EVENTOS_ADMIN_DENIED_ACTORS = /* @__PURE__ */ new Set([
+  "eventos_portal",
+  "aluno_portal",
+  "aluno",
+  "scanner",
+  "tablet_chamada"
+]);
+function canAccessEventosAdmin(user2, opts) {
+  if (!user2) return false;
+  const role = String(user2.papel || user2.role || user2.tipo || "").toLowerCase();
+  const actor = String(user2.actorType || "").toLowerCase();
+  if (EVENTOS_ADMIN_DENIED_ACTORS.has(actor) || EVENTOS_ADMIN_DENIED_ACTORS.has(role)) {
+    return false;
   }
-}
-async function regenerateExpressSession(req) {
-  const sess = req.session;
-  if (!sess?.regenerate) return;
-  await new Promise(
-    (resolve2, reject) => sess.regenerate((err) => err ? reject(err) : resolve2())
-  );
-}
-function clearCrossActorSessionFields(sess) {
-  delete sess.user;
-  delete sess.userId;
-  delete sess.userPapel;
-  delete sess.userEmail;
-  delete sess.userName;
-  delete sess.isCoordinator;
-  delete sess.coordenador;
-  delete sess.coordenadorId;
-  delete sess.coordenadorEmail;
-  delete sess.coordenadorNome;
-  delete sess.coordenadorSetor;
-  delete sess.portalUserId;
-  delete sess.alunoCpf;
-  delete sess.alunoTipo;
-  delete sess.alunoNome;
-  delete sess.scannerUserId;
-  delete sess.scannerNome;
-  delete sess.scannerUsername;
-  delete sess.tabletChamadaUserId;
-  delete sess.tabletChamadaNome;
-  delete sess.tabletChamadaUsername;
-  delete sess.tabletChamadaVertente;
-  delete sess.actorType;
-  delete sess.actorId;
-  delete sess.developerId;
-  delete sess.devSession;
-  delete sess.isDeveloper;
-  delete sess.telefone;
-  delete sess.nome;
-}
-function requireAlunoPortalAuth(req, res, next) {
-  const sess = req.session;
-  const cpf = String(sess?.alunoCpf || "").replace(/\D/g, "");
-  if (!cpf || sess?.actorType !== "aluno_portal") {
-    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
-    return;
+  if (user2.email && isAdminEmail(user2.email) || opts?.isDeveloper) {
+    return true;
   }
-  const queryCpf = String(req.query.cpf || "").replace(/\D/g, "");
-  const bodyCpf = String(req.body?.cpf || "").replace(/\D/g, "");
-  if (queryCpf && queryCpf !== cpf || bodyCpf && bodyCpf !== cpf) {
-    res.status(403).json({ error: "Acesso negado" });
-    return;
+  if (EVENTOS_ADMIN_ROLES.has(role)) {
+    return true;
   }
-  req.alunoCpf = cpf;
-  next();
-}
-function requireScannerAuth(req, res, next) {
-  const sess = req.session;
-  const scannerUserId = sess?.scannerUserId;
-  if (!scannerUserId || sess?.actorType !== "scanner") {
-    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
-    return;
+  if (user2.coordenadorId && (actor === "coordenador" || role === "")) {
+    return true;
   }
-  req.scannerUserId = scannerUserId;
-  next();
-}
-function requireTabletChamadaAuth(req, res, next) {
-  const sess = req.session;
-  const tabletChamadaUserId = sess?.tabletChamadaUserId;
-  const vertente = sess?.tabletChamadaVertente;
-  if (!tabletChamadaUserId || sess?.actorType !== "tablet_chamada" || !vertente) {
-    res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
-    return;
-  }
-  if (vertente !== "pec" && vertente !== "inclusao") {
-    res.status(403).json({ error: "Sess\xE3o inv\xE1lida" });
-    return;
-  }
-  req.tabletChamadaUserId = tabletChamadaUserId;
-  req.tabletChamadaVertente = vertente;
-  next();
-}
-async function establishAlunoPortalSession(req, data) {
-  const sess = req.session;
-  if (!sess) return;
-  clearCrossActorSessionFields(sess);
-  const cpfLimpo = data.cpf.replace(/\D/g, "");
-  sess.alunoCpf = cpfLimpo;
-  sess.alunoTipo = data.tipo;
-  sess.alunoNome = data.nome;
-  sess.actorType = "aluno_portal";
-  sess.userPapel = "aluno_portal";
-  sess.userId = data.studentId ?? (Number.parseInt(cpfLimpo.slice(-9), 10) || 1);
-  sess.actorId = sess.userId;
-  await saveExpressSession(req);
-}
-async function establishScannerSession(req, usuario) {
-  const sess = req.session;
-  if (!sess) return;
-  clearCrossActorSessionFields(sess);
-  sess.scannerUserId = usuario.id;
-  sess.scannerNome = usuario.nome;
-  sess.scannerUsername = usuario.username;
-  sess.actorType = "scanner";
-  sess.userPapel = "scanner";
-  sess.userId = usuario.id;
-  sess.userName = usuario.nome;
-  sess.actorId = usuario.id;
-  await saveExpressSession(req);
-}
-async function establishTabletChamadaSession(req, usuario) {
-  const sess = req.session;
-  if (!sess) return;
-  clearCrossActorSessionFields(sess);
-  sess.tabletChamadaUserId = usuario.id;
-  sess.tabletChamadaNome = usuario.nome;
-  sess.tabletChamadaUsername = usuario.username;
-  sess.tabletChamadaVertente = usuario.vertente;
-  sess.actorType = "tablet_chamada";
-  sess.userPapel = "tablet_chamada";
-  sess.userId = usuario.id;
-  sess.userName = usuario.nome;
-  sess.actorId = usuario.id;
-  await saveExpressSession(req);
+  return false;
 }
 
 // server/middleware/chamadaPresencaAuth.ts
@@ -19503,10 +24180,10 @@ import multer from "multer";
 import * as XLSX2 from "xlsx";
 import { z as z3 } from "zod";
 var upload = multer({ storage: multer.memoryStorage() });
-var onlyDigits2 = (v) => String(v ?? "").replace(/\D/g, "");
+var onlyDigits3 = (v) => String(v ?? "").replace(/\D/g, "");
 var isAllSameDigits = (s) => /^(\d)\1+$/.test(s);
 function isValidCPF3(raw) {
-  const cpf = onlyDigits2(raw);
+  const cpf = onlyDigits3(raw);
   if (cpf.length !== 11) return false;
   if (isAllSameDigits(cpf)) return false;
   let sum = 0;
@@ -19522,7 +24199,7 @@ function isValidCPF3(raw) {
   return true;
 }
 function isValidBRPhone(raw) {
-  const phone = onlyDigits2(raw);
+  const phone = onlyDigits3(raw);
   if (!(phone.length === 10 || phone.length === 11)) return false;
   if (isAllSameDigits(phone)) return false;
   return true;
@@ -19560,7 +24237,7 @@ var toStr = (v) => {
   return s === "" ? void 0 : s;
 };
 var toDigits = (v) => {
-  const s = onlyDigits2(v);
+  const s = onlyDigits3(v);
   return s === "" ? void 0 : s;
 };
 function normalizeUF(v) {
@@ -19576,8 +24253,7 @@ function parseMoraDesdeAno(v) {
 }
 function excelSerialToJSDate(serial2) {
   if (!isFinite(serial2)) return null;
-  const s = serial2 >= 60 ? serial2 - 1 : serial2;
-  const utcMillis = Math.round((s - 25569) * 86400 * 1e3);
+  const utcMillis = Math.round((serial2 - 25569) * 86400 * 1e3);
   const d = new Date(utcMillis);
   if (isNaN(d.getTime())) return null;
   return d;
@@ -19619,16 +24295,16 @@ function parseDateToISO(v) {
   return void 0;
 }
 var alunoImportSchema = z3.object({
-  cpf: z3.string().transform(onlyDigits2).refine((v) => v.length === 11, "CPF deve ter 11 d\xEDgitos").refine(isValidCPF3, "CPF inv\xE1lido"),
+  cpf: z3.string().transform(onlyDigits3).refine((v) => v.length === 11, "CPF deve ter 11 d\xEDgitos").refine(isValidCPF3, "CPF inv\xE1lido"),
   nome_completo: z3.string().min(1, "Nome \xE9 obrigat\xF3rio"),
   area: z3.literal("pec"),
   data_nascimento: z3.string().min(1, "Data de nascimento \xE9 obrigat\xF3ria"),
   genero: z3.enum(["feminino", "masculino", "nao_binario", "nao_informado"]),
-  telefone: z3.string().transform(onlyDigits2).refine((v) => v.length > 0, "Telefone \xE9 obrigat\xF3rio").refine(isValidBRPhone, "Telefone inv\xE1lido"),
+  telefone: z3.string().transform(onlyDigits3).refine((v) => v.length > 0, "Telefone \xE9 obrigat\xF3rio").refine(isValidBRPhone, "Telefone inv\xE1lido"),
   data_entrada: z3.string().min(1, "Data de entrada \xE9 obrigat\xF3ria"),
   forma_acesso: z3.string().min(1, "Forma de acesso \xE9 obrigat\xF3ria"),
   // ===== ENDEREÇO (opcionais) =====
-  cep: z3.string().optional().transform((v) => v ? onlyDigits2(v) : void 0),
+  cep: z3.string().optional().transform((v) => v ? onlyDigits3(v) : void 0),
   estado: z3.string().optional().transform((v) => v ? String(v).trim().toUpperCase() : void 0),
   cidade: z3.string().optional().transform((v) => v ? String(v).trim() : void 0),
   bairro: z3.string().optional().transform((v) => v ? String(v).trim() : void 0),
@@ -19639,8 +24315,8 @@ var alunoImportSchema = z3.object({
   mora_desde_ano: z3.number().optional()
 }).passthrough();
 function rowToAlunoPayload(row) {
-  const cpf = onlyDigits2(row.cpf);
-  const telefone = onlyDigits2(row.telefone);
+  const cpf = onlyDigits3(row.cpf);
+  const telefone = onlyDigits3(row.telefone);
   const cep = toDigits(getCell(row, "cep", "CEP"));
   const estado = normalizeUF(getCell(row, "estado", "uf", "UF", "Estado"));
   const cidade = toStr(getCell(row, "cidade", "Cidade", "localidade", "Localidade"));
@@ -19653,14 +24329,14 @@ function rowToAlunoPayload(row) {
   const telefone_whatsapp_bool = parseBool(row.telefone_whatsapp);
   const whatsapp = telefone_whatsapp_bool ? telefone : void 0;
   const telefones_adicionais = [1, 2, 3].map((i) => {
-    const numero2 = onlyDigits2(row[`telefone_adicional_${i}_numero`]);
+    const numero2 = onlyDigits3(row[`telefone_adicional_${i}_numero`]);
     const wpp = parseBool(row[`telefone_adicional_${i}_whatsapp`]) ?? false;
     if (!numero2) return null;
     return { numero: numero2, whatsapp: wpp };
   }).filter(Boolean);
   const contatos_emergencia = [1, 2, 3].map((i) => {
     const nome = String(row[`contato_emergencia_${i}_nome`] ?? "").trim();
-    const tel = onlyDigits2(row[`contato_emergencia_${i}_telefone`]);
+    const tel = onlyDigits3(row[`contato_emergencia_${i}_telefone`]);
     const wpp = parseBool(row[`contato_emergencia_${i}_whatsapp`]) ?? false;
     if (!nome && !tel) return null;
     if (!nome || !tel) return { __invalid: true, field: `contato_emergencia_${i}`, message: "Contato emerg\xEAncia precisa de nome e telefone" };
@@ -19710,7 +24386,7 @@ function rowToAlunoPayload(row) {
     return { nome, parentesco, relacao };
   }).filter(Boolean);
   const contatos_saude_nome = String(row.contatos_saude_nome ?? "").trim();
-  const contatos_saude_telefone = onlyDigits2(row.contatos_saude_telefone);
+  const contatos_saude_telefone = onlyDigits3(row.contatos_saude_telefone);
   const contatos_saude = contatos_saude_nome || contatos_saude_telefone ? { nome: contatos_saude_nome, telefone: contatos_saude_telefone } : void 0;
   const documentos_possui = parseList(row.documentos_possui);
   const demandas = parseList(row.demandas);
@@ -19751,7 +24427,7 @@ function rowToAlunoPayload(row) {
     acesso_internet,
     internet_qual: row.internet_qual ? String(row.internet_qual).trim() : void 0,
     // documentos
-    rg: row.rg ? onlyDigits2(row.rg) : void 0,
+    rg: row.rg ? onlyDigits3(row.rg) : void 0,
     orgao_emissor: row.orgao_emissor ? String(row.orgao_emissor).trim() : void 0,
     ctps_numero: row.ctps_numero ? String(row.ctps_numero).trim() : void 0,
     ctps_serie: row.ctps_serie ? String(row.ctps_serie).trim() : void 0,
@@ -20106,8 +24782,8 @@ async function validarSenhaManualAtiva(pool2, vertente, senha) {
     return { valido: false, error: "Senha n\xE3o encontrada." };
   }
   const bcryptMod = await import("bcryptjs");
-  const bcrypt2 = bcryptMod.default || bcryptMod;
-  const ok = await bcrypt2.compare(senha, rows[0].senha_hash);
+  const bcrypt3 = bcryptMod.default || bcryptMod;
+  const ok = await bcrypt3.compare(senha, rows[0].senha_hash);
   if (!ok) return { valido: false, error: "Senha incorreta." };
   return { valido: true };
 }
@@ -20116,7 +24792,7 @@ async function definirOuTrocarSenhaManual(pool2, vertente, alteradaPor, opts) {
   if (fmtErr) return { success: false, error: fmtErr };
   const status = await getSenhaManualStatus(pool2, vertente);
   const bcryptMod = await import("bcryptjs");
-  const bcrypt2 = bcryptMod.default || bcryptMod;
+  const bcrypt3 = bcryptMod.default || bcryptMod;
   if (status.definida) {
     if (!opts.senhaAtual) {
       return { success: false, error: "Informe a senha atual." };
@@ -20128,12 +24804,12 @@ async function definirOuTrocarSenhaManual(pool2, vertente, alteradaPor, opts) {
     if (!rows.length) {
       return { success: false, error: "Senha n\xE3o encontrada." };
     }
-    const okAtual = await bcrypt2.compare(opts.senhaAtual, rows[0].senha_hash);
+    const okAtual = await bcrypt3.compare(opts.senhaAtual, rows[0].senha_hash);
     if (!okAtual) {
       return { success: false, error: "Senha atual incorreta." };
     }
   }
-  const hash = await bcrypt2.hash(opts.senhaNova, 10);
+  const hash = await bcrypt3.hash(opts.senhaNova, 10);
   const agora = /* @__PURE__ */ new Date();
   const expiraEm = addMonths(agora, MANUAL_SENHA_VALIDADE_MESES);
   await pool2.query(
@@ -20271,8 +24947,15 @@ function getTwilioClient() {
     throw new Error(twilioInitError);
   }
 }
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("Missing required Stripe secret: STRIPE_SECRET_KEY");
+var stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
+if (!stripeSecretKey) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing required Stripe secret: STRIPE_SECRET_KEY");
+  }
+  console.warn(
+    "\u26A0\uFE0F [STRIPE] STRIPE_SECRET_KEY ausente \u2014 usando stub local (pagamentos indispon\xEDveis)."
+  );
+  process.env.STRIPE_SECRET_KEY = "sk_test_local_dev_placeholder";
 }
 var isTestMode = process.env.STRIPE_SECRET_KEY.startsWith("sk_test_");
 var isLiveMode = process.env.STRIPE_SECRET_KEY.startsWith("sk_live_");
@@ -20550,6 +25233,10 @@ async function requireAuth(req, res, next) {
       logAuth("granted", "session_aluno_portal", `cpf=${cpf.slice(0, 3)}***`);
       return next();
     }
+    if (session2?.actorType === "eventos_portal" || session2?.portalUserId) {
+      logAuth("denied", "eventos_portal_not_staff");
+      return res.status(401).json({ error: "Autentica\xE7\xE3o obrigat\xF3ria" });
+    }
     if (session2?.userId && session2?.userPapel) {
       req.user = {
         id: session2.userId,
@@ -20650,6 +25337,22 @@ function requireAdmin(req, res, next) {
   }
   console.log(`\u2705 [ADMIN ACCESS] Admin ${user2.id} (${user2.email}) autorizado`);
   next();
+}
+async function requireEventosAdmin(req, res, next) {
+  return requireAuth(req, res, () => {
+    const user2 = req.user;
+    if (!user2) {
+      return res.status(401).json({ error: "Usu\xE1rio n\xE3o autenticado" });
+    }
+    if (canAccessEventosAdmin(user2, {
+      isDeveloper: !!req.isDeveloper
+    })) {
+      return next();
+    }
+    return res.status(403).json({
+      error: "Acesso negado - privil\xE9gios administrativos necess\xE1rios"
+    });
+  });
 }
 function requirePrivacyAuditAccess(req, res, next) {
   const sess = req.session;
@@ -20890,6 +25593,113 @@ async function assertMoradasReformaRowAccess(req, rowMonitorId) {
   if (access.canManageAll) return true;
   if (access.isMonitorPsico && access.userId === rowMonitorId) return true;
   return false;
+}
+function normalizeMoradaCpf(cpf) {
+  return cpf ? String(cpf).replace(/\D/g, "") : "";
+}
+function formatMoradaEnderecoCompleto(row) {
+  const rua = String(row.logradouro || row.endereco || "").trim();
+  const linha1 = [rua, row.numero].filter(Boolean).join(", ");
+  const bairro = String(row.bairro || row.bairro_outro || "").trim();
+  const cidadeUf = [row.cidade, row.estado].filter(Boolean).join(" / ");
+  const partes = [linha1, row.complemento, bairro, cidadeUf].map((v) => String(v || "").trim()).filter(Boolean);
+  return partes.length ? partes.join(" \u2014 ") : null;
+}
+function formatMoradaAlunoEndereco(row) {
+  return formatMoradaEnderecoCompleto(row);
+}
+async function enrichMoradasGeraisRows(rows) {
+  if (!rows.length) return rows;
+  const cpfs = [
+    ...new Set(rows.map((r) => normalizeMoradaCpf(r.participante_cpf)).filter((c) => c.length >= 10))
+  ];
+  const nomes = [
+    ...new Set(
+      rows.map((r) => String(r.participante_nome || "").toLowerCase().trim()).filter(Boolean)
+    )
+  ];
+  const empty = Promise.resolve({ rows: [] });
+  const [
+    alunosCpfRes,
+    inclusaoCpfRes,
+    comunidadeCpfRes,
+    alunosNomeRes,
+    inclusaoNomeRes,
+    comunidadeNomeRes
+  ] = await Promise.all([
+    cpfs.length ? pool.query(
+      `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome_completo)) AS nome_norm,
+                  telefone, logradouro, numero, complemento, bairro, cidade, estado
+           FROM aluno WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+      [cpfs]
+    ) : empty,
+    cpfs.length ? pool.query(
+      `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco
+           FROM participantes_inclusao WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+      [cpfs]
+    ) : empty,
+    cpfs.length ? pool.query(
+      `SELECT regexp_replace(cpf, '\\D', '', 'g') AS cpf_norm,
+                  LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco, numero, complemento, bairro, bairro_outro, cidade, estado
+           FROM psico_atendidos_comunidade WHERE regexp_replace(cpf, '\\D', '', 'g') = ANY($1::text[])`,
+      [cpfs]
+    ) : empty,
+    nomes.length ? pool.query(
+      `SELECT LOWER(TRIM(nome_completo)) AS nome_norm,
+                  telefone, logradouro, numero, complemento, bairro, cidade, estado
+           FROM aluno WHERE LOWER(TRIM(nome_completo)) = ANY($1::text[])`,
+      [nomes]
+    ) : empty,
+    nomes.length ? pool.query(
+      `SELECT LOWER(TRIM(nome)) AS nome_norm, telefone, endereco
+           FROM participantes_inclusao WHERE LOWER(TRIM(nome)) = ANY($1::text[])`,
+      [nomes]
+    ) : empty,
+    nomes.length ? pool.query(
+      `SELECT LOWER(TRIM(nome)) AS nome_norm,
+                  telefone, endereco, numero, complemento, bairro, bairro_outro, cidade, estado
+           FROM psico_atendidos_comunidade WHERE LOWER(TRIM(nome)) = ANY($1::text[])`,
+      [nomes]
+    ) : empty
+  ]);
+  const alunoByCpf = new Map(alunosCpfRes.rows.map((r) => [r.cpf_norm, r]));
+  const inclusaoByCpf = new Map(inclusaoCpfRes.rows.map((r) => [r.cpf_norm, r]));
+  const comunidadeByCpf = new Map(comunidadeCpfRes.rows.map((r) => [r.cpf_norm, r]));
+  const alunoByNome = new Map(alunosNomeRes.rows.map((r) => [r.nome_norm, r]));
+  const inclusaoByNome = new Map(inclusaoNomeRes.rows.map((r) => [r.nome_norm, r]));
+  const comunidadeByNome = new Map(comunidadeNomeRes.rows.map((r) => [r.nome_norm, r]));
+  const fromAluno = (hit) => hit ? {
+    telefone: hit.telefone ?? null,
+    endereco: formatMoradaAlunoEndereco(hit)
+  } : null;
+  const fromSimple = (hit) => hit ? {
+    telefone: hit.telefone ?? null,
+    endereco: formatMoradaEnderecoCompleto(hit)
+  } : null;
+  const resolveRowContact = (row) => {
+    const cpfNorm = normalizeMoradaCpf(row.participante_cpf);
+    const nomeNorm = String(row.participante_nome || "").toLowerCase().trim();
+    const origem = String(row.participante_origem || "").toLowerCase();
+    const tryPec = () => fromAluno(cpfNorm ? alunoByCpf.get(cpfNorm) : null) || fromAluno(nomeNorm ? alunoByNome.get(nomeNorm) : null);
+    const tryInclusao = () => fromSimple(cpfNorm ? inclusaoByCpf.get(cpfNorm) : null) || fromSimple(nomeNorm ? inclusaoByNome.get(nomeNorm) : null);
+    const tryComunidade = () => fromSimple(cpfNorm ? comunidadeByCpf.get(cpfNorm) : null) || fromSimple(nomeNorm ? comunidadeByNome.get(nomeNorm) : null);
+    if (origem === "comunidade") return tryComunidade();
+    if (origem === "inclusao") return tryInclusao();
+    if (origem === "pec") return tryPec();
+    return tryComunidade() || tryInclusao() || tryPec();
+  };
+  return rows.map((row) => {
+    const contact = resolveRowContact(row) || { telefone: null, endereco: null };
+    return {
+      ...row,
+      participante_telefone: contact.telefone,
+      participante_endereco: contact.endereco
+    };
+  });
 }
 async function resolveProfessorContextByUserId(userId2, vertente) {
   const turmaTipo = vertente === "inclusao" ? "inclusao" : "pec";
@@ -21614,6 +26424,7 @@ async function registerRoutes(app2) {
     console.error("\u{1F4E3} [CLIENT-ERROR]", { message, stack, context });
     res.sendStatus(204);
   });
+  registerGestaoVistaViewRoutes(app2);
   app2.post("/api/log-client-error", express.json(), (req, res) => {
     const { message, stack, extra } = req.body || {};
     console.error("\u{1F4C4} [CLIENT ERROR]", { message, stack, extra });
@@ -21961,8 +26772,8 @@ async function registerRoutes(app2) {
       const email = (req.body.email ?? "").toString().trim();
       const plano = (req.body.plano ?? req.body.plan ?? "").toString().trim();
       const rawPhone = (req.body.telefone ?? req.body.phone ?? "").toString();
-      const onlyDigits4 = rawPhone.replace(/\D/g, "");
-      const telefone = onlyDigits4 ? onlyDigits4.startsWith("55") ? `+${onlyDigits4}` : `+55${onlyDigits4}` : "";
+      const onlyDigits5 = rawPhone.replace(/\D/g, "");
+      const telefone = onlyDigits5 ? onlyDigits5.startsWith("55") ? `+${onlyDigits5}` : `+55${onlyDigits5}` : "";
       const rawValor = req.body.valor ?? req.body.amount ?? req.body.value;
       const valorNum = typeof rawValor === "string" ? Number(rawValor.replace(",", ".")) : Number(rawValor);
       const periodicity = req.body.periodicity || req.body.periodicidade || "mensal";
@@ -23180,7 +27991,17 @@ async function registerRoutes(app2) {
   app2.get("/uploads/*", requireAuth, async (req, res) => {
     try {
       const objectName = req.path.slice(1);
-      const [signedUrl] = await gcs.bucket(GCS_BUCKET).file(objectName).getSignedUrl({
+      const localAbs = resolveLocalUploadPath(objectName);
+      if (localAbs && fs2.existsSync(localAbs)) {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Content-Disposition", "inline");
+        res.setHeader("Cache-Control", "private, max-age=3600");
+        return res.sendFile(localAbs);
+      }
+      if (!isGCSAvailable || !bucket) {
+        return res.status(404).send("Arquivo n\xE3o encontrado");
+      }
+      const [signedUrl] = await bucket.file(objectName).getSignedUrl({
         version: "v4",
         action: "read",
         expires: Date.now() + 5 * 60 * 1e3
@@ -26925,7 +31746,8 @@ async function registerRoutes(app2) {
         } else {
           const userType = user2.tipo || "user";
           console.log(`\u{1F464} USER TYPE CHECK - Phone: ${telefone}, Type: ${userType}`);
-          if (userType === "doador") {
+          const isDonorAccount = userType === "doador" || user2.role === "doador" || user2.subscriptionStatus === "active";
+          if (isDonorAccount) {
             papel = "doador";
             needsCouncilApproval = false;
             console.log(`\u2705 DOADOR LOGIN - No approval needed`);
@@ -26933,16 +31755,14 @@ async function registerRoutes(app2) {
             const conselhoStatus = user2.conselhoStatus;
             if (conselhoStatus === "aprovado") {
               papel = "conselho";
-              needsCouncilApproval = false;
-            } else if (conselhoStatus === "pendente") {
-              needsCouncilApproval = true;
-            } else if (conselhoStatus === "recusado") {
-              needsCouncilApproval = true;
-            } else {
-              needsCouncilApproval = false;
             }
+            needsCouncilApproval = false;
           }
         }
+      }
+      if (papel !== "conselho" && user2.conselhoStatus === "recusado") {
+        await storage.clearConselhoStatus(user2.id);
+        user2.conselhoStatus = null;
       }
       clearCrossActorSessionFields(req.session);
       req.session.user = {
@@ -26970,7 +31790,7 @@ async function registerRoutes(app2) {
           papel,
           professorTipo
         },
-        conselhoStatus: user2.conselhoStatus || null,
+        conselhoStatus: papel === "conselho" ? user2.conselhoStatus || null : null,
         needsCouncilApproval,
         hasActiveSubscription: true
       };
@@ -27300,10 +32120,11 @@ async function registerRoutes(app2) {
               user2 = existingUser;
             } else {
               console.log(`\u{1F464} [EMAIL LOGIN] Criando usu\xE1rio patrocinador autom\xE1tico para: ${cleanEmail}`);
+              const placeholderTelefonePatro = `+55000${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 100).toString().padStart(2, "0")}`;
               user2 = await storage.createUser({
-                cpf: "00000000000",
+                cpf: null,
                 nome: patrocinadoresRow.nome,
-                telefone: "+5500000000000",
+                telefone: placeholderTelefonePatro,
                 email: cleanEmail,
                 role: "patrocinador",
                 verificado: true
@@ -27366,10 +32187,13 @@ async function registerRoutes(app2) {
           console.log(
             `\u{1F464} [EMAIL LOGIN] Criando novo usu\xE1rio conselheiro: ${cleanEmail}`
           );
+          const placeholderTelefone = `+55000${Date.now().toString().slice(-8)}${Math.floor(
+            Math.random() * 100
+          ).toString().padStart(2, "0")}`;
           user2 = await storage.createUser({
-            cpf: "00000000000",
-            nome: "Membro do Conselho",
-            telefone: "+5500000000000",
+            cpf: null,
+            nome: conselheiroDb?.nome || "Membro do Conselho",
+            telefone: placeholderTelefone,
             email: cleanEmail,
             role: "conselho",
             verificado: true,
@@ -30520,43 +35344,14 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
               total: pessoasAtivas2026.totais.geral + pessoasAtivas2026.totais.geral * 3
             }
           };
-          let pecDataObj = { totalAlunos: 0, horasAula: 0, frequenciaMedia: 0, evasao: 0, nps: 0, alimentacao: 0, atendimentos: 0 };
+          let pecDataObj = { totalAlunos: 0, horasAula: 0, frequenciaMedia: 0, evasao: 0, nps: 0, avaliacaoAprendizagem: 0, alimentacao: 0, atendimentos: 0 };
           try {
             const pecMesFilter = buildMesFilter(mesFiltro, "s.date");
             const pecCreatedFilter = buildMesFilter(mesFiltro, "s.created_at");
             const pecEvasaoFilter = buildMesFilter(mesFiltro, "pe.data_desligamento");
             const anoFilter2026 = "EXTRACT(YEAR FROM s.date) = 2026";
             const anoCreated2026 = "EXTRACT(YEAR FROM s.created_at) = 2026";
-            if (mesFiltro === null) {
-              const allTimeRes = await pool.query(`SELECT COUNT(DISTINCT student_cpf) as cnt FROM instance_enrollments WHERE EXTRACT(YEAR FROM enrollment_date) = $1 AND evadido = false`, [ano]);
-              pecDataObj.totalAlunos = Number(allTimeRes.rows[0]?.cnt || 0);
-            } else if (Array.isArray(mesFiltro)) {
-              const endMonth = mesFiltro[1];
-              const nextMonth = endMonth === 12 ? 1 : endMonth + 1;
-              const nextYear = endMonth === 12 ? ano + 1 : ano;
-              const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
-              const r = await pool.query(`
-                SELECT COUNT(DISTINCT student_cpf) as total
-                FROM instance_enrollments
-                WHERE EXTRACT(YEAR FROM enrollment_date) = $1
-                  AND enrollment_date < $2
-                  AND (evadido = false OR data_evasao >= $2)
-              `, [ano, endDate]);
-              pecDataObj.totalAlunos = Number(r.rows[0]?.total || 0);
-            } else {
-              const mesNum = Math.floor(Number(mesFiltro));
-              const nextMes = mesNum === 12 ? 1 : mesNum + 1;
-              const nextAno = mesNum === 12 ? ano + 1 : ano;
-              const endDate = `${nextAno}-${String(nextMes).padStart(2, "0")}-01`;
-              const r = await pool.query(`
-                SELECT COUNT(DISTINCT student_cpf) as total
-                FROM instance_enrollments
-                WHERE EXTRACT(YEAR FROM enrollment_date) = $1
-                  AND enrollment_date < $2
-                  AND (evadido = false OR data_evasao >= $2)
-              `, [ano, endDate]);
-              pecDataObj.totalAlunos = Number(r.rows[0]?.total || 0);
-            }
+            pecDataObj.totalAlunos = await countCriancasAtendidasPEC(mesFiltro, ano);
             const horasRes = await pool.query(`
               SELECT COALESCE(SUM(
                 (SELECT COUNT(*) FROM jsonb_array_elements(s.attendance) a
@@ -30606,10 +35401,16 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             const evasaoCount = Number(evasaoRes.rows?.[0]?.cnt || 0);
             pecDataObj.evasao = pecDataObj.totalAlunos > 0 ? Math.round(evasaoCount / pecDataObj.totalAlunos * 100) : 0;
             try {
-              pecDataObj.nps = await getNpsPEC2026(mesFiltro);
+              pecDataObj.nps = await getNpsPEC2026(mesFiltro, ano);
             } catch (e) {
               console.error("Erro NPS PEC GV:", e);
               pecDataObj.nps = 0;
+            }
+            try {
+              pecDataObj.avaliacaoAprendizagem = await getAvaliacaoAprendizagemPEC(mesFiltro, ano);
+            } catch (e) {
+              console.error("Erro avalia\xE7\xE3o aprendizagem PEC GV:", e);
+              pecDataObj.avaliacaoAprendizagem = 0;
             }
             const alimentPecRes = await pool.query(`
               SELECT COALESCE(SUM(
@@ -30684,35 +35485,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           }
           let evasaoIncPct = 0;
           try {
-            const mesNumEv = mes !== null ? mes : 0;
-            const evIncFilter = mesNumEv > 0 ? `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026 AND EXTRACT(MONTH FROM ev.data_desligamento) = ${mesNumEv}` : `AND EXTRACT(YEAR FROM ev.data_desligamento) = 2026`;
-            const evIncTotalFilter = mesNumEv > 0 ? `AND EXTRACT(YEAR FROM pt.created_at) = 2026 AND EXTRACT(MONTH FROM pt.created_at) = ${mesNumEv}` : `AND EXTRACT(YEAR FROM pt.created_at) = 2026`;
-            const evasaoIncResult = await pool.query(`
-              SELECT COUNT(*)::int AS total_cnt
-              FROM participantes_turmas pt
-              WHERE 1=1 ${evIncTotalFilter}
-            `);
-            const evasaoIncDesistResult = await pool.query(`
-              SELECT COUNT(*)::int AS evasao_cnt
-              FROM inclusao_evasoes ev
-              WHERE ev.revertido_em IS NULL ${evIncFilter}
-            `);
-            const evasaoInc = Number(evasaoIncDesistResult.rows?.[0]?.evasao_cnt || 0);
-            const totalInc = Number(evasaoIncResult.rows?.[0]?.total_cnt || 0);
-            evasaoIncPct = totalInc > 0 ? Math.round(evasaoInc / totalInc * 100) : 0;
-            const evPecFilter = mesNumEv > 0 ? `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026 AND EXTRACT(MONTH FROM pe.data_desligamento) = ${mesNumEv}` : `AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026`;
-            const evPecTotalFilter = mesNumEv > 0 ? `AND EXTRACT(YEAR FROM enrollment_date) = 2026 AND EXTRACT(MONTH FROM enrollment_date) = ${mesNumEv}` : `AND EXTRACT(YEAR FROM enrollment_date) = 2026`;
+            const taxaInc = await getTaxaEvasaoInclusaoPct(mesFiltro, ano);
+            evasaoIncPct = taxaInc.pct;
+            const pecEvasaoFilter = buildMesFilter(mesFiltro, "pe.data_desligamento");
             const evasaoPecResult = await pool.query(`
-              SELECT COUNT(*)::int AS cnt FROM pec_evasoes pe
-              WHERE pe.revertido_em IS NULL ${evPecFilter}
+              SELECT COUNT(DISTINCT REGEXP_REPLACE(pe.student_cpf, '[^0-9]', '', 'g'))::int AS cnt
+              FROM pec_evasoes pe
+              WHERE pe.revertido_em IS NULL
+                AND EXTRACT(YEAR FROM pe.data_desligamento) = 2026
+                ${pecEvasaoFilter}
             `);
-            const totalPecResult = await pool.query(`SELECT COUNT(*)::int AS cnt FROM instance_enrollments WHERE ${evPecTotalFilter.replace("AND ", "")}`);
             const evasaoPecCount = Number(evasaoPecResult.rows?.[0]?.cnt || 0);
-            const totalPec = Number(totalPecResult.rows?.[0]?.cnt || 0);
-            const evasaoTotal = evasaoInc + evasaoPecCount;
-            const totalMatriculados = totalInc + totalPec;
+            const totalPec = pecDataObj.totalAlunos || 0;
+            const pecPct = totalPec > 0 ? Math.round(evasaoPecCount / totalPec * 100) : 0;
+            pecDataObj.evasao = pecPct;
+            const evasaoTotal = taxaInc.evasoes + evasaoPecCount;
+            const totalMatriculados = taxaInc.matriculas + totalPec;
             const evasaoPct = totalMatriculados > 0 ? Math.round(evasaoTotal / totalMatriculados * 100) : 0;
-            const metaEvasaoPct = 10;
+            const metaEvasaoPct = metas2026.evasao ?? 10;
             const progress = Math.min(evasaoPct / metaEvasaoPct * 100, 100);
             indicadores.evasao = {
               ...indicadores.evasao,
@@ -30722,7 +35512,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
               progress,
               color: evasaoPct <= metaEvasaoPct ? "green" : evasaoPct <= metaEvasaoPct * 1.5 ? "yellow" : "red"
             };
-            console.log(`[GV 2026] Evas\xE3o: Inc=${evasaoInc}/${totalInc} PEC=${evasaoPecCount}/${totalPec} \u2192 ${evasaoTotal}/${totalMatriculados} = ${evasaoPct}%`);
+            console.log(`[GV 2026] Evas\xE3o: Inc=${taxaInc.evasoes}/${taxaInc.matriculas} (${evasaoIncPct}%) PEC=${evasaoPecCount}/${totalPec} (${pecPct}%) \u2192 ${evasaoTotal}/${totalMatriculados} = ${evasaoPct}%`);
           } catch (evErr) {
             console.error("[GV 2026] Erro ao calcular evas\xE3o combinada:", evErr);
           }
@@ -32304,8 +37094,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       }
       if (!user2 && phone) {
         user2 = await storage.createUser({
-          cpf: "00000000000",
-          // Placeholder CPF for council members
+          cpf: null,
+          // CPF é único na tabela users; placeholder fixo causava conflito
           nome: "Membro do Conselho",
           telefone: phone,
           email: email || "",
@@ -32607,11 +37397,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         console.warn(`\u26A0\uFE0F [CRIAR ALUNO PEC] Data de nascimento ausente \u2014 CPF: "${studentData.cpf}"`);
         return res.status(400).json({ error: "A data de nascimento \xE9 obrigat\xF3ria." });
       }
-      const cpfLimpo = studentData.cpf.replace(/\D/g, "");
-      const existingAluno = await db.select({ cpf: aluno.cpf }).from(aluno).where(eq9(aluno.cpf, cpfLimpo)).limit(1);
-      if (existingAluno.length > 0) {
-        console.warn(`\u26A0\uFE0F [CRIAR ALUNO PEC] CPF duplicado detectado \u2014 CPF: "${cpfLimpo}" j\xE1 existe na tabela aluno`);
-        return res.status(409).json({ error: `CPF ${cpfLimpo} j\xE1 est\xE1 cadastrado no sistema. Acesse o perfil existente para editar ou utilize a busca para localiz\xE1-lo.` });
+      const cpfLimpo = normalizeCpfDigits2(studentData.cpf);
+      const existingAluno = await storage.getAluno(cpfLimpo);
+      if (existingAluno) {
+        console.warn(`\u26A0\uFE0F [CRIAR ALUNO PEC] CPF duplicado detectado \u2014 CPF: "${cpfLimpo}" j\xE1 existe na tabela aluno (${existingAluno.nome_completo})`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} j\xE1 est\xE1 cadastrado no sistema para "${existingAluno.nome_completo}". Acesse o perfil existente para editar ou utilize a busca para localiz\xE1-lo.` });
       }
       if (!studentData.professorId || studentData.professorId === 0) {
         studentData.professorId = null;
@@ -32629,7 +37419,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             nome: studentData.nome_completo,
             telefone: studentData.telefone,
             email: studentData.email,
-            cpf: studentData.cpf,
+            cpf: cpfLimpo,
             tipo: "aluno",
             fonte: "educacao"
           });
@@ -32638,7 +37428,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           console.error("\u26A0\uFE0F [CRIAR ALUNO PEC] Erro na consolida\xE7\xE3o do aluno (cadastro continuou):", error);
         }
       }
-      const novoAluno = await storage.createAluno(studentData);
+      const novoAluno = await storage.createAluno({ ...studentData, cpf: cpfLimpo });
       console.log(`\u2705 [CRIAR ALUNO PEC] Aluno criado com sucesso \u2014 CPF: "${novoAluno.cpf}", ID: ${novoAluno.id}`);
       try {
         const fr = app2._firePushRulesByTrigger;
@@ -32853,6 +37643,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const area = req.query.area;
       const status = req.query.status ?? "ativos";
+      const programaRaw = String(req.query.programa || "grito").toLowerCase();
+      const programa = ["grito", "pec", "inclusao"].includes(programaRaw) ? programaRaw : "grito";
       const includeTurmas = req.query.includeTurmas === "true" || req.query.includeTurmas === "1";
       if (area && area !== "pec" && area !== "inclusao") {
         return res.status(400).json({ error: "Invalid area. Use 'pec' or 'inclusao'." });
@@ -32860,7 +37652,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!["ativos", "inativos", "todos"].includes(status)) {
         return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
       }
-      const students = await storage.getAllAlunos({ area, status });
+      const students = await storage.getAllAlunos({ area, status, programa });
       const turmasByCpf = /* @__PURE__ */ new Map();
       if (includeTurmas) {
         const enrollmentRows = await db.select({
@@ -32889,12 +37681,16 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           id: s.cpf,
           cpf: s.cpf,
           nome: s.nome_completo,
+          nome_completo: s.nome_completo,
           telefone: s.telefone || s.whatsapp || null,
           situacao_atendimento: s.situacao_atendimento ?? "ativo",
           area: s.area || null,
           createdAt: s.createdAt,
           foto_perfil: s.foto_perfil || null,
           data_nascimento: s.data_nascimento || null,
+          programas: Array.isArray(s.programas) ? s.programas : [],
+          temPec: s.temPec === true,
+          temInclusao: s.temInclusao === true,
           ...includeTurmas ? { turmas: turmasByCpf.get(cpfNorm) || [] } : {}
         };
       });
@@ -32923,28 +37719,28 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const studentData = req.body;
       console.log(`\u{1F4DD} [PUT /api/students/${cpf}] Atualizando aluno...`);
       const updated = await storage.updateAluno(cpf, studentData);
-      if (!updated) {
-        return res.status(404).json({ error: "Aluno n\xE3o encontrado" });
-      }
       console.log(`\u2705 [PUT /api/students/${cpf}] Aluno atualizado com sucesso`);
       res.json(updated);
     } catch (error) {
+      if (error?.message === "Aluno n\xE3o encontrado") {
+        return res.status(404).json({ error: "Aluno n\xE3o encontrado" });
+      }
       console.error("Error updating student:", error);
       res.status(500).json({ error: "Erro ao atualizar aluno" });
     }
   });
-  const onlyDigits3 = (v) => String(v ?? "").replace(/\D/g, "");
+  const onlyDigits4 = (v) => String(v ?? "").replace(/\D/g, "");
   app2.patch("/api/students/:cpf/inativar", async (req, res) => {
     try {
       const { cpf } = req.params;
       console.log(`\u{1F512} [PATCH /api/students/${cpf}/inativar] Inativando aluno...`);
-      const updated = await storage.updateAluno(cpf, { situacao_atendimento: "inativo" });
-      if (!updated) {
+      const updated = await storage.inativarAluno(cpf);
+      console.log(`\u2705 [PATCH /api/students/${cpf}/inativar] Aluno inativado com sucesso`);
+      res.json({ success: true, message: "Aluno inativado com sucesso", aluno: updated });
+    } catch (error) {
+      if (error?.message === "Aluno n\xE3o encontrado") {
         return res.status(404).json({ error: "Aluno n\xE3o encontrado" });
       }
-      console.log(`\u2705 [PATCH /api/students/${cpf}/inativar] Aluno inativado com sucesso`);
-      res.json({ success: true, message: "Aluno inativado com sucesso" });
-    } catch (error) {
       console.error("Error inactivating student:", error);
       res.status(500).json({ error: "Erro ao inativar aluno" });
     }
@@ -32953,13 +37749,13 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const { cpf } = req.params;
       console.log(`\u{1F513} [PATCH /api/students/${cpf}/reativar] Reativando aluno...`);
-      const updated = await storage.updateAluno(cpf, { situacao_atendimento: "ativo" });
-      if (!updated) {
+      const updated = await storage.reativarAluno(cpf);
+      console.log(`\u2705 [PATCH /api/students/${cpf}/reativar] Aluno reativado com sucesso`);
+      res.json({ success: true, message: "Aluno reativado com sucesso", aluno: updated });
+    } catch (error) {
+      if (error?.message === "Aluno n\xE3o encontrado") {
         return res.status(404).json({ error: "Aluno n\xE3o encontrado" });
       }
-      console.log(`\u2705 [PATCH /api/students/${cpf}/reativar] Aluno reativado com sucesso`);
-      res.json({ success: true, message: "Aluno reativado com sucesso" });
-    } catch (error) {
       console.error("Error reactivating student:", error);
       res.status(500).json({ error: "Erro ao reativar aluno" });
     }
@@ -34261,7 +39057,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/monitor/pec/alunos", requireAuth, requireMonitor, async (req, res) => {
     try {
       console.log(`\u{1F4DA} [MONITOR PEC] Listando todos os alunos`);
-      const students = await storage.getAllAlunos();
+      const students = await storage.getAllAlunos({ area: "pec", status: "todos" });
       console.log(`\u2705 [MONITOR PEC] ${students.length} alunos encontrados`);
       res.json(students);
     } catch (error) {
@@ -34287,10 +39083,10 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         console.warn(`\u26A0\uFE0F [MONITOR PEC] Data de nascimento ausente \u2014 Monitor ID ${user2.id}, CPF: "${cpfLimpo}"`);
         return res.status(400).json({ error: "A data de nascimento do aluno \xE9 obrigat\xF3ria." });
       }
-      const existingAluno = await db.select({ cpf: aluno.cpf, nome: aluno.nome_completo }).from(aluno).where(eq9(aluno.cpf, cpfLimpo)).limit(1);
-      if (existingAluno.length > 0) {
-        console.warn(`\u26A0\uFE0F [MONITOR PEC] CPF duplicado \u2014 CPF: "${cpfLimpo}" j\xE1 cadastrado para "${existingAluno[0].nome}"`);
-        return res.status(409).json({ error: `CPF ${cpfLimpo} j\xE1 est\xE1 cadastrado para "${existingAluno[0].nome}". Acesse o perfil existente para editar ou utilize a busca para localiz\xE1-lo.` });
+      const existingAluno = await storage.getAluno(cpfLimpo);
+      if (existingAluno) {
+        console.warn(`\u26A0\uFE0F [MONITOR PEC] CPF duplicado \u2014 CPF: "${cpfLimpo}" j\xE1 cadastrado para "${existingAluno.nome_completo}"`);
+        return res.status(409).json({ error: `CPF ${cpfLimpo} j\xE1 est\xE1 cadastrado para "${existingAluno.nome_completo}". Acesse o perfil existente para editar ou utilize a busca para localiz\xE1-lo.` });
       }
       if (studentData.telefone && studentData.nome_completo) {
         try {
@@ -34331,22 +39127,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/monitor/inclusao/participantes", requireAuth, requireMonitor, async (req, res) => {
     try {
       console.log(`\u{1F4DA} [MONITOR INCLUS\xC3O] Listando todos os participantes`);
-      const participantes = await db.select({
-        id: participantesInclusao.id,
-        nome: participantesInclusao.nome,
-        nomeCompleto: participantesInclusao.nome,
-        cpf: participantesInclusao.cpf,
-        email: participantesInclusao.email,
-        telefone: participantesInclusao.telefone,
-        genero: participantesInclusao.genero,
-        idade: participantesInclusao.idade,
-        status: participantesInclusao.status,
-        programaAtual: participantesInclusao.programaAtual,
-        createdAt: participantesInclusao.createdAt
-      }).from(participantesInclusao).orderBy(asc2(participantesInclusao.nome));
+      const participantes = await storage.getAllParticipantes({ status: "todos" });
       const linkedResult = await db.execute(sql4`SELECT DISTINCT participante_id FROM participantes_turmas`);
       const linkedIds = new Set((linkedResult.rows || []).map((r) => Number(r.participante_id)));
-      const participantesComFlag = participantes.map((p) => ({ ...p, hasTurma: linkedIds.has(p.id) }));
+      const participantesComFlag = participantes.map((p) => ({
+        id: p.id,
+        nome: p.nome,
+        nomeCompleto: p.nome,
+        cpf: p.cpf,
+        email: p.email,
+        telefone: p.telefone,
+        genero: p.genero,
+        dataNascimento: p.dataNascimento,
+        idade: p.idade,
+        status: p.status,
+        programaAtual: p.programaAtual,
+        createdAt: p.createdAt,
+        hasTurma: p.id != null && linkedIds.has(Number(p.id))
+      }));
       console.log(`\u2705 [MONITOR INCLUS\xC3O] ${participantes.length} participantes encontrados`);
       res.json(participantesComFlag);
     } catch (error) {
@@ -34541,10 +39339,14 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         inclusaoId: monitorParticipantes.inclusaoParticipanteId,
         inclusaoNome: participantesInclusao.nome,
         inclusaoPrograma: participantesInclusao.programaAtual,
-        // PEC
+        inclusaoCpf: participantesInclusao.cpf,
+        // PEC / mestre
+        atendidoCpf: monitorParticipantes.atendidoCpf,
         pecCpf: monitorParticipantes.pecAlunoCpf,
         pecNome: aluno.nome_completo,
         pecMatricula: aluno.numero_matricula,
+        mestreNome: atendidosGrito.nomeCompleto,
+        mestreMatricula: atendidosGrito.numeroMatricula,
         // Acompanhamento
         observacoesPrivadas: monitorParticipantes.observacoesPrivadas,
         acompanhamentoStatus: monitorParticipantes.acompanhamentoStatus,
@@ -34554,16 +39356,21 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         eq9(monitorParticipantes.inclusaoParticipanteId, participantesInclusao.id)
       ).leftJoin(
         aluno,
-        eq9(monitorParticipantes.pecAlunoCpf, aluno.cpf)
+        sql4`REGEXP_REPLACE(COALESCE(${aluno.cpf}, ''), '[^0-9]', '', 'g') = REGEXP_REPLACE(COALESCE(${monitorParticipantes.atendidoCpf}, ${monitorParticipantes.pecAlunoCpf}, ''), '[^0-9]', '', 'g')`
+      ).leftJoin(
+        atendidosGrito,
+        eq9(monitorParticipantes.atendidoCpf, atendidosGrito.cpf)
       ).where(and2(...filters));
       const alunosNormalizados = alunosData.map((row) => {
         const isPec = row.programType === "pec";
+        const cpfUnificado = row.atendidoCpf || row.pecCpf || null;
         return {
           id: row.id,
           programType: row.programType,
-          studentId: isPec ? row.pecCpf : row.inclusaoId,
-          nome: isPec ? row.pecNome : row.inclusaoNome,
-          grupo: isPec ? row.pecMatricula : row.inclusaoPrograma,
+          studentId: isPec ? cpfUnificado || row.pecCpf : row.inclusaoId,
+          atendidoCpf: cpfUnificado,
+          nome: isPec ? row.mestreNome || row.pecNome : row.mestreNome || row.inclusaoNome,
+          grupo: isPec ? row.mestreMatricula || row.pecMatricula : row.inclusaoPrograma,
           observacoesPrivadas: row.observacoesPrivadas,
           acompanhamentoStatus: row.acompanhamentoStatus,
           ultimaInteracao: row.ultimaInteracao,
@@ -34642,18 +39449,56 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!access.allowed) {
         return res.status(403).json({ error: "Acesso negado" });
       }
-      const { participanteId } = req.body;
-      const existing = await db.select().from(monitorParticipantes).where(eq9(monitorParticipantes.participanteId, participanteId)).limit(1);
-      if (existing.length > 0) {
-        return res.status(400).json({ error: "Participante j\xE1 atribu\xEDdo" });
+      const {
+        participanteId,
+        inclusaoParticipanteId,
+        pecAlunoCpf,
+        programType: programTypeBody
+      } = req.body || {};
+      const inclusaoIdRaw = inclusaoParticipanteId ?? participanteId ?? null;
+      const inclusaoId = inclusaoIdRaw != null ? parseInt(String(inclusaoIdRaw), 10) : null;
+      const pecCpfRaw = pecAlunoCpf ? String(pecAlunoCpf) : null;
+      const programType = programTypeBody === "pec" || programTypeBody === "inclusao" ? programTypeBody : pecCpfRaw ? "pec" : "inclusao";
+      if (programType === "pec" && !pecCpfRaw) {
+        return res.status(400).json({ error: "pecAlunoCpf \xE9 obrigat\xF3rio para programa PEC" });
+      }
+      if (programType === "inclusao" && (!inclusaoId || Number.isNaN(inclusaoId))) {
+        return res.status(400).json({ error: "inclusaoParticipanteId \xE9 obrigat\xF3rio para Inclus\xE3o" });
+      }
+      let atendidoCpf = null;
+      if (programType === "pec") {
+        atendidoCpf = await resolveAtendidoCpfIfExists(pecCpfRaw);
+        const existing = await db.select().from(monitorParticipantes).where(and2(
+          eq9(monitorParticipantes.monitorUserId, monitorId),
+          or3(
+            eq9(monitorParticipantes.pecAlunoCpf, pecCpfRaw),
+            eq9(monitorParticipantes.atendidoCpf, normalizeCpfDigits2(pecCpfRaw))
+          )
+        )).limit(1);
+        if (existing.length > 0) {
+          return res.status(400).json({ error: "Participante j\xE1 atribu\xEDdo" });
+        }
+      } else {
+        const part = await db.select({ cpf: participantesInclusao.cpf }).from(participantesInclusao).where(eq9(participantesInclusao.id, inclusaoId)).limit(1);
+        atendidoCpf = await resolveAtendidoCpfIfExists(part[0]?.cpf);
+        const existing = await db.select().from(monitorParticipantes).where(and2(
+          eq9(monitorParticipantes.monitorUserId, monitorId),
+          eq9(monitorParticipantes.inclusaoParticipanteId, inclusaoId)
+        )).limit(1);
+        if (existing.length > 0) {
+          return res.status(400).json({ error: "Participante j\xE1 atribu\xEDdo" });
+        }
       }
       const newAssignment = await db.insert(monitorParticipantes).values({
         monitorUserId: monitorId,
-        participanteId,
+        programType,
+        inclusaoParticipanteId: programType === "inclusao" ? inclusaoId : null,
+        pecAlunoCpf: programType === "pec" ? pecCpfRaw : null,
+        atendidoCpf,
         acompanhamentoStatus: "ativo",
         observacoesPrivadas: ""
       }).returning();
-      console.log(`[RBAC MONITOR] Aluno ${participanteId} atribuido ao monitor ${monitorId}`);
+      console.log(`[RBAC MONITOR] Atribu\xEDdo ao monitor ${monitorId} (${programType}) atendido=${atendidoCpf || "sem-mestre"}`);
       res.json(newAssignment[0]);
     } catch (error) {
       console.error("Error assigning aluno:", error);
@@ -34673,8 +39518,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         nome: participantesInclusao.nome,
         grupo: participantesInclusao.programaAtual
       }).from(participantesInclusao).orderBy(participantesInclusao.nome);
-      const assignedIds = await db.select({ id: monitorParticipantes.participanteId }).from(monitorParticipantes).where(eq9(monitorParticipantes.monitorUserId, monitorId));
-      const assignedSet = new Set(assignedIds.map((a) => a.id));
+      const assignedIds = await db.select({ id: monitorParticipantes.inclusaoParticipanteId }).from(monitorParticipantes).where(and2(
+        eq9(monitorParticipantes.monitorUserId, monitorId),
+        eq9(monitorParticipantes.programType, "inclusao")
+      ));
+      const assignedSet = new Set(assignedIds.map((a) => a.id).filter((id) => id != null));
       const available = allParticipantes.filter((p) => !assignedSet.has(p.id));
       res.json(available);
     } catch (error) {
@@ -34786,7 +39634,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           turmaId: session2.activity_instance_id
         });
       }
-      const dataConverted = req.body.data ? new Date(req.body.data) : void 0;
+      const rawData = req.body.data;
+      const dataConverted = rawData ? /^\d{4}-\d{2}-\d{2}$/.test(String(rawData)) ? /* @__PURE__ */ new Date(`${rawData}T12:00:00`) : new Date(rawData) : void 0;
       const contexto = req.query.contexto || req.body.contexto;
       const validated = insertAtividadeMonitorSchema.parse({
         ...req.body,
@@ -35444,32 +40293,30 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         return res.status(403).json({ error: "Acesso negado" });
       }
       const { participanteId, participanteCpf, participanteTipo } = req.body;
-      alunoTurma, monitorPerfis;
       if (participanteTipo === "inclusao") {
-        if (!participanteId) {
-          return res.status(400).json({ error: "participanteId \xE9 obrigat\xF3rio para Inclus\xE3o" });
+        const cpfInclusao = req.body.cpf || req.body.participanteCpf || participanteCpf;
+        let cpfCanonico = cpfInclusao ? String(cpfInclusao).replace(/\D/g, "") : "";
+        if ((!cpfCanonico || cpfCanonico.length !== 11) && participanteId) {
+          const part = await storage.getParticipanteById(Number(participanteId));
+          if (part?.cpf) cpfCanonico = String(part.cpf).replace(/\D/g, "");
+        }
+        if (!cpfCanonico || cpfCanonico.length !== 11) {
+          return res.status(400).json({ error: "cpf \xE9 obrigat\xF3rio para Inclus\xE3o (cadastro unificado)" });
         }
         const turma2 = await db.select().from(turmasInclusao).where(eq9(turmasInclusao.id, grupoId)).limit(1);
         if (!turma2.length) {
           return res.status(404).json({ error: "Turma n\xE3o encontrada" });
         }
-        const existing = await db.select().from(participantesTurmas).where(and2(
-          eq9(participantesTurmas.turmaId, grupoId),
-          eq9(participantesTurmas.participanteId, participanteId)
-        )).limit(1);
-        if (existing.length) {
-          return res.status(400).json({ error: "Participante j\xE1 est\xE1 na turma" });
+        try {
+          const dataIngresso = req.body.dataIngresso || void 0;
+          const result = await storage.addAtendidoCpfToTurmaInclusao(cpfCanonico, grupoId, dataIngresso);
+          console.log(`[RBAC MONITOR] CPF ${cpfCanonico} adicionado \xE0 turma inclus\xE3o ${grupoId}`);
+          return res.json(result);
+        } catch (ensureErr) {
+          return res.status(400).json({
+            error: ensureErr?.message || "N\xE3o foi poss\xEDvel matricular na Inclus\xE3o"
+          });
         }
-        const dataIngresso = req.body.dataIngresso || null;
-        const result = await db.insert(participantesTurmas).values({
-          turmaId: grupoId,
-          participanteId,
-          status: "ativo",
-          ...dataIngresso ? { dataIngresso } : {}
-        }).returning();
-        await syncParticipanteInclusaoStatus(participanteId);
-        console.log(`[RBAC MONITOR] Participante ${participanteId} adicionado \xE0 turma inclus\xE3o ${grupoId}`);
-        return res.json(result[0]);
       }
       if (participanteTipo === "pec") {
         if (!participanteCpf) {
@@ -35479,9 +40326,15 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         if (!turma2.length) {
           return res.status(404).json({ error: "Turma PEC n\xE3o encontrada" });
         }
+        let cpfCanonico;
+        try {
+          cpfCanonico = await storage.ensurePecAlunoFromMaster(String(participanteCpf));
+        } catch (ensureErr) {
+          return res.status(400).json({ error: ensureErr?.message || "N\xE3o foi poss\xEDvel preparar o aluno PEC" });
+        }
         const existing = await db.select().from(instanceEnrollments).where(and2(
           eq9(instanceEnrollments.activity_instance_id, grupoId),
-          eq9(instanceEnrollments.student_cpf, participanteCpf)
+          eq9(instanceEnrollments.student_cpf, cpfCanonico)
         )).limit(1);
         if (existing.length) {
           return res.status(400).json({ error: "Aluno j\xE1 est\xE1 na turma" });
@@ -35489,11 +40342,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         const enrollmentDate = req.body.dataIngresso || null;
         const result = await db.insert(instanceEnrollments).values({
           activity_instance_id: grupoId,
-          student_cpf: participanteCpf,
+          student_cpf: cpfCanonico,
           active: true,
           ...enrollmentDate ? { enrollment_date: enrollmentDate } : {}
         }).returning();
-        console.log(`[RBAC MONITOR] Aluno ${participanteCpf} adicionado \xE0 turma PEC ${grupoId}`);
+        console.log(`[RBAC MONITOR] Aluno ${cpfCanonico} adicionado \xE0 turma PEC ${grupoId}`);
         return res.json(result[0]);
       }
       return res.status(400).json({ error: "participanteTipo inv\xE1lido" });
@@ -35677,18 +40530,31 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!turmaId || !data) {
         return res.status(400).json({ error: "turmaId e data s\xE3o obrigat\xF3rios" });
       }
-      const rows = await db.select({
-        participanteId: presencasInclusao.participanteId,
-        presente: presencasInclusao.presente,
-        observacoes: presencasInclusao.observacoes,
-        justificativa: presencasInclusao.justificativa,
-        nome: participantesInclusao.nome
-      }).from(presencasInclusao).innerJoin(participantesInclusao, eq9(presencasInclusao.participanteId, participantesInclusao.id)).where(and2(
-        eq9(presencasInclusao.turmaId, parseInt(turmaId)),
-        eq9(presencasInclusao.data, data)
-      ));
-      const result = rows.map((r) => ({
+      const rows = await pool.query(
+        `SELECT
+           pr.participante_id AS "participanteId",
+           pr.atendido_cpf AS "atendidoCpf",
+           pr.presente,
+           pr.observacoes,
+           pr.justificativa,
+           COALESCE(pi.nome, ag.nome_completo) AS nome,
+           COALESCE(
+             REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g'),
+             pr.atendido_cpf,
+             ag.cpf
+           ) AS cpf
+         FROM presencas_inclusao pr
+         LEFT JOIN participantes_inclusao pi ON pi.id = pr.participante_id
+         LEFT JOIN atendidos_grito ag ON ag.cpf = COALESCE(
+           pr.atendido_cpf,
+           REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+         )
+         WHERE pr.turma_id = $1 AND pr.data = $2::date`,
+        [parseInt(turmaId), data]
+      );
+      const result = rows.rows.map((r) => ({
         participanteId: r.participanteId,
+        cpf: r.cpf || r.atendidoCpf || void 0,
         nome: r.nome,
         presente: r.presente,
         justificativa: r.justificativa || void 0,
@@ -36070,13 +40936,16 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const insertedPresencas = [];
       for (const p of presencas) {
         let participanteId = p.id || p.participanteId;
-        if (!participanteId && p.alunoCpf) {
-          const found = await db.select({ id: participantesInclusao.id }).from(participantesInclusao).where(eq9(participantesInclusao.cpf, String(p.alunoCpf))).limit(1);
+        const cpfRaw = p.cpf || p.alunoCpf || p.atendidoCpf;
+        const cpfNorm = cpfRaw ? String(cpfRaw).replace(/\D/g, "") : "";
+        if (!participanteId && cpfNorm.length === 11) {
+          const found = await db.select({ id: participantesInclusao.id }).from(participantesInclusao).where(sql4`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpfNorm}`).limit(1);
           if (found[0]) participanteId = found[0].id;
         }
-        if (participanteId) {
+        if (participanteId || cpfNorm.length === 11) {
           const [presenca] = await db.insert(presencasInclusao).values({
-            participanteId: typeof participanteId === "string" ? parseInt(participanteId) : participanteId,
+            participanteId: participanteId ? typeof participanteId === "string" ? parseInt(participanteId) : participanteId : null,
+            atendidoCpf: cpfNorm.length === 11 ? cpfNorm : null,
             turmaId,
             data,
             presente: p.presente || false,
@@ -36197,6 +41066,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             cpf: participantesInclusao.cpf,
             telefone: participantesInclusao.telefone,
             email: participantesInclusao.email,
+            endereco: participantesInclusao.endereco,
             idade: participantesInclusao.idade,
             genero: participantesInclusao.genero,
             status: participantesInclusao.status
@@ -36221,7 +41091,13 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             email: aluno.email,
             genero: aluno.genero,
             data_nascimento: aluno.data_nascimento,
-            situacao: aluno.situacao_atendimento
+            situacao: aluno.situacao_atendimento,
+            logradouro: aluno.logradouro,
+            numero: aluno.numero,
+            complemento: aluno.complemento,
+            bairro: aluno.bairro,
+            cidade: aluno.cidade,
+            estado: aluno.estado
           }).from(aluno).where(or3(
             isNull2(aluno.situacao_atendimento),
             eq9(aluno.situacao_atendimento, "ativo")
@@ -37167,6 +42043,373 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           error: "Erro ao excluir plano",
           message: error.message
         });
+      }
+    }
+  );
+  const PSICO_ACOLHIMENTO_ROLES = [
+    "coordenador_psico",
+    "coordenador",
+    "monitor_psico",
+    "tecnica_psico",
+    "leo",
+    "admin",
+    "super_admin",
+    "dev",
+    "desenvolvedor"
+  ];
+  const requirePsicoAcolhimentos = requireRole(PSICO_ACOLHIMENTO_ROLES);
+  const PSICO_ACOLHIMENTO_STATUS = /* @__PURE__ */ new Set([
+    "agendado",
+    "realizado",
+    "faltou",
+    "cancelado",
+    "reagendado"
+  ]);
+  function normalizeHoraAcolhimento(v) {
+    if (v == null || v === "") return null;
+    const m = String(v).match(/(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    return `${m[1].padStart(2, "0")}:${m[2]}`;
+  }
+  function toPublicAcolhimentoAluno(row) {
+    return {
+      id: row.id,
+      data: row.data,
+      horaInicio: row.horaInicio,
+      horaFim: row.horaFim,
+      local: row.local,
+      profissionalNome: row.profissionalNome,
+      status: row.status
+    };
+  }
+  function monitorOwnsAcolhimento(row, userId2) {
+    return Number(row.profissionalUserId) === userId2 || Number(row.criadoPorUserId) === userId2;
+  }
+  function assertCanManageAcolhimento(req, row) {
+    const role = getUserRoleFromRequest(req.user);
+    if (role !== "monitor_psico") return null;
+    const uid = Number(req.user?.id);
+    if (!Number.isFinite(uid) || !monitorOwnsAcolhimento(row, uid)) {
+      return "Voc\xEA s\xF3 pode alterar acolhimentos que voc\xEA agendou";
+    }
+    return null;
+  }
+  app2.get(
+    "/api/psico/acolhimentos",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const user2 = req.user;
+        const role = getUserRoleFromRequest(user2);
+        const status = typeof req.query.status === "string" ? req.query.status : null;
+        const cpf = normalizeCpfDigits2(req.query.cpf);
+        const conditions = [];
+        if (status && PSICO_ACOLHIMENTO_STATUS.has(status)) {
+          conditions.push(eq9(psicoAcolhimentos.status, status));
+        }
+        if (cpf.length === 11) {
+          conditions.push(eq9(psicoAcolhimentos.alunoCpf, cpf));
+        }
+        if (role === "monitor_psico") {
+          const uid = Number(user2?.id);
+          if (!Number.isFinite(uid) || uid <= 0) {
+            return res.json({ success: true, data: [] });
+          }
+          conditions.push(
+            or3(
+              eq9(psicoAcolhimentos.profissionalUserId, uid),
+              eq9(psicoAcolhimentos.criadoPorUserId, uid)
+            )
+          );
+        }
+        const whereExpr = conditions.length === 0 ? void 0 : conditions.length === 1 ? conditions[0] : and2(...conditions);
+        const rows = whereExpr ? await db.select().from(psicoAcolhimentos).where(whereExpr).orderBy(desc4(psicoAcolhimentos.data), desc4(psicoAcolhimentos.horaInicio)) : await db.select().from(psicoAcolhimentos).orderBy(desc4(psicoAcolhimentos.data), desc4(psicoAcolhimentos.horaInicio));
+        return res.json({ success: true, data: rows });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] list:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao listar" });
+      }
+    }
+  );
+  app2.post(
+    "/api/psico/acolhimentos",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const user2 = req.user;
+        const alunoCpf = normalizeCpfDigits2(req.body?.alunoCpf);
+        const alunoNome = String(req.body?.alunoNome || "").trim();
+        const data = String(req.body?.data || "").split("T")[0];
+        const horaInicio = normalizeHoraAcolhimento(req.body?.horaInicio);
+        const horaFim = normalizeHoraAcolhimento(req.body?.horaFim);
+        const local = req.body?.local ? String(req.body.local).trim() : null;
+        const observacaoInterna = req.body?.observacaoInterna ? String(req.body.observacaoInterna).trim() : null;
+        const profissionalNome = req.body?.profissionalNome && String(req.body.profissionalNome).trim() || user2?.nome || user2?.name || null;
+        const recorrente = Boolean(req.body?.recorrente);
+        const dataFim = req.body?.dataFim ? String(req.body.dataFim).split("T")[0] : null;
+        if (alunoCpf.length !== 11) {
+          return res.status(400).json({ success: false, error: "CPF do aluno inv\xE1lido" });
+        }
+        if (!alunoNome) {
+          return res.status(400).json({ success: false, error: "Nome do aluno obrigat\xF3rio" });
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+          return res.status(400).json({ success: false, error: "Data inv\xE1lida" });
+        }
+        if (!horaInicio) {
+          return res.status(400).json({ success: false, error: "Hor\xE1rio de in\xEDcio obrigat\xF3rio" });
+        }
+        if (recorrente) {
+          if (!dataFim || !/^\d{4}-\d{2}-\d{2}$/.test(dataFim)) {
+            return res.status(400).json({ success: false, error: "Data fim obrigat\xF3ria para recorr\xEAncia" });
+          }
+          if (dataFim < data) {
+            return res.status(400).json({ success: false, error: "Data fim deve ser igual ou posterior \xE0 data in\xEDcio" });
+          }
+        }
+        const datas = [data];
+        if (recorrente && dataFim) {
+          const [y0, m0, d0] = data.split("-").map(Number);
+          const cursor = new Date(y0, m0 - 1, d0, 12, 0, 0);
+          const [yf, mf, df] = dataFim.split("-").map(Number);
+          const fim = new Date(yf, mf - 1, df, 12, 0, 0);
+          while (true) {
+            cursor.setDate(cursor.getDate() + 7);
+            if (cursor > fim) break;
+            const ds = [
+              cursor.getFullYear(),
+              String(cursor.getMonth() + 1).padStart(2, "0"),
+              String(cursor.getDate()).padStart(2, "0")
+            ].join("-");
+            datas.push(ds);
+          }
+        }
+        const base = {
+          alunoCpf,
+          alunoNome,
+          horaInicio,
+          horaFim,
+          local,
+          profissionalUserId: user2?.id ? Number(user2.id) : null,
+          profissionalNome,
+          status: "agendado",
+          observacaoInterna,
+          criadoPorUserId: Number(user2?.id) || 0,
+          criadoPorRole: user2?.papel || user2?.role || null,
+          serieId: recorrente && datas.length > 1 ? `ser_${alunoCpf}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` : null
+        };
+        const created = await db.insert(psicoAcolhimentos).values(datas.map((d) => ({ ...base, data: d }))).returning();
+        try {
+          const fr = app2._firePushRulesByTrigger;
+          if (fr) {
+            await notifyAcolhimentoCriado({
+              pool,
+              fr,
+              alunoCpf,
+              alunoNome,
+              data,
+              horaInicio,
+              local,
+              total: created.length,
+              recorrente: recorrente && created.length > 1,
+              criadoPorUserId: user2?.id ? Number(user2.id) : null,
+              criadoPorNome: profissionalNome
+            });
+          }
+        } catch (pushErr) {
+          console.warn("[PSICO-ACOLHIMENTOS] push create:", pushErr?.message || pushErr);
+        }
+        return res.status(201).json({
+          success: true,
+          data: recorrente ? created : created[0],
+          total: created.length,
+          recorrente
+        });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] create:", error);
+        return res.status(400).json({ success: false, error: error.message || "Erro ao agendar" });
+      }
+    }
+  );
+  app2.patch(
+    "/api/psico/acolhimentos/:id/status",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const status = String(req.body?.status || "");
+        if (!Number.isFinite(id)) {
+          return res.status(400).json({ success: false, error: "ID inv\xE1lido" });
+        }
+        if (!PSICO_ACOLHIMENTO_STATUS.has(status)) {
+          return res.status(400).json({ success: false, error: "Status inv\xE1lido" });
+        }
+        const [existing] = await db.select().from(psicoAcolhimentos).where(eq9(psicoAcolhimentos.id, id)).limit(1);
+        if (!existing) {
+          return res.status(404).json({ success: false, error: "Acolhimento n\xE3o encontrado" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, existing);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+        const [updated] = await db.update(psicoAcolhimentos).set({
+          status,
+          updatedAt: /* @__PURE__ */ new Date(),
+          ...req.body?.registroId != null ? {
+            registroId: Number(req.body.registroId),
+            registroTipo: req.body.registroTipo ? String(req.body.registroTipo) : null
+          } : {}
+        }).where(eq9(psicoAcolhimentos.id, id)).returning();
+        if (!updated) {
+          return res.status(404).json({ success: false, error: "Acolhimento n\xE3o encontrado" });
+        }
+        try {
+          const fr = app2._firePushRulesByTrigger;
+          if (fr) {
+            await notifyAcolhimentoStatusChange({
+              pool,
+              fr,
+              row: {
+                id: updated.id,
+                alunoCpf: updated.alunoCpf,
+                alunoNome: updated.alunoNome,
+                data: String(updated.data),
+                horaInicio: updated.horaInicio,
+                local: updated.local,
+                profissionalUserId: updated.profissionalUserId,
+                status: updated.status
+              },
+              actorUserId: req.user?.id ? Number(req.user.id) : null
+            });
+          }
+        } catch (pushErr) {
+          console.warn("[PSICO-ACOLHIMENTOS] push status:", pushErr?.message || pushErr);
+        }
+        return res.json({ success: true, data: updated });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] status:", error);
+        return res.status(400).json({ success: false, error: error.message || "Erro ao atualizar" });
+      }
+    }
+  );
+  app2.delete(
+    "/api/psico/acolhimentos/:id",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const [existing] = await db.select().from(psicoAcolhimentos).where(eq9(psicoAcolhimentos.id, id)).limit(1);
+        if (!existing) {
+          return res.status(404).json({ success: false, error: "Acolhimento n\xE3o encontrado" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, existing);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+        await db.delete(psicoAcolhimentos).where(eq9(psicoAcolhimentos.id, id));
+        return res.json({ success: true });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] delete:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao excluir" });
+      }
+    }
+  );
+  app2.patch(
+    "/api/psico/acolhimentos/serie/:serieId/cancelar",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const serieId = String(req.params.serieId || "").trim();
+        if (!serieId) return res.status(400).json({ success: false, error: "S\xE9rie inv\xE1lida" });
+        const [sample] = await db.select().from(psicoAcolhimentos).where(eq9(psicoAcolhimentos.serieId, serieId)).limit(1);
+        if (!sample) {
+          return res.status(404).json({ success: false, error: "S\xE9rie n\xE3o encontrada" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, sample);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+        const updated = await db.update(psicoAcolhimentos).set({ status: "cancelado", updatedAt: /* @__PURE__ */ new Date() }).where(
+          and2(
+            eq9(psicoAcolhimentos.serieId, serieId),
+            or3(
+              eq9(psicoAcolhimentos.status, "agendado"),
+              eq9(psicoAcolhimentos.status, "reagendado")
+            )
+          )
+        ).returning();
+        if (updated.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: "Nenhum encontro aberto encontrado nesta s\xE9rie"
+          });
+        }
+        try {
+          const fr = app2._firePushRulesByTrigger;
+          if (fr) {
+            const row = updated[0];
+            const cpf = normalizeCpfDigits2(row.alunoCpf);
+            const vars = {
+              nome: row.alunoNome || "",
+              aluno: row.alunoNome || "",
+              data: String(row.data).split("T")[0],
+              horario: String(row.horaInicio || "").slice(0, 5),
+              local: row.local || "",
+              total: String(updated.length),
+              dedupe_key: `acolhimento_serie_cancel:${serieId}`
+            };
+            const dataBr = vars.data.includes("-") ? vars.data.split("-").reverse().join("/") : vars.data;
+            if (cpf.length === 11) {
+              await fr("acolhimento_cancelado", { ...vars, data: dataBr }, void 0, void 0, cpf);
+            }
+            await fr(
+              "acolhimento_cancelado_staff",
+              { ...vars, data: dataBr },
+              req.user?.id ? String(req.user.id) : void 0
+            );
+          }
+        } catch (pushErr) {
+          console.warn("[PSICO-ACOLHIMENTOS] push serie cancel:", pushErr?.message || pushErr);
+        }
+        return res.json({ success: true, total: updated.length, data: updated });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] serie cancel:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao cancelar s\xE9rie" });
+      }
+    }
+  );
+  app2.delete(
+    "/api/psico/acolhimentos/serie/:serieId",
+    requireAuth,
+    requirePsicoAcolhimentos,
+    async (req, res) => {
+      try {
+        const serieId = String(req.params.serieId || "").trim();
+        if (!serieId) return res.status(400).json({ success: false, error: "S\xE9rie inv\xE1lida" });
+        const [sample] = await db.select().from(psicoAcolhimentos).where(eq9(psicoAcolhimentos.serieId, serieId)).limit(1);
+        if (!sample) {
+          return res.status(404).json({ success: false, error: "S\xE9rie n\xE3o encontrada" });
+        }
+        const forbidden = assertCanManageAcolhimento(req, sample);
+        if (forbidden) return res.status(403).json({ success: false, error: forbidden });
+        const deleted = await db.delete(psicoAcolhimentos).where(
+          and2(
+            eq9(psicoAcolhimentos.serieId, serieId),
+            or3(
+              eq9(psicoAcolhimentos.status, "agendado"),
+              eq9(psicoAcolhimentos.status, "reagendado")
+            )
+          )
+        ).returning();
+        if (deleted.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: "Nenhum encontro aberto encontrado nesta s\xE9rie"
+          });
+        }
+        return res.json({ success: true, total: deleted.length });
+      } catch (error) {
+        console.error("[PSICO-ACOLHIMENTOS] serie delete:", error);
+        return res.status(500).json({ success: false, error: error.message || "Erro ao excluir s\xE9rie" });
       }
     }
   );
@@ -39366,6 +44609,10 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     const message = e instanceof Error ? e.message : String(e);
     console.error("[meus-dados] Erro ao criar tabelas LGPD:", message);
   });
+  void ensureCatracaOfflinePushRule(pool).catch((e) => {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[Push] ensureCatracaOfflinePushRule:", message);
+  });
   void ensureStaffAreaConsentsTable().catch((e) => {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[staff_area_consents] Erro ao criar tabela:", message);
@@ -40215,7 +45462,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       let ok = false;
       if (looksLikeBcrypt) {
         try {
-          ok = await bcrypt.compare(senha, saved);
+          ok = await bcrypt2.compare(senha, saved);
         } catch (bcryptError) {
           console.error(
             `\u274C [DEV LOGIN DEBUG] Erro no bcrypt.compare:`,
@@ -40237,7 +45484,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         req.session.telefone = devUser.usuario;
         req.session.userId = devUser.id;
         req.session.nome = devUser.nome;
-        await new Promise((resolve2, reject) => {
+        await new Promise((resolve3, reject) => {
           req.session.save((err) => {
             if (err) {
               console.error("[DEV LOGIN] Erro ao salvar sess\xE3o:", err);
@@ -40249,7 +45496,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
                 tipo: devUser.tipo,
                 sessionID: req.sessionID
               });
-              resolve2();
+              resolve3();
             }
           });
         });
@@ -40313,11 +45560,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         if (!devUser) {
           return res.status(404).json({ error: "Desenvolvedor n\xE3o encontrado" });
         }
-        const senhaValida = await bcrypt.compare(senhaAtual, devUser.senha);
+        const senhaValida = await bcrypt2.compare(senhaAtual, devUser.senha);
         if (!senhaValida) {
           return res.status(401).json({ error: "Senha atual incorreta" });
         }
-        const hashedPassword = await bcrypt.hash(novaSenha, 10);
+        const hashedPassword = await bcrypt2.hash(novaSenha, 10);
         await db.execute(
           sql4`UPDATE developers SET senha = ${hashedPassword} WHERE id = ${developerId}`
         );
@@ -40411,7 +45658,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
       const coord = coordenador[0];
-      const senhaValida = await bcrypt.compare(senha, coord.passwordHash);
+      const senhaValida = await bcrypt2.compare(senha, coord.passwordHash);
       if (!senhaValida) {
         console.log(`\u274C [COORD LOGIN] Senha incorreta para: ${email}`);
         const _cnt = (_failedLoginAttempts.get(email) || 0) + 1;
@@ -40487,7 +45734,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         );
         if (typeof sess.save === "function") {
           await new Promise(
-            (resolve2, reject) => sess.save((err) => err ? reject(err) : resolve2())
+            (resolve3, reject) => sess.save((err) => err ? reject(err) : resolve3())
           );
         }
       } else {
@@ -40554,7 +45801,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (emailExisting.length > 0 && emailExisting[0].id !== coordenadorId2) {
         return res.status(409).json({ error: "Este email j\xE1 est\xE1 em uso" });
       }
-      const novoHash = await bcrypt.hash(novaSenha, 10);
+      const novoHash = await bcrypt2.hash(novaSenha, 10);
       await db.update(coordenadores).set({
         email: novoEmail.toLowerCase().trim(),
         passwordHash: novoHash,
@@ -40995,7 +46242,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           formados = Number(formadosResult.rows?.[0]?.formados_cnt || 0);
           const evasaoDateFilter = sql4`AND EXTRACT(YEAR FROM ev.data_desligamento) = ${ano} AND EXTRACT(MONTH FROM ev.data_desligamento) BETWEEN ${mesInicio} AND ${mesFim}`;
           const evasaoResult = await db.execute(sql4`
-          SELECT COUNT(*)::int AS evasao_cnt
+          SELECT COUNT(DISTINCT ev.participante_id)::int AS evasao_cnt
           FROM inclusao_evasoes ev
           WHERE ev.revertido_em IS NULL
           ${evasaoDateFilter}
@@ -41012,7 +46259,20 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           }
         }
         const horasAula = await getHorasAulaInclusao2026([mesInicio, mesFim], ano);
-        const evasao = formados + evasaoCount > 0 ? Math.round(evasaoCount / (formados + evasaoCount) * 100) : total > 0 ? Math.round(inativos / total * 100) : 0;
+        const endDateInc = buildPecEndDateRef([mesInicio, mesFim], ano);
+        let totalMatriculasInc = 0;
+        try {
+          const matRes = await pool.query(
+            `SELECT COUNT(DISTINCT pt.participante_id)::int AS cnt
+             FROM participantes_turmas pt
+             WHERE COALESCE(pt.data_inscricao, pt.created_at)::date <= $1::date`,
+            [endDateInc]
+          );
+          totalMatriculasInc = Number(matRes.rows?.[0]?.cnt || 0);
+        } catch (e) {
+          console.error("Error fetching matriculas inclusao:", e);
+        }
+        const evasao = totalMatriculasInc > 0 ? Math.round(evasaoCount / totalMatriculasInc * 100) : 0;
         let totalPresencasInclusao = 0;
         try {
           const presDateFilter = `AND EXTRACT(YEAR FROM pi.data) = ${ano} AND EXTRACT(MONTH FROM pi.data) BETWEEN ${mesInicio} AND ${mesFim}`;
@@ -41358,11 +46618,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           return res.status(404).json({ error: "Coordenador n\xE3o encontrado" });
         }
         const coord = coordData[0];
-        const senhaValida = await bcrypt.compare(senhaAtual, coord.passwordHash);
+        const senhaValida = await bcrypt2.compare(senhaAtual, coord.passwordHash);
         if (!senhaValida) {
           return res.status(401).json({ error: "Senha atual incorreta" });
         }
-        const novoHash = bcrypt.hashSync(novaSenha, 10);
+        const novoHash = bcrypt2.hashSync(novaSenha, 10);
         await db.update(coordenadores).set({ passwordHash: novoHash }).where(eq9(coordenadores.id, coordenadorId2));
         console.log(`\u2705 [COORD SENHA] Senha alterada: coordId=${coordenadorId2}`);
         const coordUserId = await resolveUsersIdByCoordenadorId(pool, coordenadorId2);
@@ -41482,6 +46742,49 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     updated_at TIMESTAMP DEFAULT NOW()
   )`).catch(() => {
   });
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS psico_atendidos_comunidade_cpf_real_uidx
+    ON psico_atendidos_comunidade (regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g'))
+    WHERE cpf IS NOT NULL
+      AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') ~ '^[0-9]{11}$'
+      AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') !~ '^0{8}[0-9]{3}$'
+  `).catch((err) => {
+    console.warn("\u26A0\uFE0F \xCDndice \xFAnico CPF comunidade:", err?.message || err);
+  });
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS psico_acolhimentos (
+      id SERIAL PRIMARY KEY,
+      aluno_cpf VARCHAR(11) NOT NULL,
+      aluno_nome VARCHAR(200) NOT NULL,
+      data DATE NOT NULL,
+      hora_inicio VARCHAR(8) NOT NULL,
+      hora_fim VARCHAR(8),
+      local TEXT,
+      profissional_user_id INTEGER REFERENCES users(id),
+      profissional_nome TEXT,
+      status VARCHAR(30) NOT NULL DEFAULT 'agendado',
+      observacao_interna TEXT,
+      registro_id INTEGER,
+      registro_tipo VARCHAR(40),
+      criado_por_user_id INTEGER NOT NULL,
+      criado_por_role VARCHAR(50),
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+    )
+  `).catch((err) => {
+    console.warn("\u26A0\uFE0F psico_acolhimentos:", err?.message || err);
+  });
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_cpf ON psico_acolhimentos (aluno_cpf)`).catch(() => {
+  });
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_data ON psico_acolhimentos (data)`).catch(() => {
+  });
+  await pool.query(`ALTER TABLE psico_acolhimentos ADD COLUMN IF NOT EXISTS serie_id VARCHAR(64)`).catch(() => {
+  });
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_psico_acolhimentos_serie ON psico_acolhimentos (serie_id)`).catch(() => {
+  });
+  await ensureAcolhimentoPushRules(pool).catch((err) => {
+    console.warn("\u26A0\uFE0F ensureAcolhimentoPushRules:", err?.message || err);
+  });
   app2.get(
     "/api/coordenador/professores",
     requireAuth,
@@ -41538,7 +46841,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         if (existing.rows.length > 0) {
           return res.status(400).json({ error: "J\xE1 existe um professor com este email neste programa" });
         }
-        const passwordHash = await bcrypt.hash(senha, 10);
+        const passwordHash = await bcrypt2.hash(senha, 10);
         const redirectPath = programa === "pec" ? "/professor/pec" : "/professor/inclusao";
         const result = await pool.query(
           `INSERT INTO professores (nome, email, password_hash, programa, redirect_path, ativo)
@@ -41617,7 +46920,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         }
         const prof = await pool.query("SELECT id FROM professores WHERE id = $1", [professorId]);
         if (!prof.rows.length) return res.status(404).json({ error: "Professor n\xE3o encontrado" });
-        const passwordHash = await bcrypt.hash(novaSenha, 10);
+        const passwordHash = await bcrypt2.hash(novaSenha, 10);
         await pool.query("UPDATE professores SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [passwordHash, professorId]);
         console.log(`\u2705 [COORDENADOR] Senha do professor alterada: id=${professorId}`);
         const profUserId = await resolveUsersIdByProfessorId(pool, professorId);
@@ -41777,7 +47080,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         console.log(`\u274C [MONITOR LOGIN] Monitor sem passwordHash: ${normalizedEmail}`);
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
-      const senhaValida = await bcrypt.compare(senha, monitor.passwordHash);
+      const senhaValida = await bcrypt2.compare(senha, monitor.passwordHash);
       if (!senhaValida) {
         console.log(`\u274C [MONITOR LOGIN] Senha incorreta para: ${normalizedEmail}`);
         const _cnt = (_failedLoginAttempts.get(normalizedEmail) || 0) + 1;
@@ -41839,8 +47142,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log(
         `\u{1F510} [MONITOR SESSION] Sess\xE3o criada: userId=${userId2} role=${role} monitorId=${monitor.id}`
       );
-      await new Promise((resolve2, reject) => {
-        req.session.save((err) => err ? reject(err) : resolve2());
+      await new Promise((resolve3, reject) => {
+        req.session.save((err) => err ? reject(err) : resolve3());
       });
       let redirectPath = "/monitor";
       if (role === "monitor_pec") redirectPath = "/monitor/pec";
@@ -41894,7 +47197,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         console.log(`\u274C [PROFESSOR LOGIN] Professor desativado: ${emailNorm}`);
         return res.status(401).json({ error: "Email ou senha incorretos" });
       }
-      const senhaValida = await bcrypt.compare(senha.trim(), professor.password_hash);
+      const senhaValida = await bcrypt2.compare(senha.trim(), professor.password_hash);
       if (!senhaValida) {
         console.log(`\u274C [PROFESSOR LOGIN] Senha incorreta: ${emailNorm}`);
         const _cnt = (_failedLoginAttempts.get(emailNorm) || 0) + 1;
@@ -41949,8 +47252,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log(
         `\u{1F510} [PROFESSOR SESSION] Sess\xE3o criada: userId=${userId2} role=${role} professorId=${professor.id}`
       );
-      await new Promise((resolve2, reject) => {
-        req.session.save((err) => err ? reject(err) : resolve2());
+      await new Promise((resolve3, reject) => {
+        req.session.save((err) => err ? reject(err) : resolve3());
       });
       return res.json({
         success: true,
@@ -41991,7 +47294,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       }
       let senhaValida = false;
       if (dev.senha.startsWith("$2a$") || dev.senha.startsWith("$2b$") || dev.senha.startsWith("$2y$")) {
-        senhaValida = await bcrypt.compare(senha, dev.senha);
+        senhaValida = await bcrypt2.compare(senha, dev.senha);
       } else {
         senhaValida = senha === dev.senha;
       }
@@ -42055,8 +47358,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log(
         `\u2705 [DEV LOGIN] Sess\xE3o criada para ${dev.nome} (devId=${dev.id}, userId=${userId2}, role=${devRole})`
       );
-      await new Promise((resolve2, reject) => {
-        session2.save((err) => err ? reject(err) : resolve2());
+      await new Promise((resolve3, reject) => {
+        session2.save((err) => err ? reject(err) : resolve3());
       });
       res.json({
         success: true,
@@ -42128,7 +47431,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           return res.status(404).json({ error: "Monitor n\xE3o encontrado" });
         }
         const monitor = monitorResult[0];
-        const senhaValida = await bcrypt.compare(
+        const senhaValida = await bcrypt2.compare(
           senhaAtual,
           monitor.passwordHash
         );
@@ -42138,7 +47441,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           );
           return res.status(401).json({ error: "Senha atual incorreta" });
         }
-        const novoHash = bcrypt.hashSync(novaSenha, 10);
+        const novoHash = bcrypt2.hashSync(novaSenha, 10);
         await db.update(monitores).set({ passwordHash: novoHash }).where(eq9(monitores.id, monitor.id));
         console.log(
           `\u2705 \u{1F511} [MONITOR SENHA] Senha alterada com sucesso para monitor ${monitor.nome} (${monitor.email}), timestamp=${(/* @__PURE__ */ new Date()).toISOString()}`
@@ -44658,77 +49961,88 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   });
-  app2.post("/api/beneficios/upload-image", requireAuth, requireAdmin, (req, res) => {
-    secureUpload.single("image")(req, res, async (err) => {
-      if (err) {
-        console.error("\u274C [BENEFIT IMAGE] Erro no upload:", err.message);
-        if (err.message?.includes("Formato n\xE3o permitido")) {
-          return res.status(400).json({
-            error: "Formato de arquivo n\xE3o suportado",
-            details: "Por favor, use apenas arquivos JPEG, PNG ou WEBP"
-          });
-        }
-        if (err.message?.includes("Extens\xE3o")) {
-          return res.status(400).json({
-            error: "Extens\xE3o de arquivo n\xE3o permitida",
-            details: "Use apenas .jpg, .jpeg, .png ou .webp"
-          });
-        }
-        if (err.code === "LIMIT_FILE_SIZE") {
-          return res.status(400).json({
-            error: "Arquivo muito grande",
-            details: "Tamanho m\xE1ximo permitido: 5MB"
-          });
-        }
-        return res.status(400).json({ error: "Erro no upload", details: err.message });
-      }
-      try {
-        if (!req.file) {
-          return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
-        }
-        console.log(`\u{1F4E4} [BENEFIT IMAGE] Fazendo upload para GCS...`);
-        const timestamp2 = Date.now();
-        const randomString = Math.random().toString(36).slice(2, 10);
-        const fileName = `beneficios-${timestamp2}-${randomString}`;
-        const fileBuffer = req.file.buffer ?? fs2.readFileSync(req.file.path);
-        const objectPath = await uploadToGCS(
-          fileBuffer,
-          fileName,
-          req.file.mimetype
-        );
-        console.log(
-          `\u2705 [BENEFIT IMAGE] Upload conclu\xEDdo no GCS: ${objectPath}`
-        );
-        const previewUrl = await getSignedUrl(objectPath, 15);
-        if (req.file.path && fs2.existsSync(req.file.path)) {
-          try {
-            fs2.unlinkSync(req.file.path);
-          } catch {
+  app2.post(
+    "/api/beneficios/upload-image",
+    requireAuth,
+    requireRole(["admin", "dev", "desenvolvedor", "dev-marketing"]),
+    (req, res) => {
+      secureUpload.single("image")(req, res, async (err) => {
+        if (err) {
+          console.error("\u274C [BENEFIT IMAGE] Erro no upload:", err.message);
+          if (err.message?.includes("Formato n\xE3o permitido")) {
+            return res.status(400).json({
+              error: "Formato de arquivo n\xE3o suportado",
+              details: "Por favor, use apenas arquivos JPEG, PNG ou WEBP"
+            });
           }
-        }
-        return res.json({
-          objectPath,
-          // ✅ CHAVE no bucket (salvar no banco)
-          previewUrl,
-          // ✅ URL assinada para <img> no modal
-          imageUrl: objectPath,
-          // 🔁 alias p/ compatibilidade legada
-          originalName: req.file.originalname,
-          size: req.file.size,
-          mimetype: req.file.mimetype
-        });
-      } catch (error) {
-        console.error("\u274C [BENEFIT IMAGE] Erro interno:", error);
-        if (req.file?.path && fs2.existsSync(req.file.path)) {
-          try {
-            fs2.unlinkSync(req.file.path);
-          } catch {
+          if (err.message?.includes("Extens\xE3o")) {
+            return res.status(400).json({
+              error: "Extens\xE3o de arquivo n\xE3o permitida",
+              details: "Use apenas .jpg, .jpeg, .png ou .webp"
+            });
           }
+          if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({
+              error: "Arquivo muito grande",
+              details: "Tamanho m\xE1ximo permitido: 5MB"
+            });
+          }
+          return res.status(400).json({ error: "Erro no upload", details: err.message });
         }
-        return res.status(500).json({ error: "Erro interno do servidor" });
-      }
-    });
-  });
+        try {
+          if (!req.file) {
+            return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
+          }
+          console.log(
+            `\u{1F4E4} [BENEFIT IMAGE] Fazendo upload (${isGCSAvailable ? "GCS" : "local"})...`
+          );
+          const timestamp2 = Date.now();
+          const randomString = Math.random().toString(36).slice(2, 10);
+          const ext = path2.extname(req.file.originalname).toLowerCase() || (req.file.mimetype === "image/png" ? ".png" : req.file.mimetype === "image/webp" ? ".webp" : ".jpg");
+          const fileName = `beneficios-${timestamp2}-${randomString}${ext}`;
+          const fileBuffer = req.file.buffer ?? fs2.readFileSync(req.file.path);
+          const objectPath = await uploadToGCS(
+            fileBuffer,
+            fileName,
+            req.file.mimetype
+          );
+          console.log(
+            `\u2705 [BENEFIT IMAGE] Upload conclu\xEDdo: ${objectPath}`
+          );
+          const previewUrl = await getSignedUrl(objectPath, 15);
+          if (req.file.path && fs2.existsSync(req.file.path)) {
+            try {
+              fs2.unlinkSync(req.file.path);
+            } catch {
+            }
+          }
+          return res.json({
+            objectPath,
+            // ✅ CHAVE no bucket (salvar no banco)
+            previewUrl,
+            // ✅ URL assinada para <img> no modal
+            imageUrl: objectPath,
+            // 🔁 alias p/ compatibilidade legada
+            originalName: req.file.originalname,
+            size: req.file.size,
+            mimetype: req.file.mimetype,
+            storage: isGCSAvailable ? "gcs" : "local"
+          });
+        } catch (error) {
+          console.error("\u274C [BENEFIT IMAGE] Erro interno:", error);
+          if (req.file?.path && fs2.existsSync(req.file.path)) {
+            try {
+              fs2.unlinkSync(req.file.path);
+            } catch {
+            }
+          }
+          return res.status(500).json({
+            error: error?.message || "Erro interno do servidor"
+          });
+        }
+      });
+    }
+  );
   app2.delete("/api/beneficios/:id", async (req, res) => {
     const beneficioId = Number(req.params.id);
     if (!Number.isInteger(beneficioId) || beneficioId <= 0) {
@@ -45740,8 +51054,15 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const raw = tipo === "story" ? hist.imagemStory : hist.imagemBox;
       if (!raw) return res.status(404).json({ error: "Imagem n\xE3o definida" });
       const key2 = raw.startsWith("http") ? extractFilePathFromUrl(raw) : raw;
-      const signed = await getSignedUrl(key2, 60);
-      return res.redirect(302, signed);
+      try {
+        await streamSignedObjectToResponse(key2, res, 3600);
+      } catch (gcsErr) {
+        console.warn(
+          "\u26A0\uFE0F [HISTORIAS] stream falhou:",
+          gcsErr?.code || gcsErr?.message
+        );
+        return res.status(502).json({ error: "Falha ao obter imagem" });
+      }
     } catch (e) {
       console.error("\u274C [HISTORIAS] Erro ao gerar imagem:", e);
       return res.status(500).json({ error: "Erro interno do servidor" });
@@ -50531,12 +55852,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/pec/alunos", async (req, res) => {
     try {
       const status = req.query.status;
-      let conditions = [];
-      if (status === "ativo") {
-        conditions.push(sql4`(situacao_atendimento = 'ativo' OR situacao_atendimento IS NULL)`);
-      }
-      const query = conditions.length > 0 ? db.select().from(aluno).where(and2(...conditions)) : db.select().from(aluno);
-      const result = await query;
+      const listStatus = status === "ativo" || status === "ativos" ? "ativos" : status === "inativo" || status === "inativos" ? "inativos" : "todos";
+      const result = await storage.getAllAlunos({ status: listStatus });
       res.json(result);
     } catch (error) {
       console.error("Error fetching PEC alunos:", error);
@@ -50546,7 +55863,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.post("/api/pec/turma-alunos/:turmaId/adicionar", async (req, res) => {
     try {
       const turmaId = parseInt(req.params.turmaId);
-      const { studentCpf } = req.body;
+      let { studentCpf } = req.body;
       console.log(`\u{1F4DD} [MATRICULAR ALUNO PEC] TurmaId: ${turmaId}, CPF: "${studentCpf || "n\xE3o informado"}"`);
       if (!studentCpf) {
         console.warn(`\u26A0\uFE0F [MATRICULAR ALUNO PEC] CPF n\xE3o informado no body \u2014 TurmaId: ${turmaId}`);
@@ -50555,6 +55872,12 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (isNaN(turmaId)) {
         console.warn(`\u26A0\uFE0F [MATRICULAR ALUNO PEC] TurmaId inv\xE1lido: "${req.params.turmaId}"`);
         return res.status(400).json({ error: "ID de turma inv\xE1lido." });
+      }
+      try {
+        studentCpf = await storage.ensurePecAlunoFromMaster(String(studentCpf));
+      } catch (ensureErr) {
+        console.warn(`\u26A0\uFE0F [MATRICULAR ALUNO PEC] ensure mestre: ${ensureErr?.message}`);
+        return res.status(400).json({ error: ensureErr?.message || "N\xE3o foi poss\xEDvel preparar o aluno para matr\xEDcula." });
       }
       const existing = await db.select().from(instanceEnrollments).where(and2(
         eq9(instanceEnrollments.activity_instance_id, turmaId),
@@ -50695,13 +56018,23 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       }
       if (selectedStudents.length > 0) {
         try {
-          const enrollmentValues = selectedStudents.map((cpf) => ({
-            activity_instance_id: instance.id,
-            student_cpf: cpf,
-            active: true
-          }));
-          await db.insert(instanceEnrollments).values(enrollmentValues);
-          console.log(`\u2705 ${selectedStudents.length} alunos matriculados na turma ${instance.id}`);
+          const enrollmentValues = [];
+          for (const rawCpf of selectedStudents) {
+            try {
+              const cpf = await storage.ensurePecAlunoFromMaster(String(rawCpf));
+              enrollmentValues.push({
+                activity_instance_id: instance.id,
+                student_cpf: cpf,
+                active: true
+              });
+            } catch (ensureErr) {
+              console.error(`\u26A0\uFE0F Erro ensure aluno ${rawCpf}:`, ensureErr?.message || ensureErr);
+            }
+          }
+          if (enrollmentValues.length > 0) {
+            await db.insert(instanceEnrollments).values(enrollmentValues);
+            console.log(`\u2705 ${enrollmentValues.length} alunos matriculados na turma ${instance.id}`);
+          }
         } catch (enrollError) {
           console.error("\u26A0\uFE0F Erro ao matricular alunos:", enrollError);
         }
@@ -52164,7 +57497,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log(
         `\u{1F4B0} [PIX INICIAR] Criando registro PIX pendente: ${nome} (${telefone}), Qtd: ${quantidade2 || 1}`
       );
-      const txid = crypto4.randomUUID().substring(0, 8).toUpperCase();
+      const txid = crypto5.randomUUID().substring(0, 8).toUpperCase();
       const valorUnitario = 1e5;
       const qtd = quantidade2 || 1;
       const valorTotal = valorUnitario * qtd;
@@ -52273,7 +57606,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log(
         `\u{1F3E6} [PIX BRADESCO] Criando ingressos: ${nome} (${telefone}), Qtd: ${quantidade2 || 1}`
       );
-      const txid = `BRAD-${crypto4.randomUUID().substring(0, 12).toUpperCase()}`;
+      const txid = `BRAD-${crypto5.randomUUID().substring(0, 12).toUpperCase()}`;
       const valorUnitario = 1e5;
       const qtd = quantidade2 || 1;
       const valorTotal = valorUnitario * qtd;
@@ -54701,15 +60034,17 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const result = await pool.query(`
         SELECT COUNT(DISTINCT cpf) as total FROM (
-          SELECT pi.cpf
-          FROM participantes_inclusao pi
-          WHERE EXISTS (
-            SELECT 1 FROM participantes_turmas pt WHERE pt.participante_id = pi.id
-          )
+          SELECT REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g') AS cpf
+          FROM participantes_turmas pt
+          LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+          WHERE length(REGEXP_REPLACE(COALESCE(pt.atendido_cpf, pi.cpf, ''), '[^0-9]', '', 'g')) = 11
+
           UNION
-          SELECT gr.cpf
+
+          SELECT REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g') AS cpf
           FROM inclusao_geracao_de_renda gr
           WHERE gr.cpf IS NOT NULL AND gr.cpf <> ''
+            AND length(REGEXP_REPLACE(gr.cpf, '[^0-9]', '', 'g')) = 11
         ) combined
       `);
       const total = Number(result.rows[0]?.total || 0);
@@ -55906,30 +61241,57 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const turmaId = parseInt(req.params.turmaId);
       const vertente = normalizeVertente(req.query.vertente);
       if (vertente === "pec") {
+        const studentCpf = req.body.studentCpf || req.body.participanteCpf || req.body.cpf;
         const { personId } = req.body;
-        if (!personId) {
-          return res.status(400).json({ error: "personId \xE9 obrigat\xF3rio para PEC" });
+        if (studentCpf) {
+          let cpfCanonico2;
+          try {
+            cpfCanonico2 = await storage.ensurePecAlunoFromMaster(String(studentCpf));
+          } catch (ensureErr) {
+            return res.status(400).json({ error: ensureErr?.message || "N\xE3o foi poss\xEDvel preparar o aluno PEC" });
+          }
+          const [inscricao2] = await db.insert(instanceEnrollments).values({
+            activity_instance_id: turmaId,
+            student_cpf: cpfCanonico2,
+            active: true,
+            ...req.body.dataIngresso || req.body.enrollmentDate ? { enrollment_date: req.body.dataIngresso || req.body.enrollmentDate } : {}
+          }).returning();
+          return res.status(201).json(inscricao2);
         }
-        const [inscricao2] = await db.insert(instanceEnrollments).values({
+        if (!personId) {
+          return res.status(400).json({ error: "studentCpf (ou personId legado) \xE9 obrigat\xF3rio para PEC" });
+        }
+        const [inscricao] = await db.insert(instanceEnrollments).values({
           activity_instance_id: turmaId,
           person_id: typeof personId === "string" ? parseInt(personId) : personId,
           active: true,
           enrolled_at: /* @__PURE__ */ new Date()
         }).returning();
-        return res.status(201).json(inscricao2);
+        return res.status(201).json(inscricao);
       }
-      const { participanteId } = req.body;
-      if (!participanteId) {
-        return res.status(400).json({ error: "participanteId \xE9 obrigat\xF3rio para Inclus\xE3o" });
+      let { participanteId } = req.body;
+      const cpfInclusao = req.body.cpf || req.body.participanteCpf;
+      let cpfCanonico = cpfInclusao ? String(cpfInclusao).replace(/\D/g, "") : "";
+      if ((!cpfCanonico || cpfCanonico.length !== 11) && participanteId) {
+        const part = await storage.getParticipanteById(Number(participanteId));
+        if (part?.cpf) cpfCanonico = String(part.cpf).replace(/\D/g, "");
       }
-      const dataIngressoProf = req.body.dataIngresso || null;
-      const [inscricao] = await db.insert(participantesTurmas).values({
-        turmaId,
-        participanteId,
-        status: "ativo",
-        ...dataIngressoProf ? { dataIngresso: dataIngressoProf } : {}
-      }).returning();
-      return res.status(201).json(inscricao);
+      if (!cpfCanonico || cpfCanonico.length !== 11) {
+        return res.status(400).json({ error: "cpf \xE9 obrigat\xF3rio para Inclus\xE3o (cadastro unificado)" });
+      }
+      const dataIngressoProf = req.body.dataIngresso || void 0;
+      try {
+        const inscricao = await storage.addAtendidoCpfToTurmaInclusao(
+          cpfCanonico,
+          turmaId,
+          dataIngressoProf
+        );
+        return res.status(201).json(inscricao);
+      } catch (ensureErr) {
+        return res.status(400).json({
+          error: ensureErr?.message || "N\xE3o foi poss\xEDvel matricular na Inclus\xE3o"
+        });
+      }
     } catch (error) {
       console.error("Erro ao adicionar aluno \xE0 turma:", error);
       return res.status(500).json({ error: "Erro ao adicionar aluno" });
@@ -56030,13 +61392,16 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const insertedPresencas = [];
       for (const p of presencas || []) {
         let participanteId = p.id || p.participanteId;
-        if (!participanteId && (p.cpf || p.alunoCpf)) {
-          const found = await db.select({ id: participantesInclusao.id }).from(participantesInclusao).where(eq9(participantesInclusao.cpf, String(p.cpf || p.alunoCpf))).limit(1);
+        const cpfRaw = p.cpf || p.alunoCpf || p.atendidoCpf;
+        const cpfNorm = cpfRaw ? String(cpfRaw).replace(/\D/g, "") : "";
+        if (!participanteId && cpfNorm.length === 11) {
+          const found = await db.select({ id: participantesInclusao.id }).from(participantesInclusao).where(sql4`REGEXP_REPLACE(COALESCE(${participantesInclusao.cpf}, ''), '[^0-9]', '', 'g') = ${cpfNorm}`).limit(1);
           if (found[0]) participanteId = found[0].id;
         }
-        if (participanteId) {
+        if (participanteId || cpfNorm.length === 11) {
           const [presenca] = await db.insert(presencasInclusao).values({
-            participanteId: typeof participanteId === "string" ? parseInt(participanteId) : participanteId,
+            participanteId: participanteId ? typeof participanteId === "string" ? parseInt(participanteId) : participanteId : null,
+            atendidoCpf: cpfNorm.length === 11 ? cpfNorm : null,
             turmaId,
             data: dataYMD,
             presente: p.presente || false,
@@ -56907,24 +62272,17 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   );
   app2.get("/api/participantes-inclusao", async (req, res) => {
     try {
-      const participantes = await storage.getAllParticipantes();
+      const status = req.query.status ?? "ativos";
+      const programaRaw = String(req.query.programa || "grito").toLowerCase();
+      const programa = ["grito", "pec", "inclusao"].includes(programaRaw) ? programaRaw : "grito";
+      if (!["ativos", "inativos", "todos"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Use 'ativos', 'inativos' or 'todos'." });
+      }
+      const participantes = await storage.getAllParticipantes({ status, programa });
       res.json(participantes);
     } catch (error) {
       console.error("Erro ao listar participantes:", error);
       res.status(500).json({ error: "Erro ao listar participantes" });
-    }
-  });
-  app2.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const participante = await storage.getParticipanteById(id);
-      if (!participante) {
-        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
-      }
-      res.json(participante);
-    } catch (error) {
-      console.error("Erro ao buscar participante:", error);
-      res.status(500).json({ error: "Erro ao buscar participante" });
     }
   });
   app2.get(
@@ -56944,6 +62302,22 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       }
     }
   );
+  app2.get("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ error: "ID inv\xE1lido" });
+      }
+      const participante = await storage.getParticipanteById(id);
+      if (!participante) {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      res.json(participante);
+    } catch (error) {
+      console.error("Erro ao buscar participante:", error);
+      res.status(500).json({ error: "Erro ao buscar participante" });
+    }
+  });
   const participanteAllowedKeys = [
     "nome",
     "cpf",
@@ -57659,31 +63033,99 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (cpf.length !== 11) {
         return res.status(400).json({ error: "cpf inv\xE1lido" });
       }
-      if (area === "pec") {
-        const rows2 = await db.execute(sql4`
-        SELECT cpf, nome_completo FROM aluno WHERE cpf = ${cpf} LIMIT 1
-      `);
-        if (!rows2.rows?.length) return res.json({ exists: false });
-        const aluno2 = rows2.rows[0];
+      const masterCpf = await resolveAtendidoCpfIfExists(cpf);
+      if (masterCpf) {
+        const row = await getAtendidoGritoByCpf(cpf);
         return res.json({
           exists: true,
-          nome: aluno2.nome_completo ?? "Sem nome",
-          id: aluno2.cpf ?? null
+          nome: row?.nome_completo ?? "Sem nome",
+          cpf: masterCpf,
+          fonte: "atendidos_grito"
         });
       }
-      const rows = await db.execute(sql4`
-      SELECT id, nome FROM participantes_inclusao WHERE cpf = ${cpf} LIMIT 1
-    `);
-      if (!rows.rows?.length) return res.json({ exists: false });
-      const part = rows.rows[0];
-      return res.json({
-        exists: true,
-        nome: part.nome ?? "Sem nome",
-        id: part.id ?? null
-      });
+      return res.json({ exists: false });
     } catch (e) {
       console.error("cpf-lookup error", e);
       res.status(500).json({ error: "erro ao consultar cpf" });
+    }
+  });
+  app2.patch("/api/participantes-inclusao/cpf/:cpf", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) {
+        return res.status(400).json({ error: "CPF inv\xE1lido" });
+      }
+      const { turmaIds, ...participanteData } = req.body;
+      ["email", "cpf", "telefone", "codigoMatricula", "identificador", "dataIngresso"].forEach((field) => {
+        if (participanteData[field] === "") {
+          participanteData[field] = null;
+        }
+      });
+      if (participanteData.dataIngresso && typeof participanteData.dataIngresso === "string") {
+        participanteData.dataIngresso = new Date(participanteData.dataIngresso);
+      }
+      const participante = await storage.updateParticipanteByCpf(cpf, participanteData);
+      if (Array.isArray(turmaIds)) {
+        const cpfAtual = String(participante.cpf || cpf).replace(/\D/g, "");
+        const turmasAtuais = await pool.query(
+          `SELECT turma_id FROM participantes_turmas
+           WHERE atendido_cpf = $1
+              OR participante_id IN (
+                   SELECT id FROM participantes_inclusao
+                   WHERE REGEXP_REPLACE(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1
+                 )`,
+          [cpfAtual]
+        );
+        const turmaIdsAtuais = turmasAtuais.rows.map((r) => Number(r.turma_id));
+        for (const turmaId of turmaIdsAtuais) {
+          if (!turmaIds.includes(turmaId)) {
+            await storage.removeParticipanteFromTurmaByCpf(cpfAtual, turmaId);
+          }
+        }
+        for (const turmaId of turmaIds) {
+          if (!turmaIdsAtuais.includes(turmaId)) {
+            await storage.addAtendidoCpfToTurmaInclusao(cpfAtual, turmaId);
+          }
+        }
+      }
+      const participanteCompleto = await storage.getParticipanteByCpf(
+        String(participante.cpf || cpf).replace(/\D/g, "")
+      );
+      res.json(participanteCompleto || participante);
+    } catch (error) {
+      if (error?.message === "Participante n\xE3o encontrado") {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      console.error("Erro ao atualizar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao atualizar participante" });
+    }
+  });
+  app2.patch("/api/participantes-inclusao/cpf/:cpf/inativar", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const participante = await storage.inativarParticipanteByCpf(cpf);
+      const participanteCompleto = await storage.getParticipanteByCpf(cpf);
+      res.json(participanteCompleto || participante);
+    } catch (error) {
+      if (error?.message === "Participante n\xE3o encontrado") {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      console.error("Erro ao inativar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao inativar participante" });
+    }
+  });
+  app2.patch("/api/participantes-inclusao/cpf/:cpf/reativar", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const participante = await storage.reativarParticipanteByCpf(cpf);
+      const participanteCompleto = await storage.getParticipanteByCpf(cpf);
+      res.json(participanteCompleto || participante);
+    } catch (error) {
+      if (error?.message === "Participante n\xE3o encontrado") {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      console.error("Erro ao reativar participante por CPF:", error);
+      res.status(500).json({ error: "Erro ao reativar participante" });
     }
   });
   app2.patch("/api/participantes-inclusao/:id", requireAuth, async (req, res) => {
@@ -57721,6 +63163,34 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     } catch (error) {
       console.error("Erro ao atualizar participante:", error);
       res.status(500).json({ error: "Erro ao atualizar participante" });
+    }
+  });
+  app2.patch("/api/participantes-inclusao/:id/inativar", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const participante = await storage.inativarParticipante(id);
+      const participanteCompleto = await storage.getParticipanteById(id);
+      res.json(participanteCompleto || participante);
+    } catch (error) {
+      if (error?.message === "Participante n\xE3o encontrado") {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      console.error("Erro ao inativar participante:", error);
+      res.status(500).json({ error: "Erro ao inativar participante" });
+    }
+  });
+  app2.patch("/api/participantes-inclusao/:id/reativar", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const participante = await storage.reativarParticipante(id);
+      const participanteCompleto = await storage.getParticipanteById(id);
+      res.json(participanteCompleto || participante);
+    } catch (error) {
+      if (error?.message === "Participante n\xE3o encontrado") {
+        return res.status(404).json({ error: "Participante n\xE3o encontrado" });
+      }
+      console.error("Erro ao reativar participante:", error);
+      res.status(500).json({ error: "Erro ao reativar participante" });
     }
   });
   app2.delete(
@@ -57785,31 +63255,42 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           LIMIT 1
         )
         SELECT
-          pi.id,
-          pi.nome,
-          pi.cpf,
-          pi.telefone,
-          pi.data_nascimento AS "dataNascimento",
+          COALESCE(pi.id, NULL) AS id,
+          COALESCE(pi.nome, ag.nome_completo) AS nome,
+          COALESCE(
+            REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g'),
+            pt.atendido_cpf,
+            ag.cpf
+          ) AS cpf,
+          COALESCE(pi.telefone, ag.telefone, ag.whatsapp) AS telefone,
+          COALESCE(pi.data_nascimento, ag.data_nascimento) AS "dataNascimento",
           pt.id AS "participanteTurmaId",
           COALESCE(pt.status, 'ativo') AS status,
+          pt.data_desligamento::text AS "dataDesligamento",
+          pt.motivo_desligamento AS "motivoDesligamento",
           (iev.id IS NOT NULL) AS "evasaoAtiva",
           iev.data_desligamento::text AS "dataEvasao",
           iev.id AS "evasaoId",
           COALESCE(ie.evadido, false) AS "evadidoPec",
           pe_pec.data_desligamento::text AS "dataEvasaoPec"
         FROM participantes_turmas pt
-        JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+        LEFT JOIN atendidos_grito ag ON ag.cpf = COALESCE(
+          pt.atendido_cpf,
+          REGEXP_REPLACE(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+        )
         LEFT JOIN inclusao_evasoes iev ON iev.participante_turma_id = pt.id AND iev.revertido_em IS NULL
         LEFT JOIN pec ON true
         LEFT JOIN instance_enrollments ie ON ie.activity_instance_id = pec.activity_instance_id
-          AND length(regexp_replace(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')) > 0
+          AND length(regexp_replace(COALESCE(COALESCE(pi.cpf, ag.cpf, pt.atendido_cpf), ''), '[^0-9]', '', 'g')) > 0
           AND length(regexp_replace(COALESCE(ie.student_cpf, ''), '[^0-9]', '', 'g')) > 0
           AND regexp_replace(COALESCE(ie.student_cpf, ''), '[^0-9]', '', 'g')
-            = regexp_replace(COALESCE(pi.cpf, ''), '[^0-9]', '', 'g')
+            = regexp_replace(COALESCE(COALESCE(pi.cpf, ag.cpf, pt.atendido_cpf), ''), '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe_pec ON pe_pec.enrollment_id = ie.id AND pe_pec.revertido_em IS NULL
         WHERE pt.turma_id = $1
+          AND (pi.id IS NOT NULL OR pt.atendido_cpf IS NOT NULL OR ag.cpf IS NOT NULL)
         ${dateWhere}
-        ORDER BY pi.nome ASC
+        ORDER BY COALESCE(pi.nome, ag.nome_completo) ASC
         `,
         params
       );
@@ -57829,16 +63310,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
       const dataIngresso = req.body?.dataIngresso || void 0;
-      const relacao = await storage.addParticipanteToTurma(participanteId, turmaId, dataIngresso);
-      const participante = await storage.getParticipanteById(participanteId);
-      if (participante && participante.status?.toLowerCase() === "inativo") {
-        await db.update(participantesInclusao).set({ status: "ativo" }).where(eq9(participantesInclusao.id, participanteId));
-        console.log(`\u2705 [REATIVA\xC7\xC3O] Participante ${participanteId} reativado ao ser adicionado \xE0 turma ${turmaId}`);
+      let cpfBody = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
+      if (isNaN(turmaId)) {
+        return res.status(400).json({ error: "ID de turma inv\xE1lido." });
       }
-      res.status(201).json(relacao);
+      if ((!cpfBody || cpfBody.length !== 11) && participanteId && !Number.isNaN(participanteId)) {
+        const existente = await storage.getParticipanteById(participanteId);
+        if (existente?.cpf) cpfBody = String(existente.cpf).replace(/\D/g, "");
+      }
+      if (!cpfBody || cpfBody.length !== 11) {
+        return res.status(400).json({
+          error: "Informe o CPF do atendido para matricular na turma (cadastro unificado)."
+        });
+      }
+      const relacao = await storage.addAtendidoCpfToTurmaInclusao(cpfBody, turmaId, dataIngresso);
+      res.status(201).json({ ...relacao, cpf: cpfBody });
     } catch (error) {
       console.error("Erro ao adicionar participante \xE0 turma:", error);
-      res.status(500).json({ error: "Erro ao adicionar participante \xE0 turma" });
+      res.status(400).json({ error: error?.message || "Erro ao adicionar participante \xE0 turma" });
     }
   });
   const uploadDocumentos = multer2({
@@ -57852,6 +63341,47 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       } else {
         cb(new Error("Formato n\xE3o permitido. Use PDF, JPEG, PNG ou WEBP."));
       }
+    }
+  });
+  app2.get("/api/documentos/participante-inclusao/cpf/:cpf", requireAuth, async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF inv\xE1lido" });
+      const result = await db.select().from(documentosParticipante).where(eq9(documentosParticipante.atendidoCpf, cpf)).orderBy(desc4(documentosParticipante.createdAt));
+      res.json(result);
+    } catch (error) {
+      console.error("Erro ao listar documentos por CPF:", error);
+      res.status(500).json({ error: "Erro ao listar documentos" });
+    }
+  });
+  app2.post("/api/documentos/participante-inclusao/cpf/:cpf", requireAuth, uploadDocumentos.single("documento"), async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF inv\xE1lido" });
+      const tipoDocumento = req.body.tipoDocumento || "Documento";
+      if (!req.file) {
+        return res.status(400).json({ error: "Nenhum arquivo enviado" });
+      }
+      const timestamp2 = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 8);
+      const ext = req.file.originalname.split(".").pop();
+      const fileName = `documentos/inclusao/cpf/${cpf}/${timestamp2}-${randomStr}.${ext}`;
+      const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(cpf);
+      const [documento] = await db.insert(documentosParticipante).values({
+        nomeArquivo: req.file.originalname,
+        tipoDocumento,
+        urlArquivo: url,
+        tamanhoBytes: req.file.size,
+        mimeType: req.file.mimetype,
+        participanteInclusaoId: null,
+        atendidoCpf: atendidoCpf || cpf,
+        uploadedBy: req.session?.userId || null
+      }).returning();
+      res.json({ success: true, documento });
+    } catch (error) {
+      console.error("Erro ao upload documento por CPF:", error);
+      res.status(500).json({ error: "Erro ao enviar documento" });
     }
   });
   app2.get("/api/documentos/participante-inclusao/:participanteId", requireAuth, async (req, res) => {
@@ -57876,6 +63406,8 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const ext = req.file.originalname.split(".").pop();
       const fileName = `documentos/inclusao/${participanteId}/${timestamp2}-${randomStr}.${ext}`;
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      const part = await db.select({ cpf: participantesInclusao.cpf }).from(participantesInclusao).where(eq9(participantesInclusao.id, participanteId)).limit(1);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(part[0]?.cpf);
       const [documento] = await db.insert(documentosParticipante).values({
         nomeArquivo: req.file.originalname,
         tipoDocumento,
@@ -57883,6 +63415,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         tamanhoBytes: req.file.size,
         mimeType: req.file.mimetype,
         participanteInclusaoId: participanteId,
+        atendidoCpf,
         uploadedBy: req.session?.userId || null
       }).returning();
       res.json({ success: true, documento });
@@ -57894,7 +63427,12 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/documentos/aluno/:cpf", requireAuth, async (req, res) => {
     try {
       const cpf = req.params.cpf;
-      const result = await db.select().from(documentosParticipante).where(eq9(documentosParticipante.alunoCpf, cpf)).orderBy(desc4(documentosParticipante.createdAt));
+      const cpfDigits = normalizeCpfDigits2(cpf);
+      const result = await db.select().from(documentosParticipante).where(or3(
+        eq9(documentosParticipante.alunoCpf, cpf),
+        eq9(documentosParticipante.atendidoCpf, cpfDigits),
+        sql4`REGEXP_REPLACE(COALESCE(${documentosParticipante.alunoCpf}, ''), '[^0-9]', '', 'g') = ${cpfDigits}`
+      )).orderBy(desc4(documentosParticipante.createdAt));
       res.json(result);
     } catch (error) {
       console.error("Erro ao listar documentos do aluno:", error);
@@ -57914,6 +63452,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const cpfClean = cpf.replace(/\D/g, "");
       const fileName = `documentos/pec/${cpfClean}/${timestamp2}-${randomStr}.${ext}`;
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      const atendidoCpf = await resolveAtendidoCpfIfExists(cpf);
       const [documento] = await db.insert(documentosParticipante).values({
         nomeArquivo: req.file.originalname,
         tipoDocumento,
@@ -57921,6 +63460,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         tamanhoBytes: req.file.size,
         mimeType: req.file.mimetype,
         alunoCpf: cpf,
+        atendidoCpf,
         participanteInclusaoId: null,
         // ✅ garante que PEC não vira inclusão
         uploadedBy: req.session?.userId || null
@@ -57957,26 +63497,69 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
-      const { motivo } = req.body || {};
+      const { motivo, cpf: cpfBody } = req.body || {};
+      let cpf = cpfBody ? String(cpfBody).replace(/\D/g, "") : "";
       if (!motivo || !isDesligamentoMotivoValido(motivo)) {
         return res.status(400).json({
           error: "Motivo de desligamento obrigat\xF3rio. Op\xE7\xF5es: Cadastro errado, Empregabilidade, Mudan\xE7a de localidade, Mudan\xE7a de oficina/curso."
         });
       }
-      const vinculo = await db.select().from(participantesTurmas).where(and2(
-        eq9(participantesTurmas.participanteId, participanteId),
-        eq9(participantesTurmas.turmaId, turmaId)
-      )).limit(1);
-      if (vinculo.length === 0) {
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
+      let vinculoId = null;
+      if (cpf.length === 11) {
+        const r = await pool.query(
+          `SELECT pt.id FROM participantes_turmas pt
+           LEFT JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+           WHERE pt.turma_id = $1 AND (
+             pt.atendido_cpf = $2
+             OR REGEXP_REPLACE(COALESCE(pi.cpf,''), '[^0-9]', '', 'g') = $2
+           ) LIMIT 1`,
+          [turmaId, cpf]
+        );
+        vinculoId = r.rows[0]?.id ?? null;
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        const vinculo = await db.select().from(participantesTurmas).where(and2(
+          eq9(participantesTurmas.participanteId, participanteId),
+          eq9(participantesTurmas.turmaId, turmaId)
+        )).limit(1);
+        vinculoId = vinculo[0]?.id ?? null;
+      }
+      if (!vinculoId) {
         return res.status(404).json({ error: "V\xEDnculo participante-turma n\xE3o encontrado" });
       }
       await db.update(inclusaoEvasoes).set({ revertidoEm: /* @__PURE__ */ new Date() }).where(and2(
-        eq9(inclusaoEvasoes.participanteTurmaId, vinculo[0].id),
+        eq9(inclusaoEvasoes.participanteTurmaId, vinculoId),
         isNull2(inclusaoEvasoes.revertidoEm)
       ));
-      await storage.removeParticipanteFromTurma(participanteId, turmaId);
-      console.log(`\u{1F4E4} [DESLIGAR INCLUS\xC3O] ParticipanteId: ${participanteId}, TurmaId: ${turmaId}, Motivo: "${motivo}"`);
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      if (motivo === "Empregabilidade") {
+        const hoje = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+        await db.update(participantesTurmas).set({
+          status: "empregabilidade",
+          motivoDesligamento: "Empregabilidade",
+          dataDesligamento: hoje
+        }).where(eq9(participantesTurmas.id, vinculoId));
+        console.log(`\u{1F4E4} [EMPREGABILIDADE INCLUS\xC3O] CPF/Id: ${cpf || participanteId}, TurmaId: ${turmaId}`);
+        const novoStatus2 = !Number.isNaN(participanteId) && participanteId > 0 ? await syncParticipanteInclusaoStatus(participanteId) : "ativo";
+        return res.json({
+          message: "Participante movido para Empregabilidade",
+          motivo,
+          statusVinculo: "empregabilidade",
+          novoStatus: novoStatus2
+        });
+      }
+      if (cpf.length === 11) {
+        await storage.removeParticipanteFromTurmaByCpf(cpf, turmaId, motivo);
+      } else {
+        await storage.removeParticipanteFromTurma(participanteId, turmaId);
+      }
+      console.log(`\u{1F4E4} [DESLIGAR INCLUS\xC3O] CPF/Id: ${cpf || participanteId}, TurmaId: ${turmaId}, Motivo: "${motivo}"`);
+      let novoStatus = "inativo";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
       res.json({
         message: "Participante desligado da turma",
         motivo,
@@ -57992,11 +63575,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
       const dataEvasao = req.body?.dataEvasao || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const relacao = await storage.registerInclusaoEvasao(participanteId, turmaId, dataEvasao);
+      let cpf = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
+      let relacao = null;
+      if (cpf.length === 11) {
+        relacao = await storage.registerInclusaoEvasaoByCpf(cpf, turmaId, dataEvasao);
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        relacao = await storage.registerInclusaoEvasao(participanteId, turmaId, dataEvasao);
+      }
       if (!relacao) {
         return res.status(404).json({ error: "V\xEDnculo participante-turma n\xE3o encontrado" });
       }
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      let novoStatus = "evadido";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
       res.json({ message: "Evas\xE3o registrada com sucesso", dataEvasao, novoStatus, data: relacao });
     } catch (error) {
       if (error?.message?.includes("j\xE1 possui evas\xE3o")) {
@@ -58010,11 +63606,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     try {
       const participanteId = parseInt(req.params.participanteId);
       const turmaId = parseInt(req.params.turmaId);
-      const relacao = await storage.revertInclusaoEvasao(participanteId, turmaId);
+      let cpf = req.body?.cpf ? String(req.body.cpf).replace(/\D/g, "") : "";
+      if (cpf.length !== 11 && !Number.isNaN(participanteId) && participanteId > 0) {
+        const part = await storage.getParticipanteById(participanteId);
+        if (part?.cpf) cpf = String(part.cpf).replace(/\D/g, "");
+      }
+      let relacao = null;
+      if (cpf.length === 11) {
+        relacao = await storage.revertInclusaoEvasaoByCpf(cpf, turmaId);
+      } else if (!Number.isNaN(participanteId) && participanteId > 0) {
+        relacao = await storage.revertInclusaoEvasao(participanteId, turmaId);
+      }
       if (!relacao) {
         return res.status(404).json({ error: "Evas\xE3o ativa n\xE3o encontrada" });
       }
-      const novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      let novoStatus = "ativo";
+      if (!Number.isNaN(participanteId) && participanteId > 0) {
+        novoStatus = await syncParticipanteInclusaoStatus(participanteId);
+      }
       res.json({ message: "Evas\xE3o revertida com sucesso", novoStatus, data: relacao });
     } catch (error) {
       console.error("\u274C [REVERTER EVAS\xC3O INCLUS\xC3O] Erro:", error);
@@ -58048,7 +63657,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       console.log("\u{1F4CA} [EXPORT-SLIDES] Iniciando exporta\xE7\xE3o de relat\xF3rio");
       const { slides, drive } = getGoogleServices();
       const templateId = process.env.SLIDES_TEMPLATE_ID;
-      const participantes = await storage.getAllParticipantes();
+      const participantes = await storage.getAllParticipantes({ status: "todos" });
       const programas = await storage.getAllProgramas();
       const turmas = await storage.getAllTurmas();
       console.log("\u{1F4CA} [EXPORT-SLIDES] Dados carregados:", {
@@ -59469,29 +65078,22 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const turmaIdsFilter = turmaIds && turmaIds.length > 0 ? `AND s.activity_instance_id = ANY(ARRAY[${turmaIds.join(",")}]::int[])` : "";
       const turmaIdsEnrollFilter = turmaIds && turmaIds.length > 0 ? `AND ie.activity_instance_id = ANY(ARRAY[${turmaIds.join(",")}]::int[])` : "";
       const dateFilter = pecTrimestre >= 1 && pecTrimestre <= 4 ? `EXTRACT(YEAR FROM s.date) = ${ano} AND EXTRACT(MONTH FROM s.date) BETWEEN ${(pecTrimestre - 1) * 3 + 1} AND ${pecTrimestre * 3}` : pecRangeValid ? `EXTRACT(YEAR FROM s.date) = ${ano} AND EXTRACT(MONTH FROM s.date) BETWEEN ${pecMesInicio} AND ${pecMesFim}` : mes > 0 ? `EXTRACT(YEAR FROM s.date) = ${ano} AND EXTRACT(MONTH FROM s.date) = ${mes}` : `EXTRACT(YEAR FROM s.date) = ${ano}`;
-      const endMesPeriodo = pecTrimestre >= 1 && pecTrimestre <= 4 ? pecTrimestre * 3 : pecRangeValid ? pecMesFim : mes > 0 ? mes : 12;
-      const endDatePeriodo = new Date(ano, endMesPeriodo, 0);
-      const endDateStr = endDatePeriodo.toISOString().split("T")[0];
-      const atendidosRes = await pool.query(
-        turmaIds && turmaIds.length > 0 ? `SELECT COUNT(DISTINCT REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')) as cnt
-             FROM instance_enrollments ie
-             JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-             JOIN pec_activities pa ON pa.id = ai.activity_id
-             JOIN projects p ON p.id = pa.project_id
-             WHERE p.name IS NOT NULL
-               AND (ie.enrollment_date IS NULL OR ie.enrollment_date <= $1)
-               AND (ie.evadido = false OR ie.data_evasao > $1::date)
-               AND ie.activity_instance_id = ANY(ARRAY[${turmaIds.join(",")}]::int[])` : `SELECT COUNT(DISTINCT REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')) as cnt
-             FROM instance_enrollments ie
-             JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-             JOIN pec_activities pa ON pa.id = ai.activity_id
-             JOIN projects p ON p.id = pa.project_id
-             WHERE p.name IS NOT NULL
-               AND (ie.enrollment_date IS NULL OR ie.enrollment_date <= $1)
-               AND (ie.evadido = false OR ie.data_evasao > $1::date)`,
-        [endDateStr]
+      const hojePec = /* @__PURE__ */ new Date();
+      let mesFiltroPec = mes > 0 ? mes : null;
+      if (pecTrimestre >= 1 && pecTrimestre <= 4) {
+        mesFiltroPec = [(pecTrimestre - 1) * 3 + 1, pecTrimestre * 3];
+      } else if (pecRangeValid) {
+        mesFiltroPec = [pecMesInicio, pecMesFim];
+      } else if (mes <= 0 && ano === hojePec.getFullYear()) {
+        mesFiltroPec = hojePec.getMonth() + 1;
+      } else if (mes <= 0) {
+        mesFiltroPec = null;
+      }
+      const atendidos = await countCriancasAtendidasPEC(
+        mesFiltroPec,
+        ano,
+        turmaIds && turmaIds.length > 0 ? { turmaIds } : void 0
       );
-      const atendidos = Number(atendidosRes.rows?.[0]?.cnt || 0);
       const sessRes = await pool.query(`
         SELECT
           COALESCE(SUM(
@@ -59579,7 +65181,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             ${turmaIdsEnrollFilter}
             ${evFilter}
         `);
-        const totalMatr = Number(atendidosRes.rows?.[0]?.cnt) || 1;
+        const totalMatr = atendidos || 1;
         evasao = Math.round(Number(evRes.rows?.[0]?.cnt || 0) / totalMatr * 100);
       } catch (e) {
       }
@@ -59597,12 +65199,23 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         alunosFormados = Number(fmRes.rows?.[0]?.cnt || 0);
       } catch (e) {
       }
+      let mesFiltroIndicadores = mes > 0 ? mes : null;
+      if (pecTrimestre >= 1 && pecTrimestre <= 4) {
+        mesFiltroIndicadores = [(pecTrimestre - 1) * 3 + 1, pecTrimestre * 3];
+      } else if (pecRangeValid) {
+        mesFiltroIndicadores = [pecMesInicio, pecMesFim];
+      }
       let nps = 0;
+      let avaliacaoAprendizagem = 0;
       try {
-        nps = await getNpsPEC2026(mes > 0 ? mes : null);
+        nps = await getNpsPEC2026(mesFiltroIndicadores, ano);
       } catch (e) {
       }
-      res.json({ atendidos, horasAula, atendimentos, alimentacao, frequenciaMedia, turmasTotais, turmasAtivas, turmasConcluidas, evasao, alunosFormados, nps });
+      try {
+        avaliacaoAprendizagem = await getAvaliacaoAprendizagemPEC(mesFiltroIndicadores, ano);
+      } catch (e) {
+      }
+      res.json({ atendidos, horasAula, atendimentos, alimentacao, frequenciaMedia, turmasTotais, turmasAtivas, turmasConcluidas, evasao, alunosFormados, nps, avaliacaoAprendizagem });
     } catch (error) {
       console.error("Error in /api/pec/dashboard-kpis:", error);
       res.status(500).json({ error: "Erro ao carregar KPIs do PEC" });
@@ -59683,8 +65296,16 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const ano = parseInt(req.query.ano) || (/* @__PURE__ */ new Date()).getFullYear();
       const mes = req.query.mes ? parseInt(req.query.mes) : null;
       const startDate = mes ? `${ano}-${String(mes).padStart(2, "0")}-01` : `${ano}-01-01`;
-      const endDate = mes ? new Date(ano, mes, 0).toISOString().split("T")[0] : `${ano}-12-31`;
-      console.log(`\u{1F3C0} [PEC] Buscando dados autom\xE1ticos para ano ${ano}, mes ${mes ?? "todos"}...`);
+      const hojePecProg = /* @__PURE__ */ new Date();
+      let endDate;
+      if (mes) {
+        endDate = new Date(ano, mes, 0).toISOString().split("T")[0];
+      } else if (ano === hojePecProg.getFullYear()) {
+        endDate = new Date(ano, hojePecProg.getMonth() + 1, 0).toISOString().split("T")[0];
+      } else {
+        endDate = `${ano}-12-31`;
+      }
+      console.log(`\u{1F3C0} [PEC] Buscando dados autom\xE1ticos para ano ${ano}, mes ${mes ?? "todos"}, fim=${endDate}...`);
       const horaAulaResult = await pool.query(`
         SELECT
           p.name as project_name,
@@ -59716,7 +65337,14 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
             inst.project_name,
             COUNT(DISTINCT CASE
               WHEN (ie.enrollment_date IS NULL OR ie.enrollment_date <= $2::date)
-               AND (ie.evadido = false OR ie.data_evasao > $2::date)
+               AND (
+                 COALESCE(ie.evadido, false) = false
+                 OR (
+                   ie.data_evasao IS NOT NULL
+                   AND date_trunc('month', ie.data_evasao::date)
+                     >= date_trunc('month', $2::date)
+                 )
+               )
               THEN REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
             END) AS atendidos,
             COUNT(DISTINCT CASE
@@ -61630,7 +67258,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!nome || !email || !senha || !programa) {
         return res.status(400).json({ error: "Campos obrigat\xF3rios: nome, email, senha, programa" });
       }
-      const passwordHash = await bcrypt.hash(senha, 10);
+      const passwordHash = await bcrypt2.hash(senha, 10);
       const result = await pool.query(
         `
         INSERT INTO professores (nome, email, password_hash, programa, redirect_path, ativo)
@@ -61655,7 +67283,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       let query = `UPDATE professores SET nome = $1, email = $2, telefone = $3, programa = $4, ativo = $5, updated_at = NOW()`;
       let params = [nome, email, telefone || null, programa, ativo];
       if (senha) {
-        const passwordHash = await bcrypt.hash(senha, 10);
+        const passwordHash = await bcrypt2.hash(senha, 10);
         query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, programa, ativo`;
         params.push(passwordHash, id);
       } else {
@@ -61707,7 +67335,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!nome || !email || !senha || !programa) {
         return res.status(400).json({ error: "Campos obrigat\xF3rios: nome, email, senha, programa" });
       }
-      const passwordHash = await bcrypt.hash(senha, 10);
+      const passwordHash = await bcrypt2.hash(senha, 10);
       const result = await pool.query(
         `
         INSERT INTO monitores (nome, email, password_hash, telefone, programa, redirect_path, ativo)
@@ -61732,7 +67360,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       let query = `UPDATE monitores SET nome = $1, email = $2, telefone = $3, programa = $4, ativo = $5, updated_at = NOW()`;
       let params = [nome, email, telefone || null, programa, ativo];
       if (senha) {
-        const passwordHash = await bcrypt.hash(senha, 10);
+        const passwordHash = await bcrypt2.hash(senha, 10);
         query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, programa, ativo`;
         params.push(passwordHash, id);
       } else {
@@ -61784,7 +67412,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!nome || !email || !senha || !setor) {
         return res.status(400).json({ error: "Campos obrigat\xF3rios: nome, email, senha, setor" });
       }
-      const passwordHash = await bcrypt.hash(senha, 10);
+      const passwordHash = await bcrypt2.hash(senha, 10);
       const result = await pool.query(
         `
         INSERT INTO coordenadores (nome, email, password_hash, telefone, setor, redirect_path, ativo)
@@ -61809,7 +67437,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       let query = `UPDATE coordenadores SET nome = $1, email = $2, telefone = $3, setor = $4, ativo = $5, updated_at = NOW()`;
       let params = [nome, email, telefone || null, setor, ativo];
       if (senha) {
-        const passwordHash = await bcrypt.hash(senha, 10);
+        const passwordHash = await bcrypt2.hash(senha, 10);
         query += `, password_hash = $6 WHERE id = $7 RETURNING id, nome, email, telefone, setor, ativo`;
         params.push(passwordHash, id);
       } else {
@@ -62211,42 +67839,61 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ success: false, message: "Erro ao deletar ganhador" });
     }
   });
-  app2.post("/api/dev/beneficios/ganhadores/:id/foto", (req, res) => {
-    console.log("\u{1F4E4} [DEV FOTO] Recebendo upload de foto...");
-    console.log("\u{1F4E4} [DEV FOTO] Content-Type:", req.headers["content-type"]);
-    memoryUpload.single("foto")(req, res, async (err) => {
-      if (err) {
-        console.error("\u274C [DEV FOTO] Erro no multer:", err);
-        return res.status(400).json({ success: false, message: "Erro no upload: " + err.message });
-      }
-      try {
-        const ganhadorId = parseInt(req.params.id);
-        const file = req.file;
-        console.log("\u{1F4E4} [DEV FOTO] Arquivo recebido:", file ? file.originalname : "NENHUM");
-        if (!file) {
-          console.log("\u274C [DEV FOTO] Nenhum arquivo no req.file");
-          return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+  app2.post(
+    "/api/dev/beneficios/ganhadores/:id/foto",
+    requireAuth,
+    requireRole(["admin", "dev", "desenvolvedor", "dev-marketing"]),
+    (req, res) => {
+      console.log("\u{1F4E4} [DEV FOTO] Recebendo upload de foto...");
+      console.log("\u{1F4E4} [DEV FOTO] Content-Type:", req.headers["content-type"]);
+      memoryUpload.single("foto")(req, res, async (err) => {
+        if (err) {
+          console.error("\u274C [DEV FOTO] Erro no multer:", err);
+          return res.status(400).json({ success: false, message: "Erro no upload: " + err.message });
         }
-        const ext = file.originalname.split(".").pop() || "jpg";
-        const filename = "ganhador-" + ganhadorId + "-" + Date.now() + "." + ext;
-        const blob = bucket.file("ganhadores/" + filename);
-        await blob.save(file.buffer, {
-          contentType: file.mimetype || "image/jpeg",
-          resumable: false
-        });
-        const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/ganhadores/" + filename;
-        await db.update(beneficioGanhadores).set({
-          fotoUrl,
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq9(beneficioGanhadores.id, ganhadorId));
-        console.log("\u{1F4F8} [DEV GANHADORES] Foto atualizada para ganhador " + ganhadorId + ": " + fotoUrl);
-        res.json({ success: true, fotoUrl });
-      } catch (error) {
-        console.error("Erro ao fazer upload de foto (dev):", error);
-        res.status(500).json({ success: false, message: "Erro ao fazer upload" });
-      }
-    });
-  });
+        try {
+          const ganhadorId = parseInt(req.params.id);
+          const file = req.file;
+          console.log("\u{1F4E4} [DEV FOTO] Arquivo recebido:", file ? file.originalname : "NENHUM");
+          if (!file) {
+            console.log("\u274C [DEV FOTO] Nenhum arquivo no req.file");
+            return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+          }
+          const ext = file.originalname.split(".").pop() || "jpg";
+          const filename = `ganhador-${ganhadorId}-${Date.now()}.${ext}`;
+          let fotoUrl;
+          if (isGCSAvailable && bucket) {
+            const objectKey = `ganhadores/${filename}`;
+            const blob = bucket.file(objectKey);
+            await blob.save(file.buffer, {
+              contentType: file.mimetype || "image/jpeg",
+              resumable: false
+            });
+            fotoUrl = `https://storage.googleapis.com/${bucket.name}/${objectKey}`;
+          } else {
+            const objectKey = await uploadToGCS(
+              file.buffer,
+              `ganhador-${ganhadorId}-${Date.now()}.${ext}`,
+              file.mimetype || "image/jpeg"
+            );
+            fotoUrl = objectKey;
+          }
+          await db.update(beneficioGanhadores).set({
+            fotoUrl,
+            updatedAt: /* @__PURE__ */ new Date()
+          }).where(eq9(beneficioGanhadores.id, ganhadorId));
+          console.log("\u{1F4F8} [DEV GANHADORES] Foto atualizada para ganhador " + ganhadorId + ": " + fotoUrl);
+          res.json({ success: true, fotoUrl });
+        } catch (error) {
+          console.error("Erro ao fazer upload de foto (dev):", error);
+          res.status(500).json({
+            success: false,
+            message: error?.message || "Erro ao fazer upload"
+          });
+        }
+      });
+    }
+  );
   app2.get("/api/ganhadores/:id/foto", async (req, res) => {
     try {
       const ganhadorId = parseInt(req.params.id);
@@ -62257,14 +67904,20 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (result.rows.length === 0 || !result.rows[0].foto_url) {
         return res.status(404).json({ error: "Foto n\xE3o encontrada" });
       }
-      const fotoUrl = result.rows[0].foto_url;
-      const match = fotoUrl.match(/storage\.googleapis\.com\/[^/]+\/(.+)$/);
-      if (!match) {
+      const fotoUrl = String(result.rows[0].foto_url);
+      const key2 = fotoUrl.startsWith("http") ? extractFilePathFromUrl(fotoUrl) : normalizeObjectKey(fotoUrl);
+      if (!key2) {
         return res.status(404).json({ error: "Path da foto inv\xE1lido" });
       }
-      const objectKey = match[1];
-      const signedUrl = await getSignedUrl(objectKey, 60);
-      return res.redirect(302, signedUrl);
+      try {
+        await streamSignedObjectToResponse(key2, res, 3600);
+      } catch (gcsErr) {
+        console.warn(
+          "\u26A0\uFE0F [GANHADOR FOTO] stream falhou:",
+          gcsErr?.code || gcsErr?.message
+        );
+        return res.status(502).json({ error: "Falha ao obter foto" });
+      }
     } catch (error) {
       console.error("Erro ao buscar foto do ganhador:", error);
       res.status(500).json({ error: "Erro interno" });
@@ -62300,25 +67953,32 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   });
   app2.post("/api/coordenador/alunos/:cpf/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single("foto"), async (req, res) => {
     try {
-      const cpf = req.params.cpf;
+      const cpfParam = req.params.cpf;
       const file = req.file;
-      console.log("\u{1F4E4} [ALUNO FOTO] Upload para CPF:", cpf);
+      const alunoRecord = await storage.getAluno(cpfParam);
+      if (!alunoRecord) {
+        return res.status(404).json({ success: false, message: "Aluno n\xE3o encontrado para este CPF" });
+      }
+      console.log("\u{1F4E4} [ALUNO FOTO] Upload para CPF:", alunoRecord.cpf);
       if (!file) {
         return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
       }
       const ext = file.originalname.split(".").pop() || "jpg";
-      const filename = "aluno-" + cpf.replace(/\D/g, "") + "-" + Date.now() + "." + ext;
+      const filename = "aluno-" + normalizeCpfDigits2(alunoRecord.cpf) + "-" + Date.now() + "." + ext;
       const blob = bucket.file("alunos/" + filename);
       await blob.save(file.buffer, {
         contentType: file.mimetype || "image/jpeg",
         resumable: false
       });
       const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/alunos/" + filename;
-      await pool.query(
-        `UPDATE aluno SET foto_perfil = $1 WHERE cpf = $2`,
-        [fotoUrl, cpf]
+      const updateResult = await pool.query(
+        `UPDATE aluno SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+        [fotoUrl, alunoRecord.cpf]
       );
-      console.log("\u{1F4F8} [ALUNO FOTO] Foto atualizada para CPF " + cpf);
+      if (!updateResult.rowCount) {
+        return res.status(404).json({ success: false, message: "N\xE3o foi poss\xEDvel atualizar a foto do aluno" });
+      }
+      console.log("\u{1F4F8} [ALUNO FOTO] Foto atualizada para CPF " + alunoRecord.cpf);
       res.json({ success: true, fotoUrl });
     } catch (error) {
       console.error("Erro ao fazer upload de foto do aluno:", error);
@@ -62377,6 +68037,36 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   }
   app2.post("/api/coordenador/participantes/:id/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single("foto"), handleParticipanteFotoUpload);
   app2.post("/api/participantes-inclusao/:id/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single("foto"), handleParticipanteFotoUpload);
+  app2.post("/api/coordenador/participantes/cpf/:cpf/foto", requireAuth, requireRole(STUDENT_PHOTO_ROLES), memoryUpload.single("foto"), async (req, res) => {
+    try {
+      const cpf = String(req.params.cpf || "").replace(/\D/g, "");
+      const file = req.file;
+      if (cpf.length !== 11) return res.status(400).json({ success: false, message: "CPF inv\xE1lido" });
+      if (!file) return res.status(400).json({ success: false, message: "Nenhuma foto enviada" });
+      const ext = file.originalname.split(".").pop() || "jpg";
+      const filename = "participante-cpf-" + cpf + "-" + Date.now() + "." + ext;
+      const blob = bucket.file("participantes/" + filename);
+      await blob.save(file.buffer, {
+        contentType: file.mimetype || "image/jpeg",
+        resumable: false
+      });
+      const fotoUrl = "https://storage.googleapis.com/" + bucket.name + "/participantes/" + filename;
+      await pool.query(
+        `UPDATE atendidos_grito SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+        [fotoUrl, cpf]
+      );
+      await pool.query(
+        `UPDATE participantes_inclusao SET foto_url = $1
+         WHERE REGEXP_REPLACE(COALESCE(cpf,''), '[^0-9]', '', 'g') = $2`,
+        [fotoUrl, cpf]
+      ).catch(() => {
+      });
+      res.json({ success: true, fotoUrl });
+    } catch (error) {
+      console.error("Erro ao upload foto participante por CPF:", error);
+      res.status(500).json({ success: false, message: "Erro ao fazer upload" });
+    }
+  });
   app2.get("/api/participantes/:id/foto", async (req, res) => {
     try {
       const participanteId = parseInt(req.params.id);
@@ -64291,6 +69981,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       if (!creatorId) return res.status(401).json({ error: "Usu\xE1rio n\xE3o identificado" });
       const hi = horario_inicio ?? horarioInicio ?? "";
       const hf = horario_fim ?? horarioFim ?? "";
+      const dataNorm = typeof data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data) ? `${data}T12:00:00` : data;
       const result = await pool.query(`
         INSERT INTO atividades_monitor
           (monitor_user_id, titulo, descricao, tipo, data, horario_inicio, horario_fim,
@@ -64302,7 +69993,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         titulo,
         descricao || null,
         tipo || "outro",
-        data,
+        dataNorm,
         hi || "00:00",
         hf || "00:00",
         participantes_presentes ?? participantesPresentes ?? 0,
@@ -64356,6 +70047,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       }
       const hi = horario_inicio ?? horarioInicio ?? row.horario_inicio ?? "";
       const hf = horario_fim ?? horarioFim ?? row.horario_fim ?? "";
+      const dataNorm = typeof data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data) ? `${data}T12:00:00` : data;
       const result = await pool.query(
         `UPDATE atividades_monitor SET
           titulo = $1,
@@ -64376,7 +70068,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           titulo,
           descricao ?? null,
           tipo || "outro",
-          data,
+          dataNorm,
           hi || "00:00",
           hf || "00:00",
           participantes_presentes ?? participantesPresentes ?? row.participantes_presentes ?? 0,
@@ -64395,6 +70087,9 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   });
   app2.get("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
     try {
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        return res.json(await listPsicoComunidadeFromMaster());
+      }
       const result = await pool.query("SELECT * FROM psico_atendidos_comunidade ORDER BY nome ASC");
       res.json(result.rows);
     } catch (error) {
@@ -64405,6 +70100,11 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.get("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const row = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!row) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
+        return res.json(row);
+      }
       const result = await pool.query("SELECT * FROM psico_atendidos_comunidade WHERE id=$1", [id]);
       if (result.rows.length === 0) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
       res.json(result.rows[0]);
@@ -64420,7 +70120,24 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       const ext = req.file.originalname.split(".").pop() || "jpg";
       const fileName = `comunidade/atendido_${id}_${Date.now()}.${ext}`;
       const url = await uploadToGCS(req.file.buffer, fileName, req.file.mimetype);
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
+        await pool.query(
+          `UPDATE atendidos_grito SET foto_perfil = $1, updated_at = NOW() WHERE cpf = $2`,
+          [url, normalizeCpfDigits2(existing.cpf)]
+        );
+        await upsertPsicoComunidadeMasterOnly({ ...existing, foto_url: url }, id);
+        return res.json({ success: true, url });
+      }
       await pool.query("UPDATE psico_atendidos_comunidade SET foto_url=$1, updated_at=NOW() WHERE id=$2", [url, id]);
+      const { rows: updatedRows } = await pool.query("SELECT * FROM psico_atendidos_comunidade WHERE id=$1", [id]);
+      if (updatedRows[0]) {
+        await syncAtendidoGritoSafe(
+          () => syncFromPsicoComunidade(updatedRows[0]),
+          `fotoPsicoComunidade:${id}`
+        );
+      }
       res.json({ success: true, url });
     } catch (error) {
       console.error("Error uploading foto comunidade:", error);
@@ -64428,6 +70145,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
     }
   });
   app2.post("/api/psico/atendidos-comunidade", requireAuth, async (req, res) => {
+    const client = await pool.connect();
     try {
       const {
         nome,
@@ -64458,7 +70176,59 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         criado_por_user_id
       } = req.body;
       if (!nome) return res.status(400).json({ error: "Nome \xE9 obrigat\xF3rio" });
-      const result = await pool.query(
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const row2 = await upsertPsicoComunidadeMasterOnly({
+          nome,
+          cpf,
+          data_nascimento,
+          sexo,
+          raca,
+          telefone,
+          email,
+          cep,
+          endereco,
+          numero,
+          complemento,
+          bairro,
+          bairro_outro,
+          cidade,
+          estado,
+          numero_pessoas,
+          criancas,
+          adolescentes,
+          adultos,
+          idosos,
+          tem_cad_unico,
+          tem_bolsa_familia,
+          tem_bpc,
+          demandas,
+          observacoes,
+          criado_por_user_id,
+          pe_de_meia: req.body.pe_de_meia,
+          gas_do_povo: req.body.gas_do_povo
+        });
+        return res.json(row2);
+      }
+      const cpfDigits = cpf ? String(cpf).replace(/\D/g, "") : "";
+      const cpfIsPlaceholder = !cpfDigits || /^0{8}\d{3}$/.test(cpfDigits) || /^0+$/.test(cpfDigits);
+      await client.query("BEGIN");
+      if (cpfDigits && !cpfIsPlaceholder) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`comunidade_cpf:${cpfDigits}`]);
+        const existing = await client.query(
+          `SELECT id, nome FROM psico_atendidos_comunidade
+           WHERE regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') = $1
+           LIMIT 1`,
+          [cpfDigits]
+        );
+        if (existing.rows.length > 0) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            error: `J\xE1 existe um cadastro de comunidade com este CPF: ${existing.rows[0].nome}`,
+            existingId: existing.rows[0].id
+          });
+        }
+      }
+      const result = await client.query(
         `INSERT INTO psico_atendidos_comunidade
           (nome, cpf, data_nascimento, sexo, raca, telefone, email, cep, endereco, numero, complemento, bairro, bairro_outro, cidade, estado,
            numero_pessoas, criancas, adolescentes, adultos, idosos,
@@ -64494,15 +70264,83 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           criado_por_user_id || null
         ]
       );
-      res.json(result.rows[0]);
+      const row = result.rows[0];
+      const beneficiosExtras = {
+        pe_de_meia: req.body.pe_de_meia,
+        gas_do_povo: req.body.gas_do_povo
+      };
+      await syncAtendidoGritoSafe(
+        () => syncFromPsicoComunidade(row, beneficiosExtras),
+        `createPsicoComunidade:${row.id}`
+      );
+      await client.query("COMMIT");
+      res.json(row);
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+      }
+      if (error?.code === "23505") {
+        return res.status(409).json({ error: "J\xE1 existe um cadastro de comunidade com este CPF." });
+      }
       console.error("Error creating atendido comunidade:", error);
       res.status(500).json({ error: error.message });
+    } finally {
+      client.release();
     }
   });
   app2.put("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
+        const oldCpf2 = normalizeCpfDigits2(existing.cpf);
+        const newCpf2 = normalizeCpfDigits2(req.body.cpf);
+        if (oldCpf2 && newCpf2 && oldCpf2 !== newCpf2 && oldCpf2.length === 11 && newCpf2.length === 11) {
+          await migrateAtendidoGritoCpf(oldCpf2, newCpf2);
+        }
+        const row2 = await upsertPsicoComunidadeMasterOnly(
+          {
+            nome: req.body.nome,
+            cpf: req.body.cpf,
+            data_nascimento: req.body.data_nascimento,
+            sexo: req.body.sexo,
+            raca: req.body.raca,
+            telefone: req.body.telefone,
+            email: req.body.email,
+            cep: req.body.cep,
+            endereco: req.body.endereco,
+            numero: req.body.numero,
+            complemento: req.body.complemento,
+            bairro: req.body.bairro,
+            bairro_outro: req.body.bairro_outro,
+            cidade: req.body.cidade,
+            estado: req.body.estado,
+            numero_pessoas: req.body.numero_pessoas,
+            criancas: req.body.criancas,
+            adolescentes: req.body.adolescentes,
+            adultos: req.body.adultos,
+            idosos: req.body.idosos,
+            tem_cad_unico: req.body.tem_cad_unico,
+            tem_bolsa_familia: req.body.tem_bolsa_familia,
+            tem_bpc: req.body.tem_bpc,
+            demandas: req.body.demandas,
+            observacoes: req.body.observacoes,
+            pe_de_meia: req.body.pe_de_meia,
+            gas_do_povo: req.body.gas_do_povo,
+            foto_url: existing.foto_url
+          },
+          id
+        );
+        return res.json(row2);
+      }
+      const { rows: existingRows } = await pool.query(
+        "SELECT cpf FROM psico_atendidos_comunidade WHERE id=$1",
+        [id]
+      );
+      if (existingRows.length === 0) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
+      const oldCpf = normalizeCpfDigits2(existingRows[0].cpf);
       const {
         nome,
         cpf,
@@ -64567,7 +70405,19 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         ]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
-      res.json(result.rows[0]);
+      const row = result.rows[0];
+      const newCpf = normalizeCpfDigits2(row.cpf);
+      const beneficiosExtras = {
+        pe_de_meia: req.body.pe_de_meia,
+        gas_do_povo: req.body.gas_do_povo
+      };
+      await syncAtendidoGritoSafe(async () => {
+        if (oldCpf && newCpf && oldCpf !== newCpf && oldCpf.length === 11 && newCpf.length === 11) {
+          await migrateAtendidoGritoCpf(oldCpf, newCpf);
+        }
+        await syncFromPsicoComunidade(row, beneficiosExtras);
+      }, `updatePsicoComunidade:${id}`);
+      res.json(row);
     } catch (error) {
       console.error("Error updating atendido comunidade:", error);
       res.status(500).json({ error: error.message });
@@ -64576,7 +70426,39 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   app2.delete("/api/psico/atendidos-comunidade/:id", requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!isLegacyWriteEnabled("psico_comunidade")) {
+        const existing = await getPsicoComunidadeFromMasterByProgramaId(id);
+        if (!existing) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
+        await syncLegadoStatusToAtendidoGrito({
+          cpf: normalizeCpfDigits2(existing.cpf),
+          programa: "psico_comunidade",
+          legadoStatus: "inativo",
+          legadoTipo: "atendidos_grito_programa",
+          legadoId: String(id),
+          dataEgresso: /* @__PURE__ */ new Date()
+        });
+        return res.json({ success: true });
+      }
+      const { rows: existingRows } = await pool.query(
+        "SELECT cpf, id FROM psico_atendidos_comunidade WHERE id=$1",
+        [id]
+      );
+      if (existingRows.length === 0) return res.status(404).json({ error: "Atendido n\xE3o encontrado" });
       await pool.query("DELETE FROM psico_atendidos_comunidade WHERE id=$1", [id]);
+      const cpf = normalizeCpfDigits2(existingRows[0].cpf);
+      if (cpf.length === 11) {
+        await syncAtendidoGritoSafe(
+          () => syncLegadoStatusToAtendidoGrito({
+            cpf,
+            programa: "psico_comunidade",
+            legadoStatus: "inativo",
+            legadoTipo: "psico_atendidos_comunidade",
+            legadoId: String(existingRows[0].id),
+            dataEgresso: /* @__PURE__ */ new Date()
+          }),
+          `deletePsicoComunidade:${id}`
+        );
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting atendido comunidade:", error);
@@ -64777,9 +70659,48 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
   });
   app2.get("/api/psico/todos-atendidos-para-atendimento", requireAuth, async (req, res) => {
     try {
-      const inclusao = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'inclusao' as origem FROM participantes_inclusao ORDER BY nome`);
-      const pec = await pool.query(`SELECT DISTINCT ON (a.cpf) a.cpf as id, a.nome_completo as nome, a.cpf, a.data_nascimento, NULL as telefone, 'pec' as origem FROM instance_enrollments ie JOIN aluno a ON ie.student_cpf = a.cpf WHERE ie.active = true ORDER BY a.cpf, a.nome_completo`);
-      const comunidade = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, 'comunidade' as origem FROM psico_atendidos_comunidade ORDER BY nome`);
+      const inclusao = await pool.query(`SELECT id, nome, cpf, data_nascimento, telefone, endereco, 'inclusao' as origem FROM participantes_inclusao ORDER BY nome`);
+      const pec = await pool.query(`
+        SELECT DISTINCT ON (a.cpf)
+          a.cpf as id,
+          a.nome_completo as nome,
+          a.cpf,
+          a.data_nascimento,
+          a.telefone,
+          TRIM(BOTH ' \u2014 ' FROM CONCAT_WS(' \u2014 ',
+            NULLIF(TRIM(CONCAT_WS(', ', NULLIF(a.logradouro, ''), NULLIF(a.numero, ''))), ''),
+            NULLIF(a.complemento, ''),
+            NULLIF(a.bairro, ''),
+            NULLIF(TRIM(BOTH ' / ' FROM CONCAT_WS(' / ', NULLIF(a.cidade, ''), NULLIF(a.estado, ''))), '')
+          )) as endereco,
+          a.logradouro, a.numero, a.complemento, a.bairro, a.cidade, a.estado,
+          'pec' as origem
+        FROM instance_enrollments ie
+        JOIN aluno a ON ie.student_cpf = a.cpf
+        WHERE ie.active = true
+        ORDER BY a.cpf, a.nome_completo`);
+      const comunidade = await pool.query(`
+        SELECT DISTINCT ON (dedupe_key)
+          id, nome, cpf, data_nascimento, telefone,
+          TRIM(BOTH ' \u2014 ' FROM CONCAT_WS(' \u2014 ',
+            NULLIF(TRIM(CONCAT_WS(', ', NULLIF(endereco, ''), NULLIF(numero, ''))), ''),
+            NULLIF(complemento, ''),
+            NULLIF(COALESCE(bairro, bairro_outro), ''),
+            NULLIF(TRIM(BOTH ' / ' FROM CONCAT_WS(' / ', NULLIF(cidade, ''), NULLIF(estado, ''))), '')
+          )) as endereco,
+          endereco as logradouro, numero, complemento, bairro, bairro_outro, cidade, estado,
+          'comunidade' as origem
+        FROM (
+          SELECT *,
+            CASE
+              WHEN regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') ~ '^[0-9]{11}$'
+               AND regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g') !~ '^0{8}[0-9]{3}$'
+              THEN 'cpf:' || regexp_replace(COALESCE(cpf, ''), '\\D', '', 'g')
+              ELSE 'id:' || id::text
+            END AS dedupe_key
+          FROM psico_atendidos_comunidade
+        ) t
+        ORDER BY dedupe_key, COALESCE(updated_at, created_at) DESC NULLS LAST, id DESC`);
       const todos = [
         ...inclusao.rows.map((r) => ({ ...r, origem: "inclusao", label: `${r.nome} (Inclus\xE3o)` })),
         ...pec.rows.map((r) => ({ ...r, origem: "pec", label: `${r.nome} (PEC)` })),
@@ -65174,6 +71095,93 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       digits.length < 11 ? digits.padStart(11, "0") : digits
     ]));
   }
+  async function expandCpfCandidatesViaAtendidosGrito(cpfCandidatos) {
+    const with11 = cpfCandidatos.filter((c) => c.length >= 11);
+    if (with11.length === 0) {
+      return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+    }
+    try {
+      const r = await pool.query(
+        `SELECT cpf, nome_completo FROM atendidos_grito
+         WHERE cpf = ANY($1::text[])
+         LIMIT 1`,
+        [with11]
+      );
+      const row = r.rows[0];
+      if (!row) {
+        return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+      }
+      const masterCpf = normalizeDigits(row.cpf);
+      return {
+        cpfs: Array.from(new Set([masterCpf, ...cpfCandidatos].filter(Boolean))),
+        masterCpf,
+        masterNome: row.nome_completo || null
+      };
+    } catch (err) {
+      console.warn("[WEBHOOK] falha ao consultar atendidos_grito:", err instanceof Error ? err.message : err);
+      return { cpfs: cpfCandidatos, masterCpf: null, masterNome: null };
+    }
+  }
+  async function findParticipanteInclusaoByCatraca(params) {
+    const expanded = await expandCpfCandidatesViaAtendidosGrito(params.cpfCandidatos);
+    if (expanded.cpfs.some((cpf) => cpf.length >= 11)) {
+      const r = await pool.query(
+        `SELECT * FROM participantes_inclusao
+         WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
+         LIMIT 1`,
+        [expanded.cpfs]
+      );
+      if (r.rows[0]) {
+        return {
+          row: r.rows[0],
+          resolucao: expanded.masterCpf ? "atendidos_grito" : "legado_cpf"
+        };
+      }
+    }
+    const byId = await pool.query(
+      `SELECT *
+       FROM participantes_inclusao
+       WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
+          OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
+          OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
+       LIMIT 1`,
+      [params.catracaIdNormalizado, params.catracaIdSemZeros]
+    );
+    if (byId.rows[0]) {
+      return { row: byId.rows[0], resolucao: "legado_id_catraca" };
+    }
+    return { row: null, resolucao: null };
+  }
+  async function findAlunoPecByCatraca(params) {
+    const expanded = await expandCpfCandidatesViaAtendidosGrito(params.cpfCandidatos);
+    if (expanded.cpfs.some((cpf) => cpf.length >= 11)) {
+      const r = await pool.query(
+        `SELECT * FROM aluno
+         WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
+         LIMIT 1`,
+        [expanded.cpfs]
+      );
+      if (r.rows[0]) {
+        return {
+          row: r.rows[0],
+          resolucao: expanded.masterCpf ? "atendidos_grito" : "legado_cpf"
+        };
+      }
+    }
+    const byId = await pool.query(
+      `SELECT *
+       FROM aluno
+       WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
+          OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
+          OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
+       LIMIT 1`,
+      [params.catracaIdNormalizado, params.catracaIdSemZeros]
+    );
+    if (byId.rows[0]) {
+      return { row: byId.rows[0], resolucao: "legado_id_catraca" };
+    }
+    return { row: null, resolucao: null };
+  }
   const PRESENCA_TOLERANCIA_MINUTOS = 30;
   function matchClassByStartWindow(params) {
     const normDia = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -65335,27 +71343,14 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
         addWebhookLog("request", `Webhook: id=${catracaId} unidade=${unidadeRaw || "N/A"}`, { catracaId, hora: horaAtual, data: hoje, diaSemana, unidade: unidadeRaw });
         logWebhookToDB({ aluno_id: catracaId, unidade: unidadeRaw, sentido: String(req.body.sentido || ""), hora: horaAtual, data_evento: hoje, dia_semana: diaSemana, resultado: "recebido" });
         if (ehInstituto) {
-          let participante = null;
-          if (cpfCandidatos.some((cpf) => cpf.length >= 11)) {
-            const r = await pool.query(
-              `SELECT * FROM participantes_inclusao
-             WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
-             LIMIT 1`,
-              [cpfCandidatos]
-            );
-            participante = r.rows[0] || null;
-          }
-          if (!participante) {
-            const r = await pool.query(
-              `SELECT *
-             FROM participantes_inclusao
-             WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
-                OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
-                OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
-             LIMIT 1`,
-              [catracaIdNormalizado, catracaIdSemZeros]
-            );
-            participante = r.rows[0] || null;
+          const inclusaoResolved = await findParticipanteInclusaoByCatraca({
+            cpfCandidatos,
+            catracaIdNormalizado,
+            catracaIdSemZeros
+          });
+          let participante = inclusaoResolved.row;
+          if (participante && inclusaoResolved.resolucao) {
+            addWebhookLog("info", `Inclus\xE3o: resolvido via ${inclusaoResolved.resolucao} id="${catracaId}"`);
           }
           if (!participante) {
             if (!unidade || unidade === "INSTITUTO_O_GRITO") {
@@ -65455,41 +71450,34 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
           }
         }
         if (ehCasaSonhar) {
-          let alunoRow = null;
-          if (cpfCandidatos.some((cpf) => cpf.length >= 11)) {
-            const r = await pool.query(
-              `SELECT * FROM aluno
-             WHERE REGEXP_REPLACE(TRIM(COALESCE(cpf,'')), '[^0-9]', '', 'g') = ANY($1::text[])
-             LIMIT 1`,
-              [cpfCandidatos]
-            );
-            alunoRow = r.rows[0] || null;
-          }
-          if (!alunoRow) {
-            const r = await pool.query(
-              `SELECT *
-             FROM aluno
-             WHERE REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $1
-                OR REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', '') = $2
-                OR REGEXP_REPLACE(REPLACE(TRIM(COALESCE(id_catraca,'')), ' ', ''), '^0+', '') = $2
-             LIMIT 1`,
-              [catracaIdNormalizado, catracaIdSemZeros]
-            );
-            alunoRow = r.rows[0] || null;
+          const pecResolved = await findAlunoPecByCatraca({
+            cpfCandidatos,
+            catracaIdNormalizado,
+            catracaIdSemZeros
+          });
+          let alunoRow = pecResolved.row;
+          if (alunoRow && pecResolved.resolucao) {
+            addWebhookLog("info", `PEC: resolvido via ${pecResolved.resolucao} id="${catracaId}"`);
           }
           if (!alunoRow) {
             addWebhookLog("error", `PEC: aluno n\xE3o encontrado id="${catracaId}"`);
-            logWebhookToDB({ ...webhookMeta, resultado: "nao_encontrado", detalhe: "aluno nao localizado no PEC" });
+            logWebhookToDB({ ...webhookMeta, resultado: "nao_encontrado", detalhe: "aluno nao localizado no PEC (mestre/legado)" });
             broadcastPresencaEvent({ tipo: "entrada_desconhecida", catracaId, hora: horaAtual });
             return sendCatracaResponse(res, 404, "/webhook/presenca", { error: "Aluno n\xE3o encontrado", aluno_id: catracaId, resultado_final: "nao_encontrado", motivo: "aluno_nao_localizado_pec" }, { aluno_id: catracaId, vertente: "pec" });
           }
           const nomeAluno = alunoRow.nome_completo;
+          const alunoCpfDigits = normalizeDigits(alunoRow.cpf);
           const matriculas = await pool.query(
             `SELECT ie.activity_instance_id, ai.title, ai.start_time, ai.end_time, ai.dias_semana
            FROM instance_enrollments ie
            JOIN activity_instances ai ON ai.id = ie.activity_instance_id
-           WHERE ie.student_cpf = $1 AND ie.active = true AND ai.situation != 'encerrada'`,
-            [alunoRow.cpf]
+           WHERE ie.active = true
+             AND ai.situation != 'encerrada'
+             AND (
+               ie.student_cpf = $1
+               OR REGEXP_REPLACE(TRIM(COALESCE(ie.student_cpf,'')), '[^0-9]', '', 'g') = $2
+             )`,
+            [alunoRow.cpf, alunoCpfDigits]
           );
           if (matriculas.rows.length === 0) {
             addWebhookLog("info", `PEC: ${nomeAluno} sem matr\xEDcula ativa`);
@@ -66241,7 +72229,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.get("/api/eventos-grito/meus", requireAuth, async (req, res) => {
+  app2.get("/api/eventos-grito/meus", requireEventosAdmin, async (req, res) => {
     try {
       await pool.query(`
         UPDATE eventos_grito SET status = 'realizado', atualizado_em = NOW()
@@ -66295,7 +72283,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       );
     }
   }
-  app2.post("/api/eventos-grito", requireAuth, async (req, res) => {
+  app2.post("/api/eventos-grito", requireEventosAdmin, async (req, res) => {
     try {
       const {
         titulo,
@@ -66347,7 +72335,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.put("/api/eventos-grito/:id", requireAuth, async (req, res) => {
+  app2.put("/api/eventos-grito/:id", requireEventosAdmin, async (req, res) => {
     try {
       const {
         titulo,
@@ -66415,7 +72403,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/eventos-grito/:id/banner", requireAuth, memUpload.single("banner"), async (req, res) => {
+  app2.post("/api/eventos-grito/:id/banner", requireEventosAdmin, memUpload.single("banner"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "Arquivo obrigat\xF3rio" });
       const ext = (req.file.originalname || "img.jpg").split(".").pop();
@@ -66427,7 +72415,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.delete("/api/eventos-grito/:id", requireAuth, async (req, res) => {
+  app2.delete("/api/eventos-grito/:id", requireEventosAdmin, async (req, res) => {
     try {
       await pool.query(`DELETE FROM eventos_grito WHERE id=$1`, [req.params.id]);
       res.json({ ok: true });
@@ -66435,7 +72423,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.patch("/api/eventos-grito/:id/cancelar", requireAuth, async (req, res) => {
+  app2.patch("/api/eventos-grito/:id/cancelar", requireEventosAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(`
         UPDATE eventos_grito SET status = 'cancelado', atualizado_em = NOW()
@@ -66447,7 +72435,7 @@ Gerado em: ${(/* @__PURE__ */ new Date()).toLocaleString("pt-BR")}`;
       res.status(500).json({ error: e.message });
     }
   });
-  app2.get("/api/eventos-grito/:id/estatisticas", requireAuth, async (req, res) => {
+  app2.get("/api/eventos-grito/:id/estatisticas", requireEventosAdmin, async (req, res) => {
     try {
       const eventoId = req.params.id;
       const { rows: [evento] } = await pool.query(`SELECT * FROM eventos_grito WHERE id=$1`, [eventoId]);
@@ -67709,31 +73697,67 @@ async function sincronizar() {
   });
   app2.get("/api/aluno-portal/proxima-aula", requireAlunoPortalAuth, async (req, res) => {
     try {
-      let proximaOcorrencia2 = function(dataInicio, dataFim, diasSemana, horario) {
-        const inicio = /* @__PURE__ */ new Date(dataInicio + "T12:00:00");
+      let normDia2 = function(d) {
+        return d.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      }, toDateStr2 = function(v) {
+        if (!v) return null;
+        if (typeof v === "string") return v.split("T")[0];
+        if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().split("T")[0];
+        return String(v).split("T")[0];
+      }, normHorario2 = function(h) {
+        if (h == null || h === "") return null;
+        const s = String(h);
+        const m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (!m) return null;
+        return `${m[1].padStart(2, "0")}:${m[2]}:${m[3] || "00"}`;
+      }, chaveOrdenacao2 = function(data, horario) {
+        return `${data}T${horario || "00:00:00"}`;
+      }, proximaOcorrencia2 = function(dataInicio, dataFim, diasSemana, horario) {
+        const inicioStr = dataInicio > hoje ? dataInicio : hoje;
+        const [yi, mi, di] = inicioStr.split("-").map(Number);
         const fim = dataFim ? /* @__PURE__ */ new Date(dataFim + "T23:59:59") : null;
-        const agora = /* @__PURE__ */ new Date();
-        const start = agora > inicio ? agora : inicio;
+        const horaNorm = normHorario2(horario);
         for (let i = 0; i <= 60; i++) {
-          const d = new Date(start);
-          d.setDate(d.getDate() + i);
+          const d = new Date(yi, mi - 1, di + i, 12, 0, 0);
           if (fim && d > fim) break;
+          const dataStr = [
+            d.getFullYear(),
+            String(d.getMonth() + 1).padStart(2, "0"),
+            String(d.getDate()).padStart(2, "0")
+          ].join("-");
           const dayName = DIAS_SEMANA[d.getDay()];
-          const dataStr = d.toISOString().split("T")[0];
-          if (!diasSemana || diasSemana.length === 0) {
-            return dataStr;
-          }
-          if (diasSemana.includes(dayName)) return dataStr;
+          if (diasSemana && diasSemana.length > 0 && !diasSemana.includes(dayName)) continue;
+          if (dataStr === hoje && horaNorm && horaNorm <= horaAgora) continue;
+          return dataStr;
         }
         return null;
-      }, normDia2 = function(d) {
-        return d.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
       };
-      var proximaOcorrencia = proximaOcorrencia2, normDia = normDia2;
+      var normDia = normDia2, toDateStr = toDateStr2, normHorario = normHorario2, chaveOrdenacao = chaveOrdenacao2, proximaOcorrencia = proximaOcorrencia2;
       const cpf = req.alunoCpf;
       if (!cpf) return res.status(400).json({ error: "CPF obrigat\xF3rio" });
-      const hoje = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const DIAS_SEMANA = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+      const brtNow = new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const hoje = [
+        brtNow.getFullYear(),
+        String(brtNow.getMonth() + 1).padStart(2, "0"),
+        String(brtNow.getDate()).padStart(2, "0")
+      ].join("-");
+      const horaAgora = [
+        String(brtNow.getHours()).padStart(2, "0"),
+        String(brtNow.getMinutes()).padStart(2, "0"),
+        String(brtNow.getSeconds()).padStart(2, "0")
+      ].join(":");
+      const candidatos = [];
+      const addCandidato = (c) => {
+        if (!c?.data) return;
+        candidatos.push({
+          nome: c.nome,
+          data: toDateStr2(c.data) || c.data,
+          horario: normHorario2(c.horario),
+          local: c.local ?? null,
+          area: c.area
+        });
+      };
       const pecSess = await pool.query(
         `SELECT s.date, ai.title as turma, ai.start_time, ai.location
          FROM instance_enrollments ie
@@ -67741,16 +73765,18 @@ async function sincronizar() {
          JOIN sessions s ON s.activity_instance_id = ie.activity_instance_id
          WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
            AND ie.active = true
+           AND COALESCE(ie.evadido, false) = false
            AND (
-             s.date > $2
-             OR (s.date = $2 AND (ai.start_time IS NULL OR ai.start_time::time > (NOW() AT TIME ZONE 'America/Sao_Paulo')::time))
+             s.date > $2::date
+             OR (s.date = $2::date AND (ai.start_time IS NULL OR ai.start_time::time > $3::time))
            )
-         ORDER BY s.date ASC LIMIT 1`,
-        [cpf, hoje]
+         ORDER BY s.date ASC, ai.start_time ASC NULLS LAST
+         LIMIT 1`,
+        [cpf, hoje, horaAgora]
       );
-      if (pecSess.rows.length > 0) {
+      if (pecSess.rows[0]) {
         const r = pecSess.rows[0];
-        return res.json({ nome: r.turma, data: r.date, horario: r.start_time, local: r.location, area: "pec" });
+        addCandidato({ nome: r.turma, data: r.date, horario: r.start_time, local: r.location, area: "pec" });
       }
       const pecCursos = await pool.query(
         `SELECT ai.title as nome, ai.occurrence_start, ai.occurrence_end,
@@ -67759,38 +73785,45 @@ async function sincronizar() {
          JOIN activity_instances ai ON ai.id = ie.activity_instance_id
          WHERE REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = $1
            AND ie.active = true
-           AND ie.evadido = false
-           AND (ai.occurrence_end IS NULL OR ai.occurrence_end >= $2)
-         ORDER BY ai.occurrence_start ASC`,
+           AND COALESCE(ie.evadido, false) = false
+           AND (ai.occurrence_end IS NULL OR ai.occurrence_end >= $2::date)`,
         [cpf, hoje]
       );
-      let melhorPec = null;
       for (const r of pecCursos.rows) {
-        if (!r.occurrence_start) continue;
-        const startStr = typeof r.occurrence_start === "string" ? r.occurrence_start.split("T")[0] : r.occurrence_start.toISOString().split("T")[0];
-        const endStr = r.occurrence_end ? typeof r.occurrence_end === "string" ? r.occurrence_end.split("T")[0] : r.occurrence_end.toISOString().split("T")[0] : null;
+        const startStr = toDateStr2(r.occurrence_start);
+        if (!startStr) continue;
+        const endStr = toDateStr2(r.occurrence_end);
         const dias = Array.isArray(r.dias_semana) ? r.dias_semana.map(normDia2) : null;
         const data = proximaOcorrencia2(startStr, endStr, dias, r.start_time);
-        if (data && (!melhorPec || data < melhorPec.data)) {
-          melhorPec = { nome: r.nome, data, horario: r.start_time, local: r.location, area: "pec" };
-        }
+        if (data) addCandidato({ nome: r.nome, data, horario: r.start_time, local: r.location, area: "pec" });
       }
-      if (melhorPec) return res.json(melhorPec);
       const inclAulas = await pool.query(
-        `SELECT a.data, a.start_time, pi.nome as programa, ti.local
+        `SELECT a.data, COALESCE(a.start_time, ti.horario_entrada) as start_time,
+                pi.nome as programa, ti.local
          FROM participantes_inclusao p
          JOIN participantes_turmas pt ON pt.participante_id = p.id
          JOIN turmas_inclusao ti ON ti.id = pt.turma_id
          JOIN programas_inclusao pi ON pi.id = ti.programa_id
          JOIN aulas a ON a.turma_id = ti.id
          WHERE REGEXP_REPLACE(p.cpf, '[^0-9]', '', 'g') = $1
-           AND a.data >= $2
-         ORDER BY a.data ASC LIMIT 1`,
-        [cpf, hoje]
+           AND pt.status = 'ativo'
+           AND (
+             a.data > $2::date
+             OR (
+               a.data = $2::date
+               AND (
+                 COALESCE(a.start_time, ti.horario_entrada) IS NULL
+                 OR COALESCE(a.start_time, ti.horario_entrada)::time > $3::time
+               )
+             )
+           )
+         ORDER BY a.data ASC, COALESCE(a.start_time, ti.horario_entrada) ASC NULLS LAST
+         LIMIT 1`,
+        [cpf, hoje, horaAgora]
       );
-      if (inclAulas.rows.length > 0) {
+      if (inclAulas.rows[0]) {
         const r = inclAulas.rows[0];
-        return res.json({ nome: r.programa, data: r.data, horario: r.start_time, local: r.local, area: "inclusao" });
+        addCandidato({ nome: r.programa, data: r.data, horario: r.start_time, local: r.local, area: "inclusao" });
       }
       const inclCursos = await pool.query(
         `SELECT pi.nome as programa, ti.horario_entrada, ti.dias_semana,
@@ -67801,24 +73834,148 @@ async function sincronizar() {
          JOIN programas_inclusao pi ON pi.id = ti.programa_id
          WHERE REGEXP_REPLACE(p.cpf, '[^0-9]', '', 'g') = $1
            AND pt.status = 'ativo'
-           AND (ti.data_fim IS NULL OR ti.data_fim >= $2)`,
+           AND (ti.data_fim IS NULL OR ti.data_fim >= $2::date)`,
         [cpf, hoje]
       );
-      let melhorIncl = null;
       for (const r of inclCursos.rows) {
-        if (!r.data_inicio) continue;
-        const startStr = typeof r.data_inicio === "string" ? r.data_inicio.split("T")[0] : r.data_inicio.toISOString().split("T")[0];
-        const endStr = r.data_fim ? typeof r.data_fim === "string" ? r.data_fim.split("T")[0] : r.data_fim.toISOString().split("T")[0] : null;
-        const dias = Array.isArray(r.dias_semana) ? r.dias_semana : r.dias_semana ? JSON.parse(r.dias_semana) : null;
-        const data = proximaOcorrencia2(startStr, endStr, dias, r.horario_entrada);
-        if (data && (!melhorIncl || data < melhorIncl.data)) {
-          melhorIncl = { nome: r.programa, data, horario: r.horario_entrada, local: r.local, area: "inclusao" };
+        const startStr = toDateStr2(r.data_inicio);
+        if (!startStr) continue;
+        const endStr = toDateStr2(r.data_fim);
+        let dias = null;
+        if (Array.isArray(r.dias_semana)) dias = r.dias_semana.map(normDia2);
+        else if (r.dias_semana) {
+          try {
+            const parsed = typeof r.dias_semana === "string" ? JSON.parse(r.dias_semana) : r.dias_semana;
+            dias = Array.isArray(parsed) ? parsed.map(normDia2) : null;
+          } catch {
+            dias = null;
+          }
         }
+        const data = proximaOcorrencia2(startStr, endStr, dias, r.horario_entrada);
+        if (data) addCandidato({ nome: r.programa, data, horario: r.horario_entrada, local: r.local, area: "inclusao" });
       }
-      if (melhorIncl) return res.json(melhorIncl);
-      return res.json(null);
+      if (candidatos.length === 0) return res.json(null);
+      candidatos.sort((a, b) => chaveOrdenacao2(a.data, a.horario).localeCompare(chaveOrdenacao2(b.data, b.horario)));
+      const melhor = candidatos[0];
+      return res.json({
+        nome: melhor.nome,
+        data: melhor.data,
+        horario: melhor.horario,
+        local: melhor.local,
+        area: melhor.area
+      });
     } catch (e) {
       console.error("[ALUNO-PORTAL PROXIMA-AULA]", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/aluno-portal/acolhimentos", requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const cpf = normalizeCpfDigits2(req.alunoCpf);
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF obrigat\xF3rio" });
+      const rows = await db.select().from(psicoAcolhimentos).where(eq9(psicoAcolhimentos.alunoCpf, cpf)).orderBy(desc4(psicoAcolhimentos.data), desc4(psicoAcolhimentos.horaInicio));
+      return res.json(rows.map(toPublicAcolhimentoAluno));
+    } catch (e) {
+      console.error("[ALUNO-PORTAL ACOLHIMENTOS]", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/aluno-portal/proximo-acolhimento", requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const cpf = normalizeCpfDigits2(req.alunoCpf);
+      if (cpf.length !== 11) return res.status(400).json({ error: "CPF obrigat\xF3rio" });
+      const brtNow = new Date((/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const hoje = [
+        brtNow.getFullYear(),
+        String(brtNow.getMonth() + 1).padStart(2, "0"),
+        String(brtNow.getDate()).padStart(2, "0")
+      ].join("-");
+      const horaAgora = [
+        String(brtNow.getHours()).padStart(2, "0"),
+        String(brtNow.getMinutes()).padStart(2, "0")
+      ].join(":");
+      const rows = await db.select().from(psicoAcolhimentos).where(
+        and2(
+          eq9(psicoAcolhimentos.alunoCpf, cpf),
+          or3(
+            eq9(psicoAcolhimentos.status, "agendado"),
+            eq9(psicoAcolhimentos.status, "reagendado")
+          )
+        )
+      ).orderBy(asc2(psicoAcolhimentos.data), asc2(psicoAcolhimentos.horaInicio));
+      const proximo = rows.find((r) => {
+        const data = String(r.data).split("T")[0];
+        const hora = String(r.horaInicio || "00:00").slice(0, 5);
+        if (data > hoje) return true;
+        if (data === hoje && hora > horaAgora) return true;
+        return false;
+      });
+      return res.json(proximo ? toPublicAcolhimentoAluno(proximo) : null);
+    } catch (e) {
+      console.error("[ALUNO-PORTAL PROXIMO-ACOLHIMENTO]", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/aluno-portal/eventos", requireAlunoPortalAuth, async (req, res) => {
+    try {
+      const eventos = [];
+      try {
+        await pool.query(`
+          UPDATE eventos_grito SET status = 'realizado', atualizado_em = NOW()
+          WHERE status IN ('disponivel','em_breve') AND data_inicio < CURRENT_DATE
+        `);
+        const { rows } = await pool.query(`
+          SELECT id, titulo, descricao, data_inicio, data_fim,
+                 hora_inicio, hora_fim, local, cidade, status, categoria
+          FROM eventos_grito
+          WHERE status IN ('disponivel', 'em_breve')
+          ORDER BY data_inicio ASC
+        `);
+        for (const r of rows) {
+          eventos.push({
+            id: `grito-${r.id}`,
+            titulo: r.titulo,
+            descricao: r.descricao,
+            data: r.data_inicio,
+            dataFim: r.data_fim,
+            horaInicio: r.hora_inicio,
+            horaFim: r.hora_fim,
+            local: r.local || r.cidade || null,
+            categoria: r.categoria,
+            fonte: "eventos_grito"
+          });
+        }
+      } catch (e) {
+        console.warn("[ALUNO-PORTAL EVENTOS] eventos_grito:", e.message);
+      }
+      try {
+        const { rows } = await pool.query(`
+          SELECT id, titulo, descricao, data, horario_inicio, horario_fim, local, status
+          FROM atividades_monitor
+          WHERE tipo = 'evento'
+            AND COALESCE(status, 'planejada') <> 'cancelada'
+          ORDER BY data ASC
+        `);
+        for (const r of rows) {
+          eventos.push({
+            id: `monitor-${r.id}`,
+            titulo: r.titulo,
+            descricao: r.descricao,
+            data: r.data,
+            dataFim: null,
+            horaInicio: r.horario_inicio,
+            horaFim: r.horario_fim,
+            local: r.local,
+            categoria: null,
+            fonte: "monitor"
+          });
+        }
+      } catch (e) {
+        console.warn("[ALUNO-PORTAL EVENTOS] atividades_monitor:", e.message);
+      }
+      return res.json(eventos);
+    } catch (e) {
+      console.error("[ALUNO-PORTAL EVENTOS]", e.message);
       return res.status(500).json({ error: e.message });
     }
   });
@@ -67938,8 +74095,8 @@ async function sincronizar() {
         senhaOk = senha === cpfLimpo;
       } else {
         const bcryptMod = await import("bcryptjs");
-        const bcrypt2 = bcryptMod.default || bcryptMod;
-        senhaOk = await bcrypt2.compare(senha, row.senha);
+        const bcrypt3 = bcryptMod.default || bcryptMod;
+        senhaOk = await bcrypt3.compare(senha, row.senha);
       }
       if (!senhaOk) return res.status(401).json({ error: "Senha incorreta" });
       let isMenor = false;
@@ -68156,7 +74313,7 @@ async function sincronizar() {
       if (tokenRow.usado) return res.status(400).json({ error: "C\xF3digo j\xE1 utilizado" });
       if (new Date(tokenRow.expires_at) < /* @__PURE__ */ new Date()) return res.status(400).json({ error: "C\xF3digo expirado" });
       const bcryptMod = await import("bcryptjs");
-      const bcrypt2 = bcryptMod.default || bcryptMod;
+      const bcrypt3 = bcryptMod.default || bcryptMod;
       const pecSenhaRes = await pool.query(
         `SELECT senha FROM aluno WHERE REGEXP_REPLACE(cpf,'[^0-9]','','g') = $1 LIMIT 1`,
         [cpfLimpo]
@@ -68167,14 +74324,14 @@ async function sincronizar() {
       );
       const senhaAtualHash = pecSenhaRes.rows[0]?.senha || inclSenhaRes.rows[0]?.senha || null;
       if (senhaAtualHash) {
-        const mesma = await bcrypt2.compare(novaSenha, senhaAtualHash);
+        const mesma = await bcrypt3.compare(novaSenha, senhaAtualHash);
         if (mesma) return res.status(400).json({ error: "A nova senha n\xE3o pode ser igual \xE0 senha atual. Escolha uma senha diferente." });
       } else {
         if (novaSenha.replace(/\D/g, "") === cpfLimpo) {
           return res.status(400).json({ error: "A nova senha n\xE3o pode ser igual \xE0 senha atual. Escolha uma senha diferente." });
         }
       }
-      const hash = await bcrypt2.hash(novaSenha, 10);
+      const hash = await bcrypt3.hash(novaSenha, 10);
       await pool.query(`UPDATE aluno SET senha = $1 WHERE REGEXP_REPLACE(cpf,'[^0-9]','','g') = $2`, [hash, cpfLimpo]);
       await pool.query(`UPDATE participantes_inclusao SET senha = $1 WHERE REGEXP_REPLACE(cpf,'[^0-9]','','g') = $2`, [hash, cpfLimpo]);
       await pool.query(`UPDATE password_reset_tokens SET usado = TRUE WHERE cpf = $1 AND token = $2`, [cpfLimpo, String(codigo).trim()]);
@@ -68195,7 +74352,7 @@ async function sincronizar() {
       const senhaForte = novaSenha.length >= 6 && /[A-Z]/.test(novaSenha) && /[a-z]/.test(novaSenha) && /[0-9]/.test(novaSenha);
       if (!senhaForte) return res.status(400).json({ error: "A senha deve ter ao menos 6 caracteres, uma letra mai\xFAscula, uma min\xFAscula e um n\xFAmero." });
       const bcryptMod = await import("bcryptjs");
-      const bcrypt2 = bcryptMod.default || bcryptMod;
+      const bcrypt3 = bcryptMod.default || bcryptMod;
       let tabela = "";
       let row = null;
       const pecRes = await pool.query(
@@ -68221,10 +74378,10 @@ async function sincronizar() {
       if (!row.senha) {
         senhaAtualOk = (senhaAtual || "").replace(/\D/g, "") === cpfLimpo;
       } else {
-        senhaAtualOk = await bcrypt2.compare(senhaAtual, row.senha);
+        senhaAtualOk = await bcrypt3.compare(senhaAtual, row.senha);
       }
       if (!senhaAtualOk) return res.status(401).json({ error: "Senha atual incorreta" });
-      const hash = await bcrypt2.hash(novaSenha, 10);
+      const hash = await bcrypt3.hash(novaSenha, 10);
       await pool.query(`UPDATE ${tabela} SET senha = $1 WHERE REGEXP_REPLACE(cpf,'[^0-9]','','g') = $2`, [hash, cpfLimpo]);
       firePushRulesByTrigger("senha_alterada", senhaAlteradaVars(), void 0, void 0, cpfLimpo).catch(() => {
       });
@@ -68697,7 +74854,7 @@ async function sincronizar() {
       if (existente.length > 0) return res.status(400).json({ error: "E-mail j\xE1 cadastrado" });
       const existenteCpf = await db.select().from(usuariosPortal2).where(eq9(usuariosPortal2.cpf, cpfFmt)).limit(1);
       if (existenteCpf.length > 0) return res.status(400).json({ error: "CPF j\xE1 cadastrado" });
-      const senhaHash = await bcrypt.hash(senha, 10);
+      const senhaHash = await bcrypt2.hash(senha, 10);
       const [usuario] = await db.insert(usuariosPortal2).values({
         nome: nome.trim(),
         cpf: cpfFmt,
@@ -68713,9 +74870,10 @@ async function sincronizar() {
         cidade: cidade || null,
         estado: estado || null
       }).returning();
-      const sess = req.session;
-      if (sess) {
-        sess.portalUserId = usuario.id;
+      try {
+        await establishEventosPortalSession(req, { id: usuario.id, nome: usuario.nome });
+      } catch {
+        return res.status(500).json({ error: "N\xE3o foi poss\xEDvel iniciar a sess\xE3o" });
       }
       const { senhaHash: _, ...usuarioSemSenha } = usuario;
       return res.json({ success: true, usuario: usuarioSemSenha });
@@ -68731,11 +74889,12 @@ async function sincronizar() {
       const { usuariosPortal: usuariosPortal2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const [usuario] = await db.select().from(usuariosPortal2).where(eq9(usuariosPortal2.email, email.toLowerCase().trim())).limit(1);
       if (!usuario) return res.status(401).json({ error: "E-mail ou senha incorretos" });
-      const valida = await bcrypt.compare(senha, usuario.senhaHash);
+      const valida = await bcrypt2.compare(senha, usuario.senhaHash);
       if (!valida) return res.status(401).json({ error: "E-mail ou senha incorretos" });
-      const sess = req.session;
-      if (sess) {
-        sess.portalUserId = usuario.id;
+      try {
+        await establishEventosPortalSession(req, { id: usuario.id, nome: usuario.nome });
+      } catch {
+        return res.status(500).json({ error: "N\xE3o foi poss\xEDvel iniciar a sess\xE3o" });
       }
       const { senhaHash: _, ...usuarioSemSenha } = usuario;
       return res.json({ success: true, usuario: usuarioSemSenha });
@@ -68746,10 +74905,7 @@ async function sincronizar() {
   });
   app2.post("/api/portal/logout", async (req, res) => {
     try {
-      const sess = req.session;
-      if (sess) {
-        delete sess.portalUserId;
-      }
+      await destroyExpressSession(req, res);
       return res.json({ success: true });
     } catch (e) {
       return res.status(500).json({ error: "Erro ao sair" });
@@ -68774,8 +74930,7 @@ async function sincronizar() {
   });
   app2.get("/api/portal/me", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { usuariosPortal: usuariosPortal2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const [usuario] = await db.select().from(usuariosPortal2).where(eq9(usuariosPortal2.id, portalUserId)).limit(1);
@@ -68786,19 +74941,33 @@ async function sincronizar() {
       return res.status(500).json({ error: "Erro interno" });
     }
   });
+  const ensureScannerUsuariosTable = async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scanner_usuarios (
+        id SERIAL PRIMARY KEY,
+        nome TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT,
+        senha_hash TEXT NOT NULL,
+        ativo BOOLEAN NOT NULL DEFAULT true,
+        criado_em TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  };
+  await ensureScannerUsuariosTable();
   app2.post("/api/scanner/login", passwordLoginLimiter, async (req, res) => {
     try {
       const { username, senha } = req.body;
       if (!username || !senha) return res.status(400).json({ error: "Usu\xE1rio e senha obrigat\xF3rios" });
-      const { Pool: Pool3 } = await import("pg");
-      const pool2 = new Pool3({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      const { rows } = await pool2.query("SELECT * FROM scanner_usuarios WHERE username = $1 AND ativo = true LIMIT 1", [username.trim()]);
-      await pool2.end();
+      const { rows } = await pool.query(
+        "SELECT * FROM scanner_usuarios WHERE username = $1 AND ativo = true LIMIT 1",
+        [username.trim()]
+      );
       if (!rows.length) return res.status(401).json({ error: "Usu\xE1rio n\xE3o encontrado ou inativo" });
       const usuario = rows[0];
       const bcryptMod = await import("bcryptjs");
-      const bcrypt2 = bcryptMod.default || bcryptMod;
-      const ok = await bcrypt2.compare(senha, usuario.senha_hash);
+      const bcrypt3 = bcryptMod.default || bcryptMod;
+      const ok = await bcrypt3.compare(senha, usuario.senha_hash);
       if (!ok) return res.status(401).json({ error: "Senha incorreta" });
       await establishScannerSession(req, {
         id: usuario.id,
@@ -68813,12 +74982,12 @@ async function sincronizar() {
   });
   app2.get("/api/dev/scanner-usuarios", async (req, res) => {
     try {
-      const { Pool: Pool3 } = await import("pg");
-      const pool2 = new Pool3({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      const { rows } = await pool2.query("SELECT id, nome, username, email, ativo, criado_em FROM scanner_usuarios ORDER BY criado_em DESC");
-      await pool2.end();
+      const { rows } = await pool.query(
+        "SELECT id, nome, username, email, ativo, criado_em FROM scanner_usuarios ORDER BY criado_em DESC"
+      );
       return res.json(rows);
     } catch (e) {
+      console.error("GET /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -68827,18 +74996,16 @@ async function sincronizar() {
       const { nome, username, email, senha } = req.body;
       if (!nome || !username || !senha) return res.status(400).json({ error: "Nome, username e senha obrigat\xF3rios" });
       const bcryptMod = await import("bcryptjs");
-      const bcrypt2 = bcryptMod.default || bcryptMod;
-      const senhaHash = await bcrypt2.hash(senha, 10);
-      const { Pool: Pool3 } = await import("pg");
-      const pool2 = new Pool3({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      const { rows } = await pool2.query(
+      const bcrypt3 = bcryptMod.default || bcryptMod;
+      const senhaHash = await bcrypt3.hash(senha, 10);
+      const { rows } = await pool.query(
         "INSERT INTO scanner_usuarios (nome, username, email, senha_hash) VALUES ($1, $2, $3, $4) RETURNING id, nome, username, email, ativo, criado_em",
         [nome.trim(), username.trim().toLowerCase(), email?.trim() || null, senhaHash]
       );
-      await pool2.end();
       return res.status(201).json(rows[0]);
     } catch (e) {
       if (e.code === "23505") return res.status(409).json({ error: "Username j\xE1 em uso" });
+      console.error("POST /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -68846,13 +75013,11 @@ async function sincronizar() {
     try {
       const { id } = req.params;
       const { nome, username, email, senha, ativo } = req.body;
-      const { Pool: Pool3 } = await import("pg");
-      const pool2 = new Pool3({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
       let senhaHash;
       if (senha) {
         const bcryptMod = await import("bcryptjs");
-        const bcrypt2 = bcryptMod.default || bcryptMod;
-        senhaHash = await bcrypt2.hash(senha, 10);
+        const bcrypt3 = bcryptMod.default || bcryptMod;
+        senhaHash = await bcrypt3.hash(senha, 10);
       }
       const sets = [];
       const vals = [];
@@ -68877,31 +75042,26 @@ async function sincronizar() {
         sets.push(`ativo = $${idx++}`);
         vals.push(ativo);
       }
-      if (!sets.length) {
-        await pool2.end();
-        return res.status(400).json({ error: "Nenhum campo para atualizar" });
-      }
+      if (!sets.length) return res.status(400).json({ error: "Nenhum campo para atualizar" });
       vals.push(parseInt(id));
-      const { rows } = await pool2.query(
+      const { rows } = await pool.query(
         `UPDATE scanner_usuarios SET ${sets.join(", ")} WHERE id = $${idx} RETURNING id, nome, username, email, ativo, criado_em`,
         vals
       );
-      await pool2.end();
       if (!rows.length) return res.status(404).json({ error: "Scanner n\xE3o encontrado" });
       return res.json(rows[0]);
     } catch (e) {
       if (e.code === "23505") return res.status(409).json({ error: "Username j\xE1 em uso" });
+      console.error("PUT /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
   app2.delete("/api/dev/scanner-usuarios/:id", async (req, res) => {
     try {
-      const { Pool: Pool3 } = await import("pg");
-      const pool2 = new Pool3({ host: process.env.DO_DB_HOST, port: parseInt(process.env.DO_DB_PORT || "5433"), user: process.env.DO_DB_USER, password: process.env.DO_DB_PASSWORD, database: process.env.DO_DB_NAME, ssl: false });
-      await pool2.query("DELETE FROM scanner_usuarios WHERE id = $1", [parseInt(req.params.id)]);
-      await pool2.end();
+      await pool.query("DELETE FROM scanner_usuarios WHERE id = $1", [parseInt(req.params.id)]);
       return res.json({ success: true });
     } catch (e) {
+      console.error("DELETE /api/dev/scanner-usuarios:", e);
       return res.status(500).json({ error: "Erro interno" });
     }
   });
@@ -68938,8 +75098,7 @@ async function sincronizar() {
   });
   app2.get("/api/portal/meus-ingressos", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows } = await pool.query(`
         SELECT
@@ -68982,8 +75141,7 @@ async function sincronizar() {
   });
   app2.get("/api/portal/ingressos/:codigo", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows } = await pool.query(`
         SELECT
@@ -69007,8 +75165,7 @@ async function sincronizar() {
   });
   app2.put("/api/portal/ingressos/:codigo/beneficiario", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const {
         beneficiario_nome,
@@ -69084,8 +75241,7 @@ async function sincronizar() {
   });
   app2.post("/api/portal/ingressos/:codigo/transferir", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { receptor_email, receptor_nome } = req.body;
       if (!receptor_email || !receptor_nome) return res.status(400).json({ error: "Nome e e-mail do receptor s\xE3o obrigat\xF3rios" });
@@ -69123,8 +75279,7 @@ async function sincronizar() {
   });
   app2.post("/api/portal/ingressos/:codigo/cancelar-transferencia", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows } = await pool.query(
         `UPDATE ingressos_portal SET transferencia_status=NULL, transferido_para_email=NULL,
@@ -69140,8 +75295,7 @@ async function sincronizar() {
   });
   app2.post("/api/portal/ingressos/:codigo/receber", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows: ingressoRows } = await pool.query(
         `SELECT * FROM ingressos_portal WHERE codigo=$1 AND transferido_para_user_id=$2 AND transferencia_status='pendente'`,
@@ -69203,8 +75357,7 @@ async function sincronizar() {
   });
   app2.post("/api/portal/ingressos/:codigo/recusar", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows } = await pool.query(
         `UPDATE ingressos_portal SET
@@ -69226,8 +75379,7 @@ async function sincronizar() {
   });
   app2.get("/api/portal/ingressos-pendentes", async (req, res) => {
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
+      const portalUserId = getPortalUserIdFromRequest(req);
       if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
       const { rows } = await pool.query(
         `SELECT i.*, e.titulo as evento_titulo, e.data_inicio as evento_data_inicio, e.local as evento_local,
@@ -69257,10 +75409,15 @@ async function sincronizar() {
   app2.get("/api/portal/eventos/:id/disponiveis", async (req, res) => {
     try {
       const eventoId = parseInt(req.params.id);
+      try {
+        await reconcileExpiredOrders(eventoId);
+      } catch (e) {
+        console.warn("[disponiveis] reconcile:", e?.message || e);
+      }
       const { rows } = await pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status='disponivel') as disponiveis,
-          COUNT(*) as total
+          COUNT(*) FILTER (WHERE status IN ('disponivel','reservado','resgatado','usado')) as total
         FROM ingressos_portal WHERE evento_id=$1
       `, [eventoId]);
       return res.json({
@@ -69271,11 +75428,10 @@ async function sincronizar() {
       return res.status(500).json({ error: "Erro interno" });
     }
   });
-  app2.post("/api/portal/eventos/:id/resgatar", async (req, res) => {
+  app2.post("/api/portal/eventos/:id/resgatar", requireEventosPortalAuth, async (req, res) => {
+    const client = await pool.connect();
     try {
-      const sess = req.session;
-      const portalUserId = sess?.portalUserId;
-      if (!portalUserId) return res.status(401).json({ error: "N\xE3o autenticado" });
+      const portalUserId = req.portalUserId;
       const eventoId = parseInt(req.params.id);
       const { ingressos: loteIngressos } = req.body;
       if (!loteIngressos || !Array.isArray(loteIngressos) || loteIngressos.length === 0) {
@@ -69284,54 +75440,109 @@ async function sincronizar() {
       if (loteIngressos.length > 10) {
         return res.status(400).json({ error: "M\xE1ximo de 10 ingressos por opera\xE7\xE3o" });
       }
-      const { rows: [evento] } = await pool.query("SELECT * FROM eventos_grito WHERE id=$1", [eventoId]);
-      if (!evento) return res.status(404).json({ error: "Evento n\xE3o encontrado" });
-      if (evento.status !== "disponivel") return res.status(400).json({ error: "Evento n\xE3o dispon\xEDvel" });
-      const { rows: [usuarioPortal] } = await pool.query(
+      try {
+        await reconcileExpiredOrders(eventoId);
+      } catch (e) {
+        console.warn("[resgatar] reconcile:", e?.message || e);
+      }
+      await client.query("BEGIN");
+      const { rows: [evento] } = await client.query(
+        "SELECT * FROM eventos_grito WHERE id=$1 FOR UPDATE",
+        [eventoId]
+      );
+      if (!evento) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Evento n\xE3o encontrado" });
+      }
+      if (evento.status !== "disponivel") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Evento n\xE3o dispon\xEDvel" });
+      }
+      if (!evento.gratuito && parseInt(evento.preco || "0", 10) > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Evento pago: use o checkout para comprar ingressos" });
+      }
+      const { rows: [usuarioPortal] } = await client.query(
         "SELECT * FROM usuarios_portal WHERE id=$1",
         [portalUserId]
       );
-      if (!usuarioPortal) return res.status(401).json({ error: "Usu\xE1rio n\xE3o encontrado" });
+      if (!usuarioPortal) {
+        await client.query("ROLLBACK");
+        return res.status(401).json({ error: "Usu\xE1rio n\xE3o encontrado" });
+      }
       const cpfTitular = (usuarioPortal.cpf || "").replace(/\D/g, "");
-      const { rows: jaTemIngresso } = await pool.query(
-        `SELECT id FROM ingressos_portal WHERE evento_id=$1 AND usuario_portal_id=$2 AND status != 'cancelado' LIMIT 1`,
-        [eventoId, portalUserId]
+      const { rows: jaTemIngresso } = await client.query(
+        `SELECT id FROM ingressos_portal
+         WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+           AND (
+             usuario_portal_id=$2
+             OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','')=$3
+             OR REPLACE(REPLACE(REPLACE(COALESCE(beneficiario_cpf,''),'.',''),'-',''),' ','')=$3
+           )
+         LIMIT 1`,
+        [eventoId, portalUserId, cpfTitular]
       );
       const titularJaTem = jaTemIngresso.length > 0;
       const paraMinhaSlots = loteIngressos.filter((s) => !s.para_terceiro);
       if (titularJaTem && paraMinhaSlots.length > 0) {
+        await client.query("ROLLBACK");
         return res.status(400).json({ error: "Voc\xEA j\xE1 possui um ingresso para este evento. Novos ingressos devem ser vinculados a outra pessoa." });
       }
       if (paraMinhaSlots.length > 1) {
+        await client.query("ROLLBACK");
         return res.status(400).json({ error: "Voc\xEA s\xF3 pode reservar 1 ingresso para si mesmo." });
       }
       const cpfsNoPedido = [];
       for (const slot of loteIngressos) {
         if (slot.para_terceiro) {
-          if (!slot.beneficiario_cpf) return res.status(400).json({ error: "CPF do portador \xE9 obrigat\xF3rio para ingressos de terceiros." });
+          if (!slot.beneficiario_cpf) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "CPF do portador \xE9 obrigat\xF3rio para ingressos de terceiros." });
+          }
           const cpfNums = slot.beneficiario_cpf.replace(/\D/g, "");
-          if (cpfNums.length !== 11) return res.status(400).json({ error: `CPF inv\xE1lido: ${slot.beneficiario_cpf}` });
-          if (cpfNums === cpfTitular) return res.status(400).json({ error: "Voc\xEA n\xE3o pode vincular um ingresso ao seu pr\xF3prio CPF." });
-          if (cpfsNoPedido.includes(cpfNums)) return res.status(400).json({ error: `CPF ${slot.beneficiario_cpf} aparece mais de uma vez no pedido.` });
+          if (cpfNums.length !== 11) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: `CPF inv\xE1lido: ${slot.beneficiario_cpf}` });
+          }
+          if (cpfNums === cpfTitular) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "Voc\xEA n\xE3o pode vincular um ingresso ao seu pr\xF3prio CPF." });
+          }
+          if (cpfsNoPedido.includes(cpfNums)) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: `CPF ${slot.beneficiario_cpf} aparece mais de uma vez no pedido.` });
+          }
           cpfsNoPedido.push(cpfNums);
         }
       }
       if (cpfsNoPedido.length > 0) {
-        const cpfsFmt = cpfsNoPedido.map((n) => `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`);
-        const { rows: terceirosComIngresso } = await pool.query(
-          `SELECT beneficiario_cpf FROM ingressos_portal
-           WHERE evento_id=$1 AND status != 'cancelado' AND beneficiario_cpf = ANY($2)`,
-          [eventoId, cpfsFmt]
+        const { rows: terceirosComIngresso } = await client.query(
+          `SELECT beneficiario_cpf, titular_cpf FROM ingressos_portal
+           WHERE evento_id=$1 AND status NOT IN ('cancelado','disponivel','reservado')
+             AND (
+               REPLACE(REPLACE(REPLACE(COALESCE(beneficiario_cpf,''),'.',''),'-',''),' ','') = ANY($2::text[])
+               OR REPLACE(REPLACE(REPLACE(COALESCE(titular_cpf,''),'.',''),'-',''),' ','') = ANY($2::text[])
+             )
+           LIMIT 1`,
+          [eventoId, cpfsNoPedido]
         );
         if (terceirosComIngresso.length > 0) {
-          return res.status(400).json({ error: `O CPF ${terceirosComIngresso[0].beneficiario_cpf} j\xE1 possui um ingresso para este evento.` });
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `O CPF informado j\xE1 possui um ingresso para este evento.`
+          });
         }
       }
-      const { rows: disponiveisRows } = await pool.query(
-        "SELECT id, codigo FROM ingressos_portal WHERE evento_id=$1 AND status=$2 LIMIT $3",
-        [eventoId, "disponivel", loteIngressos.length]
+      const { rows: disponiveisRows } = await client.query(
+        `SELECT id, codigo FROM ingressos_portal
+         WHERE evento_id=$1 AND status='disponivel'
+         ORDER BY id ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED`,
+        [eventoId, loteIngressos.length]
       );
       if (disponiveisRows.length < loteIngressos.length) {
+        await client.query("ROLLBACK");
         return res.status(400).json({
           error: `Apenas ${disponiveisRows.length} ingresso(s) dispon\xEDvel(eis)`,
           disponiveis: disponiveisRows.length
@@ -69342,7 +75553,7 @@ async function sincronizar() {
         const slot = loteIngressos[idx];
         const ticket = disponiveisRows[idx];
         const paraTerceiro = slot.para_terceiro === true;
-        const { rows: [updated] } = await pool.query(`
+        const { rows: [updated] } = await client.query(`
           UPDATE ingressos_portal SET
             status = 'resgatado',
             usuario_portal_id = $1,
@@ -69361,18 +75572,20 @@ async function sincronizar() {
             beneficiario_cidade = $14,
             beneficiario_estado = $15,
             beneficiario_cep = $16,
+            order_ref = NULL,
+            reserved_until = NULL,
             resgatado_em = NOW()
-          WHERE id = $17
+          WHERE id = $17 AND status = 'disponivel'
           RETURNING *
         `, [
           portalUserId,
           usuarioPortal.nome,
-          usuarioPortal.cpf || null,
+          cpfTitular || null,
           usuarioPortal.email || null,
           null,
           paraTerceiro,
           paraTerceiro ? slot.beneficiario_nome || null : null,
-          paraTerceiro ? slot.beneficiario_cpf || null : null,
+          paraTerceiro ? String(slot.beneficiario_cpf || "").replace(/\D/g, "") || null : null,
           paraTerceiro ? slot.beneficiario_nascimento || null : null,
           paraTerceiro ? slot.beneficiario_genero || null : null,
           paraTerceiro ? slot.beneficiario_logradouro || null : null,
@@ -69383,10 +75596,14 @@ async function sincronizar() {
           paraTerceiro ? slot.beneficiario_cep || null : null,
           ticket.id
         ]);
+        if (!updated) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "Conflito de estoque. Tente novamente." });
+        }
         resgatados.push(updated);
       }
       const codigos = resgatados.map((r) => r.codigo);
-      const { rows: completos } = await pool.query(`
+      const { rows: completos } = await client.query(`
         SELECT
           i.*,
           e.titulo as evento_titulo,
@@ -69402,10 +75619,17 @@ async function sincronizar() {
         JOIN eventos_grito e ON e.id = i.evento_id
         WHERE i.codigo = ANY($1)
       `, [codigos]);
+      await client.query("COMMIT");
       return res.json({ success: true, ingressos: completos });
     } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+      }
       console.error("Portal resgatar error:", e);
       return res.status(500).json({ error: "Erro ao resgatar ingresso" });
+    } finally {
+      client.release();
     }
   });
   app2.post("/api/eventos/ingressos/validar", requireScannerAuth, async (req, res) => {
@@ -69584,9 +75808,9 @@ async function sincronizar() {
     `);
     const countRes = await pool.query(`SELECT COUNT(*)::int AS c FROM tablet_chamada_usuarios`);
     const bcryptMod = await import("bcryptjs");
-    const bcrypt2 = bcryptMod.default || bcryptMod;
+    const bcrypt3 = bcryptMod.default || bcryptMod;
     const senhaPadrao = process.env.TABLET_CHAMADA_SENHA || "ChamadaGrito@1234";
-    const hashPadrao = await bcrypt2.hash(senhaPadrao, 10);
+    const hashPadrao = await bcrypt3.hash(senhaPadrao, 10);
     if (countRes.rows[0].c === 0) {
       await pool.query(
         `INSERT INTO tablet_chamada_usuarios (nome, username, senha_hash, vertente) VALUES
@@ -69650,9 +75874,9 @@ async function sincronizar() {
         [username]
       );
       const bcryptMod = await import("bcryptjs");
-      const bcrypt2 = bcryptMod.default || bcryptMod;
+      const bcrypt3 = bcryptMod.default || bcryptMod;
       const hashToCompare = rows.length ? rows[0].senha_hash : DUMMY_BCRYPT_HASH;
-      const ok = await bcrypt2.compare(senha, hashToCompare);
+      const ok = await bcrypt3.compare(senha, hashToCompare);
       if (!rows.length || !ok) {
         console.warn(`[tablet-chamada] Login falhou para usu\xE1rio: ${username || "(vazio)"}`);
         return res.status(401).json({ error: LOGIN_ERRO_GENERICO });
@@ -69747,7 +75971,7 @@ async function sincronizar() {
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaId}
-            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado')
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           ORDER BY pi.nome
         `);
         const alunos2 = result.rows.map((r) => ({
@@ -69766,7 +75990,7 @@ async function sincronizar() {
           a.telefone,
           a.foto_perfil AS foto_url
         FROM instance_enrollments ie
-        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
         WHERE ie.activity_instance_id = $1
           AND ie.active = true
@@ -70004,7 +76228,7 @@ async function sincronizar() {
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaIdInt}
-            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado')
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
         `);
         const roster = rosterRes.rows;
         let count = 0;
@@ -70060,7 +76284,7 @@ async function sincronizar() {
           ie.student_cpf AS cpf,
           COALESCE(a.nome_completo, ie.student_cpf) AS nome
         FROM instance_enrollments ie
-        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+        LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
         LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
         WHERE ie.activity_instance_id = $1
           AND ie.active = true
@@ -70134,11 +76358,12 @@ async function sincronizar() {
           FROM participantes_turmas pt
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${turmaIdInt}
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           ORDER BY pi.nome
         `);
         rows = result.rows.map((r) => ({
           id: r.id,
-          cpf: String(r.cpf),
+          cpf: String(r.cpf || "").replace(/\D/g, ""),
           nome: r.nome,
           fotoUrl: toProxy(r.foto_url)
         }));
@@ -70149,14 +76374,16 @@ async function sincronizar() {
             COALESCE(a.nome_completo, ie.student_cpf) as nome,
             a.foto_perfil as foto_url
           FROM instance_enrollments ie
-          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = ie.student_cpf
+          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
+          LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
           WHERE ie.activity_instance_id = ${turmaIdInt}
             AND ie.active = true
+            AND pe.id IS NULL
           ORDER BY COALESCE(a.nome_completo, ie.student_cpf)
         `);
         rows = result.rows.map((r) => ({
           id: r.cpf,
-          cpf: String(r.cpf),
+          cpf: String(r.cpf || "").replace(/\D/g, ""),
           nome: r.nome,
           fotoUrl: toProxy(r.foto_url)
         }));
@@ -70219,6 +76446,7 @@ async function sincronizar() {
           JOIN participantes_inclusao pi ON pi.id = pt.participante_id
           WHERE pt.turma_id = ${parseInt(turmaId)}
             AND REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+            AND lower(COALESCE(pt.status, '')) NOT IN ('evadido', 'reprovado', 'empregabilidade')
           LIMIT 1
         `);
         if (!partResult.rows.length) {
@@ -70298,22 +76526,41 @@ async function sincronizar() {
         return res.json({ ok: true, tipo: "inclusao", cpf, participanteId });
       } else if (tipo === "pec") {
         const turmaIdInt = parseInt(turmaId);
-        const alunoResult = await db.execute(sql4`
-          SELECT nome_completo FROM aluno
-          WHERE REGEXP_REPLACE(cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+        const enrollCheck = await db.execute(sql4`
+          SELECT ie.id, COALESCE(a.nome_completo, ie.student_cpf) AS nome
+          FROM instance_enrollments ie
+          LEFT JOIN aluno a ON REGEXP_REPLACE(a.cpf, '[^0-9]', '', 'g') = REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g')
+          LEFT JOIN pec_evasoes pe ON pe.enrollment_id = ie.id AND pe.revertido_em IS NULL
+          WHERE ie.activity_instance_id = ${turmaIdInt}
+            AND ie.active = true
+            AND pe.id IS NULL
+            AND REGEXP_REPLACE(ie.student_cpf, '[^0-9]', '', 'g') = ${cpfDigits}
           LIMIT 1
         `);
-        if (!alunoResult.rows.length) {
-          const horaNaoId = (/* @__PURE__ */ new Date()).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+        if (!enrollCheck.rows.length) {
+          const horaScan = (/* @__PURE__ */ new Date()).toLocaleTimeString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+            hour: "2-digit",
+            minute: "2-digit"
+          });
           try {
             const fr = app2._firePushRulesByTrigger;
             if (fr) {
-              fr("aluno_nao_identificado", { cpf: cpfDigits, vertente: "pec", hora: horaNaoId });
+              fr(
+                "scanner_aluno_sem_turma",
+                { cpf: cpfDigits, turma: turmaId || "", hora: horaScan },
+                void 0,
+                void 0,
+                void 0,
+                { vertente: "pec" }
+              );
             }
           } catch {
           }
+          return res.status(404).json({ error: "Aluno n\xE3o encontrado nesta turma" });
         }
-        const nomeAluno = alunoResult.rows.length ? alunoResult.rows[0].nome_completo : cpfDigits;
+        const nomeAluno = enrollCheck.rows[0].nome || cpfDigits;
+        const alunoResult = { rows: [{ nome_completo: nomeAluno }] };
         let sessionResult = await db.execute(sql4`
           SELECT id, COALESCE(attendance, '[]'::jsonb) AS attendance
           FROM sessions
@@ -70413,6 +76660,86 @@ async function sincronizar() {
     } catch (e) {
       console.error("POST /api/scanner-presenca/registrar:", e);
       res.status(500).json({ error: "Erro ao registrar presen\xE7a" });
+    }
+  });
+  app2.post("/api/scanner-presenca/desfazer", requireAuth, async (req, res) => {
+    try {
+      const { tipo, turmaId, cpf, data } = req.body;
+      if (!tipo || !turmaId || !cpf || !data) {
+        return res.status(400).json({ error: "tipo, turmaId, cpf e data s\xE3o obrigat\xF3rios" });
+      }
+      const cpfDigits = String(cpf).replace(/\D/g, "");
+      const turmaIdInt = parseInt(turmaId, 10);
+      if (!turmaIdInt || Number.isNaN(turmaIdInt)) {
+        return res.status(400).json({ error: "turmaId inv\xE1lido" });
+      }
+      if (tipo === "inclusao") {
+        const partResult = await db.execute(sql4`
+          SELECT pt.participante_id
+          FROM participantes_turmas pt
+          JOIN participantes_inclusao pi ON pi.id = pt.participante_id
+          WHERE pt.turma_id = ${turmaIdInt}
+            AND REGEXP_REPLACE(pi.cpf, '[^0-9]', '', 'g') = ${cpfDigits}
+          LIMIT 1
+        `);
+        if (!partResult.rows.length) {
+          return res.status(404).json({ error: "Participante n\xE3o encontrado na turma" });
+        }
+        const participanteId = partResult.rows[0].participante_id;
+        await db.execute(sql4`
+          UPDATE presencas_inclusao
+          SET presente = false,
+              observacoes = COALESCE(observacoes, '') || ' | presença facial desfeita',
+              justificativa = COALESCE(NULLIF(TRIM(justificativa), ''), 'Removido do scanner facial')
+          WHERE participante_id = ${participanteId}
+            AND turma_id = ${turmaIdInt}
+            AND data = ${data}
+        `);
+        return res.json({ ok: true, tipo: "inclusao", cpf: cpfDigits });
+      }
+      if (tipo === "pec") {
+        const sessionResult = await db.execute(sql4`
+          SELECT id, COALESCE(attendance, '[]'::jsonb) AS attendance
+          FROM sessions
+          WHERE activity_instance_id = ${turmaIdInt} AND date = ${data}::date
+          LIMIT 1
+        `);
+        if (!sessionResult.rows.length) {
+          return res.status(404).json({ error: "Chamada n\xE3o encontrada" });
+        }
+        const sessionId = sessionResult.rows[0].id;
+        let attendanceArr = [];
+        try {
+          const raw = sessionResult.rows[0].attendance;
+          attendanceArr = Array.isArray(raw) ? raw : typeof raw === "string" ? JSON.parse(raw) : [];
+        } catch {
+          attendanceArr = [];
+        }
+        let found = false;
+        const updated = attendanceArr.map((e) => {
+          if (String(e.alunoCpf || "").replace(/\D/g, "") !== cpfDigits) return e;
+          found = true;
+          return {
+            ...e,
+            presente: false,
+            status: "falta",
+            origemScanner: false,
+            justificativa: e.justificativa || "Removido do scanner facial"
+          };
+        });
+        if (!found) {
+          return res.status(404).json({ error: "Aluno n\xE3o estava marcado nesta chamada" });
+        }
+        await db.execute(sql4`
+          UPDATE sessions SET attendance = ${JSON.stringify(updated)}::jsonb
+          WHERE id = ${sessionId}
+        `);
+        return res.json({ ok: true, tipo: "pec", cpf: cpfDigits, sessionId });
+      }
+      return res.status(400).json({ error: "tipo inv\xE1lido" });
+    } catch (e) {
+      console.error("POST /api/scanner-presenca/desfazer:", e);
+      return res.status(500).json({ error: "Erro ao desfazer presen\xE7a" });
     }
   });
   app2.get("/api/mapeamentos", requireAuth, async (req, res) => {
@@ -70599,6 +76926,7 @@ async function sincronizar() {
         );
         rows = r.rows;
       }
+      rows = await enrichMoradasGeraisRows(rows);
       res.json({ data: rows, total: rows.length });
     } catch (e) {
       console.error("GET /api/moradas-gerais/reformas:", e);
@@ -70896,6 +77224,11 @@ async function sincronizar() {
     pool,
     requireAuth,
     requirePrivacyAuditAccess
+  });
+  registerAtendidosGritoRoutes(app2, {
+    pool,
+    requireAuth,
+    requireAnyRole
   });
   app2.post("/api/admin/dinamize/sync-doador/:id", requireAuth, requirePrivacyAuditAccess, async (req, res) => {
     try {
@@ -71609,7 +77942,14 @@ async function sincronizar() {
         const payload = JSON.stringify(vars);
         for (const row of rows) {
           if (cooldown > 0) {
-            const lastLog = await pool.query(
+            const dedupeKey = vars.dedupe_key?.trim() || null;
+            const lastLog = dedupeKey ? await pool.query(
+              `SELECT disparado_em FROM push_logs
+                   WHERE rule_id = $1 AND destinatario_key = $2 AND status = 'success'
+                     AND payload->>'dedupe_key' = $3
+                   ORDER BY disparado_em DESC LIMIT 1`,
+              [rule.id, row.user_key, dedupeKey]
+            ) : await pool.query(
               "SELECT disparado_em FROM push_logs WHERE rule_id = $1 AND destinatario_key = $2 AND status = 'success' ORDER BY disparado_em DESC LIMIT 1",
               [rule.id, row.user_key]
             );
@@ -71831,6 +78171,7 @@ async function sincronizar() {
       const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
       const conditions = [];
       const params = [];
+      const origemEfetivaSql = `COALESCE(pl.origem, CASE WHEN pl.disparado_por_user_id IS NOT NULL THEN 'manual' ELSE 'evento' END)`;
       if (gatilhoFilter) {
         conditions.push(`pl.gatilho = $${params.length + 1}`);
         params.push(gatilhoFilter);
@@ -71843,8 +78184,10 @@ async function sincronizar() {
         conditions.push(`pl.status = $${params.length + 1}`);
         params.push(statusFilter);
       }
-      if (origemFilter) {
-        conditions.push(`pl.origem = $${params.length + 1}`);
+      if (origemFilter === "manual") {
+        conditions.push(`(pl.disparado_por_user_id IS NOT NULL OR ${origemEfetivaSql} = 'manual')`);
+      } else if (origemFilter) {
+        conditions.push(`${origemEfetivaSql} = $${params.length + 1}`);
         params.push(origemFilter);
       }
       if (roleFilter) {
@@ -71881,13 +78224,18 @@ async function sincronizar() {
       params.push(limit);
       const result = await pool.query(
         `SELECT pl.*,
+                ${origemEfetivaSql} AS origem_efetiva,
                 pr.nome AS rule_nome,
                 du.nome AS destinatario_nome,
                 dp.nome AS disparado_por_nome
          FROM push_logs pl
          LEFT JOIN push_rules pr ON pl.rule_id = pr.id
          LEFT JOIN users du ON (
-           (pl.destinatario_key ~ '^[0-9]+$' AND du.id = pl.destinatario_key::integer)
+           (
+             pl.destinatario_key ~ '^[0-9]+$'
+             AND pl.destinatario_key::numeric <= 2147483647
+             AND du.id = pl.destinatario_key::integer
+           )
            OR REGEXP_REPLACE(COALESCE(du.cpf, ''), '[^0-9]', '', 'g') = pl.destinatario_key
          )
          LEFT JOIN users dp ON dp.id = pl.disparado_por_user_id
@@ -71896,8 +78244,14 @@ async function sincronizar() {
          LIMIT $${params.length}`,
         params
       );
-      res.json(result.rows);
+      res.json(
+        result.rows.map((row) => ({
+          ...row,
+          origem: row.origem_efetiva ?? row.origem ?? (row.disparado_por_user_id ? "manual" : "evento")
+        }))
+      );
     } catch (err) {
+      console.error("[Push] Erro ao buscar logs:", err.message);
       res.status(500).json({ error: "Erro ao buscar logs" });
     }
   });
@@ -72334,21 +78688,10 @@ async function sincronizar() {
   console.log("\u2705 [PUSH-CRON] CRON de chamadas pendentes agendado (20h BRT)");
   cron3.schedule("0 9,13,17,21 * * *", async () => {
     try {
-      const { rows } = await pool.query(`
-        SELECT MAX(check_in_at) as ultima_presenca FROM presencas_aula
-        WHERE fonte = 'catraca' AND check_in_at IS NOT NULL
-      `);
-      const ultima = rows[0]?.ultima_presenca;
-      if (ultima) {
-        const horasSemEvento = (Date.now() - new Date(ultima).getTime()) / 36e5;
-        if (horasSemEvento > 24) {
-          await firePushRulesByTrigger("catraca_offline", {
-            horas: String(Math.floor(horasSemEvento)),
-            ultima: new Date(ultima).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
-          }).catch(() => {
-          });
-        }
-      }
+      await runPushCatracaOfflineCron(
+        pool,
+        (gatilho, vars) => firePushRulesByTrigger(gatilho, vars).then(() => void 0)
+      );
     } catch (e) {
       console.error("\u274C [PUSH-CRON] catraca_offline:", e.message);
     }
@@ -72729,15 +79072,15 @@ async function sincronizar() {
       const brtNow = new Date(agora.getTime() - 3 * 60 * 60 * 1e3);
       const brtDate = brtNow.toISOString().split("T")[0];
       const brtTotalMin = brtNow.getUTCHours() * 60 + brtNow.getUTCMinutes();
-      const toTime = (m) => {
+      const toTime2 = (m) => {
         const norm = (m % 1440 + 1440) % 1440;
         return `${String(Math.floor(norm / 60)).padStart(2, "0")}:${String(norm % 60).padStart(2, "0")}`;
       };
-      const proxTimeMin = toTime(brtTotalMin + 105);
-      const proxTimeMax = toTime(brtTotalMin + 135);
-      const chamadaTimeMin = toTime(brtTotalMin - 10);
-      const chamadaTimeMax = toTime(brtTotalMin + 10);
-      async function jaDisparou(gatilho, dedupeKey, janelaHoras) {
+      const proxTimeMin = toTime2(brtTotalMin + 105);
+      const proxTimeMax = toTime2(brtTotalMin + 135);
+      const chamadaTimeMin = toTime2(brtTotalMin - 10);
+      const chamadaTimeMax = toTime2(brtTotalMin + 10);
+      async function jaDisparou2(gatilho, dedupeKey, janelaHoras) {
         const r = await pool.query(
           `SELECT 1 FROM push_logs WHERE gatilho = $1 AND payload->>'dedupe_key' = $2 AND disparado_em > NOW() - ($3 || ' hours')::interval LIMIT 1`,
           [gatilho, dedupeKey, String(janelaHoras)]
@@ -72786,7 +79129,7 @@ async function sincronizar() {
             continue;
           }
           const dedupeKey = `aula_proxima:${profUserId}:${turmaId}:${brtDate}:${horario}`;
-          if (await jaDisparou("aula_proxima", dedupeKey, 4)) continue;
+          if (await jaDisparou2("aula_proxima", dedupeKey, 4)) continue;
           await firePushRulesByTrigger(
             "aula_proxima",
             {
@@ -72829,7 +79172,7 @@ async function sincronizar() {
             continue;
           }
           const dedupeKey = `aula_aluno_proxima:${cpf}:${turmaId}:${brtDate}:${horario}`;
-          if (await jaDisparou("aula_aluno_proxima", dedupeKey, 4)) continue;
+          if (await jaDisparou2("aula_aluno_proxima", dedupeKey, 4)) continue;
           await firePushRulesByTrigger(
             "aula_aluno_proxima",
             {
@@ -72881,7 +79224,7 @@ async function sincronizar() {
             continue;
           }
           const dedupeKey = `chamada_disponivel:${profUserId}:${turmaId}:${brtDate}:${horario}`;
-          if (await jaDisparou("chamada_disponivel", dedupeKey, 4)) continue;
+          if (await jaDisparou2("chamada_disponivel", dedupeKey, 4)) continue;
           await firePushRulesByTrigger(
             "chamada_disponivel",
             {
@@ -72907,6 +79250,29 @@ async function sincronizar() {
     }
   });
   console.log("\u2705 [PUSH-CRON] CRONs de aula agendados (a cada 15min): aula_proxima, aula_aluno_proxima, chamada_disponivel");
+  cron3.schedule("*/15 * * * *", async () => {
+    try {
+      const fr = firePushRulesByTrigger;
+      await runAcolhimentoRemindersCron(pool, fr);
+    } catch (e) {
+      console.error("\u274C [PUSH-CRON] acolhimento reminders:", e.message);
+    }
+  });
+  cron3.schedule("0 11 * * *", async () => {
+    try {
+      await runAcolhimentoDailyMorningCron(pool, firePushRulesByTrigger);
+    } catch (e) {
+      console.error("\u274C [PUSH-CRON] acolhimento morning:", e.message);
+    }
+  });
+  cron3.schedule("0 12 * * *", async () => {
+    try {
+      await runAcolhimentoDailyFollowupCron(pool, firePushRulesByTrigger);
+    } catch (e) {
+      console.error("\u274C [PUSH-CRON] acolhimento followup:", e.message);
+    }
+  });
+  console.log("\u2705 [PUSH-CRON] CRONs de acolhimento psico: 15min + 8h/9h BRT");
   cron3.schedule("0 12 * * 1", async () => {
     try {
       const now = /* @__PURE__ */ new Date();
@@ -73307,6 +79673,7 @@ app.use(compression());
 app.set("trust proxy", 1);
 var ALLOW_LIST = [
   "https://clubedogrito.institutoogrito.com.br",
+  "https://eventos.institutoogrito.com.br",
   "https://app.clubedogrito.com.br",
   "http://localhost",
   "http://localhost:80",
@@ -73337,7 +79704,7 @@ var corsOptions = {
   },
   credentials: true,
   methods: "GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS",
-  allowedHeaders: "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  allowedHeaders: "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-GV-Dashboard"
 };
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
@@ -73389,7 +79756,9 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      // "auto" usa X-Forwarded-Proto (com proxy:true). Evita skip de Set-Cookie
+      // quando NODE_ENV=production mas o hop interno é HTTP sem proto correto.
+      secure: process.env.COOKIE_SECURE === "true" ? true : process.env.COOKIE_SECURE === "false" ? false : "auto",
       maxAge: 1e3 * 60 * 60 * 24 * 7
       // 7 dias
     }
@@ -73436,28 +79805,176 @@ try {
   console.warn('[SW/FCM] Falha ao carregar Firebase SDK (CDN indispon\xEDvel?):', importErr);
 }
 
-function pushClickAbsoluteUrl(urlToOpen) {
-  if (!urlToOpen || urlToOpen === '/') return self.location.origin + '/';
-  if (/^https?:\\/\\//i.test(urlToOpen)) return urlToOpen;
-  return self.location.origin + (urlToOpen.startsWith('/') ? urlToOpen : '/' + urlToOpen);
+function pushClickPath(urlToOpen) {
+  if (!urlToOpen || urlToOpen === '/') return '/';
+  if (/^https?:\\/\\//i.test(urlToOpen)) {
+    try {
+      var parsed = new URL(urlToOpen);
+      return parsed.pathname + parsed.search + parsed.hash;
+    } catch (e) {
+      return '/';
+    }
+  }
+  return urlToOpen.startsWith('/') ? urlToOpen : '/' + urlToOpen;
 }
 
-function openPushClickUrl(urlToOpen) {
-  var url = pushClickAbsoluteUrl(urlToOpen);
-  return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(windowClients) {
-    for (var i = 0; i < windowClients.length; i++) {
-      var c = windowClients[i];
-      if (!c.url.startsWith(self.location.origin)) continue;
-      if ('focus' in c) c.focus();
-      if ('navigate' in c) {
-        try {
-          return c.navigate(url);
-        } catch (e) {
-          console.warn('[SW/FCM] navigate falhou:', e);
-        }
-      }
+function pushClickAbsoluteUrl(urlToOpen) {
+  return self.location.origin + pushClickPath(urlToOpen);
+}
+
+function isPublicPushPath(path) {
+  var p = (path || '/').split('?')[0].split('#')[0] || '/';
+  if (p === '/') return true;
+  var prefixes = [
+    '/entrar', '/login/', '/dev/login',
+    '/termos-servicos', '/politica-privacidade', '/reativar-assinatura',
+    '/dashboard/gestao/vista', '/gestao-vista-preview',
+    '/register', '/plans', '/verify', '/checkout', '/success',
+    '/pos-pagamento', '/aguardando-aprovacao', '/pagamento/',
+    '/assinatura-pausada'
+  ];
+  for (var i = 0; i < prefixes.length; i++) {
+    var prefix = prefixes[i];
+    if (prefix.endsWith('/')) {
+      if (p.startsWith(prefix) || p === prefix.slice(0, -1)) return true;
+    } else if (p === prefix || p.startsWith(prefix + '/')) {
+      return true;
     }
-    if (clients.openWindow) return clients.openWindow(url);
+  }
+  return false;
+}
+
+function loginPathForPushTarget(path) {
+  var p = (path || '/').split('?')[0];
+  if (p.indexOf('/coordenador') === 0) return '/login/coordenador';
+  if (p.indexOf('/professor') === 0) return '/login/professor';
+  if (p.indexOf('/monitor') === 0) return '/login/monitor';
+  if (p.indexOf('/aluno') === 0) return '/login/aluno';
+  if (p.indexOf('/dev') === 0 || p.indexOf('/admin') === 0 || p.indexOf('/administrador') === 0) {
+    return '/login/developer';
+  }
+  if (p.indexOf('/rbac/marketing') === 0) return '/login/marketing';
+  return '/entrar';
+}
+
+// Home padr\xE3o por papel (espelha getDefaultRouteForRole no app).
+function roleHome(role) {
+  switch (role) {
+    case 'professor': case 'professor_psico': case 'lider': case 'professor_lider': return '/professor';
+    case 'professor_pec': return '/professor/pec';
+    case 'professor_inclusao': return '/professor/inclusao';
+    case 'monitor': case 'monitor_pec': case 'monitor_inclusao': case 'monitor_psico': return '/monitor';
+    case 'coordenador_inclusao': return '/coordenador/inclusao-produtiva';
+    case 'coordenador_pec': return '/coordenador/esporte-cultura';
+    case 'coordenador_psico': return '/coordenador/psicossocial';
+    case 'tecnica_psico': return '/tecnica/psicossocial';
+    case 'super_admin': case 'leo': return '/administrador';
+    case 'desenvolvedor': case 'dev': return '/dev';
+    case 'dev-marketing': return '/dev/marketing';
+    case 'admin': return '/admin-geral';
+    case 'aluno': case 'aluno_portal': return '/aluno';
+    case 'conselho': case 'conselheiro': return '/conselho';
+    case 'patrocinador': return '/patrocinador';
+    default: return '/tdoador';
+  }
+}
+
+// Papel pode abrir a rota? Pap\xE9is elevados/desconhecidos: permissivo (ProtectedRoute confirma).
+function roleAllowsPath(role, path) {
+  var p = (path || '/').split('?')[0].split('#')[0] || '/';
+  if (['dev', 'desenvolvedor', 'dev-admin', 'dev-marketing', 'super_admin', 'leo', 'admin'].indexOf(role) >= 0) return true;
+  var map = {
+    doador: ['/', '/tdoador', '/welcome', '/beneficios', '/beneficios-onboarding', '/missoes', '/missoes-semanais', '/meus-lances', '/sorteio', '/impacto', '/link-indicacao', '/link-afiliado-cadastro', '/busca', '/noticias', '/perfil', '/meus-dados', '/dados-cadastrais', '/pagamentos', '/configuracoes', '/sobre', '/change-plan', '/central-ajuda', '/reativar-assinatura'],
+    aluno: ['/', '/aluno', '/central-ajuda', '/meus-dados'],
+    professor: ['/', '/professor', '/central-ajuda', '/meus-dados'],
+    monitor: ['/', '/monitor', '/central-ajuda', '/meus-dados'],
+    coordenador: ['/', '/coordenador', '/central-ajuda', '/meus-dados', '/login/coordenador'],
+    tecnica_psico: ['/', '/tecnica', '/central-ajuda', '/meus-dados'],
+    conselho: ['/', '/conselho', '/central-ajuda', '/perfil', '/meus-dados', '/dados-cadastrais', '/sobre', '/configuracoes', '/gestao-vista', '/dashboard/gestao/vista'],
+    patrocinador: ['/', '/patrocinador-dashboard', '/patrocinador', '/perfil-patrocinador', '/meus-dados', '/central-ajuda']
+  };
+  var key = role;
+  if (role === 'user') key = 'doador';
+  else if (role === 'aluno_portal') key = 'aluno';
+  else if (role.indexOf('professor') === 0 || role === 'lider') key = 'professor';
+  else if (role.indexOf('monitor') === 0) key = 'monitor';
+  else if (role.indexOf('coordenador') === 0) key = 'coordenador';
+  else if (role === 'conselheiro') key = 'conselho';
+  var allowed = map[key];
+  if (!allowed) return true;
+  for (var i = 0; i < allowed.length; i++) {
+    var a = allowed[i];
+    if (p === a || (a !== '/' && p.indexOf(a + '/') === 0)) return true;
+  }
+  return false;
+}
+
+async function fetchAuthSession() {
+  try {
+    var res = await fetch(self.location.origin + '/api/auth/session', {
+      credentials: 'include',
+      cache: 'no-store'
+    });
+    if (res.status === 401 || !res.ok) return null;
+    var session = await res.json();
+    return (session && session.id) ? session : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function resolveSecurePushPath(urlToOpen) {
+  var path = pushClickPath(urlToOpen);
+  if (isPublicPushPath(path)) return path;
+  var session = await fetchAuthSession();
+  if (!session) return loginPathForPushTarget(path);
+  var role = String(session.papel || session.role || session.actorType || '');
+  if (roleAllowsPath(role, path)) return path;
+  return roleHome(role);
+}
+
+async function openPushClickUrl(urlToOpen) {
+  var path = await resolveSecurePushPath(urlToOpen);
+  var url = self.location.origin + path;
+  var windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (var i = 0; i < windowClients.length; i++) {
+    var c = windowClients[i];
+    if (!c.url.startsWith(self.location.origin)) continue;
+    if ('focus' in c) await c.focus();
+    if ('navigate' in c) {
+      await c.navigate(url);
+      return;
+    }
+    c.postMessage({ type: 'PUSH_NAVIGATE', path: path });
+    return;
+  }
+  if (clients.openWindow) await clients.openWindow(url);
+}
+
+function readPushData(data) {
+  var d = data || {};
+  return {
+    title: d.cdg_title || d.title || '',
+    body: d.cdg_body || d.body || '',
+    url: d.cdg_url || d.url || ''
+  };
+}
+
+function showPushNotification(payload) {
+  var notif = payload.notification || {};
+  var parsed = readPushData(payload.data);
+  var title = notif.title || parsed.title || 'Clube do Grito';
+  var body  = notif.body  || parsed.body  || '';
+  var urlRaw = parsed.url || (notif.data && notif.data.url);
+  var url   = urlRaw ? pushClickPath(urlRaw) : undefined;
+  var tag = payload.fcmMessageId || payload.messageId || parsed.title || 'cdg-push';
+  return self.registration.showNotification(title, {
+    body: body,
+    icon: '/icons/icon-192.png',
+    tag: String(tag).slice(0, 64),
+    renotify: true,
+    data: url ? { url: url } : {},
+    vibrate: [200, 100, 200],
   });
 }
 
@@ -73479,18 +79996,7 @@ function openPushClickUrl(urlToOpen) {
     }
     var fcm = firebase.messaging();
     fcm.onBackgroundMessage(function(payload) {
-      var notif = payload.notification || {};
-      var data  = payload.data || {};
-      var title = notif.title || data.title || 'Clube do Grito';
-      var body  = notif.body  || data.body  || '';
-      var url   = data.url ? pushClickAbsoluteUrl(data.url) : undefined;
-      return self.registration.showNotification(title, {
-        body: body,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/badge-96.png',
-        data: url ? { url: url } : {},
-        vibrate: [200, 100, 200],
-      });
+      return showPushNotification(payload);
     });
     console.log('[SW/FCM] Firebase Messaging inicializado no Workbox SW.');
   } catch(e) {
@@ -73510,12 +80016,7 @@ if (typeof firebase === 'undefined') {
     if (!event.data) return;
     try {
       var p = event.data.json();
-      var n = p.notification || {}; var d = p.data || {};
-      var url = d.url ? pushClickAbsoluteUrl(d.url) : undefined;
-      event.waitUntil(self.registration.showNotification(n.title || d.title || 'Clube do Grito', {
-        body: n.body || d.body || '', icon: '/icons/icon-192.png',
-        badge: '/icons/badge-96.png', data: url ? { url: url } : {},
-      }));
+      event.waitUntil(showPushNotification(p));
     } catch(e) { console.error('[SW/push] Erro:', e); }
   });
 }

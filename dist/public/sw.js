@@ -81,7 +81,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/CLUBEDOGRITO_APPpng_Prancheta 1_1755627303160-BWIV1B9K.png",
     "revision": null
   }, {
-    "url": "assets/dev-marketing-CXUPq7Hu.js",
+    "url": "assets/dev-marketing-CLpj8CC7.js",
     "revision": null
   }, {
     "url": "assets/face-api.esm-DtFQjyl5.js",
@@ -129,13 +129,13 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/image_1769454113778-kbBzN7i1.png",
     "revision": null
   }, {
-    "url": "assets/index-4w7FU_NK.js",
+    "url": "assets/index-BWIZ0Eed.css",
     "revision": null
   }, {
-    "url": "assets/index-JNm2k7GQ.css",
+    "url": "assets/index-D-0Ft0uS.js",
     "revision": null
   }, {
-    "url": "assets/index.es-C-sPMlSm.js",
+    "url": "assets/index.es-BlpzWOKM.js",
     "revision": null
   }, {
     "url": "assets/jspdf.plugin.autotable-BBLUVd7n.js",
@@ -189,7 +189,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/migrated/OPPS_Prancheta 1 1_1756924526569.png",
     "revision": null
   }, {
-    "url": "assets/monitor-KZ7q-UtP.js",
+    "url": "assets/monitor-C8x7CZBL.js",
     "revision": null
   }, {
     "url": "assets/QUAL ÉSEU GRITO_1756904245577-DPC2p-MZ.png",
@@ -198,13 +198,13 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "url": "assets/rocket_7339928_1756908855776-xCnT9P-O.png",
     "revision": null
   }, {
-    "url": "assets/ScannerPresencaModal-vOftJnh2.js",
+    "url": "assets/ScannerPresencaModal-DeV71ZQL.js",
     "revision": null
   }, {
     "url": "assets/stories-overlay.png",
     "revision": null
   }, {
-    "url": "assets/web-BZPgctYL.js",
+    "url": "assets/web-CcxUZWvC.js",
     "revision": null
   }, {
     "url": "coin-icon.png",
@@ -217,7 +217,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "revision": "10a87a36df610aa7d47ae42cec59b3b2"
   }, {
     "url": "firebase-messaging-sw.js",
-    "revision": "96efd06b82ecdeef5e521b66eca93037"
+    "revision": "6d24fff67fe69761b77214bd199b09fb"
   }, {
     "url": "icons/badge-96.png",
     "revision": "553a781109902f53660a2e241399e83b"
@@ -229,7 +229,7 @@ define(['./workbox-54d0af47'], (function (workbox) { 'use strict';
     "revision": "553a781109902f53660a2e241399e83b"
   }, {
     "url": "index.html",
-    "revision": "aff4355f9c6f908a9b45c85e98cd0b0b"
+    "revision": "4de3341fba9b44cea6e2a6f34e6c38d4"
   }, {
     "url": "ingresso-foto-topo.png",
     "revision": "9bed8ec65aa6c08ed1676c68f622e6c9"
